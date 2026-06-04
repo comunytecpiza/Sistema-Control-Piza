@@ -1,0 +1,170 @@
+﻿{
+   "CodeGenerationMode": 4,
+   "ContextClassName": "EdicionesPizaControlContext",
+   "ContextNamespace": null,
+   "FilterSchemas": false,
+   "IncludeConnectionString": false,
+   "IrregularWords": null,
+   "MinimumProductVersion": "2.6.1604",
+   "ModelNamespace": null,
+   "OutputContextPath": null,
+   "OutputPath": "Models",
+   "PluralRules": null,
+   "PreserveCasingWithRegex": true,
+   "ProjectRootNamespace": "AplicativoDeAlmacen.Models",
+   "Schemas": null,
+   "SelectedHandlebarsLanguage": 2,
+   "SelectedToBeGenerated": 2,
+   "SingularRules": null,
+   "T4TemplatePath": null,
+   "Tables": [
+      {
+         "Name": "[dbo].[afectacion_igv]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[categoria_producto]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[categorias_motivo]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[codigos_creados]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[colecciones]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[curso]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[departamentos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[distritos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[estados]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[grados]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[localidades]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[motivo_productos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[movimiento_codigos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[movimiento_detalles]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[movimientos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[niveles]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[personas_comerciales]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[productos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[provincias]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[registro_codigos]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[roles_usuario]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[tipo_persona]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[tipo_producto]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[tipo_ubicacion]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[tipos_libro]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[titulo_curso]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[ubicaciones]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[unidad_medida]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[usuarios]",
+         "ObjectType": 0
+      },
+      {
+         "Name": "[dbo].[zona_promotoria]",
+         "ObjectType": 0
+      }
+   ],
+   "UiHint": null,
+   "UncountableWords": null,
+   "UseAsyncStoredProcedureCalls": true,
+   "UseBoolPropertiesWithoutDefaultSql": false,
+   "UseDatabaseNames": false,
+   "UseDatabaseNamesForRoutines": true,
+   "UseDateOnlyTimeOnly": true,
+   "UseDbContextSplitting": false,
+   "UseDecimalDataAnnotationForSprocResult": true,
+   "UseFluentApiOnly": true,
+   "UseHandleBars": false,
+   "UseHierarchyId": false,
+   "UseInflector": true,
+   "UseInternalAccessModifiersForSprocsAndFunctions": false,
+   "UseLegacyPluralizer": false,
+   "UseManyToManyEntity": false,
+   "UseNoDefaultConstructor": false,
+   "UseNoNavigations": true,
+   "UseNoObjectFilter": false,
+   "UseNodaTime": false,
+   "UseNullableReferences": false,
+   "UsePrefixNavigationNaming": false,
+   "UseSchemaFolders": false,
+   "UseSchemaNamespaces": false,
+   "UseSpatial": false,
+   "UseT4": false,
+   "UseT4Split": false,
+   "UseTypedTvpParameters": true
+}

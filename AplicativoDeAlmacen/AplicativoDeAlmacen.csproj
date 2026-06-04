@@ -1,0 +1,65 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>icon-almacen.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="fondo-opcional.jpg" />
+    <None Remove="Icon\catalogos.png" />
+    <None Remove="Icon\movimientos.png" />
+    <None Remove="Icon\procesos.png" />
+    <None Remove="Icon\reportes.png" />
+    <None Remove="Icon\salir.png" />
+    <None Remove="Images\ingreso-almacen.jpg" />
+    <None Remove="Images\logo.png" />
+    <None Remove="Images\usuario.png" />
+    <None Remove="Videos\fondo-video.mp4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="icon-almacen.ico" />
+    <Content Include="Images\logo.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Videos\fondo-video.mp4">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Helpers\" />
+    <Folder Include="ViewModels\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
+    <PackageReference Include="Extended.Wpf.Toolkit" Version="4.6.1" />
+    <PackageReference Include="MaterialDesignThemes" Version="5.1.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.6" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.8">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="MySql.Data" Version="9.0.0" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="fondo-opcional.jpg" />
+    <Resource Include="Icon\catalogos.png" />
+    <Resource Include="Icon\movimientos.png" />
+    <Resource Include="Icon\procesos.png" />
+    <Resource Include="Icon\reportes.png" />
+    <Resource Include="Icon\salir.png" />
+    <Resource Include="Images\ingreso-almacen.jpg" />
+    <Resource Include="Images\usuario.png" />
+  </ItemGroup>
+
+</Project>
