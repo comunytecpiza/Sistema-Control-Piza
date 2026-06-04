@@ -1,0 +1,118 @@
+<Window x:Class="AplicativoDeAlmacen.Views.PersonasComercialesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+		xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
+        Title="Catálogo de Personas Comerciales" Height="700" Width="1200">
+	<Window.Resources>
+		<local:TipoPersonaToIsReadOnlyConverter x:Key="TipoPersonaToIsReadOnlyConverter"/>
+	</Window.Resources>
+	
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Margin="10">
+            <TextBlock Text="Filtro:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <RadioButton Content="Razón Social" IsChecked="True" Margin="0,0,10,0" Checked="FilterRadioButton_Checked"/>
+            <RadioButton Content="Nombre Comercial" Margin="0,0,10,0" Checked="FilterRadioButton_Checked"/>
+            <RadioButton Content="R.U.C." Margin="0,0,10,0" Checked="FilterRadioButton_Checked"/>
+            <RadioButton Content="D.N.I." Margin="0,0,10,0" Checked="FilterRadioButton_Checked"/>
+            <TextBox x:Name="SearchTextBox" Width="200" Margin="0,0,10,0" TextChanged="SearchTextBox_TextChanged" FontSize="15"/>
+            <Button Content="Agregar" Click="AddButton_Click" Width="130" Margin="0,0,10,0" Background="Green" Foreground="White" Padding="5" FontSize="15"/>
+            <Button x:Name="EditButton" Content="Editar" Click="EditButton_Click" Width="130" IsEnabled="False" Background="Orange" Foreground="Black" Padding="5" FontSize="15"/>
+        </StackPanel>
+
+        <DataGrid x:Name="PersonasDataGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" SelectionChanged="PersonasDataGrid_SelectionChanged">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Código" Binding="{Binding Id}"/>
+                <DataGridTextColumn Header="Razón Social" Binding="{Binding RazonSocial}"/>
+                <DataGridTextColumn Header="Nombre Comercial" Binding="{Binding NombreComercial}"/>
+                <DataGridTextColumn Header="T. Persona" Binding="{Binding TipoPersona}"/>
+                <DataGridTextColumn Header="R.U.C." Binding="{Binding Ruc}"/>
+                <DataGridTextColumn Header="D.N.I." Binding="{Binding Dni}"/>
+                <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad}"/>
+                <DataGridTextColumn Header="Zona Promotoria" Binding="{Binding ZonaPromotoria}"/>
+                <DataGridTextColumn Header="Estado" Binding="{Binding Estado}"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Modal para Agregar/Editar -->
+        <Grid x:Name="ModalBackground" Grid.RowSpan="2" Background="#80000000" Visibility="Collapsed">
+            <Border Background="White" CornerRadius="5" Width="500" Height="600">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="ModalTitle" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="Tipo de Persona:"/>
+                            <ComboBox x:Name="TipoPersonaComboBox" Margin="0,0,0,10" SelectionChanged="TipoPersonaComboBox_SelectionChanged"/>
+
+                            <TextBlock Text="Apellido Paterno:"/>
+                            <TextBox x:Name="ApellidoPaternoTextBox" Margin="0,0,0,10"/>
+
+                            <TextBlock Text="Apellido Materno:"/>
+                            <TextBox x:Name="ApellidoMaternoTextBox" Margin="0,0,0,10"/>
+
+                            <TextBlock Text="Nombre(s):"/>
+                            <TextBox x:Name="NombresTextBox" Margin="0,0,0,10"/>
+
+                            <TextBlock Text="Razón Social:"/>
+							<TextBox x:Name="RazonSocialTextBox"
+         IsReadOnly="{Binding ElementName=TipoPersonaComboBox, Path=SelectedItem.Content, Converter={StaticResource TipoPersonaToIsReadOnlyConverter}}"
+         Margin="0,0,0,10"/>
+
+                            <TextBlock Text="Nombre Comercial:"/>
+                            <TextBox x:Name="NombreComercialTextBox" Margin="0,0,0,10"/>
+
+                            <TextBlock Text="R.U.C:"/>
+                            <TextBox x:Name="RucTextBox" Margin="0,0,0,10" MaxLength="11"/>
+
+                            <TextBlock Text="D.N.I:"/>
+                            <TextBox x:Name="DniTextBox" Margin="0,0,0,10" MaxLength="8"/>
+
+                            <CheckBox x:Name="DireccionFiscalCheckBox" Content="Dirección Fiscal" Margin="0,0,0,10" Checked="DireccionFiscalCheckBox_Checked" Unchecked="DireccionFiscalCheckBox_Unchecked"/>
+
+                            <TextBlock Text="Dirección:"/>
+                            <TextBox x:Name="DireccionTextBox" Margin="0,0,0,10" IsEnabled="False"/>
+
+                            <TextBlock Text="Departamento:"/>
+                            <ComboBox x:Name="DepartamentoComboBox" Margin="0,0,0,10" IsEnabled="False" SelectionChanged="DepartamentoComboBox_SelectionChanged"/>
+
+                            <TextBlock Text="Provincia:"/>
+                            <ComboBox x:Name="ProvinciaComboBox" Margin="0,0,0,10" IsEnabled="False" SelectionChanged="ProvinciaComboBox_SelectionChanged"/>
+
+                            <TextBlock Text="Distrito:"/>
+                            <ComboBox x:Name="DistritoComboBox" Margin="0,0,0,10" IsEnabled="False"/>
+
+                            <CheckBox x:Name="InstitucionEducativaCheckBox" Content="Institución Educativa" Margin="0,0,0,10" Checked="InstitucionEducativaCheckBox_Checked" Unchecked="InstitucionEducativaCheckBox_Unchecked"/>
+
+                            <TextBlock Text="Localidad:"/>
+                            <ComboBox x:Name="LocalidadComboBox" Margin="0,0,0,10" IsEnabled="False" SelectionChanged="LocalidadComboBox_SelectionChanged"/>
+
+                            <TextBlock Text="Zona Promotoria:"/>
+                            <ComboBox x:Name="ZonaPromotoriaComboBox" Margin="0,0,0,10" IsEnabled="False"/>
+
+							<TextBlock Text="Estado:"/>
+							<ComboBox x:Name="EstadoComboBox" IsEnabled="True" Visibility="Visible" Margin="0,0,0,10"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+				
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Guardar" Click="SaveButton_Click" Width="80" Margin="0,0,10,0"/>
+                        <Button Content="Cancelar" Click="CancelButton_Click" Width="80"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

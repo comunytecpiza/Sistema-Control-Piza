@@ -1,0 +1,186 @@
+<UserControl x:Class="AplicativoDeAlmacen.Views.ProductosUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="White"
+             FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="📦 Catálogo de Productos" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+
+        <Grid Grid.Row="1" Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="🔍 Buscar:" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                <TextBox x:Name="BuscarTextBox" Width="300" TextChanged="BuscarTextBox_TextChanged" FontSize="14"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="+ Agregar" Click="AgregarProductoButton_Click" Background="#16A34A" Margin="0,0,10,0" MinWidth="120"/>
+                <Button Content="✏️ Editar" Click="EditarProductoButton_Click" Background="#F59E0B" Margin="0,0,10,0" MinWidth="120"/>
+                <Button Content="🗑️ Eliminar" Click="EliminarProductoButton_Click" Background="#DC2626" MinWidth="120"/>
+            </StackPanel>
+        </Grid>
+
+        <DataGrid x:Name="ProductosDataGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" 
+                  Background="White" BorderBrush="#E5E7EB" BorderThickness="1" 
+                  RowHeight="35" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
+            <DataGrid.Resources>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#F9FAFB"/>
+                    <Setter Property="Foreground" Value="#374151"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                    <Setter Property="Padding" Value="10,8"/>
+                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                    <Setter Property="BorderBrush" Value="#E5E7EB"/>
+                </Style>
+            </DataGrid.Resources>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="80"/>
+                <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
+                <DataGridTextColumn Header="Abrev." Binding="{Binding Abreviatura}" Width="100"/>
+                <DataGridTextColumn Header="U. Medida" Binding="{Binding UnidadMedida}" Width="100"/>
+                <DataGridTextColumn Header="P. Unitario" Binding="{Binding PrecioUnitario, StringFormat={}{0:N2}}" Width="100"/>
+                <DataGridTextColumn Header="%" Binding="{Binding Porcentaje, StringFormat={}{0:N2}}" Width="80"/>
+                <DataGridTextColumn Header="IGV" Binding="{Binding AfectacionIgv}" Width="120"/>
+                <DataGridTextColumn Header="Estado" Binding="{Binding Estado}" Width="100"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Grid x:Name="ProductoModal" Visibility="Collapsed" Background="#99000000" Grid.RowSpan="3" Margin="-20">
+            <Border Background="White" Width="450" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="25" ShadowDepth="5" Opacity="0.3" Direction="270"/>
+                </Border.Effect>
+
+                <StackPanel>
+                    <TextBlock x:Name="ModalTitle" FontSize="22" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20" TextAlignment="Center"/>
+
+                    <ScrollViewer MaxHeight="450" VerticalScrollBarVisibility="Auto" Margin="0,0,0,20">
+                        <StackPanel Margin="5">
+                            <TextBlock Text="Descripción" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <TextBox x:Name="TxtDescripcion" Margin="0,0,0,15"/>
+
+                            <Grid Margin="0,0,0,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="U. Medida" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbUnidadMedida"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Tipo" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbTipoProducto"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Margin="0,0,0,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Nivel" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbNivel" SelectionChanged="CmbNivel_SelectionChanged"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Grado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbGrado"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Curso" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbCurso" Margin="0,0,0,15" SelectionChanged="CmbCurso_SelectionChanged"/>
+
+                            <CheckBox x:Name="ChkTitulo" Content="Vincular Título" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5" Checked="ChkTitulo_Checked" Unchecked="ChkTitulo_Unchecked"/>
+                            <ComboBox x:Name="CmbTitulo" Margin="0,0,0,15" IsEnabled="False"/>
+
+                            <Grid Margin="0,0,0,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Precio Unit." Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtPrecioUnitario" LostFocus="TxtDecimal_LostFocus"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Porcentaje %" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtPorcentaje" LostFocus="TxtDecimal_LostFocus"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Abreviatura" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <TextBox x:Name="TxtAbreviatura" Margin="0,0,0,15"/>
+
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Afectación IGV" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbAfectacionIgv"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Estado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbEstado"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancelar" Click="BtnCancelarProducto_Click" Background="#6B7280" Margin="0,0,10,0" Width="100"/>
+                        <Button x:Name="BtnGuardarProducto" Content="Guardar" Click="BtnGuardarProducto_Click" Background="#2563EB" Width="120"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

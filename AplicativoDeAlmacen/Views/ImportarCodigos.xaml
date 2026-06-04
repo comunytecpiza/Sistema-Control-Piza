@@ -1,0 +1,33 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.ImportarCodigos"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
+        mc:Ignorable="d"
+        Title="ImportarCodigos" Height="537" Width="424">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <RadioButton Content="Agregar Texto" HorizontalAlignment="Left" Margin="30,53,0,0" VerticalAlignment="Top"/>
+        <RadioButton Content="Agregar Excel" HorizontalAlignment="Left" Margin="199,54,0,0" VerticalAlignment="Top"/>
+        <Label Content="Archivo:" HorizontalAlignment="Left" Margin="26,105,0,0" VerticalAlignment="Top" Width="63"/>
+        <TextBox x:Name="txtRutaArchivo" HorizontalAlignment="Left" Height="26" Margin="89,105,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="271" AutomationProperties.Name="txtRutaArchivo"/>
+        <Button x:Name="btn_buscar" Content="..." HorizontalAlignment="Left" Margin="373,105,0,0" VerticalAlignment="Top" Click="Button_Click" Width="33" Height="26" AutomationProperties.Name="btn_buscar"/>
+        <Button x:Name="btnTransferir" Content="Transferir" HorizontalAlignment="Left" Height="38" Margin="255,136,0,0" VerticalAlignment="Top" Width="58" Click="Button_Click_2" AutomationProperties.Name="btnTransferir"/>
+        <Button x:Name="btnSalir" Content="Salir" HorizontalAlignment="Left" Height="38" Margin="337,136,0,0" VerticalAlignment="Top" Width="57" RenderTransformOrigin="0.742,0.527" Click="Button_Click_1" AutomationProperties.Name="btnSalir"/>
+        <DataGrid x:Name="dgDatos" d:ItemsSource="{d:SampleData ItemCount=5}" Margin="30,189,30,65" AutomationProperties.Name="dgDatos"/>
+        <Label Content="total de Codigos:" HorizontalAlignment="Left" Margin="175,485,0,0" VerticalAlignment="Top"/>
+        <TextBox x:Name="txtTotalCodigos" HorizontalAlignment="Left" Margin="277,490,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" RenderTransformOrigin="0.5,0.5"  AutomationProperties.Name="txtTotalCodigos">
+            <TextBox.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform/>
+                    <SkewTransform/>
+                    <RotateTransform Angle="0.574"/>
+                    <TranslateTransform/>
+                </TransformGroup>
+            </TextBox.RenderTransform>
+        </TextBox>
+    </Grid>
+</Window>

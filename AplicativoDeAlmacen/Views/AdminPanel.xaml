@@ -1,0 +1,134 @@
+<Window x:Class="AplicativoDeAlmacen.Views.AdminPanel"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="Panel de Administrador" Height="600" Width="1000"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="MenuItemStyle" TargetType="MenuItem">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#E0E0E0"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.Background>
+            <ImageBrush>
+                <ImageBrush.ImageSource>
+                    <BitmapImage UriSource="pack://application:,,,/fondo-opcional.jpg"/>
+                </ImageBrush.ImageSource>
+            </ImageBrush>
+        </Grid.Background>
+
+        <DockPanel LastChildFill="True">
+
+            <DockPanel DockPanel.Dock="Top" LastChildFill="False" Background="#F0F0F0">
+                <Menu DockPanel.Dock="Left" Background="Transparent">
+                    <MenuItem Header='Catálogos y Tablas' FontSize="15" Style="{StaticResource MenuItemStyle}">
+                        <MenuItem.Icon>
+                            <Image Source="/Icon/catalogos.png" Width="16" Height="16"/>
+                        </MenuItem.Icon>
+                        <MenuItem Header="Localidades" Click="MenuItemLocalidades_Click"/>
+						<MenuItem Header="Zonas de Promotoría" Click="MenuItemZonasPromotoria_Click"/>
+						<MenuItem Header="Ubicaciones" Click="MenuItemUbicaciones_Click"/>
+						<MenuItem Header="Productos" Click="MenuItemProductos_Click"/>
+                        <MenuItem Header="Unidades de Medida" Click="MenuItemUnidades_Click"/>
+                        <MenuItem Header="Personas Comerciales" Click="MenuItemPersonasComerciales_Click"/>
+                        <MenuItem Header="Colecciones" Click="MenuItemColecciones_Click"/>
+                        <MenuItem Header="Títulos" Click="MenuItemTitulos_Click"/>
+                    </MenuItem>
+
+                    <MenuItem Header="Movimientos" FontSize="15" Style="{StaticResource MenuItemStyle}">
+                        <MenuItem.Icon>
+                            <Image Source="/Icon/movimientos.png" Width="16" Height="16"/>
+                        </MenuItem.Icon>
+                        <MenuItem Header="Registro de Códigos" Click="MenuItemRegistroCodigos_Click"/>
+                        <MenuItem Header="Ingreso de Productos" Click="MenuItemIngresoProductos_Click"/>
+                        <MenuItem Header="Salida de Productos"/>
+                        <MenuItem Header="% Proyección"/>
+                        <MenuItem Header="Registro de Facturas, Boletos y Recibos"/>
+                        <MenuItem Header="Reporte de clientes"/>
+                    </MenuItem>
+
+                    <MenuItem Header="Procesos Internos" FontSize="15" Style="{StaticResource MenuItemStyle}">
+                        <MenuItem.Icon>
+                            <Image Source="/Icon/procesos.png" Width="16" Height="16"/>
+                        </MenuItem.Icon>
+                        <MenuItem Header="Valorización de Productos"/>
+                        <MenuItem Header="Importación de Clientes"/>
+                        <MenuItem Header="Importación de Ventas"/>
+                    </MenuItem>
+                    <MenuItem Header="Consultas y Reportes" FontSize="15" Style="{StaticResource MenuItemStyle}">
+                        <MenuItem.Icon>
+                            <Image Source="/Icon/reportes.png" Width="16" Height="16"/>
+                        </MenuItem.Icon>
+                        <MenuItem Header="Saldos de Productos"/>
+                        <MenuItem Header="Kardex de Productos">
+                            <MenuItem Header="Kardex Físico"/>
+                            <MenuItem Header="Kardex Valorizado"/>
+                        </MenuItem>
+                        <MenuItem Header="Movimiento de Productos"/>
+                        <MenuItem Header="Historial x Código"/>
+                        <MenuItem Header="% Proyección"/>
+                        <MenuItem Header="Registro de Ventas"/>
+                        <MenuItem Header="Ventas x Cliente"/>
+                        <MenuItem Header="Ventas x Ubicación"/>
+                        <MenuItem Header="Reporte Clientes Emitidos"/>
+                        <MenuItem Header="Resumen de Libros Vendidos" />
+                        <MenuItem Header="Resumen de Libros x Cliente"/>
+                        <MenuItem Header="Kardex de Producto x Ubicación"/>
+
+                    </MenuItem>
+                    <MenuItem Header="Salir" Click="BtnSalir_Click" FontSize="15" Style="{StaticResource MenuItemStyle}">
+                        <MenuItem.Icon>
+                            <Image Source="/Icon/salir.png" Width="16" Height="16"/>
+                        </MenuItem.Icon>
+                    </MenuItem>
+                </Menu>
+                <Button x:Name="BtnAgregarUsuario" DockPanel.Dock="Right" Content="+ Agregar Usuario" FontSize="15"
+        Background="Green" Foreground="White" Margin="10,5" Padding="5,2" Width="150"
+        Click="BtnAgregarUsuario_Click"/>
+                <TextBlock x:Name="WelcomeMessage" DockPanel.Dock="Right" 
+                           Text="Bienvenido(a) Asistente Administrativo Jerry" 
+                           VerticalAlignment="Center" Margin="10,0" FontWeight="Bold" FontSize="15"/>
+            </DockPanel>
+
+      
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+              
+                <ScrollViewer Grid.Row="0">
+                    <StackPanel Margin="20">
+                       
+                    </StackPanel>
+                </ScrollViewer>
+
+      
+                <DockPanel Grid.Row="1" Background="White" LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="Ubicación: ALMACEN CENTRAL" 
+                               FontSize="15" Margin="10,5" Foreground="Black"/>
+                    <TextBlock x:Name="DateTimeTextBlock" DockPanel.Dock="Right"
+                               FontSize="15" Margin="10,5" Foreground="Black"/>
+                </DockPanel>
+            </Grid>
+        </DockPanel>
+
+
+
+
+		
+
+		
+
+
+    </Grid>
+</Window>

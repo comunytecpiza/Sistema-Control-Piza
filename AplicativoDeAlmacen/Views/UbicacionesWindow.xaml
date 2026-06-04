@@ -1,0 +1,79 @@
+<Window x:Class="AplicativoDeAlmacen.Views.UbicacionesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Ubicaciones" Height="660" Width="800">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Ubicaciones" FontSize="24" FontWeight="Bold" Margin="0,0,0,10"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="Buscar: " FontSize="15" FontWeight="Bold"/>
+            <TextBox x:Name="BuscarTextBox" Width="300" Margin="0,0,10,0" Padding="5" TextChanged="BuscarTextBox_TextChanged"/>
+            <Button Content="+ Agregar Ubicación" Click="AgregarUbicacionButton_Click" Width="180" Margin="0,0,10,0" Background="Green" Foreground="White" FontSize="15"/>
+            <Button Content="Editar Ubicación" Click="EditarUbicacionButton_Click" Width="160" Margin="0,0,10,0" Background="Orange" Foreground="White" FontSize="15"/>
+            <!-- 
+            <Button Content="Series" Click="SeriesButton_Click" Width="100" Background="Gray" Foreground="White"/>-->
+        </StackPanel>
+
+        <DataGrid x:Name="UbicacionesDataGrid" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="Auto"/>
+                <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
+                <DataGridTextColumn Header="Tipo de Ubicación" Binding="{Binding TipoUbicacion}" Width="Auto"/>
+                <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad}" Width="Auto"/>
+                <DataGridTextColumn Header="Dirección" Binding="{Binding Direccion}" Width="*"/>
+                <DataGridTextColumn Header="Departamento" Binding="{Binding Departamento}" Width="Auto"/>
+                <DataGridTextColumn Header="Provincia" Binding="{Binding Provincia}" Width="Auto"/>
+                <DataGridTextColumn Header="Distrito" Binding="{Binding Distrito}" Width="Auto"/>
+                <DataGridTextColumn Header="Estado" Binding="{Binding Estado}" Width="Auto"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+
+        <!-- Modal para Agregar/Editar Ubicación -->
+        <Grid x:Name="UbicacionModal" Visibility="Collapsed" Background="#80000000">
+            <Border Background="White" Width="400" Height="600" CornerRadius="10">
+                <StackPanel Margin="20">
+                    <TextBlock x:Name="ModalTitle" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+
+                    <TextBlock Text="Descripción" FontSize="15" FontWeight="Bold"/>
+                    <TextBox x:Name="TxtDescripcion" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Tipo de Ubicación" FontSize="15" FontWeight="Bold"/>
+                    <ComboBox x:Name="CmbTipoUbicacion" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Localidad" FontSize="15" FontWeight="Bold"/>
+                    <ComboBox x:Name="CmbLocalidad" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Dirección" FontSize="15" FontWeight="Bold"/>
+                    <TextBox x:Name="TxtDireccion" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Departamento" FontSize="15" FontWeight="Bold"/>
+                    <ComboBox x:Name="CmbDepartamento" SelectionChanged="CmbDepartamento_SelectionChanged" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Provincia" FontSize="15" FontWeight="Bold"/>
+                    <ComboBox x:Name="CmbProvincia" SelectionChanged="CmbProvincia_SelectionChanged" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Distrito" FontSize="15" FontWeight="Bold"/>
+                    <ComboBox x:Name="CmbDistrito" Margin="0,0,0,10" FontSize="15" Padding="3"/>
+
+                    <TextBlock Text="Estado" FontSize="15" FontWeight="Bold"/>
+                    <ComboBox x:Name="CmbEstado" Margin="0,0,0,20" FontSize="15" Padding="3"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button x:Name="BtnGuardarUbicacion" Content="Guardar Ubicación" Click="BtnGuardarUbicacion_Click" Width="150" Margin="0,0,10,0" Background="Green" Foreground="White" Padding="5" FontSize="15"/>
+                        <Button Content="Cancelar" Click="BtnCancelarUbicacion_Click" Width="150" Background="Red" Foreground="White" Padding="5" FontSize="15"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+
+
+    </Grid>
+</Window>
