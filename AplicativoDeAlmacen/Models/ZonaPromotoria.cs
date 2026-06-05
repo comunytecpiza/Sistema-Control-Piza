@@ -5,23 +5,11 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class Ubicacione
+public partial class ZonaPromotoria
 {
     public int Id { get; set; }
 
     public string Descripcion { get; set; }
 
-    public int TipoUbicacionId { get; set; }
-
     public int LocalidadId { get; set; }
-
-    public string Direccion { get; set; }
-
-    public int EstadoId { get; set; }
-
-    public int? DepartamentoId { get; set; }
-
-    public int? ProvinciaId { get; set; }
-
-    public int? DistritoId { get; set; }
 }

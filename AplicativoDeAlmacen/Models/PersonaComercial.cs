@@ -9,7 +9,7 @@ public partial class PersonaComercial
 {
     public int Id { get; set; }
 
-    public int TipoPersonaId { get; set; }
+    public string TipoPersona { get; set; }
 
     public string Nombres { get; set; }
 
@@ -25,21 +25,23 @@ public partial class PersonaComercial
 
     public string Dni { get; set; }
 
-    public int? LocalidadId { get; set; }
+    public Localidad Localidad { get; set; }
 
-    public int? DepartamentoId { get; set; }
+    public Departamento Departamento { get; set; }
 
-    public int? ProvinciaId { get; set; }
+    public Provincia Provincia { get; set; }
 
-    public int? DistritoId { get; set; }
+    public Distrito Distrito { get; set; }
 
     public string Direccion { get; set; }
 
-    public int? ZonaPromotoriaId { get; set; }
+    public ZonaPromotoria ZonaPromotoria { get; set; }
 
-    public int EstadoId { get; set; }
+    public Estado Estado { get; set; }
 
     public DateTime? CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
+
+   
 }

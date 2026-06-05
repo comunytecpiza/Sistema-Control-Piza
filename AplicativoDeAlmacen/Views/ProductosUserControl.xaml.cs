@@ -279,7 +279,7 @@ namespace AplicativoDeAlmacen.Views
                 CmbTipoProducto.SelectedValuePath = "Id";
 
                 var niveles = await _productoService.ObtenerNivelesAsync();
-                niveles.Insert(0, new Nivele { Id = 0, Nombre = "-- Seleccione un Nivel --" });
+               /* niveles.Insert(0, new Nivele { Id = 0, Nombre = "-- Seleccione un Nivel --" });*/
                 CmbNivel.ItemsSource = niveles;
                 CmbNivel.DisplayMemberPath = "Nombre";
                 CmbNivel.SelectedValuePath = "Id";

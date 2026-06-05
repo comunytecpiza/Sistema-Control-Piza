@@ -1,4 +1,6 @@
-﻿using System;
+﻿using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using System;
 using System.Collections.ObjectModel;
 using System.Data.SqlClient;
 using System.Globalization;
@@ -6,7 +8,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using AplicativoDeAlmacen.Models.Models;
+using System.Threading.Tasks;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -23,6 +25,7 @@ namespace AplicativoDeAlmacen.Views
         }
     }
 
+
     public partial class PersonasComercialesWindow : Window
     {
         private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
@@ -31,9 +34,14 @@ namespace AplicativoDeAlmacen.Views
         private PersonaComercial currentPersona;
         private bool isEditing = false;
 
+        private readonly PersonaComercialService _service;
+
         public PersonasComercialesWindow()
         {
             InitializeComponent();
+         
+            _service = new PersonaComercialService();
+            LoadPersonas();
             LoadData();
             PersonasDataGrid.ItemsSource = personas;
             currentPersona = new PersonaComercial();
@@ -41,11 +49,23 @@ namespace AplicativoDeAlmacen.Views
 
         private void LoadData()
         {
-           // LoadPersonas();
+          
             LoadTipoPersonas();
             LoadDepartamentos();
-            LoadLocalidades();
+           // LoadLocalidades();
             LoadEstados();
+        }
+
+        private async Task LoadPersonas()
+        {
+            personas.Clear();
+
+            var lista = await _service.ObtenerTodosAsync();
+
+            foreach (var item in lista)
+            {
+                personas.Add(item);
+            }
         }
         /*
         private void LoadPersonas()
@@ -192,7 +212,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
         }
-
+        /*
         private void LoadLocalidades()
         {
             LocalidadComboBox.Items.Clear();
@@ -216,7 +236,8 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
         }
-
+        */
+        /*
         private void LoadZonasPromotoria(int localidadId)
         {
             ZonaPromotoriaComboBox.Items.Clear();
@@ -241,7 +262,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
         }
-
+        */
         private void LoadEstados()
         {
             EstadoComboBox.Items.Clear();
@@ -624,32 +645,13 @@ namespace AplicativoDeAlmacen.Views
 
         private void LocalidadComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (LocalidadComboBox.SelectedItem is ComboBoxItem selectedLocalidad)
+           /* if (LocalidadComboBox.SelectedItem is ComboBoxItem selectedLocalidad)
             {
                 int localidadId = (int)selectedLocalidad.Tag;
                 LoadZonasPromotoria(localidadId);
                 ZonaPromotoriaComboBox.IsEnabled = true;
-            }
+            }*/
         }
     }
-    /*
-    public class PersonaComercial
-    {
-        public int Id { get; set; }
-        public string? TipoPersona { get; set; }
-        public string? Nombres { get; set; }
-        public string? ApellidoPaterno { get; set; }
-        public string? ApellidoMaterno { get; set; }
-        public string? RazonSocial { get; set; }
-        public string? NombreComercial { get; set; }
-        public string? Ruc { get; set; }
-        public string? Dni { get; set; }
-        public string? Localidad { get; set; }
-        public string? ZonaPromotoria { get; set; }
-        public string? Estado { get; set; }
-        public string? Direccion { get; set; }
-        public string? Departamento { get; set; }
-        public string? Provincia { get; set; }
-        public string? Distrito { get; set; }
-    }*/
+
 }

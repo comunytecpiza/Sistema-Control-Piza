@@ -5,11 +5,11 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class ZonaPromotorium
+public partial class Localidad
 {
     public int Id { get; set; }
 
-    public string Descripcion { get; set; }
+    public string Nombre { get; set; }
 
-    public int LocalidadId { get; set; }
+    public Estado Estado { get; set; }
 }

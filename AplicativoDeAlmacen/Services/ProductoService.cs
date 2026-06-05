@@ -174,16 +174,16 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        public async Task<List<Nivele>> ObtenerNivelesAsync()
+        public async Task<List<Nivel>> ObtenerNivelesAsync()
         {
-            var lista = new List<Nivele>();
+            var lista = new List<Nivel>();
             using var conn = _database.GetConnection();
             await conn.OpenAsync();
             using var cmd = new SqlCommand("SELECT id, nombre FROM niveles ORDER BY nombre", conn);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                lista.Add(new Nivele { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                lista.Add(new Nivel { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
             }
             return lista;
         }

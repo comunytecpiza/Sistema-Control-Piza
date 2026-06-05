@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Data.SqlClient;
 using System.Linq;
+using AplicativoDeAlmacen.Models.Models;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -13,7 +14,7 @@ namespace AplicativoDeAlmacen.Views
         
         private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
         private ObservableCollection<Localidad> localidades = new ObservableCollection<Localidad>();
-        private Localidad? currentLocalidad;
+        private Localidad currentLocalidad;
 
         public LocalidadesWindow()
         {
@@ -40,7 +41,7 @@ namespace AplicativoDeAlmacen.Views
                             {
                                 Id = reader.GetInt32(0),
                                 Nombre = reader.GetString(1),
-                                Estado = reader.GetString(2)
+                               /* Estado = reader.GetString(2)*/
                             });
                         }
                     }
@@ -54,8 +55,7 @@ namespace AplicativoDeAlmacen.Views
             string searchTerm = LocalidadesSearchBox.Text.ToLower();
             var filteredLocalidades = localidades.Where(l =>
                 l.Nombre.ToLower().Contains(searchTerm) ||
-                l.Id.ToString().Contains(searchTerm) ||
-                l.Estado.ToLower().Contains(searchTerm));
+                l.Id.ToString().Contains(searchTerm));
             LocalidadesGrid.ItemsSource = filteredLocalidades;
         }
 
@@ -73,8 +73,8 @@ namespace AplicativoDeAlmacen.Views
             {
                 currentLocalidad = selectedLocalidad;
                 TxtNombreLocalidad.Text = currentLocalidad.Nombre;
-                var estadoItem = CmbEstadoLocalidad.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentLocalidad.Estado);
-                CmbEstadoLocalidad.SelectedItem = estadoItem ?? CmbEstadoLocalidad.Items[0];
+             //   var estadoItem = CmbEstadoLocalidad.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentLocalidad.Estado);
+             //   CmbEstadoLocalidad.SelectedItem = estadoItem ?? CmbEstadoLocalidad.Items[0];
                 AddEditLocalidadModal.Visibility = Visibility.Visible;
             }
             else
@@ -147,11 +147,11 @@ namespace AplicativoDeAlmacen.Views
             this.Close();
         }
     }
-
+    /*
     public class Localidad
     {
         public int Id { get; set; }
         public string Nombre { get; set; } = string.Empty;
         public string Estado { get; set; } = string.Empty;
-    }
+    }*/
 }
