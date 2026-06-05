@@ -5,11 +5,13 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class Coleccione
+public partial class Coleccion
 {
     public int Id { get; set; }
 
     public int EstadoId { get; set; }
 
     public int? Ano { get; set; }
+
+    public Estado Estado { get; set; } = new Estado();
 }

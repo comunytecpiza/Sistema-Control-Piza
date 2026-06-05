@@ -101,8 +101,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
         {
-            ColeccionesWindow coleccionesWindow = new ColeccionesWindow();
-            coleccionesWindow.Show();
+           // ColeccionesWindow coleccionesWindow = new ColeccionesWindow();
+            //coleccionesWindow.Show();
         }
 
         private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)

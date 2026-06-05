@@ -16,11 +16,7 @@ namespace AplicativoDeAlmacen.Services
         {
             _database = new DatabaseConnection();
         }
-
-        // =========================================================================
-        // 1. MÉTODOS CRUD PRINCIPALES (PRODUCTO)
-        // =========================================================================
-
+                
         public async Task<List<Producto>> ObtenerTodosAsync()
         {
             var lista = new List<Producto>();
@@ -29,13 +25,13 @@ namespace AplicativoDeAlmacen.Services
 
             // La consulta hace los JOIN por ID y trae los nombres exactos
             string query = @"
-        SELECT p.id, p.descripcion, p.abreviatura, p.unidad_medida_id, um.descripcion AS unidad_medida, 
-        p.tipo_producto_id, p.precio_unitario, p.porcentaje, p.nivel_id, p.grado_id, p.curso_id,
-        p.titulo_curso_id, p.afectacion_igv_id, ai.nombre AS afectacion_igv, p.estado_id, e.nombre AS estado
-        FROM productos p
-        LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
-        LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
-        LEFT JOIN estados e ON p.estado_id = e.id";
+            SELECT p.id, p.descripcion, p.abreviatura, p.unidad_medida_id, um.descripcion AS unidad_medida, 
+            p.tipo_producto_id, p.precio_unitario, p.porcentaje, p.nivel_id, p.grado_id, p.curso_id,
+            p.titulo_curso_id, p.afectacion_igv_id, ai.nombre AS afectacion_igv, p.estado_id, e.nombre AS estado
+            FROM productos p
+            LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
+            LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
+            LEFT JOIN estados e ON p.estado_id = e.id";
 
             using var cmd = new SqlCommand(query, conn);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -50,7 +46,7 @@ namespace AplicativoDeAlmacen.Services
 
                     UnidadMedidaId = reader.IsDBNull(reader.GetOrdinal("unidad_medida_id")) ? null : reader.GetInt32(reader.GetOrdinal("unidad_medida_id")),
 
-                    // 1. Instanciamos y llenamos el objeto UnidadMedida
+                    
                     UnidadMedida = new UnidadMedida
                     {
                         Descripcion = reader.IsDBNull(reader.GetOrdinal("unidad_medida")) ? string.Empty : reader.GetString(reader.GetOrdinal("unidad_medida"))
@@ -67,7 +63,7 @@ namespace AplicativoDeAlmacen.Services
 
                     AfectacionIgvId = reader.IsDBNull(reader.GetOrdinal("afectacion_igv_id")) ? null : reader.GetInt32(reader.GetOrdinal("afectacion_igv_id")),
 
-                    // 2. Instanciamos y llenamos el objeto afectacion (respetando tu nombre en minúscula)
+                    
                     afectacion = new AfectacionIgv
                     {
                         Nombre = reader.IsDBNull(reader.GetOrdinal("afectacion_igv")) ? string.Empty : reader.GetString(reader.GetOrdinal("afectacion_igv"))
@@ -75,7 +71,7 @@ namespace AplicativoDeAlmacen.Services
 
                     EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? null : reader.GetInt32(reader.GetOrdinal("estado_id")),
 
-                    // 3. Instanciamos y llenamos el objeto Estado
+                    
                     Estado = new Estado
                     {
                         Nombre = reader.IsDBNull(reader.GetOrdinal("estado")) ? string.Empty : reader.GetString(reader.GetOrdinal("estado"))
