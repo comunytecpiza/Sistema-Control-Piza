@@ -9,7 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Data.SqlClient;
-using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Models;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -98,7 +98,7 @@ namespace AplicativoDeAlmacen.Views
             cboMotivo.SelectionChanged += cboMotivo_SelectionChanged;
             txtRazonSocial.TextChanged += txtRazonSocial_TextChanged;
             lstSugerencias.SelectionChanged += lstSugerencias_SelectionChanged;
-            lstSugerencias.PreviewMouseLeftButtonUp += lstSugerencias_PreviewMouseLeftButtonUp;
+         /*   lstSugerencias.PreviewMouseLeftButtonUp += lstSugerencias_PreviewMouseLeftButtonUp;*/
 
         }
 
@@ -209,7 +209,7 @@ namespace AplicativoDeAlmacen.Views
                 PrecioUnitario = producto.PrecioUnitario
             });
 
-            GenerarCodigosProducto(producto.Id, producto.Cantidad);
+         /*   GenerarCodigosProducto(producto.Id, producto.Cantidad);*/
         }
 
         private void btnAgregarProducto_Click(object sender, RoutedEventArgs e)
@@ -256,7 +256,7 @@ namespace AplicativoDeAlmacen.Views
             if (sugerencias.Count == 1 &&
                     string.Equals(sugerencias[0].RazonSocial, txtRazonSocial.Text, StringComparison.OrdinalIgnoreCase))
             {
-                SeleccionarRazonSocial(sugerencias[0]);
+              /*  SeleccionarRazonSocial(sugerencias[0]);*/
             }
 
 
@@ -264,15 +264,15 @@ namespace AplicativoDeAlmacen.Views
 
         private void lstSugerencias_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (lstSugerencias.SelectedItem is PersonaComercial selected)
+          /*  if (lstSugerencias.SelectedItem is PersonaComercial selected)
             {
                 SeleccionarRazonSocial(selected);
-            }
+            }*/
         }
 
 
 
-        private void SeleccionarRazonSocial(PersonaComercial selected)
+       /* private void SeleccionarRazonSocial(PersonaComercial selected)
         {
             try
             {
@@ -291,9 +291,9 @@ namespace AplicativoDeAlmacen.Views
             {
                 MessageBox.Show($"Error al seleccionar razón social: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-        }
+        }*/
 
-        private void lstSugerencias_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+      /*  private void lstSugerencias_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (lstSugerencias.SelectedItem is PersonaComercial selected)
             {
@@ -301,7 +301,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
         #endregion
-
+      */
 
 
 
@@ -569,3 +569,4 @@ namespace AplicativoDeAlmacen.Views
         #endregion
     }
 }
+#endregion

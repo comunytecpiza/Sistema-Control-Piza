@@ -11,14 +11,6 @@
 
   <ItemGroup>
     <None Remove="fondo-opcional.jpg" />
-    <None Remove="Icon\catalogos.png" />
-    <None Remove="Icon\movimientos.png" />
-    <None Remove="Icon\procesos.png" />
-    <None Remove="Icon\reportes.png" />
-    <None Remove="Icon\salir.png" />
-    <None Remove="Images\ingreso-almacen.jpg" />
-    <None Remove="Images\logo.png" />
-    <None Remove="Images\usuario.png" />
     <None Remove="Videos\fondo-video.mp4" />
   </ItemGroup>
 
@@ -34,7 +26,9 @@
 
   <ItemGroup>
     <Folder Include="Helpers\" />
-    <Folder Include="ViewModels\" />
+    <Folder Include="Icon\" />
+    <Folder Include="Helpers\" />
+    <Folder Include="ViewModels\ViewModels\" />
   </ItemGroup>
 
   <ItemGroup>

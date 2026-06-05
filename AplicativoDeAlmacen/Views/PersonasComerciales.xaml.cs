@@ -6,7 +6,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Models;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -41,13 +41,13 @@ namespace AplicativoDeAlmacen.Views
 
         private void LoadData()
         {
-            LoadPersonas();
+           // LoadPersonas();
             LoadTipoPersonas();
             LoadDepartamentos();
             LoadLocalidades();
             LoadEstados();
         }
-
+        /*
         private void LoadPersonas()
         {
             personas.Clear();
@@ -93,7 +93,7 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }
             }
-        }
+        }*/
 
         private void LoadTipoPersonas()
         {
@@ -352,7 +352,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 isEditing = true;
                 currentPersona = selectedPersona;
-                LoadPersonaToForm();
+               // LoadPersonaToForm();
                 ModalTitle.Text = "Editar Persona Comercial";
                 ModalBackground.Visibility = Visibility.Visible;
             }
@@ -364,11 +364,11 @@ namespace AplicativoDeAlmacen.Views
             {
                 SavePersona();
                 ModalBackground.Visibility = Visibility.Collapsed;
-                LoadPersonas();
+               // LoadPersonas();
             }
         }
 
-
+/*
         private void LoadPersonaToForm()
         {
             TipoPersonaComboBox.SelectedItem = TipoPersonaComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.TipoPersona);
@@ -389,7 +389,7 @@ namespace AplicativoDeAlmacen.Views
             InstitucionEducativaCheckBox.IsChecked = !string.IsNullOrEmpty(currentPersona.Localidad);
             EstadoComboBox.SelectedItem = EstadoComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.Estado);
         }
-
+*/
         private void SavePersona()
         {
             using (SqlConnection connection = new SqlConnection(connectionString))

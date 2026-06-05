@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class PersonasComerciale
+public partial class PersonaComercial
 {
     public int Id { get; set; }
 

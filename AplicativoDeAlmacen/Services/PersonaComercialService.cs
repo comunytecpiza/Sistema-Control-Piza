@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using static AplicativoDeAlmacen.Data.DataConnection;
 using AplicativoDeAlmacen.Data;
-using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Models;
 using System.Data.SqlClient;
 
 
@@ -49,7 +49,7 @@ namespace AplicativoDeAlmacen.Services
                     RazonSocial = reader.GetString(1),
                     Direccion = reader.GetString(2),
                     Ruc = reader.GetString(3),
-                    CodigoMostrar = reader.GetString(4)
+                   // CodigoMostrar = reader.GetString(4)
                 });
             }
             return lista;

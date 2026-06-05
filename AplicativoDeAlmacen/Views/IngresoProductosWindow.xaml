@@ -125,7 +125,7 @@
 				<Button x:Name="btnEliminar" Content="Eliminar" Width="100" Height="28"
                         Background="Red" Foreground="White" Margin="0,0,10,0" FontSize="15"/>
 				<Button x:Name="btnImportar" Content="Importar" Width="100" Height="28"
-                        Background="DeepPink" Foreground="White" Margin="0,0,10,0" FontSize="15" Click="btnImportar_Click"/>
+                        Background="DeepPink" Foreground="White" Margin="0,0,10,0" FontSize="15" Click="btnImportar_Click" AutomationProperties.Name="btnImportar"/>
 				<Button x:Name="btnGrabar" Content="Grabar" Width="100" Height="28"
                         Background="Black" Foreground="White" Margin="0,0,10,0" FontSize="15"/>
 				<Button x:Name="btnCancelar" Content="Cancelar" Width="100" Height="28"
