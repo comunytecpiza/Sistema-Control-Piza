@@ -20,7 +20,7 @@
             <RadioButton Content="R.U.C." Margin="0,0,10,0" Checked="FilterRadioButton_Checked"/>
             <RadioButton Content="D.N.I." Margin="0,0,10,0" Checked="FilterRadioButton_Checked"/>
             <TextBox x:Name="SearchTextBox" Width="200" Margin="0,0,10,0" TextChanged="SearchTextBox_TextChanged" FontSize="15"/>
-            <Button Content="Agregar" Click="AddButton_Click" Width="130" Margin="0,0,10,0" Background="Green" Foreground="White" Padding="5" FontSize="15"/>
+            <Button Content="Agregar" Click="AddButton_Click" Width="130" Margin="0,0,10,0" Background="Red" Foreground="White" Padding="5" FontSize="15"/>
             <Button x:Name="EditButton" Content="Editar" Click="EditButton_Click" Width="130" IsEnabled="False" Background="Orange" Foreground="Black" Padding="5" FontSize="15"/>
         </StackPanel>
 

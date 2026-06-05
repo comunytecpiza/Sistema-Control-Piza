@@ -38,4 +38,9 @@ public partial class Producto
     public DateTime? CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
+    public UnidadMedida UnidadMedida { get; set; } 
+
+    public  AfectacionIgv afectacion { get; set; } 
+    public Estado Estado { get; set; }
+
 }

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class UnidadMedidum
+public partial class UnidadMedida
 {
     public int Id { get; set; }
 
