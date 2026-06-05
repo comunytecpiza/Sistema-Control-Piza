@@ -5,11 +5,9 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class Localidade
+public partial class Nivel
 {
     public int Id { get; set; }
 
     public string Nombre { get; set; }
-
-    public int EstadoId { get; set; }
 }

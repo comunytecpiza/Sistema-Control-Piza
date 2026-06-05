@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class Ubicacione
+public partial class Ubicacion
 {
     public int Id { get; set; }
 
