@@ -58,7 +58,7 @@
 
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="🔍 Buscar:" VerticalAlignment="Center" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,10,0"/>
-                <TextBox x:Name="BuscarTextBox" Width="300" TextChanged="BuscarTextBox_TextChanged" FontSize="14" ToolTip="Buscar por código, descripción, unidad..."/>
+                <TextBox x:Name="BuscarTextBox" Width="300" TextChanged="BuscarTextBox_TextChanged" FontSize="14" ToolTip="Buscar por código, descripción..."/>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -95,25 +95,30 @@
             </DataGrid>
         </Border>
 
-        <Grid x:Name="ProductoModal" Visibility="Collapsed" Background="#66000000" Grid.RowSpan="3" Margin="-20">
-            <Border Background="White" Width="550" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="25">
+        <Grid x:Name="ProductoModal" Visibility="Collapsed" Background="#80000000" Grid.RowSpan="3" Margin="-20">
+            <Border Background="White" Width="850" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="25" ShadowDepth="5" Opacity="0.3" Direction="270"/>
                 </Border.Effect>
 
                 <StackPanel>
                     <TextBlock x:Name="ModalTitle" FontSize="22" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,15" TextAlignment="Center"/>
-                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,15"/>
+                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
 
-                    <ScrollViewer MaxHeight="450" VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
-                        <StackPanel Margin="0,0,0,10">
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="40"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
 
+                        <StackPanel Grid.Column="0">
                             <TextBlock Text="📝 Datos Generales" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,10"/>
 
                             <TextBlock Text="Descripción" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
                             <TextBox x:Name="TxtDescripcion" Margin="0,0,0,15" Height="30"/>
 
-                            <Grid Margin="0,0,0,20">
+                            <Grid Margin="0,0,0,15">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="15"/>
@@ -125,10 +130,46 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="Tipo de Producto" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbTipoProducto"/>
+                                    <ComboBox x:Name="CmbTipoProducto" SelectionChanged="CmbTipoProducto_SelectionChanged"/>
                                 </StackPanel>
                             </Grid>
 
+                            <TextBlock Text="💰 Precio y Facturación" Foreground="#3B82F6" FontWeight="Bold" Margin="0,15,0,10"/>
+
+                            <Grid Margin="0,0,0,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="15"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Precio Unitario" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtPrecioUnitario" LostFocus="TxtDecimal_LostFocus"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Porcentaje (%)" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtPorcentaje" LostFocus="TxtDecimal_LostFocus"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="15"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Unidad de Medida" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbUnidadMedida"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Afectación IGV" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbAfectacionIgv"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
                             <TextBlock Text="📚 Datos Académicos" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,10"/>
 
                             <Grid Margin="0,0,0,15">
@@ -147,72 +188,19 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Grid Margin="0,0,0,20">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="15"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Curso" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbCurso" SelectionChanged="CmbCurso_SelectionChanged"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <CheckBox x:Name="ChkTitulo" Content="Vincular Título de Curso" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5" Checked="ChkTitulo_Checked" Unchecked="ChkTitulo_Unchecked"/>
-                                    <ComboBox x:Name="CmbTitulo" IsEnabled="False"/>
-                                </StackPanel>
-                            </Grid>
+                            <TextBlock Text="Curso" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbCurso" Margin="0,0,0,15" SelectionChanged="CmbCurso_SelectionChanged"/>
 
-                            <TextBlock Text="💰 Precio y Facturación" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,10"/>
+                            <CheckBox x:Name="ChkTitulo" Content="Vincular Título de Curso" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5" Checked="ChkTitulo_Checked" Unchecked="ChkTitulo_Unchecked"/>
+                            <ComboBox x:Name="CmbTitulo" Margin="0,0,0,30" IsEnabled="False"/>
 
-                            <Grid Margin="0,0,0,15">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="15"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Precio Unitario" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <TextBox x:Name="TxtPrecioUnitario" LostFocus="TxtDecimal_LostFocus"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Porcentaje (%)" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <TextBox x:Name="TxtPorcentaje" LostFocus="TxtDecimal_LostFocus"/>
-                                </StackPanel>
-                            </Grid>
+                            <TextBlock Text="⚙️ Configuración" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,10"/>
 
-                            <Grid Margin="0,0,0,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="15"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Unidad de Medida" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbUnidadMedida"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Afectación IGV" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbAfectacionIgv"/>
-                                </StackPanel>
-                            </Grid>
-
-                            <Grid Margin="0,0,0,5">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="15"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Estado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbEstado"/>
-                                </StackPanel>
-                            </Grid>
-
+                            <TextBlock Text="Estado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbEstado" Width="180" HorizontalAlignment="Left"/>
                         </StackPanel>
-                    </ScrollViewer>
-
-                    <Border Height="1" Background="#E5E7EB" Margin="0,15,0,15"/>
+                    </Grid>
+                    <Border Height="1" Background="#E5E7EB" Margin="0,20,0,20"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="Cancelar" Click="BtnCancelarProducto_Click" Background="#6B7280" Margin="0,0,10,0" Width="100"/>

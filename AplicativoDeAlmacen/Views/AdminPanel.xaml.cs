@@ -90,7 +90,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
         {
-            new UnidadesMedidaWindow().Show();
+            //new UnidadesMedidaWindow().Show();
         }
 
         private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)

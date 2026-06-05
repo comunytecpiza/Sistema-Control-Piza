@@ -165,7 +165,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
         {
-            // AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl()); 
+             AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl()); 
         }
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
