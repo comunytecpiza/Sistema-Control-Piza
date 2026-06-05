@@ -172,7 +172,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
-            // AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl()); 
+             AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl()); 
         }
 
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)

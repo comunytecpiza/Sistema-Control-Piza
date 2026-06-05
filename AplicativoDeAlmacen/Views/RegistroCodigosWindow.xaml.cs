@@ -1,354 +1,150 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Data.SqlClient;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Models.Models; // Fundamental para que reconozca RegistroCodigo y Producto
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class RegistroCodigosWindow : Window
+    public partial class RegistroCodigosUserControl : UserControl
     {
-        private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
-        private ObservableCollection<CodigoRegistro> codigos = new ObservableCollection<CodigoRegistro>();
-        private List<ProductoItem> productos = new List<ProductoItem>();
-        private string? productoAbreviatura;
-        private int? ultimoCodigo;
-        private bool esLibroGuia = true;
-        private DispatcherTimer searchTimer;
+        private readonly RegistroCodigoService _registroService;
 
-        public RegistroCodigosWindow()
+        // Usamos los modelos puros
+        private ObservableCollection<RegistroCodigo> registrosGrid = new ObservableCollection<RegistroCodigo>();
+        private ObservableCollection<Producto> productosTodos = new ObservableCollection<Producto>();
+
+        private DispatcherTimer searchTimer;
+        private string? productoAbreviaturaActual;
+        private int ultimoCodigoActual = 0;
+
+        public RegistroCodigosUserControl()
         {
             InitializeComponent();
-            CargarColecciones();
-            CargarProductos();
-            CargarCategorias();
-            CodigosDataGrid.ItemsSource = codigos;
+            _registroService = new RegistroCodigoService();
 
-            searchTimer = new DispatcherTimer();
-            searchTimer.Interval = TimeSpan.FromMilliseconds(300);
+            searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             searchTimer.Tick += SearchTimer_Tick;
+
+            _ = InicializarPantallaAsync();
         }
 
-        private void CargarColecciones()
+        private async Task InicializarPantallaAsync()
         {
-            ColeccionComboBox.Items.Clear();
-            ModalColeccionComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                string query = "SELECT id, ano FROM colecciones ORDER BY ano DESC";
-                using (SqlCommand command = new SqlCommand(query, connection))
+                // Cargar Colecciones
+                var colecciones = await _registroService.ObtenerColeccionesAsync();
+                CmbFiltroColeccion.ItemsSource = colecciones;
+                CmbFiltroColeccion.DisplayMemberPath = "Ano";
+                CmbFiltroColeccion.SelectedValuePath = "Id";
+
+                CmbModalColeccion.ItemsSource = colecciones;
+                CmbModalColeccion.DisplayMemberPath = "Ano";
+                CmbModalColeccion.SelectedValuePath = "Id";
+
+                if (colecciones.Any()) CmbFiltroColeccion.SelectedIndex = 0;
+
+                // Cargar Categorías
+                var categorias = await _registroService.ObtenerCategoriasAsync();
+                CmbModalCategoria.ItemsSource = categorias;
+                CmbModalCategoria.DisplayMemberPath = "Nombre";
+                CmbModalCategoria.SelectedValuePath = "Id";
+
+                // Cargar Productos Puros
+                var productos = await _registroService.ObtenerProductosComboAsync();
+                foreach (var p in productos) productosTodos.Add(p);
+                CmbProducto.ItemsSource = productosTodos;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error de conexión inicial: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void Filtros_Changed(object sender, RoutedEventArgs e)
+        {
+            if (CmbFiltroColeccion.SelectedValue is int coleccionId)
+            {
+                int categoriaId = RbLibroGuia.IsChecked == true ? 1 : 2;
+                await CargarGridAsync(coleccionId, categoriaId);
+            }
+        }
+
+        private async Task CargarGridAsync(int coleccionId, int categoriaId)
+        {
+            try
+            {
+                registrosGrid.Clear();
+                var data = await _registroService.ObtenerRegistrosAsync(coleccionId, categoriaId);
+                foreach (var item in data) registrosGrid.Add(item);
+                CodigosDataGrid.ItemsSource = registrosGrid;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al cargar la tabla: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void BtnEliminar_Click(object sender, RoutedEventArgs e)
+        {
+            if (CodigosDataGrid.SelectedItem is RegistroCodigo item)
+            {
+                if (MessageBox.Show($"¿Está seguro de eliminar los códigos generados para {item.Producto?.Descripcion}?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
                 {
-                    using (SqlDataReader reader = command.ExecuteReader())
+                    try
                     {
-                        while (reader.Read())
-                        {
-                            int id = reader.GetInt32(0);
-                            int ano = reader.GetInt32(1);
-                            var itemForColeccionComboBox = new ComboBoxItem { Content = ano.ToString(), Tag = id };
-                            var itemForModalColeccionComboBox = new ComboBoxItem { Content = ano.ToString(), Tag = id };
-                            ColeccionComboBox.Items.Add(itemForColeccionComboBox);
-                            ModalColeccionComboBox.Items.Add(itemForModalColeccionComboBox);
-                        }
+                        await _registroService.EliminarRegistroTransactionAsync(item.Id); // En tu modelo principal el ID de registro es "Id"
+                        MessageBox.Show("Códigos eliminados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                        Filtros_Changed(null, null); // Recargar Grid
                     }
-                }
-            }
-
-            // Seleccionar la última colección (primera en la lista, ya que está ordenada DESC)
-            if (ColeccionComboBox.Items.Count > 0)
-            {
-                ColeccionComboBox.SelectedIndex = 0;
-            }
-            if (ModalColeccionComboBox.Items.Count > 0)
-            {
-                ModalColeccionComboBox.SelectedIndex = 0;
-            }
-        }
-
-        private void CargarProductos()
-        {
-            productos.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                string query = @"SELECT p.id, p.descripcion, p.abreviatura, um.descripcion AS unidad_medida 
-                 FROM productos p
-                 JOIN unidad_medida um ON p.unidad_medida_id = um.id
-                 WHERE p.descripcion IS NOT NULL AND p.abreviatura IS NOT NULL";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                {
-                    using (SqlDataReader reader = command.ExecuteReader())
+                    catch (Exception ex)
                     {
-                        while (reader.Read())
-                        {
-                            productos.Add(new ProductoItem
-                            {
-                                Id = reader.GetInt32(0),
-                                Descripcion = reader.GetString(1),
-                                Abreviatura = reader.GetString(2),
-                                UnidadMedida = reader.GetString(3)
-                            });
-                        }
-                    }
-                }
-            }
-            ProductoComboBox.ItemsSource = new ObservableCollection<ProductoItem>(productos);
-            ProductoComboBox.SelectedIndex = -1;
-            ProductoComboBox.Text = string.Empty;
-        }
-
-        private void CargarCategorias()
-        {
-            CategoriaComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                string query = "SELECT id, nombre FROM categoria_producto";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                {
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            CategoriaComboBox.Items.Add(new ComboBoxItem
-                            {
-                                Content = reader.GetString(1),
-                                Tag = reader.GetInt32(0)
-                            });
-                        }
-                    }
-                }
-            }
-            // Seleccionar por defecto "Libro Guía"
-            CategoriaComboBox.SelectedIndex = 0;
-        }
-
-        private void ColeccionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (ColeccionComboBox.SelectedItem != null)
-            {
-                CargarCodigos();
-            }
-        }
-
-        private void TipoLibro_Checked(object sender, RoutedEventArgs e)
-        {
-            if (sender is RadioButton radioButton)
-            {
-                esLibroGuia = radioButton.Content.ToString() == "Libros Guía";
-                CargarCodigos();
-            }
-        }
-
-        private void AgregarCodigos_Click(object sender, RoutedEventArgs e)
-        {
-            CerrarYLimpiarModal();
-            ModalAgregarCodigo.Visibility = Visibility.Visible;
-
-            // Seleccionar la categoría correcta basada en el RadioButton seleccionado
-            CategoriaComboBox.SelectedIndex = esLibroGuia ? 0 : 1;
-        }
-
-        private void EliminarCodigos_Click(object sender, RoutedEventArgs e)
-        {
-            if (CodigosDataGrid.SelectedItem is CodigoRegistro codigoSeleccionado)
-            {
-                using (SqlConnection connection = new SqlConnection(connectionString))
-                {
-                    connection.Open();
-                    using (SqlTransaction transaction = connection.BeginTransaction())
-                    {
-                        try
-                        {
-                            // Eliminar de codigos_creados
-                            string deleteCodigosCreados = "DELETE FROM codigos_creados WHERE registro_codigo_id = @registroCodigoId";
-                            using (SqlCommand command = new SqlCommand(deleteCodigosCreados, connection, transaction))
-                            {
-                                command.Parameters.AddWithValue("@registroCodigoId", codigoSeleccionado.RegistroCodigoId);
-                                command.ExecuteNonQuery();
-                            }
-
-                            // Eliminar de registro_codigos
-                            string deleteRegistroCodigos = "DELETE FROM registro_codigos WHERE id = @registroCodigoId";
-                            using (SqlCommand command = new SqlCommand(deleteRegistroCodigos, connection, transaction))
-                            {
-                                command.Parameters.AddWithValue("@registroCodigoId", codigoSeleccionado.RegistroCodigoId);
-                                command.ExecuteNonQuery();
-                            }
-
-                            transaction.Commit();
-                            MessageBox.Show("Código eliminado exitosamente.");
-                            CargarCodigos();
-                        }
-                        catch (Exception ex)
-                        {
-                            transaction.Rollback();
-                            MessageBox.Show($"Error al eliminar el código: {ex.Message}");
-                        }
+                        MessageBox.Show("Error al eliminar: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
                 }
             }
             else
             {
-                MessageBox.Show("Por favor, seleccione un código para eliminar.");
+                MessageBox.Show("Seleccione un registro de la tabla para eliminar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
-        private void ObtenerUltimoCodigo(int productoId)
+        // ==========================================
+        // LÓGICA DEL MODAL (AGREGAR CÓDIGOS)
+        // ==========================================
+
+        private void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                string query = @"SELECT MAX(CAST(SUBSTRING(codigo, LEN(@abreviatura) + 2, LEN(codigo)) AS INT))
-                                 FROM codigos_creados cc
-                                 JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                                 WHERE rc.producto_id = @productoId";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                {
-                    command.Parameters.AddWithValue("@abreviatura", productoAbreviatura ?? "");
-                    command.Parameters.AddWithValue("@productoId", productoId);
-                    object result = command.ExecuteScalar();
-                    ultimoCodigo = result != DBNull.Value ? Convert.ToInt32(result) : 0;
-                }
-            }
+            LimpiarModal();
+
+            if (CmbFiltroColeccion.SelectedValue != null) CmbModalColeccion.SelectedValue = CmbFiltroColeccion.SelectedValue;
+            CmbModalCategoria.SelectedValue = RbLibroGuia.IsChecked == true ? 1 : 2;
+
+            ModalAgregar.Visibility = Visibility.Visible;
         }
 
-        private void ActualizarCodigosDesdeHasta()
+        private void BtnCancelar_Click(object sender, RoutedEventArgs e)
         {
-            if (int.TryParse(CantidadTextBox.Text, out int cantidad) && !string.IsNullOrEmpty(productoAbreviatura) && ultimoCodigo.HasValue)
-            {
-                int desde = ultimoCodigo.Value + 1;
-                int hasta = desde + cantidad - 1;
-                string prefijo = $"{productoAbreviatura}-"; // Ajusta esto según tu lógica de negocio
-                DesdeTextBox.Text = $"{prefijo}{desde:D7}";
-                HastaTextBox.Text = $"{prefijo}{hasta:D7}";
-            }
+            ModalAgregar.Visibility = Visibility.Collapsed;
         }
 
-        private void GuardarCodigos_Click(object sender, RoutedEventArgs e)
+        private void LimpiarModal()
         {
-            if (ValidarFormulario())
-            {
-                GuardarCodigos();
-                CargarCodigos();
-                ModalAgregarCodigo.Visibility = Visibility.Collapsed;
-            }
+            CmbProducto.SelectedIndex = -1;
+            CmbProducto.Text = string.Empty;
+            TxtCantidad.Text = string.Empty;
+            TxtDesde.Text = string.Empty;
+            TxtHasta.Text = string.Empty;
+            productoAbreviaturaActual = null;
+            ultimoCodigoActual = 0;
         }
 
-        private bool ValidarFormulario()
-        {
-            if (ProductoComboBox.SelectedItem == null ||
-                ModalColeccionComboBox.SelectedItem == null ||
-                CategoriaComboBox.SelectedItem == null ||
-                string.IsNullOrWhiteSpace(CantidadTextBox.Text) ||
-                string.IsNullOrWhiteSpace(DesdeTextBox.Text) ||
-                string.IsNullOrWhiteSpace(HastaTextBox.Text) ||
-                !int.TryParse(CantidadTextBox.Text, out _))
-            {
-                MessageBox.Show("Por favor, complete todos los campos correctamente antes de guardar.");
-                return false;
-            }
-            return true;
-        }
-
-        private void GuardarCodigos()
-        {
-            if (!ValidarFormulario()) return;
-
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                using (SqlTransaction transaction = connection.BeginTransaction())
-                {
-                    try
-                    {
-                        // Insertar en registro_codigos
-                        string queryRegistro = @"INSERT INTO registro_codigos 
-    (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id) 
-    OUTPUT INSERTED.ID
-    VALUES (@coleccionId, @productoId, @cantidad, @desde, @hasta, @categoriaId)";
-
-                        int registroId;
-                        using (SqlCommand command = new SqlCommand(queryRegistro, connection, transaction))
-                        {
-                            var selectedColeccion = (ComboBoxItem)ModalColeccionComboBox.SelectedItem;
-                            command.Parameters.AddWithValue("@coleccionId", (int)selectedColeccion.Tag);
-                            command.Parameters.AddWithValue("@productoId", ((ProductoItem)ProductoComboBox.SelectedItem).Id);
-                            command.Parameters.AddWithValue("@cantidad", Convert.ToInt32(CantidadTextBox.Text));
-                            command.Parameters.AddWithValue("@desde", DesdeTextBox.Text);
-                            command.Parameters.AddWithValue("@hasta", HastaTextBox.Text);
-                            command.Parameters.AddWithValue("@categoriaId", ((ComboBoxItem)CategoriaComboBox.SelectedItem).Tag);
-
-                            registroId = (int)command.ExecuteScalar();
-                        }
-
-                        // Insertar en codigos_creados
-                        string queryCodigosCreados = "INSERT INTO codigos_creados (registro_codigo_id, codigo) VALUES (@registroId, @codigo)";
-                        using (SqlCommand command = new SqlCommand(queryCodigosCreados, connection, transaction))
-                        {
-                            string desde = DesdeTextBox.Text;
-                            string hasta = HastaTextBox.Text;
-
-                            // Extraer la parte numérica del código
-                            string desdeNumerico = desde.Substring(desde.LastIndexOf('-') + 1);
-                            string hastaNumerico = hasta.Substring(hasta.LastIndexOf('-') + 1);
-
-                            int desdeInt = int.Parse(desdeNumerico);
-                            int hastaInt = int.Parse(hastaNumerico);
-
-                            string prefijo = desde.Substring(0, desde.LastIndexOf('-') + 1);
-
-                            for (int i = desdeInt; i <= hastaInt; i++)
-                            {
-                                string codigo = $"{prefijo}{i:D7}";
-                                command.Parameters.Clear();
-                                command.Parameters.AddWithValue("@registroId", registroId);
-                                command.Parameters.AddWithValue("@codigo", codigo);
-                                command.ExecuteNonQuery();
-                            }
-                        }
-
-                        transaction.Commit();
-                        MessageBox.Show("Códigos guardados exitosamente.");
-                        CargarCodigos();
-                        CerrarYLimpiarModal();
-                    }
-                    catch (Exception ex)
-                    {
-                        transaction.Rollback();
-                        MessageBox.Show($"Error al guardar los códigos: {ex.Message}");
-                    }
-                }
-            }
-        }
-
-        private void CerrarModal_Click(object sender, RoutedEventArgs e)
-        {
-            CerrarYLimpiarModal();
-        }
-
-        private void CerrarYLimpiarModal()
-        {
-            ModalAgregarCodigo.Visibility = Visibility.Collapsed;
-            LimpiarFormulario();
-            ProductoComboBox.ItemsSource = null;
-            ProductoComboBox.Items.Clear();
-            ProductoComboBox.Text = string.Empty;
-            ProductoComboBox.IsDropDownOpen = false;
-
-            // Recargar los productos después de un breve retraso
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                CargarProductos();
-                ProductoComboBox.ItemsSource = new ObservableCollection<ProductoItem>(productos);
-            }), System.Windows.Threading.DispatcherPriority.Background);
-        }
-
-        private void ProductoComboBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void CmbProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             searchTimer.Stop();
             searchTimer.Start();
@@ -357,134 +153,84 @@ namespace AplicativoDeAlmacen.Views
         private void SearchTimer_Tick(object? sender, EventArgs e)
         {
             searchTimer.Stop();
-            string searchText = ProductoComboBox.Text ?? string.Empty;
+            string search = CmbProducto.Text?.ToLower() ?? "";
 
-            if (string.IsNullOrWhiteSpace(searchText))
+            if (string.IsNullOrWhiteSpace(search))
             {
-                ProductoComboBox.ItemsSource = new ObservableCollection<ProductoItem>(productos);
+                CmbProducto.ItemsSource = productosTodos;
             }
             else
             {
-                var filteredItems = new ObservableCollection<ProductoItem>(
-                    productos.Where(p => p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase))
-                );
-                ProductoComboBox.ItemsSource = filteredItems;
+                var filtrados = productosTodos.Where(p => (p.Descripcion?.ToLower() ?? "").Contains(search));
+                CmbProducto.ItemsSource = new ObservableCollection<Producto>(filtrados);
             }
-
-            ProductoComboBox.IsDropDownOpen = true;
+            CmbProducto.IsDropDownOpen = true;
         }
 
-        private void ProductoComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void CmbProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (ProductoComboBox.SelectedItem is ProductoItem selectedProduct)
+            if (CmbProducto.SelectedItem is Producto prod)
             {
-                productoAbreviatura = selectedProduct.Abreviatura;
-                ObtenerUltimoCodigo(selectedProduct.Id);
-                ActualizarCodigosDesdeHasta();
-            }
-        }
-
-        private void CantidadTextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (int.TryParse(CantidadTextBox.Text, out int cantidad))
-            {
-                ActualizarCodigosDesdeHasta();
-            }
-        }
-
-        private void LimpiarFormulario()
-        {
-            ProductoComboBox.SelectedIndex = -1;
-            ProductoComboBox.Text = string.Empty;
-            ModalColeccionComboBox.SelectedIndex = -1;
-            CategoriaComboBox.SelectedIndex = -1;
-            CantidadTextBox.Clear();
-            DesdeTextBox.Clear();
-            HastaTextBox.Clear();
-        }
-
-        private void CargarCodigos()
-        {
-            codigos.Clear();
-            if (ColeccionComboBox.SelectedItem == null) return;
-
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                string query = @"SELECT rc.id AS registro_codigo_id, p.descripcion AS producto, um.descripcion AS unidad_medida,
-                                rc.cantidad, rc.desde, rc.hasta, cp.nombre AS categoria
-                         FROM registro_codigos rc
-                         JOIN productos p ON rc.producto_id = p.id
-                         JOIN unidad_medida um ON p.unidad_medida_id = um.id
-                         JOIN categoria_producto cp ON rc.categoria_producto_id = cp.id
-                         WHERE rc.coleccion_id = @coleccionId AND rc.categoria_producto_id = @categoriaId
-                         ORDER BY rc.desde";
-
-                using (SqlCommand command = new SqlCommand(query, connection))
+                productoAbreviaturaActual = prod.Abreviatura;
+                try
                 {
-                    command.Parameters.AddWithValue("@coleccionId", ((ComboBoxItem)ColeccionComboBox.SelectedItem).Tag);
-                    command.Parameters.AddWithValue("@categoriaId", esLibroGuia ? 1 : 2); // Asumiendo que 1 es Libro Guía y 2 es Libro Venta
-
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            codigos.Add(new CodigoRegistro
-                            {
-                                RegistroCodigoId = reader.GetInt32(0),
-                                Producto = reader.GetString(1),
-                                UnidadMedida = reader.GetString(2),
-                                Cantidad = reader.GetInt32(3),
-                                Desde = reader.GetString(4),
-                                Hasta = reader.GetString(5),
-                                Categoria = reader.GetString(6)
-                            });
-                        }
-                    }
+                    ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, prod.Abreviatura);
+                    CalcularRangos();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("No se pudo obtener el último código: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
+        }
 
-            if (codigos.Count == 0)
+        private void TxtCantidad_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            CalcularRangos();
+        }
+
+        private void CalcularRangos()
+        {
+            if (int.TryParse(TxtCantidad.Text, out int cantidad) && !string.IsNullOrEmpty(productoAbreviaturaActual))
             {
-                MessageBox.Show($"No hay códigos registrados para esta colección y tipo de libro ({(esLibroGuia ? "Libro Guía" : "Libro Venta")}).");
+                int desde = ultimoCodigoActual + 1;
+                int hasta = desde + cantidad - 1;
+                TxtDesde.Text = $"{productoAbreviaturaActual}-{desde:D7}";
+                TxtHasta.Text = $"{productoAbreviaturaActual}-{hasta:D7}";
+            }
+            else
+            {
+                TxtDesde.Text = "";
+                TxtHasta.Text = "";
             }
         }
 
-        public class CodigoRegistro
+        private async void BtnGuardar_Click(object sender, RoutedEventArgs e)
         {
-            public int RegistroCodigoId { get; set; }
-            public string? Producto { get; set; }
-            public string? UnidadMedida { get; set; }
-            public string? Categoria { get; set; }
-            public int Cantidad { get; set; }
-            public string? Desde { get; set; }
-            public string? Hasta { get; set; }
-        }
-
-        public class ProductoItem : INotifyPropertyChanged
-        {
-            public int Id { get; set; }
-            private string _descripcion = string.Empty;
-            public string Descripcion
+            if (CmbModalColeccion.SelectedValue == null || CmbModalCategoria.SelectedValue == null ||
+                CmbProducto.SelectedItem == null || string.IsNullOrWhiteSpace(TxtDesde.Text))
             {
-                get => _descripcion;
-                set
-                {
-                    if (_descripcion != value)
-                    {
-                        _descripcion = value;
-                        OnPropertyChanged(nameof(Descripcion));
-                    }
-                }
+                MessageBox.Show("Complete todos los campos correctamente.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
-            public string Abreviatura { get; set; } = string.Empty;
-            public string UnidadMedida { get; set; } = string.Empty;
 
-            public event PropertyChangedEventHandler? PropertyChanged;
-
-            protected virtual void OnPropertyChanged(string propertyName)
+            try
             {
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                int coleccionId = (int)CmbModalColeccion.SelectedValue;
+                int categoriaId = (int)CmbModalCategoria.SelectedValue;
+                int productoId = ((Producto)CmbProducto.SelectedItem).Id;
+                int cantidad = int.Parse(TxtCantidad.Text);
+
+                await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, TxtDesde.Text, TxtHasta.Text, categoriaId);
+
+                MessageBox.Show("Códigos generados y guardados con éxito en la base de datos.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                ModalAgregar.Visibility = Visibility.Collapsed;
+
+                Filtros_Changed(null, null); // Recargar Grid
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error Crítico en Base de Datos: " + ex.Message, "Rollback Ejecutado", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

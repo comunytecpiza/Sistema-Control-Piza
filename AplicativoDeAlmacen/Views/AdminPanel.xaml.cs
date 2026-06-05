@@ -113,8 +113,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
-            RegistroCodigosWindow registroCodigosWindow = new RegistroCodigosWindow();
-            registroCodigosWindow.Show();
+            //RegistroCodigosWindow registroCodigosWindow = new RegistroCodigosWindow();
+            //registroCodigosWindow.Show();
         }
 
         private void MenuItemIngresoProductos_Click(object obj, RoutedEventArgs e)
