@@ -107,8 +107,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)
         {
-            TitulosWindow titulosWindow = new TitulosWindow();
-            titulosWindow.Show();
+            //TitulosWindow titulosWindow = new TitulosWindow();
+            //titulosWindow.Show();
         }
 
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)

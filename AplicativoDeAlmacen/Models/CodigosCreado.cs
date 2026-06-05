@@ -14,4 +14,6 @@ public partial class CodigosCreado
     public string Codigo { get; set; }
 
     public int? EstadoId { get; set; }
+
+       
 }
