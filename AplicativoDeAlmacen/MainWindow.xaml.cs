@@ -4,168 +4,169 @@ using System.Windows.Controls;
 using System.Linq;
 using System.Data.SqlClient;
 using System.Windows.Input;
-using AplicativoDeAlmacen.Views;
-
+using System.Threading.Tasks;
+using System.Windows.Media;
+using AplicativoDeAlmacen.Data; // IMPORTANTE: Llama a tu ConfigManager
 
 namespace AplicativoDeAlmacen
 {
     public partial class MainWindow : Window
     {
-
-        private const string ConnectionString = @"Server=192.168.1.103;Database=EdicionesPizaControl;User Id=sa;Password=123456;TrustServerCertificate=True;";
         public MainWindow()
         {
             InitializeComponent();
-            TestDatabaseConnection();
+
+            // El sistema arranca limpio, sin overlays molestos
+            LoadingOverlay.Visibility = Visibility.Collapsed;
         }
 
-
-        private void TestDatabaseConnection()
+        // ==============================================================
+        // EL ATAJO SECRETO DE INGENIERÍA (Ctrl + Shift + Click Derecho)
+        // ==============================================================
+        private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            try
+            if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
             {
-                using (var conn = new SqlConnection(ConnectionString))
-                {
-                    conn.Open();
-                    MessageBox.Show("Conexión a la base de datos exitosa.");
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al conectar con la base de datos: {ex.Message}\n\nStack Trace: {ex.StackTrace}");
-            }
-        }
+                e.Handled = true; // Evita el menú contextual normal de Windows
 
-        private void UsernameTextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            UpdateNameFromUsername(UsernameTextBox.Text);
-        }
-
-        private void UpdateNameFromUsername(string username)
-        {
-            using (var conn = new SqlConnection(ConnectionString))
-            {
-                try
-                {
-                    conn.Open();
-                    var query = "SELECT nombres FROM usuarios WHERE username = @username";
-                    using (var cmd = new SqlCommand(query, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@username", username);
-                        var result = cmd.ExecuteScalar();
-                        NameTextBox.Text = result?.ToString() ?? "Usuario no encontrado";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error al buscar el nombre: {ex.Message}\n\nStack Trace: {ex.StackTrace}");
-                }
+                // Abre el modal secreto para configurar la IP de SQL Server
+                var configWindow = new ConfiguracionWindow();
+                configWindow.ShowDialog();
             }
         }
 
-        private void IngresarButton_Click(object sender, RoutedEventArgs e)
+        // ==============================================================
+        // LÓGICA DE LOGIN (Silenciosa y Discreta)
+        // ==============================================================
+        private async void IngresarButton_Click(object sender, RoutedEventArgs e)
         {
-            ValidateUserAndRedirect();
+            await ValidateUserAndRedirectAsync();
         }
 
-        private void ValidateUserAndRedirect()
+        private async Task ValidateUserAndRedirectAsync()
         {
             string username = UsernameTextBox.Text;
             string password = PasswordBox.Password;
 
             if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
             {
-                MessageBox.Show("Por favor, ingrese un nombre de usuario y contraseña.");
+                MessageBox.Show("Por favor, ingrese un usuario y contraseña.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            using (var conn = new SqlConnection(ConnectionString))
+            // 1. Validación Discreta: Si no hay archivo de configuración, nadie se entera de detalles técnicos.
+            if (!ConfigManager.ExisteConfiguracion())
             {
-                try
-                {
-                    conn.Open();
-                    var query = "SELECT password, nombres, rol_usuario_id FROM usuarios WHERE username = @username";
-                    using (var cmd = new SqlCommand(query, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@username", username);
-                        using (var reader = cmd.ExecuteReader())
-                        {
-                            if (reader.Read())
-                            {
-                                string? storedPassword = reader["password"]?.ToString();
-                                string? userNames = reader["nombres"]?.ToString();
-                                int rolUsuarioId = Convert.ToInt32(reader["rol_usuario_id"]);
+                MessageBox.Show("Error de red. Consulte con el administrador del sistema.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
 
-                                if (storedPassword != null && storedPassword == password)
+            // Si hay configuración, mostramos la carga limpia
+            LoadingOverlay.Visibility = Visibility.Visible;
+            LoadingText.Text = "Validando credenciales...";
+            LoadingSubText.Visibility = Visibility.Collapsed;
+            BtnReintentar.Visibility = Visibility.Collapsed;
+
+            try
+            {
+                string connString = ConfigManager.ObtenerCadenaConexion();
+
+                await Task.Run(() =>
+                {
+                    using (var conn = new SqlConnection(connString))
+                    {
+                        conn.Open();
+                        var query = "SELECT password, nombres, rol_usuario_id FROM usuarios WHERE username = @username";
+                        using (var cmd = new SqlCommand(query, conn))
+                        {
+                            cmd.Parameters.AddWithValue("@username", username);
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                if (reader.Read())
                                 {
-                                    if (!string.IsNullOrWhiteSpace(userNames))
+                                    string? storedPassword = reader["password"]?.ToString();
+                                    if (storedPassword == password)
                                     {
-                                        // EL SEMÁFORO DE ROLES
-                                        if (rolUsuarioId == 1) // Administrador
+                                        // Login Exitoso
+                                        Application.Current.Dispatcher.Invoke(() =>
                                         {
-                                            var adminPanel = new Views.AdminPanel(userNames, true);
-                                            adminPanel.Show();
+                                            int rolId = Convert.ToInt32(reader["rol_usuario_id"]);
+                                            string nombre = reader["nombres"]?.ToString() ?? "";
+
+                                            if (rolId == 1) new Views.AdminPanel(nombre, true).Show();
+                                            else if (rolId == 3) new Views.AlmacenPanel(nombre).Show();
+                                            else MessageBox.Show("Rol sin panel asignado.");
+
                                             this.Close();
-                                        }
-                                        else if (rolUsuarioId == 3) // Almacenero
-                                        {
-                                            var almacenPanel = new Views.AlmacenPanel(userNames);
-                                            almacenPanel.Show();
-                                            this.Close();
-                                        }
-                                        else
-                                        {
-                                            MessageBox.Show("Acceso denegado: Su rol no tiene un panel asignado en el sistema.");
-                                        }
+                                        });
                                     }
                                     else
                                     {
-                                        MessageBox.Show("Error: No se pudo obtener el nombre del usuario.");
+                                        Application.Current.Dispatcher.Invoke(() => MessageBox.Show("Contraseña incorrecta.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning));
                                     }
                                 }
                                 else
                                 {
-                                    MessageBox.Show("Contraseña incorrecta.");
+                                    Application.Current.Dispatcher.Invoke(() => MessageBox.Show("Usuario no encontrado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning));
                                 }
-                            }
-                            else
-                            {
-                                MessageBox.Show($"Usuario '{username}' no encontrado.");
                             }
                         }
                     }
-                }
-                catch (Exception ex)
+                });
+            }
+            catch (Exception)
+            {
+                // Si la DB falla (Internet caído, etc), mostramos mensaje corporativo
+                MessageBox.Show("No se pudo conectar al servidor. Verifique su red o contacte a soporte TI.", "Error de Conexión", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                // Pase lo que pase, quitamos la pantalla de carga
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private async void UsernameTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // Solo busca el nombre si el archivo de config ya existe
+            if (ConfigManager.ExisteConfiguracion() && !string.IsNullOrWhiteSpace(UsernameTextBox.Text))
+            {
+                string user = UsernameTextBox.Text;
+                string connString = "";
+                try { connString = ConfigManager.ObtenerCadenaConexion(); } catch { return; }
+
+                try
                 {
-                    MessageBox.Show($"Error al validar usuario: {ex.Message}");
+                    await Task.Run(() =>
+                    {
+                        using (var conn = new SqlConnection(connString))
+                        {
+                            conn.Open();
+                            using (var cmd = new SqlCommand("SELECT nombres FROM usuarios WHERE username = @username", conn))
+                            {
+                                cmd.Parameters.AddWithValue("@username", user);
+                                var result = cmd.ExecuteScalar();
+                                Application.Current.Dispatcher.Invoke(() => NameTextBox.Text = result?.ToString() ?? "");
+                            }
+                        }
+                    });
                 }
+                catch { /* Falla silenciosa mientras tipea para no congelar la UI */ }
+            }
+            else
+            {
+                NameTextBox.Text = "";
             }
         }
 
         private void UsernameTextBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter)
-            {
-                UpdateNameFromUsername(UsernameTextBox.Text);
-                PasswordBox.Focus();
-            }
+            if (e.Key == Key.Enter) PasswordBox.Focus();
         }
 
-        private void PasswordBox_KeyDown(object sender, KeyEventArgs e)
+        private async void PasswordBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter)
-            {
-                ValidateUserAndRedirect();
-            }
-        }
-
-        private void MediaElement_MediaEnded(object sender, RoutedEventArgs e)
-        {
-            if (sender is MediaElement mediaElement)
-            {
-                mediaElement.Position = TimeSpan.Zero;
-                mediaElement.Play();
-            }
+            if (e.Key == Key.Enter) await ValidateUserAndRedirectAsync();
         }
 
         private void ShowPassword_Click(object sender, RoutedEventArgs e)
@@ -211,6 +212,15 @@ namespace AplicativoDeAlmacen
             int index = panel.Children.IndexOf(oldElement);
             panel.Children.Remove(oldElement);
             panel.Children.Insert(index, newElement);
+        }
+
+        // Mantenemos este evento vacío en caso de que tu XAML aún tenga el Loaded puesto
+        private void Window_Loaded(object sender, RoutedEventArgs e) { }
+
+        // Mantenemos este evento por si tu XAML aún tiene el Click del botón
+        private void BtnReintentar_Click(object sender, RoutedEventArgs e)
+        {
+            LoadingOverlay.Visibility = Visibility.Collapsed;
         }
     }
 }

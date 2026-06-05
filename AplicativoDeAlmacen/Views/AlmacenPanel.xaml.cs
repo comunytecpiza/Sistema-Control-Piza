@@ -170,7 +170,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
         {
-            // AbrirPestaña("📚 Colecciones", new ColeccionesUserControl()); 
+             AbrirPestaña("📚 Colecciones", new ColeccionesUserControl()); 
         }
 
         private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)

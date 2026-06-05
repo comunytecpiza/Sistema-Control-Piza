@@ -1,54 +1,94 @@
 ﻿using System;
 using System.Collections.ObjectModel;
-using System.Data.SqlClient;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Models.Models;
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class ColeccionesWindow : Window
+    public partial class ColeccionesUserControl : UserControl
     {
+        private readonly ColeccionService _coleccionService;
         private ObservableCollection<Coleccion> colecciones = new ObservableCollection<Coleccion>();
-        private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
-        public ColeccionesWindow()
+
+        public ColeccionesUserControl()
         {
             InitializeComponent();
-            CargarColecciones();
-            ColeccionesDataGrid.ItemsSource = colecciones;
+            _coleccionService = new ColeccionService();
+            _ = InicializarPantallaAsync();
         }
 
-        private void CargarColecciones()
+        private async Task InicializarPantallaAsync()
         {
-            colecciones.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            await CargarEstadosAsync();
+            await CargarColeccionesAsync();
+        }
+
+        private async Task CargarEstadosAsync()
+        {
+            try
             {
-                connection.Open();
-                string query = "SELECT c.id, c.ano, e.nombre as estado FROM colecciones c INNER JOIN estados e ON c.estado_id = e.id ORDER BY c.ano DESC";
-                using (SqlCommand command = new SqlCommand(query, connection))
+                var estados = await _coleccionService.ObtenerEstadosAsync();
+                EstadoComboBox.ItemsSource = estados;
+                EstadoComboBox.DisplayMemberPath = "Nombre";
+                EstadoComboBox.SelectedValuePath = "Id";
+
+                // Seleccionamos el primero por defecto (que gracias a tu SQL será "Activo")
+                if (estados.Any())
                 {
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            colecciones.Add(new Coleccion
-                            {
-                                Id = reader.GetInt32(0),
-                                Ano = reader.GetInt32(1),
-                                Estado = reader.GetString(2)
-                            });
-                        }
-                    }
+                    EstadoComboBox.SelectedIndex = 0;
                 }
             }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al cargar estados: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task CargarColeccionesAsync()
+        {
+            try
+            {
+                colecciones.Clear();
+                var listaDb = await _coleccionService.ObtenerTodosAsync();
+
+                foreach (var item in listaDb)
+                {
+                    colecciones.Add(item);
+                }
+
+                ColeccionesDataGrid.ItemsSource = colecciones;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al cargar las colecciones: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BuscarTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string busqueda = BuscarTextBox.Text.ToLower();
+            var filtradas = colecciones.Where(c =>
+                c.Ano.ToString().Contains(busqueda) ||
+                (c.Estado?.Nombre?.ToLower() ?? "").Contains(busqueda) ||
+                c.Id.ToString().Contains(busqueda)
+            );
+            ColeccionesDataGrid.ItemsSource = new ObservableCollection<Coleccion>(filtradas);
         }
 
         private void AgregarColeccion_Click(object sender, RoutedEventArgs e)
         {
             int siguienteAno;
-            if (colecciones.Any())
+
+            // Verificamos si hay colecciones que SÍ tengan un año asignado (no nulo)
+            if (colecciones.Any(c => c.Ano.HasValue))
             {
-                siguienteAno = colecciones.Min(c => c.Ano);
+                // Obtenemos el año mínimo asegurándonos de extraer el valor exacto (.Value)
+                siguienteAno = colecciones.Where(c => c.Ano.HasValue).Min(c => c.Ano.Value);
+
                 while (colecciones.Any(c => c.Ano == siguienteAno))
                 {
                     siguienteAno++;
@@ -56,76 +96,49 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
+                // Si la lista está vacía o todas tienen el año nulo, usamos el año actual
                 siguienteAno = DateTime.Now.Year;
             }
+
             AnoTextBox.Text = siguienteAno.ToString();
-            CargarEstados();
+
+            if (EstadoComboBox.Items.Count > 0)
+                EstadoComboBox.SelectedIndex = 0;
+
             ModalBackground.Visibility = Visibility.Visible;
         }
-
-        private void CargarEstados()
+        private async void Agregar_Click(object sender, RoutedEventArgs e)
         {
-            EstadoComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                string query = "SELECT id, nombre FROM estados ORDER BY CASE WHEN nombre = 'Activo' THEN 0 ELSE 1 END, nombre";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                {
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            ComboBoxItem item = new ComboBoxItem
-                            {
-                                Content = reader.GetString(1),
-                                Tag = reader.GetInt32(0)
-                            };
-                            EstadoComboBox.Items.Add(item);
-
-                            // Si es el estado "Activo", seleccionarlo por defecto
-                            if (reader.GetString(1) == "Activo")
-                            {
-                                EstadoComboBox.SelectedItem = item;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Si no se encontró el estado "Activo", seleccionar el primer elemento
-            if (EstadoComboBox.SelectedItem == null && EstadoComboBox.Items.Count > 0)
-            {
-                EstadoComboBox.SelectedIndex = 0;
-            }
-        }
-        private void Agregar_Click(object sender, RoutedEventArgs e)
-        {
-            if (int.TryParse(AnoTextBox.Text, out int ano) && EstadoComboBox.SelectedItem is ComboBoxItem selectedEstado)
+            if (int.TryParse(AnoTextBox.Text, out int ano) && EstadoComboBox.SelectedValue is int estadoId)
             {
                 if (colecciones.Any(c => c.Ano == ano))
                 {
-                    MessageBox.Show($"Ya existe una colección para el año {ano}.");
+                    MessageBox.Show($"Ya existe una colección para el año {ano}.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
-                using (SqlConnection connection = new SqlConnection(connectionString))
+                try
                 {
-                    connection.Open();
-                    string query = "INSERT INTO colecciones (ano, estado_id) VALUES (@ano, @estadoId)";
-                    using (SqlCommand command = new SqlCommand(query, connection))
+                    var nuevaColeccion = new Coleccion
                     {
-                        command.Parameters.AddWithValue("@ano", ano);
-                        command.Parameters.AddWithValue("@estadoId", (int)selectedEstado.Tag);
-                        command.ExecuteNonQuery();
-                    }
+                        Ano = ano,
+                        EstadoId = estadoId
+                    };
+
+                    await _coleccionService.InsertarAsync(nuevaColeccion);
+                    MessageBox.Show("Colección agregada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    ModalBackground.Visibility = Visibility.Collapsed;
+                    await CargarColeccionesAsync();
                 }
-                CargarColecciones();
-                ModalBackground.Visibility = Visibility.Collapsed;
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error al guardar: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
             else
             {
-                MessageBox.Show("Por favor, ingrese un año válido y seleccione un estado.");
+                MessageBox.Show("Por favor, ingrese un año válido y seleccione un estado.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -133,12 +146,5 @@ namespace AplicativoDeAlmacen.Views
         {
             ModalBackground.Visibility = Visibility.Collapsed;
         }
-    }
-
-    public class Coleccion
-    {
-        public int Id { get; set; }
-        public int Ano { get; set; }
-        public string? Estado { get; set; }
     }
 }

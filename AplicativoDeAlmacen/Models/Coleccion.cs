@@ -12,4 +12,6 @@ public partial class Coleccion
     public int EstadoId { get; set; }
 
     public int? Ano { get; set; }
+
+    public Estado Estado { get; set; } = new Estado();
 }
