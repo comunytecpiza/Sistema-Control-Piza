@@ -14,4 +14,6 @@ public partial class UnidadMedida
     public string Abreviatura { get; set; }
 
     public int EstadoId { get; set; }
+
+    public Estado Estado { get; set; }
 }
