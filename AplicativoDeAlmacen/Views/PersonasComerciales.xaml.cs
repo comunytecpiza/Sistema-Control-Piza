@@ -39,15 +39,17 @@ namespace AplicativoDeAlmacen.Views
         public PersonasComercialesWindow()
         {
             InitializeComponent();
-            LoadData();
+         
             _service = new PersonaComercialService();
+            LoadPersonas();
+            LoadData();
             PersonasDataGrid.ItemsSource = personas;
             currentPersona = new PersonaComercial();
         }
 
         private void LoadData()
         {
-            LoadPersonas();
+          
             LoadTipoPersonas();
             LoadDepartamentos();
            // LoadLocalidades();

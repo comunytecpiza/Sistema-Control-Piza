@@ -15,12 +15,10 @@ namespace AplicativoDeAlmacen.Services
     public class PersonaComercialService
     {
         private readonly DatabaseConnection _database;
-
         public PersonaComercialService()
         {
             _database = new DatabaseConnection();
         }
-
 
         public async Task<List<PersonaComercial>> ObtenerTodosAsync()
         {
@@ -51,96 +49,52 @@ namespace AplicativoDeAlmacen.Services
             using var cmd = new SqlCommand(query, conn);
             using var reader = await cmd.ExecuteReaderAsync();
 
-            while (await reader.ReadAsync())
+
+            while (reader.Read())
             {
-                lista.Add(new PersonaComercial
+                var persona = new PersonaComercial
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
+                    TipoPersona = reader["tipo_persona"] as string,
+                    Nombres = reader["nombres"] as string,
+                    ApellidoPaterno = reader["apellido_paterno"] as string,
+                    ApellidoMaterno = reader["apellido_materno"] as string,
+                    RazonSocial = reader["razon_social"] as string,
+                    NombreComercial = reader["nombre_comercial"] as string,
+                    Ruc = reader["ruc"] as string,
+                    Dni = reader["dni"] as string,
+                    Direccion = reader["direccion"] as string
+                };
 
-                    TipoPersona = reader.IsDBNull(reader.GetOrdinal("tipo_persona"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("tipo_persona")),
+                persona.Localidad = new Localidad
+                {
+                    Nombre = reader["localidad"] as string
+                };
 
-                    Nombres = reader.IsDBNull(reader.GetOrdinal("nombres"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("nombres")),
+                persona.Departamento = new Departamento
+                {
+                    Nombre = reader["departamento"] as string
+                };
 
-                    ApellidoPaterno = reader.IsDBNull(reader.GetOrdinal("apellido_paterno"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("apellido_paterno")),
+                persona.Provincia = new Provincia
+                {
+                    Nombre = reader["provincia"] as string
+                };
 
-                    ApellidoMaterno = reader.IsDBNull(reader.GetOrdinal("apellido_materno"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("apellido_materno")),
+                persona.Distrito = new Distrito
+                {
+                    Nombre = reader["distrito"] as string
+                };
 
-                    RazonSocial = reader.IsDBNull(reader.GetOrdinal("razon_social"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("razon_social")),
+                persona.ZonaPromotoria = new ZonaPromotoria
+                {
+                    Descripcion = reader["zona_promotoria"] as string
+                };
 
-                    NombreComercial = reader.IsDBNull(reader.GetOrdinal("nombre_comercial"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("nombre_comercial")),
-
-                    Ruc = reader.IsDBNull(reader.GetOrdinal("ruc"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("ruc")),
-
-                    Dni = reader.IsDBNull(reader.GetOrdinal("dni"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("dni")),
-
-                    Direccion = reader.IsDBNull(reader.GetOrdinal("direccion"))
-                        ? null
-                        : reader.GetString(reader.GetOrdinal("direccion")),
-
-                    Localidad = reader.IsDBNull(reader.GetOrdinal("localidad_id"))
-                        ? null
-                        : new Localidad()
-                        {
-                            Id = reader.GetInt32(reader.GetOrdinal("localidad_id")),
-                            Nombre = reader.GetString(reader.GetOrdinal("localidad"))
-                        },
-
-                    Departamento = reader.IsDBNull(reader.GetOrdinal("departamento_id"))
-                        ? null
-                        : new Departamento ()
-                        {
-                            Id = reader.GetInt32(reader.GetOrdinal("departamento_id")),
-                            Nombre = reader.GetString(reader.GetOrdinal("departamento"))
-                        },
-
-                    Provincia = reader.IsDBNull(reader.GetOrdinal("provincia_id"))
-                        ? null
-                        : new Provincia()
-                        {
-                            Id = reader.GetInt32(reader.GetOrdinal("provincia_id")),
-                            Nombre = reader.GetString(reader.GetOrdinal("provincia"))
-                        },
-
-                    Distrito = reader.IsDBNull(reader.GetOrdinal("distrito_id"))
-                        ? null
-                        : new Distrito()
-                        {
-                            Id = reader.GetInt32(reader.GetOrdinal("distrito_id")),
-                            Nombre = reader.GetString(reader.GetOrdinal("distrito"))
-                        },
-
-                    ZonaPromotoria = reader.IsDBNull(reader.GetOrdinal("zona_promotoria_id"))
-                        ? null
-                        : new ZonaPromotoria
-                        {
-                            Id = reader.GetInt32(reader.GetOrdinal("zona_promotoria_id")),
-                            Descripcion = reader.GetString(reader.GetOrdinal("zona_promotoria"))
-                        },
-
-                    Estado = reader.IsDBNull(reader.GetOrdinal("estado_id"))
-                        ? null
-                        : new Estado
-                        {
-                            Id = reader.GetInt32(reader.GetOrdinal("estado_id")),
-                            Nombre = reader.GetString(reader.GetOrdinal("estado"))
-                        }
-                });
+                persona.Estado = new Estado
+                {
+                    Nombre = reader["estado"] as string
+                };
             }
 
             return lista;

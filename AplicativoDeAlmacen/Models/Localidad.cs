@@ -11,5 +11,5 @@ public partial class Localidad
 
     public string Nombre { get; set; }
 
-    public int EstadoId { get; set; }
+    public Estado Estado { get; set; }
 }
