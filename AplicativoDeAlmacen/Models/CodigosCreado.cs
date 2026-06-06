@@ -5,13 +5,6 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class CodigosCreado
+public partial class RegistroCodigo
 {
-    public int Id { get; set; }
-
-    public int RegistroCodigoId { get; set; }
-
-    public string Codigo { get; set; }
-
-    public int? EstadoId { get; set; }
 }

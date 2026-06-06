@@ -47,15 +47,7 @@ namespace AplicativoDeAlmacen.Views
             Close();
         }
 
-        // =========================================================
-        // MOTOR DE PESTAÑAS (MDI NATIVO)
-        // =========================================================
-        // =========================================================
-        // MOTOR DE PESTAÑAS (MDI NATIVO CON DESVINCULACIÓN)
-        // =========================================================
-        // =========================================================
-        // MOTOR DE PESTAÑAS (DISEÑO PULIDO)
-        // =========================================================
+        
         private void AbrirPestaña(string titulo, UserControl contenido)
         {
             foreach (TabItem tab in MainTabControl.Items)
@@ -175,12 +167,12 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)
         {
-            // AbrirPestaña("🏷️ Títulos", new TitulosUserControl()); 
+             AbrirPestaña("🏷️ Títulos", new TitulosUserControl()); 
         }
 
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
-            // AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl()); 
+             AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl()); 
         }
 
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)

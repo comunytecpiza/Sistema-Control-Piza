@@ -11,5 +11,6 @@ public partial class TituloCurso
 
     public string Nombre { get; set; }
 
-    public int EstadoId { get; set; }
+    public int? EstadoId { get; set; }
+    public Estado Estado { get; set; } = new Estado();
 }

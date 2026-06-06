@@ -8,16 +8,14 @@ namespace AplicativoDeAlmacen.Models.Models;
 public partial class RegistroCodigo
 {
     public int Id { get; set; }
-
     public int ColeccionId { get; set; }
-
+    public int ProductoId { get; set; }
     public int Cantidad { get; set; }
-
     public string Desde { get; set; }
-
     public string Hasta { get; set; }
+    public int CategoriaProductoId { get; set; }
 
-    public int? CategoriaProductoId { get; set; }
-
-    public int? ProductoId { get; set; }
+    // Objetos anidados para la vista
+    public Producto Producto { get; set; } = new Producto();
+    public CategoriaProducto CategoriaProducto { get; set; } = new CategoriaProducto();
 }
