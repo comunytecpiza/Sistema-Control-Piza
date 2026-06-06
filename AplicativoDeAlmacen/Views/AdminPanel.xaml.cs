@@ -1,12 +1,14 @@
 ﻿#nullable enable
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using System.Globalization;
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class AdminPanel : Window
+    // IMPORTANTE: Le agregamos la interfaz IMainWindow al lado de Window
+    public partial class AdminPanel : Window, IMainWindow
     {
         private readonly bool isAdmin;
 
@@ -54,73 +56,116 @@ namespace AplicativoDeAlmacen.Views
             DateTimeTextBlock.Text = formattedDate;
         }
 
+        // ==============================================================
+        // MOTOR DE PESTAÑAS (IMPLEMENTACIÓN DE IMAINWINDOW)
+        // ==============================================================
+        public void AbrirPestaña(string titulo, UserControl contenido)
+        {
+            // 1. Evitar duplicados: Si la pestaña ya está abierta, la enfocamos
+            foreach (TabItem tab in MainTabControl.Items)
+            {
+                if (tab.Header != null && tab.Header.ToString() == titulo)
+                {
+                    MainTabControl.SelectedItem = tab;
+                    return;
+                }
+            }
+
+            // 2. Crear nueva pestaña
+            var nuevoTab = new TabItem
+            {
+                Header = titulo,
+                Content = contenido
+            };
+
+            MainTabControl.Items.Add(nuevoTab);
+            MainTabControl.SelectedItem = nuevoTab;
+        }
+
+        private void BtnCloseTab_Click(object sender, RoutedEventArgs e)
+        {
+            // Lógica para cerrar la pestaña cuando se hace clic en la "X"
+            if (sender is Button btn && btn.TemplatedParent is TabItem tabItem)
+            {
+                // Protegemos la pestaña de Inicio para que no se pueda cerrar por accidente
+                if (tabItem.Name != "TabInicio")
+                {
+                    MainTabControl.Items.Remove(tabItem);
+                }
+            }
+        }
+
+        // ==============================================================
+        // EVENTOS DE BOTONES Y MENÚ
+        // ==============================================================
+
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
-            new MainWindow().Show();
-            Close();
+            if (MessageBox.Show("¿Está seguro que desea cerrar sesión?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                new MainWindow().Show();
+                Close();
+            }
         }
 
         private void BtnAgregarUsuario_Click(object sender, RoutedEventArgs e)
         {
-            new UserWindow().Show();
+            // new UserWindow().Show();
+            MessageBox.Show("Módulo de usuarios en construcción.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
+        // --- Módulos Antiguos (Aún abren en ventanas flotantes) ---
         private void MenuItemLocalidades_Click(object sender, RoutedEventArgs e)
         {
-            new LocalidadesWindow().Show();
+            // new LocalidadesWindow().Show();
         }
 
         private void MenuItemZonasPromotoria_Click(object sender, RoutedEventArgs e)
         {
-            ZonasPromotoriaWindow zonasWindow = new ZonasPromotoriaWindow();
-            zonasWindow.Show();
+            // new ZonasPromotoriaWindow().Show();
         }
 
         private void MenuItemUbicaciones_Click(object sender, RoutedEventArgs e)
         {
-            UbicacionesWindow ubicacionesWindow = new UbicacionesWindow();
-            ubicacionesWindow.Show();
-        }
-
-        private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
-        {
-            ProductosUserControl productosWindow = new ProductosUserControl();
-            // new ProductosWindow().Show();
-        }
-
-        private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
-        {
-            //new UnidadesMedidaWindow().Show();
+            // new UbicacionesWindow().Show();
         }
 
         private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)
         {
-            PersonasComercialesWindow personasComercialesWindow = new PersonasComercialesWindow();
-            personasComercialesWindow.Show();
+             new PersonasComercialesWindow().Show();
+        }
+
+        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
+        {
+            // new IngresoProductosWindow().Show();
+        }
+
+
+        // --- Módulos Modernizados (Ahora abren como Pestañas Integradas) ---
+
+        private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("📦 Productos", new ProductosUserControl());
+        }
+
+        private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl());
         }
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
         {
-           // ColeccionesWindow coleccionesWindow = new ColeccionesWindow();
-            //coleccionesWindow.Show();
+            AbrirPestaña("📚 Colecciones", new ColeccionesUserControl());
         }
 
         private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)
         {
-            //TitulosWindow titulosWindow = new TitulosWindow();
-            //titulosWindow.Show();
+            AbrirPestaña("🏷️ Títulos", new TitulosUserControl());
         }
 
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
-            //RegistroCodigosWindow registroCodigosWindow = new RegistroCodigosWindow();
-            //registroCodigosWindow.Show();
-        }
-
-        private void MenuItemIngresoProductos_Click(object obj, RoutedEventArgs e)
-        {
-            IngresoProductosWindow ingresoProductosWindow = new IngresoProductosWindow();
-            ingresoProductosWindow.Show();
+            AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
         }
     }
 }

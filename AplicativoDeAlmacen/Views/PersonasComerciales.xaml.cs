@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Threading.Tasks;
+using AplicativoDeAlmacen.Data;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -28,12 +29,11 @@ namespace AplicativoDeAlmacen.Views
 
     public partial class PersonasComercialesWindow : Window
     {
-        private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
-        
-        private ObservableCollection<PersonaComercial> personas = new ObservableCollection<PersonaComercial>();
-        private PersonaComercial currentPersona;
-        private bool isEditing = false;
+        private string connectionString => ConfigManager.ObtenerCadenaConexion();
 
+        private ObservableCollection<PersonaComercial> personas = new ObservableCollection<PersonaComercial>();
+        private PersonaComercial? currentPersona;
+        private bool isEditing = false;
         private readonly PersonaComercialService _service;
 
         public PersonasComercialesWindow()
@@ -44,17 +44,18 @@ namespace AplicativoDeAlmacen.Views
 
             PersonasDataGrid.ItemsSource = personas;
 
-            Loaded += async (s, e) =>
-            {
-                await LoadPersonas();
-            };
+            Loaded += async (s, e) => await InicializarVentana();
             LoadData();
 
 
             PersonasDataGrid.ItemsSource = personas;
             currentPersona = new PersonaComercial();
         }
-
+        private async Task InicializarVentana()
+        {
+            LoadData();
+            await LoadPersonas();
+        }
         private void LoadData()
         {
           
@@ -126,24 +127,14 @@ namespace AplicativoDeAlmacen.Views
         private void LoadTipoPersonas()
         {
             TipoPersonaComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            using SqlConnection conn = new SqlConnection(connectionString);
+            conn.Open();
+            string query = "SELECT id, nombre FROM tipo_persona";
+            using SqlCommand cmd = new SqlCommand(query, conn);
+            using SqlDataReader reader = cmd.ExecuteReader();
+            while (reader.Read())
             {
-                connection.Open();
-                string query = "SELECT id, nombre FROM tipo_persona";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                {
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            TipoPersonaComboBox.Items.Add(new ComboBoxItem
-                            {
-                                Content = reader.GetString(1),
-                                Tag = reader.GetInt32(0)
-                            });
-                        }
-                    }
-                }
+                TipoPersonaComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
             }
         }
 

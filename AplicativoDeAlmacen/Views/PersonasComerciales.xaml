@@ -179,7 +179,6 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="20"/>
-                                <!-- Espaciador Central -->
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
@@ -194,100 +193,80 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Fila 1 -->
-                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
-                                <TextBlock Text="Tipo de Persona" Style="{StaticResource FormLabelStyle}"/>
+                            <StackPanel Grid.Row="0" Grid.Column="0">
+                                <TextBlock Text="Tipo Persona" Style="{StaticResource FormLabelStyle}"/>
                                 <ComboBox x:Name="TipoPersonaComboBox" SelectionChanged="TipoPersonaComboBox_SelectionChanged"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="0" Grid.Column="2">
                                 <TextBlock Text="Razón Social" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="RazonSocialTextBox" IsReadOnly="{Binding ElementName=TipoPersonaComboBox, Path=SelectedItem.Content, Converter={StaticResource TipoPersonaToIsReadOnlyConverter}}"/>
+                                <TextBox x:Name="RazonSocialTextBox"/>
                             </StackPanel>
 
-                            <!-- Fila 2 -->
-                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
-                                <TextBlock Text="Apellido Paterno" Style="{StaticResource FormLabelStyle}"/>
+                            <StackPanel Grid.Row="1" Grid.Column="0">
+                                <TextBlock Text="Ap. Paterno" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="ApellidoPaternoTextBox"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,12">
-                                <TextBlock Text="Apellido Materno" Style="{StaticResource FormLabelStyle}"/>
+                            <StackPanel Grid.Row="1" Grid.Column="2">
+                                <TextBlock Text="Ap. Materno" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="ApellidoMaternoTextBox"/>
                             </StackPanel>
 
-                            <!-- Fila 3 -->
-                            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,12">
-                                <TextBlock Text="Nombre(s)" Style="{StaticResource FormLabelStyle}"/>
+                            <StackPanel Grid.Row="2" Grid.Column="0">
+                                <TextBlock Text="Nombres" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="NombresTextBox"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="2" Grid.Column="2">
                                 <TextBlock Text="Nombre Comercial" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="NombreComercialTextBox"/>
                             </StackPanel>
 
-                            <!-- Fila 4 -->
-                            <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="3" Grid.Column="0">
                                 <TextBlock Text="R.U.C." Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="RucTextBox" MaxLength="11"/>
+                                <TextBox x:Name="RucTextBox"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="3" Grid.Column="2">
                                 <TextBlock Text="D.N.I." Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="DniTextBox" MaxLength="8"/>
+                                <TextBox x:Name="DniTextBox"/>
                             </StackPanel>
 
-                            <!-- Fila 5: Checkboxes -->
-                            <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,5,0,15">
-                                <CheckBox x:Name="DireccionFiscalCheckBox" Content="Dirección Fiscal" Checked="DireccionFiscalCheckBox_Checked" Unchecked="DireccionFiscalCheckBox_Unchecked" FontWeight="Medium"/>
+                            <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Horizontal" Margin="0,5">
+                                <CheckBox x:Name="DireccionFiscalCheckBox" Content="Dirección Fiscal" Checked="DireccionFiscalCheckBox_Checked" Unchecked="DireccionFiscalCheckBox_Unchecked"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal" Margin="0,5">
+                                <CheckBox x:Name="InstitucionEducativaCheckBox" Content="Inst. Educativa" Checked="InstitucionEducativaCheckBox_Checked" Unchecked="InstitucionEducativaCheckBox_Unchecked"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,5,0,15">
-                                <CheckBox x:Name="InstitucionEducativaCheckBox" Content="Institución Educativa" Checked="InstitucionEducativaCheckBox_Checked" Unchecked="InstitucionEducativaCheckBox_Unchecked" FontWeight="Medium"/>
+                            <StackPanel Grid.Row="5" Grid.ColumnSpan="3">
+                                <TextBlock Text="Dirección" Style="{StaticResource FormLabelStyle}"/>
+                                <TextBox x:Name="DireccionTextBox"/>
                             </StackPanel>
 
-                            <!-- Fila 6 -->
-                            <Grid Grid.Row="5" Grid.ColumnSpan="3" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="Dirección" Style="{StaticResource FormLabelStyle}"/>
-                                    <TextBox x:Name="DireccionTextBox" IsEnabled="False"/>
-                                </StackPanel>
-                            </Grid>
-
-                            <!-- Fila 7 -->
-                            <StackPanel Grid.Row="6" Grid.Column="0" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="6" Grid.Column="0">
                                 <TextBlock Text="Departamento" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="DepartamentoComboBox" IsEnabled="False" SelectionChanged="DepartamentoComboBox_SelectionChanged"/>
+                                <ComboBox x:Name="DepartamentoComboBox" SelectionChanged="DepartamentoComboBox_SelectionChanged"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="6" Grid.Column="2" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="6" Grid.Column="2">
                                 <TextBlock Text="Provincia" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="ProvinciaComboBox" IsEnabled="False" SelectionChanged="ProvinciaComboBox_SelectionChanged"/>
+                                <ComboBox x:Name="ProvinciaComboBox" SelectionChanged="ProvinciaComboBox_SelectionChanged"/>
                             </StackPanel>
 
-                            <!-- Fila 8 -->
-                            <StackPanel Grid.Row="7" Grid.Column="0" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="7" Grid.Column="0">
                                 <TextBlock Text="Distrito" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="DistritoComboBox" IsEnabled="False"/>
+                                <ComboBox x:Name="DistritoComboBox"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="7" Grid.Column="2" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="7" Grid.Column="2">
                                 <TextBlock Text="Localidad" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="LocalidadComboBox" IsEnabled="False" SelectionChanged="LocalidadComboBox_SelectionChanged"/>
+                                <ComboBox x:Name="LocalidadComboBox"/>
                             </StackPanel>
 
-                            <!-- Fila 9 -->
-                            <StackPanel Grid.Row="8" Grid.Column="0" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="8" Grid.Column="0">
                                 <TextBlock Text="Zona Promotoria" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="ZonaPromotoriaComboBox" IsEnabled="False"/>
+                                <ComboBox x:Name="ZonaPromotoriaComboBox"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Row="8" Grid.Column="2" Margin="0,0,0,12">
+                            <StackPanel Grid.Row="8" Grid.Column="2">
                                 <TextBlock Text="Estado" Style="{StaticResource FormLabelStyle}"/>
                                 <ComboBox x:Name="EstadoComboBox"/>
                             </StackPanel>
-
                         </Grid>
                     </ScrollViewer>
 

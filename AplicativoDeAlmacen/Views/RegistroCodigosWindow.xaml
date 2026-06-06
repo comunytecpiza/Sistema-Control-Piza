@@ -85,6 +85,14 @@
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
                       Background="Transparent" BorderThickness="0" 
                       RowHeight="35" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
+
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <EventSetter Event="MouseDoubleClick" Handler="DataGridRow_MouseDoubleClick"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                    </Style>
+                </DataGrid.RowStyle>
+
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="#F9FAFB"/>
@@ -101,6 +109,16 @@
                     <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="80"/>
                     <DataGridTextColumn Header="Desde" Binding="{Binding Desde}" Width="140"/>
                     <DataGridTextColumn Header="Hasta" Binding="{Binding Hasta}" Width="140"/>
+
+                    <DataGridTemplateColumn Header="Acciones" Width="100">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="👁️ Detalle" Click="BtnVerDetalle_Click" Background="#3B82F6" 
+                                        Foreground="White" FontWeight="Bold" Padding="8,2" Margin="2" Cursor="Hand"
+                                        BorderThickness="0"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>

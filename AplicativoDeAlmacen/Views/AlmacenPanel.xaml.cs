@@ -8,7 +8,8 @@ using System.Windows.Media;
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class AlmacenPanel : Window
+    // IMPORTANTE: Agregamos IMainWindow aquí
+    public partial class AlmacenPanel : Window, IMainWindow
     {
         public AlmacenPanel(string userNames)
         {
@@ -47,8 +48,10 @@ namespace AplicativoDeAlmacen.Views
             Close();
         }
 
-        
-        private void AbrirPestaña(string titulo, UserControl contenido)
+        // =========================================================
+        // MOTOR DE PESTAÑAS (CUMPLE CON IMAINWINDOW)
+        // =========================================================
+        public void AbrirPestaña(string titulo, UserControl contenido)
         {
             foreach (TabItem tab in MainTabControl.Items)
             {
@@ -152,30 +155,28 @@ namespace AplicativoDeAlmacen.Views
         // =========================================================
         private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
         {
-            AbrirPestaña("📦 Productos", new ProductosUserControl()); ;
+            AbrirPestaña("📦 Productos", new ProductosUserControl());
         }
 
         private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
         {
-             AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl()); 
+            AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl());
         }
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
         {
-             AbrirPestaña("📚 Colecciones", new ColeccionesUserControl()); 
+            AbrirPestaña("📚 Colecciones", new ColeccionesUserControl());
         }
 
         private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)
         {
-             AbrirPestaña("🏷️ Títulos", new TitulosUserControl()); 
+            AbrirPestaña("🏷️ Títulos", new TitulosUserControl());
         }
 
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
-             AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl()); 
+            AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
         }
-
-
 
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {

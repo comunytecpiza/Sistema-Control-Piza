@@ -6,7 +6,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Models.Models; // Fundamental para que reconozca RegistroCodigo y Producto
+using AplicativoDeAlmacen.Models.Models;
+using System.Windows.Input; // Fundamental para que reconozca RegistroCodigo y Producto
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -231,6 +232,36 @@ namespace AplicativoDeAlmacen.Views
             catch (Exception ex)
             {
                 MessageBox.Show("Error Crítico en Base de Datos: " + ex.Message, "Rollback Ejecutado", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ==========================================
+        // LÓGICA PARA ABRIR PESTAÑA DE DETALLES
+        // ==========================================
+
+        private void BtnVerDetalle_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button button && button.DataContext is RegistroCodigo lote)
+            {
+                AbrirPestanaDetalle(lote);
+            }
+        }
+
+        private void DataGridRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is DataGridRow row && row.Item is RegistroCodigo lote)
+            {
+                AbrirPestanaDetalle(lote);
+            }
+        }
+
+        private void AbrirPestanaDetalle(RegistroCodigo lote)
+        {
+            // AHORA BUSCAMOS LA INTERFAZ, NO EL PANEL ESPECÍFICO
+            if (Window.GetWindow(this) is IMainWindow mainWindow)
+            {
+                string tituloPestana = $"Lote: {lote.Producto?.Abreviatura ?? "Cod"}";
+                mainWindow.AbrirPestaña(tituloPestana, new DetalleCodigosUserControl(lote));
             }
         }
     }
