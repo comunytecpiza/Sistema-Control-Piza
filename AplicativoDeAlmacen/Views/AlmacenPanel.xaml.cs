@@ -175,6 +175,8 @@ namespace AplicativoDeAlmacen.Views
              AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl()); 
         }
 
+
+
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {
             // AbrirPestaña("📥 Ingreso de Productos", new IngresoProductosUserControl()); 

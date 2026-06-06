@@ -5,6 +5,12 @@ using System.Collections.Generic;
 
 namespace AplicativoDeAlmacen.Models.Models;
 
-public partial class RegistroCodigo
+public partial class CodigoCreado
 {
+    public int Id { get; set; }
+    public int RegistroCodigoId { get; set; }
+    public string Codigo { get; set; }
+
+    // Opcional: Objeto padre si quieres navegar de regreso
+    public RegistroCodigo RegistroCodigo { get; set; }
 }
