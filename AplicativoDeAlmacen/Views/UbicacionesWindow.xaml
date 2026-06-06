@@ -24,13 +24,13 @@
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="Auto"/>
                 <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
-                <DataGridTextColumn Header="Tipo de Ubicación" Binding="{Binding TipoUbicacion}" Width="Auto"/>
-                <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad}" Width="Auto"/>
+                <DataGridTextColumn Header="Tipo de Ubicación" Binding="{Binding TipoUbicacion.Nombre}" Width="Auto"/>
+                <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad.Nombre}" Width="Auto"/>
                 <DataGridTextColumn Header="Dirección" Binding="{Binding Direccion}" Width="*"/>
-                <DataGridTextColumn Header="Departamento" Binding="{Binding Departamento}" Width="Auto"/>
-                <DataGridTextColumn Header="Provincia" Binding="{Binding Provincia}" Width="Auto"/>
-                <DataGridTextColumn Header="Distrito" Binding="{Binding Distrito}" Width="Auto"/>
-                <DataGridTextColumn Header="Estado" Binding="{Binding Estado}" Width="Auto"/>
+                <DataGridTextColumn Header="Departamento" Binding="{Binding Departamento.Nombre}" Width="Auto"/>
+                <DataGridTextColumn Header="Provincia" Binding="{Binding Provincia.Nombre}" Width="Auto"/>
+                <DataGridTextColumn Header="Distrito" Binding="{Binding Distrito.Nombre}" Width="Auto"/>
+                <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="Auto"/>
             </DataGrid.Columns>
         </DataGrid>
 

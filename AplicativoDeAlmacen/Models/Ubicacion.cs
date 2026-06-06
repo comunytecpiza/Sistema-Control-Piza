@@ -11,17 +11,17 @@ public partial class Ubicacion
 
     public string Descripcion { get; set; }
 
-    public int TipoUbicacionId { get; set; }
+    public TipoUbicacion TipoUbicacion { get; set; }
 
-    public int LocalidadId { get; set; }
+    public Localidad Localidad { get; set; }
 
     public string Direccion { get; set; }
 
-    public int EstadoId { get; set; }
+    public Estado Estado { get; set; }
 
-    public int? DepartamentoId { get; set; }
+    public Departamento Departamento { get; set; }
 
-    public int? ProvinciaId { get; set; }
+    public Provincia Provincia { get; set; }
 
-    public int? DistritoId { get; set; }
+    public Distrito Distrito { get; set; }
 }

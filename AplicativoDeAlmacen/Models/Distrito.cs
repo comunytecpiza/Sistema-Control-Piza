@@ -11,5 +11,5 @@ public partial class Distrito
 
     public string Nombre { get; set; }
 
-    public int ProvinciaId { get; set; }
+    public Provincia Provincia { get; set; }
 }

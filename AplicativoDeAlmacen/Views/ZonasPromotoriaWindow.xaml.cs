@@ -1,138 +1,108 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Data.SqlClient;
 using System.Windows;
 using System.Windows.Controls;
+using AplicativoDeAlmacen.Models.Models; // Tus modelos
+using AplicativoDeAlmacen.Services;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class ZonasPromotoriaWindow : Window
     {
-      
-        private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
+        private readonly ZonaPromotoriaService _zonaService;
+
         public ZonasPromotoriaWindow()
         {
             InitializeComponent();
+            _zonaService = new ZonaPromotoriaService();
+
+            // Configuración clave: le decimos a WPF qué propiedad del objeto va a mostrar en el texto
+            LocalidadComboBox.DisplayMemberPath = "Nombre";
+            ZonasListBox.DisplayMemberPath = "Descripcion";
+
             CargarLocalidades();
         }
 
         private void CargarLocalidades()
         {
-            using (SqlConnection conn = new SqlConnection(connectionString))
+            try
             {
-                conn.Open();
-                string query = "SELECT id, nombre FROM localidades ORDER BY nombre";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            LocalidadComboBox.Items.Add(new ComboBoxItem
-                            {
-                                Content = reader["nombre"].ToString(),
-                                Tag = reader["id"]
-                            });
-                        }
-                    }
-                }
+                // Pasamos la lista de objetos directos al ComboBox
+                LocalidadComboBox.ItemsSource = _zonaService.ObtenerLocalidades();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void LocalidadComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (LocalidadComboBox.SelectedItem != null)
+            // Rescatamos el OBJETO completo de tipo Localidad que fue seleccionado
+            if (LocalidadComboBox.SelectedItem is Localidad localidadSeleccionada)
             {
-                int localidadId = (int)((ComboBoxItem)LocalidadComboBox.SelectedItem).Tag;
-                CargarZonas(localidadId);
+                CargarZonas(localidadSeleccionada.Id);
             }
         }
 
         private void CargarZonas(int localidadId)
         {
-            ZonasListBox.Items.Clear();
-            using (SqlConnection conn = new SqlConnection(connectionString))
+            try
             {
-                conn.Open();
-                string query = "SELECT id, descripcion FROM zona_promotoria WHERE localidad_id = @LocalidadId";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@LocalidadId", localidadId);
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            ZonasListBox.Items.Add(new ListBoxItem
-                            {
-                                Content = reader["descripcion"].ToString(),
-                                Tag = reader["id"]
-                            });
-                        }
-                    }
-                }
+                // Pasamos la lista de objetos Zona al ListBox
+                ZonasListBox.ItemsSource = _zonaService.ObtenerZonasPorLocalidad(localidadId);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private void AgregarZona_Click(object sender, RoutedEventArgs e)
         {
-            if (LocalidadComboBox.SelectedItem == null)
+            if (!(LocalidadComboBox.SelectedItem is Localidad localidadSeleccionada))
             {
-                MessageBox.Show("Por favor, seleccione una localidad primero.");
+                MessageBox.Show("Por favor, seleccione una localidad primero.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             string descripcion = Microsoft.VisualBasic.Interaction.InputBox("Ingrese la descripción de la nueva zona:", "Agregar Zona", "");
+            
             if (!string.IsNullOrWhiteSpace(descripcion))
             {
-                int localidadId = (int)((ComboBoxItem)LocalidadComboBox.SelectedItem).Tag;
-                AgregarZonaABaseDeDatos(descripcion, localidadId);
-                CargarZonas(localidadId);
-            }
-        }
-
-        private void AgregarZonaABaseDeDatos(string descripcion, int localidadId)
-        {
-            using (SqlConnection conn = new SqlConnection(connectionString))
-            {
-                conn.Open();
-                string query = "INSERT INTO zona_promotoria (descripcion, localidad_id) VALUES (@Descripcion, @LocalidadId)";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
+                try
                 {
-                    cmd.Parameters.AddWithValue("@Descripcion", descripcion);
-                    cmd.Parameters.AddWithValue("@LocalidadId", localidadId);
-                    cmd.ExecuteNonQuery();
+                    _zonaService.RegistrarZona(descripcion, localidadSeleccionada.Id);
+                    CargarZonas(localidadSeleccionada.Id);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
 
         private void EliminarZona_Click(object sender, RoutedEventArgs e)
         {
-            if (ZonasListBox.SelectedItem != null)
+            if (!(ZonasListBox.SelectedItem is ZonaPromotoria zonaSeleccionada))
             {
-                int zonaId = (int)((ListBoxItem)ZonasListBox.SelectedItem).Tag;
-                if (MessageBox.Show("¿Está seguro de que desea eliminar esta zona?", "Confirmar eliminación", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                {
-                    EliminarZonaDeBaseDeDatos(zonaId);
-                    int localidadId = (int)((ComboBoxItem)LocalidadComboBox.SelectedItem).Tag;
-                    CargarZonas(localidadId);
-                }
+                MessageBox.Show("Por favor, seleccione una zona para eliminar.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
-            else
-            {
-                MessageBox.Show("Por favor, seleccione una zona para eliminar.");
-            }
-        }
 
-        private void EliminarZonaDeBaseDeDatos(int zonaId)
-        {
-            using (SqlConnection conn = new SqlConnection(connectionString))
+            if (MessageBox.Show($"¿Está seguro de que desea eliminar la zona '{zonaSeleccionada.Descripcion}'?", "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
-                conn.Open();
-                string query = "DELETE FROM zona_promotoria WHERE id = @ZonaId";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
+                try
                 {
-                    cmd.Parameters.AddWithValue("@ZonaId", zonaId);
-                    cmd.ExecuteNonQuery();
+                    _zonaService.EliminarZona(zonaSeleccionada.Id);
+                    
+                    if (LocalidadComboBox.SelectedItem is Localidad localidadSeleccionada)
+                    {
+                        CargarZonas(localidadSeleccionada.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
