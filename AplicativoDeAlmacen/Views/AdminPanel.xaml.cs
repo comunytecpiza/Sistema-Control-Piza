@@ -1,13 +1,14 @@
 ﻿#nullable enable
+
 using System;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
-using System.Globalization;
 
 namespace AplicativoDeAlmacen.Views
 {
-    // IMPORTANTE: Le agregamos la interfaz IMainWindow al lado de Window
     public partial class AdminPanel : Window, IMainWindow
     {
         private readonly bool isAdmin;
@@ -15,7 +16,9 @@ namespace AplicativoDeAlmacen.Views
         public AdminPanel(string userNames, bool isAdmin)
         {
             InitializeComponent();
+
             this.isAdmin = isAdmin;
+
             SetupWelcomeMessage(userNames);
             StartClock();
             ConfigureUIForRole();
@@ -36,72 +39,158 @@ namespace AplicativoDeAlmacen.Views
 
         private void StartClock()
         {
-            DispatcherTimer timer = new DispatcherTimer
+            DispatcherTimer timer = new()
             {
                 Interval = TimeSpan.FromSeconds(1)
             };
+
             timer.Tick += Timer_Tick;
             timer.Start();
+
             Timer_Tick(this, EventArgs.Empty);
         }
 
         private void Timer_Tick(object? sender, EventArgs e)
         {
             DateTime now = DateTime.Now;
-            CultureInfo culture = new CultureInfo("es-ES");
-            string dayName = culture.TextInfo.ToTitleCase(culture.DateTimeFormat.GetDayName(now.DayOfWeek));
-            string monthName = culture.TextInfo.ToTitleCase(culture.DateTimeFormat.GetMonthName(now.Month));
-            string amPm = now.ToString("tt", CultureInfo.InvariantCulture);
-            string formattedDate = $"{dayName} {now.Day:00} de {monthName} del {now.Year} - {now:hh:mm:ss} {amPm}";
+
+            CultureInfo culture = new("es-ES");
+
+            string dayName =
+                culture.TextInfo.ToTitleCase(
+                    culture.DateTimeFormat.GetDayName(now.DayOfWeek));
+
+            string monthName =
+                culture.TextInfo.ToTitleCase(
+                    culture.DateTimeFormat.GetMonthName(now.Month));
+
+            string amPm =
+                now.ToString("tt", CultureInfo.InvariantCulture);
+
+            string formattedDate =
+                $"{dayName} {now.Day:00} de {monthName} del {now.Year} - {now:hh:mm:ss} {amPm}";
+
             DateTimeTextBlock.Text = formattedDate;
         }
 
         // ==============================================================
-        // MOTOR DE PESTAÑAS (IMPLEMENTACIÓN DE IMAINWINDOW)
+        // MOTOR DE PESTAÑAS
         // ==============================================================
+
         public void AbrirPestaña(string titulo, UserControl contenido)
         {
-            // 1. Evitar duplicados: Si la pestaña ya está abierta, la enfocamos
+            // 1. Evitar duplicados
             foreach (TabItem tab in MainTabControl.Items)
             {
-                if (tab.Header != null && tab.Header.ToString() == titulo)
+                if (tab.Header is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is TextBlock tb && tb.Text == titulo)
                 {
                     MainTabControl.SelectedItem = tab;
                     return;
                 }
             }
 
-            // 2. Crear nueva pestaña
-            var nuevoTab = new TabItem
+            // 2. Crear cabecera personalizada
+            StackPanel headerPanel = new StackPanel { Orientation = Orientation.Horizontal };
+
+            // Título
+            headerPanel.Children.Add(new TextBlock
             {
-                Header = titulo,
-                Content = contenido
+                Text = titulo,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 10, 0),
+                FontWeight = FontWeights.SemiBold
+            });
+
+            // Botones (Solo los creamos aquí)
+            Button btnDesvincular = CrearBotonPestaña("↗", "Separar en ventana");
+            Button btnClose = CrearBotonPestaña("✕", "Cerrar pestaña");
+
+            TabItem nuevaPestana = new TabItem
+            {
+                Header = headerPanel,
+                Content = contenido,
+                
             };
 
-            MainTabControl.Items.Add(nuevoTab);
-            MainTabControl.SelectedItem = nuevoTab;
+            // Lógica Cerrar
+            btnClose.Click += (s, e) => { MainTabControl.Items.Remove(nuevaPestana); };
+
+            // Lógica Desvincular
+            btnDesvincular.Click += (s, e) => {
+                MainTabControl.Items.Remove(nuevaPestana);
+                Window ventanaFlotante = new Window
+                {
+                    Title = titulo,
+                    Content = contenido,
+                    Width = 1000,
+                    Height = 650,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen
+                };
+                ventanaFlotante.Closed += (s2, e2) => {
+                    nuevaPestana.Content = contenido;
+                    MainTabControl.Items.Add(nuevaPestana);
+                };
+                ventanaFlotante.Show();
+            };
+
+            headerPanel.Children.Add(btnDesvincular);
+            headerPanel.Children.Add(btnClose);
+
+            MainTabControl.Items.Add(nuevaPestana);
+            MainTabControl.SelectedItem = nuevaPestana;
+        }
+
+        private Button CrearBotonPestaña(string texto, string tooltip)
+        {
+            return new Button
+            {
+                Content = texto,
+                Width = 22,
+                Height = 22,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = Brushes.Gray,
+                ToolTip = tooltip,
+                Margin = new Thickness(2, 0, 0, 0)
+            };
         }
 
         private void BtnCloseTab_Click(object sender, RoutedEventArgs e)
         {
-            // Lógica para cerrar la pestaña cuando se hace clic en la "X"
-            if (sender is Button btn && btn.TemplatedParent is TabItem tabItem)
+            if (sender is not Button button)
+                return;
+
+            DependencyObject current = button;
+
+            while (current != null && current is not TabItem)
             {
-                // Protegemos la pestaña de Inicio para que no se pueda cerrar por accidente
-                if (tabItem.Name != "TabInicio")
-                {
-                    MainTabControl.Items.Remove(tabItem);
-                }
+                current = VisualTreeHelper.GetParent(current);
+            }
+
+            if (current is TabItem tabItem)
+            {
+                // No permitir cerrar la pestaña principal
+                if (tabItem.Name == "TabInicio")
+                    return;
+
+                MainTabControl.Items.Remove(tabItem);
             }
         }
 
         // ==============================================================
-        // EVENTOS DE BOTONES Y MENÚ
+        // BOTONES GENERALES
         // ==============================================================
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
-            if (MessageBox.Show("¿Está seguro que desea cerrar sesión?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            MessageBoxResult result =
+                MessageBox.Show(
+                    "¿Está seguro que desea cerrar sesión?",
+                    "Confirmar",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
             {
                 new MainWindow().Show();
                 Close();
@@ -110,39 +199,37 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnAgregarUsuario_Click(object sender, RoutedEventArgs e)
         {
-            // new UserWindow().Show();
-            MessageBox.Show("Módulo de usuarios en construcción.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(
+                "Módulo de usuarios en construcción.",
+                "Aviso",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
 
-        // --- Módulos Antiguos (Aún abren en ventanas flotantes) ---
+        // ==============================================================
+        // CATÁLOGOS Y TABLAS
+        // ==============================================================
+
         private void MenuItemLocalidades_Click(object sender, RoutedEventArgs e)
         {
-            // new LocalidadesWindow().Show();
+            AbrirPestaña("🌎 Localidades", new LocalidadesUserControl());
         }
 
         private void MenuItemZonasPromotoria_Click(object sender, RoutedEventArgs e)
         {
-            // new ZonasPromotoriaWindow().Show();
+            AbrirPestaña("📍 Zonas de Promotoría", new ZonasPromotoriaUserControl());
         }
 
         private void MenuItemUbicaciones_Click(object sender, RoutedEventArgs e)
         {
-            // new UbicacionesWindow().Show();
+            AbrirPestaña("🏢 Ubicaciones", new UbicacionesUserControl());
         }
 
         private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)
         {
-            // Abrimos la vista como UserControl dentro de una pestaña
-            //AbrirPestaña("👥 Personas Comerciales", new TipoPersonaToIsReadOnlyConverter());
+            AbrirPestaña("👥 Personas Comerciales",new PersonasComercialesUserControl()
+            );
         }
-
-        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
-        {
-            // new IngresoProductosWindow().Show();
-        }
-
-
-        // --- Módulos Modernizados (Ahora abren como Pestañas Integradas) ---
 
         private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
         {
@@ -151,7 +238,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
         {
-            AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl());
+            AbrirPestaña("📏 Unidades de Medida", new UnidadesMedidaUserControl());
         }
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
@@ -164,9 +251,19 @@ namespace AplicativoDeAlmacen.Views
             AbrirPestaña("🏷️ Títulos", new TitulosUserControl());
         }
 
+        // ==============================================================
+        // MOVIMIENTOS
+        // ==============================================================
+
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
             AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
+        }
+
+        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
+        {
+            // Cuando conviertas la vista:
+            // AbrirPestaña("📥 Ingreso de Productos", new IngresoProductosUserControl());
         }
     }
 }

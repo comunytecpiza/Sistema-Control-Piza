@@ -1,14 +1,11 @@
-<Window x:Class="AplicativoDeAlmacen.Views.PersonasComercialesWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
-        Title="Catálogo de Personas Comerciales" 
-        Height="750" Width="1250"
-        WindowStartupLocation="CenterScreen"
-        Background="#F4F6F9"
-        FontFamily="Segoe UI">
+<UserControl x:Class="AplicativoDeAlmacen.Views.PersonasComercialesUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
+             Background="#F4F6F9"
+             FontFamily="Segoe UI">
 
-    <Window.Resources>
+    <UserControl.Resources>
         <local:TipoPersonaToIsReadOnlyConverter x:Key="TipoPersonaToIsReadOnlyConverter"/>
 
         <!-- Estilo General para Labels de Formulario -->
@@ -46,7 +43,7 @@
                 </Style>
             </Style.Resources>
         </Style>
-    </Window.Resources>
+    </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -317,4 +314,4 @@
             </Border>
         </Grid>
     </Grid>
-</Window>
+</UserControl>

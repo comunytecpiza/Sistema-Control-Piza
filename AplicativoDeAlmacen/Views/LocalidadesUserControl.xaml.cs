@@ -1,26 +1,29 @@
-﻿#nullable enable
+﻿
 using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using AplicativoDeAlmacen.Services;
+using System.Threading.Tasks;
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class LocalidadesWindow : Window
+    public partial class LocalidadesUserControl : UserControl // Cambiado a UserControl
     {
         private ObservableCollection<Localidad> localidades = new ObservableCollection<Localidad>();
-        private Localidad currentLocalidad;
+        
         private readonly LocalidadService _service;
-
-        public LocalidadesWindow()
+        private Localidad? _currentLocalidad;
+        public LocalidadesUserControl()
         {
             InitializeComponent();
             _service = new LocalidadService();
-            Loaded += async (s, e) =>
-            {
+
+            LocalidadesGrid.ItemsSource = localidades;
+
+            this.Loaded += async (s, e) => {
                 await LoadEstados();
                 await LoadLocalidades();
             };
@@ -29,20 +32,11 @@ namespace AplicativoDeAlmacen.Views
         private async Task LoadEstados()
         {
             CmbEstadoLocalidad.Items.Clear();
-
             var estados = await _service.ObtenerEstadosAsync();
-
             foreach (var estado in estados)
             {
-                CmbEstadoLocalidad.Items.Add(new ComboBoxItem
-                {
-                    Content = estado.Nombre,
-                    Tag = estado.Id
-                });
+                CmbEstadoLocalidad.Items.Add(new ComboBoxItem { Content = estado.Nombre, Tag = estado.Id });
             }
-
-            if (CmbEstadoLocalidad.Items.Count > 0)
-                CmbEstadoLocalidad.SelectedIndex = 0;
         }
         private async Task LoadLocalidades()
         {
@@ -69,7 +63,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void AddLocalidadButton_Click(object sender, RoutedEventArgs e)
         {
-            currentLocalidad = null;
+            _currentLocalidad = null;
             TxtNombreLocalidad.Clear();
             if (CmbEstadoLocalidad.Items.Count > 0)
                 CmbEstadoLocalidad.SelectedIndex = 0;
@@ -83,7 +77,7 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            currentLocalidad = localidad;
+            _currentLocalidad = localidad;
 
             TxtNombreLocalidad.Text = localidad.Nombre;
 
@@ -114,7 +108,7 @@ namespace AplicativoDeAlmacen.Views
 
             var localidad = new Localidad
             {
-                Id = currentLocalidad?.Id ?? 0,
+                Id = _currentLocalidad?.Id ?? 0,
                 Nombre = TxtNombreLocalidad.Text,
 
                 Estado = new Estado
@@ -135,10 +129,7 @@ namespace AplicativoDeAlmacen.Views
             AddEditLocalidadModal.Visibility = Visibility.Collapsed;
         }
 
-        private void CloseLocalidadesWindow_Click(object sender, RoutedEventArgs e)
-        {
-            this.Close();
-        }
+        
     }
   
 }

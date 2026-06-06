@@ -8,20 +8,22 @@ using AplicativoDeAlmacen.Services;
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class UbicacionesWindow : Window
+    public partial class UbicacionesUserControl : UserControl
     {
         private readonly UbicacionService _ubicacionService;
         private List<Ubicacion> _listadoCompletoUbicaciones = new List<Ubicacion>();
         private Ubicacion? _ubicacionActual;
 
-        public UbicacionesWindow()
+        public UbicacionesUserControl()
         {
             InitializeComponent();
             _ubicacionService = new UbicacionService();
 
-            // Configuramos qué string del objeto se renderiza en la pantalla
-            ConfigurarFormatosCombos();
-            CargarUbicaciones();
+            // Usamos Loaded para asegurar que el control esté cargado
+            this.Loaded += (s, e) => {
+                ConfigurarFormatosCombos();
+                CargarUbicaciones();
+            };
         }
 
         private void ConfigurarFormatosCombos()

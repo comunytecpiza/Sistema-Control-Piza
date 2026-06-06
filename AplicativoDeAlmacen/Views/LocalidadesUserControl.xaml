@@ -1,0 +1,49 @@
+<UserControl x:Class="AplicativoDeAlmacen.Views.LocalidadesUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#F4F6F9" FontFamily="Segoe UI">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="🌍 Gestión de Localidades" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+
+        <Border Grid.Row="0" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,15" BorderBrush="#E2E8F0" BorderThickness="1">
+            <StackPanel Orientation="Horizontal">
+                <TextBox x:Name="LocalidadesSearchBox" Width="300" Tag="Buscar localidad..." />
+                <Button Content="+ Agregar" Click="AddLocalidadButton_Click" Background="#10B981" Margin="10,0,10,0" Width="120"/>
+                <Button Content="✏️ Editar" Click="EditLocalidadButton_Click" Background="#F59E0B" Width="120"/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" CornerRadius="8" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" Padding="1">
+            <DataGrid x:Name="LocalidadesGrid" AutoGenerateColumns="False" IsReadOnly="True" Background="Transparent" BorderThickness="0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="80"/>
+                    <DataGridTextColumn Header="Nombre" Binding="{Binding Nombre}" Width="*"/>
+                    <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="150"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <Grid x:Name="AddEditLocalidadModal" Visibility="Collapsed" Background="#A0000000" Grid.RowSpan="2">
+            <Border Background="White" Width="400" VerticalAlignment="Center" CornerRadius="8" Padding="25">
+                <StackPanel>
+                    <TextBlock x:Name="ModalTitle" FontSize="20" FontWeight="Bold" Margin="0,0,0,15"/>
+                    <TextBlock Text="Nombre" FontWeight="SemiBold"/>
+                    <TextBox x:Name="TxtNombreLocalidad" Margin="0,0,0,10"/>
+                    <TextBlock Text="Estado" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="CmbEstadoLocalidad" Margin="0,0,0,20"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancelar" Click="CancelarAddEditLocalidad_Click" Background="#6B7280" Margin="0,0,10,0"/>
+                        <Button Content="Guardar" Click="GuardarLocalidad_Click" Background="#3B82F6"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

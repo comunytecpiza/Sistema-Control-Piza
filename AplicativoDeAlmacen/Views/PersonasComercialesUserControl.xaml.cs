@@ -9,71 +9,64 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Threading.Tasks;
+using AplicativoDeAlmacen.Data;
 
 namespace AplicativoDeAlmacen.Views
 {
     public class TipoPersonaToIsReadOnlyConverter : IValueConverter
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        public object Convert(object value, Type targetType,
+                              object parameter, CultureInfo culture)
         {
             return value?.ToString() == "Natural";
         }
 
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        public object ConvertBack(object value, Type targetType,
+                                  object parameter, CultureInfo culture)
         {
             throw new NotImplementedException();
         }
     }
 
 
-    public partial class PersonasComercialesWindow : Window
+    public partial class PersonasComercialesUserControl : UserControl
     {
-        private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
-        
-        private ObservableCollection<PersonaComercial> personas = new ObservableCollection<PersonaComercial>();
-        private PersonaComercial currentPersona;
-        private bool isEditing = false;
+        // Conexión dinámica (Ya no hardcodeada)
+        private string connectionString => ConfigManager.ObtenerCadenaConexion();
 
+        private ObservableCollection<PersonaComercial> personas = new ObservableCollection<PersonaComercial>();
+        private PersonaComercial? currentPersona;
         private readonly PersonaComercialService _service;
 
-        public PersonasComercialesWindow()
+        public PersonasComercialesUserControl()
         {
             InitializeComponent();
-
             _service = new PersonaComercialService();
-
             PersonasDataGrid.ItemsSource = personas;
 
-            Loaded += async (s, e) =>
+            this.Loaded += async (s, e) =>
             {
+                LoadData();
                 await LoadPersonas();
             };
-            LoadData();
-
-
-            PersonasDataGrid.ItemsSource = personas;
-            currentPersona = new PersonaComercial();
         }
 
         private void LoadData()
         {
-          
             LoadTipoPersonas();
             LoadDepartamentos();
-           // LoadLocalidades();
             LoadEstados();
         }
 
         private async Task LoadPersonas()
         {
-            personas.Clear();
-
-            var lista = await _service.ObtenerTodosAsync();
-
-            foreach (var item in lista)
+            try
             {
-                personas.Add(item);
+                personas.Clear();
+                var lista = await _service.ObtenerTodosAsync();
+                foreach (var item in lista) personas.Add(item);
             }
+            catch (Exception ex) { MessageBox.Show("Error: " + ex.Message); }
         }
         /*
         private void LoadPersonas()
@@ -327,13 +320,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
-            isEditing = false;
-            currentPersona = null;
-            ClearForm();
-            ModalTitle.Text = "Agregar Persona Comercial";
+            ModalTitle.Text = "Agregar Persona";
             ModalBackground.Visibility = Visibility.Visible;
-            
-
         }
 
 
@@ -379,14 +367,10 @@ namespace AplicativoDeAlmacen.Views
 
         private void EditButton_Click(object sender, RoutedEventArgs e)
         {
-            if (PersonasDataGrid.SelectedItem is PersonaComercial selectedPersona)
+            if (PersonasDataGrid.SelectedItem is PersonaComercial p)
             {
-                isEditing = true;
-                currentPersona = selectedPersona;
-
-                LoadPersonaToForm();
-
-                ModalTitle.Text = "Editar Persona Comercial";
+                currentPersona = p;
+                ModalTitle.Text = "Editar Persona";
                 ModalBackground.Visibility = Visibility.Visible;
             }
         }
