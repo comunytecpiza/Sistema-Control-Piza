@@ -145,12 +145,12 @@
                         <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="70"/>
                         <DataGridTextColumn Header="Razón Social" Binding="{Binding RazonSocial}" Width="2*"/>
                         <DataGridTextColumn Header="Nombre Comercial" Binding="{Binding NombreComercial}" Width="2*"/>
-                        <DataGridTextColumn Header="T. Persona" Binding="{Binding TipoPersona}" Width="100"/>
+                        <DataGridTextColumn Header="T. Persona" Binding="{Binding TipoPersona.Nombre}" Width="100"/>
                         <DataGridTextColumn Header="R.U.C." Binding="{Binding Ruc}" Width="110"/>
                         <DataGridTextColumn Header="D.N.I." Binding="{Binding Dni}" Width="90"/>
-                        <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad}" Width="1.2*"/>
-                        <DataGridTextColumn Header="Zona Promotoria" Binding="{Binding ZonaPromotoria}" Width="1.2*"/>
-                        <DataGridTextColumn Header="Estado" Binding="{Binding Estado}" Width="90"/>
+                        <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad.Nombre}" Width="1.2*"/>
+                        <DataGridTextColumn Header="Zona Promotoria" Binding="{Binding ZonaPromotoria.Descripcion}" Width="1.2*"/>
+                        <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="90"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>

@@ -9,7 +9,7 @@ public partial class PersonaComercial
 {
     public int Id { get; set; }
 
-    public string TipoPersona { get; set; }
+    public TipoPersona TipoPersona { get; set; }
 
     public string Nombres { get; set; }
 

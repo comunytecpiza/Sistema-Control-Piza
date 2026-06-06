@@ -28,8 +28,7 @@ namespace AplicativoDeAlmacen.Services
             await conn.OpenAsync();
 
                     string query = @"
-            SELECT
-                pc.*,
+            SELECT pc.*,
                 tp.nombre AS tipo_persona,
                 l.nombre AS localidad,
                 zp.descripcion AS zona_promotoria,
@@ -52,10 +51,82 @@ namespace AplicativoDeAlmacen.Services
 
             while (reader.Read())
             {
-                var persona = new PersonaComercial
+                Localidad localidad = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("localidad_id")))
+                {
+                    localidad = new Localidad
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("localidad_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("localidad"))
+                    };
+                }
+
+                Departamento departamento = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("departamento_id")))
+                {
+                    departamento = new Departamento
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("departamento_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("departamento"))
+                    };
+                }
+
+                Provincia provincia = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("provincia_id")))
+                {
+                    provincia = new Provincia
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("provincia_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("provincia"))
+                    };
+                }
+
+                Distrito distrito = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("distrito_id")))
+                {
+                    distrito = new Distrito
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("distrito_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("distrito"))
+                    };
+                }
+
+                ZonaPromotoria zonaPromotoria = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("zona_promotoria_id")))
+                {
+                    zonaPromotoria = new ZonaPromotoria
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("zona_promotoria_id")),
+                        Descripcion = reader.GetString(reader.GetOrdinal("zona_promotoria"))
+                    };
+                }
+
+                Estado estado = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("estado_id")))
+                {
+                    estado = new Estado
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("estado_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("estado"))
+                    };
+                }
+
+
+                TipoPersona tipoPersona = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("tipo_persona_id")))
+                {
+                    tipoPersona = new TipoPersona
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("tipo_persona_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("tipo_persona"))
+                    };
+                }
+
+
+                PersonaComercial persona = new PersonaComercial
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
-                    TipoPersona = reader["tipo_persona"] as string,
+                    TipoPersona = tipoPersona,
                     Nombres = reader["nombres"] as string,
                     ApellidoPaterno = reader["apellido_paterno"] as string,
                     ApellidoMaterno = reader["apellido_materno"] as string,
@@ -63,41 +134,76 @@ namespace AplicativoDeAlmacen.Services
                     NombreComercial = reader["nombre_comercial"] as string,
                     Ruc = reader["ruc"] as string,
                     Dni = reader["dni"] as string,
-                    Direccion = reader["direccion"] as string
-                };
+                    Direccion = reader["direccion"] as string,
 
-                persona.Localidad = new Localidad
-                {
-                    Nombre = reader["localidad"] as string
+                    Localidad = localidad,
+                    Departamento = departamento,
+                    Provincia = provincia,
+                    Distrito = distrito,
+                    Estado = estado,
+                    ZonaPromotoria = zonaPromotoria
                 };
+                
 
-                persona.Departamento = new Departamento
-                {
-                    Nombre = reader["departamento"] as string
-                };
-
-                persona.Provincia = new Provincia
-                {
-                    Nombre = reader["provincia"] as string
-                };
-
-                persona.Distrito = new Distrito
-                {
-                    Nombre = reader["distrito"] as string
-                };
-
-                persona.ZonaPromotoria = new ZonaPromotoria
-                {
-                    Descripcion = reader["zona_promotoria"] as string
-                };
-
-                persona.Estado = new Estado
-                {
-                    Nombre = reader["estado"] as string
-                };
+                lista.Add(persona);
             }
 
             return lista;
         }
+
+
+        public async Task GuardarAsync(PersonaComercial persona)
+        {
+            using var conn = _database.GetConnection();
+            await conn.OpenAsync();
+            bool esEdicion = persona.Id > 0;
+            string query = esEdicion
+                ? @"
+                    UPDATE personas_comerciales
+                    SET
+                        tipo_persona_id = @tipoPersonaId,nombres = @nombres,apellido_paterno = @apellidoPaterno,apellido_materno = @apellidoMaterno,
+                        razon_social = @razonSocial, nombre_comercial = @nombreComercial,
+                        ruc = @ruc,dni = @dni,direccion = @direccion,localidad_id = @localidadId, zona_promotoria_id = @zonaPromotoriaId,estado_id = @estadoId,
+                        departamento_id = @departamentoId, provincia_id = @provinciaId,
+                        distrito_id = @distritoId
+                    WHERE id = @id"
+                            : @"
+                    INSERT INTO personas_comerciales
+                    (
+                        tipo_persona_id,nombres,apellido_paterno, apellido_materno,razon_social, nombre_comercial, ruc, dni,direccion,localidad_id,
+                        zona_promotoria_id,estado_id,departamento_id,provincia_id,distrito_id
+                    )
+                    VALUES
+                    (
+                        @tipoPersonaId,@nombres,@apellidoPaterno,@apellidoMaterno, @razonSocial,@nombreComercial,
+                        @ruc,@dni, @direccion, @localidadId,@zonaPromotoriaId, @estadoId,@departamentoId,@provinciaId,@distritoId
+                    )";
+
+            using var cmd = new SqlCommand(query, conn);
+
+            cmd.Parameters.AddWithValue("@tipoPersonaId", persona.TipoPersona?.Id);
+            cmd.Parameters.AddWithValue("@nombres", (object?)persona.Nombres ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@apellidoPaterno", (object?)persona.ApellidoPaterno ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@apellidoMaterno",(object?)persona.ApellidoMaterno ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@razonSocial",(object?)persona.RazonSocial ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@nombreComercial", (object?)persona.NombreComercial ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@ruc",(object?)persona.Ruc ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@dni", (object?)persona.Dni ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@direccion", (object?)persona.Direccion ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@localidadId", persona.Localidad?.Id ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@zonaPromotoriaId", persona.ZonaPromotoria?.Id ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@estadoId",persona.Estado?.Id ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@departamentoId",persona.Departamento?.Id ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@provinciaId",persona.Provincia?.Id ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@distritoId",persona.Distrito?.Id ?? (object)DBNull.Value);
+
+            if (esEdicion)
+            {
+                cmd.Parameters.AddWithValue("@id", persona.Id);
+            }
+
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
+
 }

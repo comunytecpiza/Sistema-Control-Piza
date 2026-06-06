@@ -1,52 +1,60 @@
 ﻿#nullable enable
+using AplicativoDeAlmacen.Models.Models;
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Data.SqlClient;
-using System.Linq;
-using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class LocalidadesWindow : Window
     {
-        
-        private string connectionString = @"Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
         private ObservableCollection<Localidad> localidades = new ObservableCollection<Localidad>();
         private Localidad currentLocalidad;
+        private readonly LocalidadService _service;
 
         public LocalidadesWindow()
         {
             InitializeComponent();
-            LoadLocalidades();
+            _service = new LocalidadService();
+            Loaded += async (s, e) =>
+            {
+                await LoadEstados();
+                await LoadLocalidades();
+            };
         }
 
-        private void LoadLocalidades()
+        private async Task LoadEstados()
+        {
+            CmbEstadoLocalidad.Items.Clear();
+
+            var estados = await _service.ObtenerEstadosAsync();
+
+            foreach (var estado in estados)
+            {
+                CmbEstadoLocalidad.Items.Add(new ComboBoxItem
+                {
+                    Content = estado.Nombre,
+                    Tag = estado.Id
+                });
+            }
+
+            if (CmbEstadoLocalidad.Items.Count > 0)
+                CmbEstadoLocalidad.SelectedIndex = 0;
+        }
+        private async Task LoadLocalidades()
         {
             localidades.Clear();
-            using (SqlConnection conn = new SqlConnection(connectionString))
+
+            var lista = await _service.ObtenerTodosAsync();
+
+            foreach (var item in lista)
             {
-                conn.Open();
-                string query = @"SELECT l.id, l.nombre, COALESCE(e.nombre, 'DESCONOCIDO') AS estado 
-                         FROM localidades l 
-                         LEFT JOIN estados e ON l.estado_id = e.id";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    using (SqlDataReader reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            localidades.Add(new Localidad
-                            {
-                                Id = reader.GetInt32(0),
-                                Nombre = reader.GetString(1),
-                               /* Estado = reader.GetString(2)*/
-                            });
-                        }
-                    }
-                }
+                localidades.Add(item);
             }
+
             LocalidadesGrid.ItemsSource = localidades;
         }
 
@@ -62,79 +70,64 @@ namespace AplicativoDeAlmacen.Views
         private void AddLocalidadButton_Click(object sender, RoutedEventArgs e)
         {
             currentLocalidad = null;
-            TxtNombreLocalidad.Text = "";
-            CmbEstadoLocalidad.SelectedIndex = 0;
+            TxtNombreLocalidad.Clear();
+            if (CmbEstadoLocalidad.Items.Count > 0)
+                CmbEstadoLocalidad.SelectedIndex = 0;
             AddEditLocalidadModal.Visibility = Visibility.Visible;
         }
-
         private void EditLocalidadButton_Click(object sender, RoutedEventArgs e)
         {
-            if (LocalidadesGrid.SelectedItem is Localidad selectedLocalidad)
+            if (LocalidadesGrid.SelectedItem is not Localidad localidad)
             {
-                currentLocalidad = selectedLocalidad;
-                TxtNombreLocalidad.Text = currentLocalidad.Nombre;
-             //   var estadoItem = CmbEstadoLocalidad.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentLocalidad.Estado);
-             //   CmbEstadoLocalidad.SelectedItem = estadoItem ?? CmbEstadoLocalidad.Items[0];
-                AddEditLocalidadModal.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                MessageBox.Show("Por favor, seleccione una localidad para editar.");
-            }
-        }
-
-        private void GuardarLocalidad_Click(object sender, RoutedEventArgs e)
-        {
-            string nombre = TxtNombreLocalidad.Text;
-            string estado = (CmbEstadoLocalidad.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "ACTIVO";
-
-            if (string.IsNullOrWhiteSpace(nombre))
-            {
-                MessageBox.Show("Por favor, ingrese un nombre para la localidad.");
+                MessageBox.Show("Seleccione una localidad.");
                 return;
             }
 
-            if (currentLocalidad == null)
+            currentLocalidad = localidad;
+
+            TxtNombreLocalidad.Text = localidad.Nombre;
+
+            if (localidad.Estado != null)
             {
-                InsertLocalidad(nombre);
-            }
-            else
-            {
-                UpdateLocalidad(currentLocalidad.Id, nombre, estado);
+                var item = CmbEstadoLocalidad.Items
+                    .Cast<ComboBoxItem>()
+                    .FirstOrDefault(x => (int)x.Tag == localidad.Estado.Id);
+                CmbEstadoLocalidad.SelectedItem = item;
             }
 
-            LoadLocalidades();
+            AddEditLocalidadModal.Visibility = Visibility.Visible;
+        }
+
+        private async void GuardarLocalidad_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(TxtNombreLocalidad.Text))
+            {
+                MessageBox.Show("Ingrese el nombre.");
+                return;
+            }
+
+            if (CmbEstadoLocalidad.SelectedItem == null)
+            {
+                MessageBox.Show("Seleccione un estado.");
+                return;
+            }
+
+            var localidad = new Localidad
+            {
+                Id = currentLocalidad?.Id ?? 0,
+                Nombre = TxtNombreLocalidad.Text,
+
+                Estado = new Estado
+                {
+                    Id = (int)((ComboBoxItem)CmbEstadoLocalidad.SelectedItem).Tag
+                }
+            };
+
+            await _service.GuardarAsync(localidad);
+
+            await LoadLocalidades();
+
             AddEditLocalidadModal.Visibility = Visibility.Collapsed;
-        }
-
-        private void InsertLocalidad(string nombre)
-        {
-            using (SqlConnection conn = new SqlConnection(connectionString))
-            {
-                conn.Open();
-                string query = "INSERT INTO localidades (nombre, estado_id) VALUES (@Nombre, 1)"; // Asumiendo que 1 es el ID para ACTIVO
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@Nombre", nombre);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-        }
-
-        private void UpdateLocalidad(int id, string nombre, string estado)
-        {
-            using (SqlConnection conn = new SqlConnection(connectionString))
-            {
-                conn.Open();
-                string query = "UPDATE localidades SET nombre = @Nombre, estado_id = (SELECT id FROM estados WHERE nombre = @Estado) WHERE id = @Id";
-                using (SqlCommand cmd = new SqlCommand(query, conn))
-                {
-                    cmd.Parameters.AddWithValue("@Id", id);
-                    cmd.Parameters.AddWithValue("@Nombre", nombre);
-                    cmd.Parameters.AddWithValue("@Estado", estado);
-                    cmd.ExecuteNonQuery();
-                }
-            }
         }
 
         private void CancelarAddEditLocalidad_Click(object sender, RoutedEventArgs e)
@@ -147,11 +140,5 @@ namespace AplicativoDeAlmacen.Views
             this.Close();
         }
     }
-    /*
-    public class Localidad
-    {
-        public int Id { get; set; }
-        public string Nombre { get; set; } = string.Empty;
-        public string Estado { get; set; } = string.Empty;
-    }*/
+  
 }

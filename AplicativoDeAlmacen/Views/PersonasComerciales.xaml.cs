@@ -39,10 +39,18 @@ namespace AplicativoDeAlmacen.Views
         public PersonasComercialesWindow()
         {
             InitializeComponent();
-         
+
             _service = new PersonaComercialService();
-            LoadPersonas();
+
+            PersonasDataGrid.ItemsSource = personas;
+
+            Loaded += async (s, e) =>
+            {
+                await LoadPersonas();
+            };
             LoadData();
+
+
             PersonasDataGrid.ItemsSource = personas;
             currentPersona = new PersonaComercial();
         }
@@ -320,10 +328,12 @@ namespace AplicativoDeAlmacen.Views
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
             isEditing = false;
-            currentPersona = new PersonaComercial();
+            currentPersona = null;
             ClearForm();
             ModalTitle.Text = "Agregar Persona Comercial";
             ModalBackground.Visibility = Visibility.Visible;
+            
+
         }
 
 
@@ -373,103 +383,149 @@ namespace AplicativoDeAlmacen.Views
             {
                 isEditing = true;
                 currentPersona = selectedPersona;
-               // LoadPersonaToForm();
+
+                LoadPersonaToForm();
+
                 ModalTitle.Text = "Editar Persona Comercial";
                 ModalBackground.Visibility = Visibility.Visible;
             }
         }
 
-        private void SaveButton_Click(object sender, RoutedEventArgs e)
+        private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            var persona = new PersonaComercial
+            {
+                Id = currentPersona?.Id ?? 0,
+                Nombres = NombresTextBox.Text,
+                ApellidoPaterno = ApellidoPaternoTextBox.Text,
+                ApellidoMaterno = ApellidoMaternoTextBox.Text,
+                RazonSocial = RazonSocialTextBox.Text,
+                NombreComercial = NombreComercialTextBox.Text,
+                Ruc = RucTextBox.Text,
+                Dni = DniTextBox.Text,
+                Direccion = DireccionTextBox.Text,
+
+                Localidad = (LocalidadComboBox.SelectedItem is ComboBoxItem loc)
+                ? new Localidad { Id = (int)loc.Tag }
+                : null,
+
+                Departamento = (DepartamentoComboBox.SelectedItem is ComboBoxItem dep)
+                ? new Departamento { Id = (int)dep.Tag }
+                : null,
+
+                Provincia = (ProvinciaComboBox.SelectedItem is ComboBoxItem prov)
+                ? new Provincia { Id = (int)prov.Tag }
+                : null,
+
+                Distrito = (DistritoComboBox.SelectedItem is ComboBoxItem dist)
+                ? new Distrito { Id = (int)dist.Tag }
+                : null,
+
+                Estado = (EstadoComboBox.SelectedItem is ComboBoxItem est)
+                ? new Estado { Id = (int)est.Tag }
+                : null,
+
+                ZonaPromotoria = (ZonaPromotoriaComboBox.SelectedItem is ComboBoxItem zp)
+                ? new ZonaPromotoria { Id = (int)zp.Tag }
+                : null,
+
+                TipoPersona = (TipoPersonaComboBox.SelectedItem is ComboBoxItem tp) ?
+                new TipoPersona { Id = (int)tp.Tag } : null
+            };
+
+           
+
             if (ValidateForm())
             {
-                SavePersona();
+                await _service.GuardarAsync(persona);
+
                 ModalBackground.Visibility = Visibility.Collapsed;
-               // LoadPersonas();
+
+                await LoadPersonas(); // refrescar grid
             }
+
         }
 
-/*
         private void LoadPersonaToForm()
         {
-            TipoPersonaComboBox.SelectedItem = TipoPersonaComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.TipoPersona);
-            ApellidoPaternoTextBox.Text = currentPersona.ApellidoPaterno;
-            ApellidoMaternoTextBox.Text = currentPersona.ApellidoMaterno;
-            NombresTextBox.Text = currentPersona.Nombres;
-            RazonSocialTextBox.Text = currentPersona.RazonSocial;
-            NombreComercialTextBox.Text = string.IsNullOrEmpty(currentPersona.NombreComercial) ? currentPersona.RazonSocial : currentPersona.NombreComercial;
-            RucTextBox.Text = currentPersona.Ruc;
-            DniTextBox.Text = currentPersona.Dni;
-            DireccionTextBox.Text = currentPersona.Direccion;
-            DepartamentoComboBox.SelectedItem = DepartamentoComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.Departamento);
-            ProvinciaComboBox.SelectedItem = ProvinciaComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.Provincia);
-            DistritoComboBox.SelectedItem = DistritoComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.Distrito);
-            LocalidadComboBox.SelectedItem = LocalidadComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.Localidad);
-            ZonaPromotoriaComboBox.SelectedItem = ZonaPromotoriaComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.ZonaPromotoria);
-            DireccionFiscalCheckBox.IsChecked = !string.IsNullOrEmpty(currentPersona.Direccion);
-            InstitucionEducativaCheckBox.IsChecked = !string.IsNullOrEmpty(currentPersona.Localidad);
-            EstadoComboBox.SelectedItem = EstadoComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(item => item.Content.ToString() == currentPersona.Estado);
-        }
-*/
-        private void SavePersona()
-        {
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            if (currentPersona == null)
+                return;
+
+            // Tipo Persona
+            TipoPersonaComboBox.SelectedItem =
+                TipoPersonaComboBox.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(x =>
+                    (int)x.Tag == currentPersona.TipoPersona?.Id);
+
+            // Datos personales
+            ApellidoPaternoTextBox.Text = currentPersona.ApellidoPaterno ?? "";
+            ApellidoMaternoTextBox.Text = currentPersona.ApellidoMaterno ?? "";
+            NombresTextBox.Text = currentPersona.Nombres ?? "";
+            RazonSocialTextBox.Text = currentPersona.RazonSocial ?? "";
+            NombreComercialTextBox.Text = currentPersona.NombreComercial ?? "";
+            RucTextBox.Text = currentPersona.Ruc ?? "";
+            DniTextBox.Text = currentPersona.Dni ?? "";
+            DireccionTextBox.Text = currentPersona.Direccion ?? "";
+
+            // Departamento
+            DepartamentoComboBox.SelectedItem =
+                DepartamentoComboBox.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(x =>
+                    (int)x.Tag == currentPersona.Departamento?.Id);
+
+
+            // Cargar provincias del departamento
+            if (currentPersona.Departamento != null)
             {
-                connection.Open();
+                LoadProvincias(currentPersona.Departamento.Id);
 
-                string query = isEditing ?
-                    @"UPDATE personas_comerciales 
-              SET tipo_persona_id = @tipoPersona, nombres = @nombres, apellido_paterno = @apellidoPaterno, 
-                  apellido_materno = @apellidoMaterno, razon_social = @razonSocial, nombre_comercial = @nombreComercial, 
-                  ruc = @ruc, dni = @dni, direccion = @direccion, localidad_id = @localidad, 
-                  zona_promotoria_id = @zonaPromotoria, estado_id = @estado, departamento_id = @departamento, 
-                  provincia_id = @provincia, distrito_id = @distrito 
-              WHERE id = @id"
-                    :
-                    @"INSERT INTO personas_comerciales 
-              (tipo_persona_id, nombres, apellido_paterno, apellido_materno, razon_social, nombre_comercial, 
-               ruc, dni, direccion, localidad_id, zona_promotoria_id, estado_id, departamento_id, provincia_id, distrito_id) 
-              VALUES (@tipoPersona, @nombres, @apellidoPaterno, @apellidoMaterno, @razonSocial, @nombreComercial, 
-                      @ruc, @dni, @direccion, @localidad, @zonaPromotoria, @estado, @departamento, @provincia, @distrito)";
-
-                using (SqlCommand command = new SqlCommand(query, connection))
-                {
-                    string tipoPersona = (TipoPersonaComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? string.Empty;
-
-                    AddParameterWithNullableValue(command, "@tipoPersona", (TipoPersonaComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-                    AddParameterWithNullableValue(command, "@nombres", NombresTextBox.Text);
-                    AddParameterWithNullableValue(command, "@apellidoPaterno", ApellidoPaternoTextBox.Text);
-                    AddParameterWithNullableValue(command, "@apellidoMaterno", ApellidoMaternoTextBox.Text);
-                    AddParameterWithNullableValue(command, "@razonSocial", RazonSocialTextBox.Text);
-                    AddParameterWithNullableValue(command, "@nombreComercial", NombreComercialTextBox.Text);
-                    AddParameterWithNullableValue(command, "@ruc", string.IsNullOrWhiteSpace(RucTextBox.Text) ? DBNull.Value : (object)RucTextBox.Text);
-                    AddParameterWithNullableValue(command, "@dni", string.IsNullOrWhiteSpace(DniTextBox.Text) ? DBNull.Value : (object)DniTextBox.Text);
-                    AddParameterWithNullableValue(command, "@direccion", DireccionTextBox.Text);
-                    AddParameterWithNullableValue(command, "@localidad", (LocalidadComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-                    AddParameterWithNullableValue(command, "@zonaPromotoria", (ZonaPromotoriaComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-                    AddParameterWithNullableValue(command, "@estado", (EstadoComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-                    AddParameterWithNullableValue(command, "@departamento", (DepartamentoComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-                    AddParameterWithNullableValue(command, "@provincia", (ProvinciaComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-                    AddParameterWithNullableValue(command, "@distrito", (DistritoComboBox.SelectedItem as ComboBoxItem)?.Tag ?? DBNull.Value);
-
-                    if (isEditing)
-                    {
-                        command.Parameters.AddWithValue("@id", currentPersona.Id);
-                    }
-
-                    try
-                    {
-                        command.ExecuteNonQuery();
-                        MessageBox.Show("Persona comercial guardada exitosamente.");
-                    }
-                    catch (SqlException ex)
-                    {
-                        MessageBox.Show($"Error al guardar la persona comercial: {ex.Message}");
-                    }
-                }
+                ProvinciaComboBox.SelectedItem =
+                    ProvinciaComboBox.Items.Cast<ComboBoxItem>()
+                    .FirstOrDefault(x =>
+                        (int)x.Tag == currentPersona.Provincia?.Id);
             }
+
+            // Cargar distritos de la provincia
+            if (currentPersona.Provincia != null)
+            {
+                LoadDistritos(currentPersona.Provincia.Id);
+
+                DistritoComboBox.SelectedItem =
+                    DistritoComboBox.Items.Cast<ComboBoxItem>()
+                    .FirstOrDefault(x =>
+                        (int)x.Tag == currentPersona.Distrito?.Id);
+            }
+
+            // Localidad
+            LocalidadComboBox.SelectedItem =
+                LocalidadComboBox.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(x =>
+                    (int)x.Tag == currentPersona.Localidad?.Id);
+
+            // Zona Promotoria
+            ZonaPromotoriaComboBox.SelectedItem =
+                ZonaPromotoriaComboBox.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(x =>
+                    (int)x.Tag == currentPersona.ZonaPromotoria?.Id);
+
+            // Estado
+            EstadoComboBox.SelectedItem =
+                EstadoComboBox.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(x =>
+                    (int)x.Tag == currentPersona.Estado?.Id);
+
+            // Checkboxes
+            DireccionFiscalCheckBox.IsChecked =
+                !string.IsNullOrWhiteSpace(currentPersona.Direccion);
+
+            InstitucionEducativaCheckBox.IsChecked =
+                currentPersona.Localidad != null;
+
+            // Actualizar habilitación de controles
+            TipoPersonaComboBox_SelectionChanged(null, null);
         }
 
+       
 
         private void AddParameterWithNullableValue(SqlCommand command, string parameterName, object value)
         {
@@ -482,10 +538,6 @@ namespace AplicativoDeAlmacen.Views
                 command.Parameters.AddWithValue(parameterName, value);
             }
         }
-
-
-
-
 
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
@@ -548,9 +600,6 @@ namespace AplicativoDeAlmacen.Views
             RazonSocialTextBox.Text = razonSocial;
         }
 
-
-
-       
 
         private void DireccionFiscalCheckBox_Checked(object sender, RoutedEventArgs e)
         {
