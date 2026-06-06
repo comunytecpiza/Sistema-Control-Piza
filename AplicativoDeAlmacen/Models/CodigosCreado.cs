@@ -10,7 +10,9 @@ public partial class CodigoCreado
     public int Id { get; set; }
     public int RegistroCodigoId { get; set; }
     public string Codigo { get; set; }
+    public bool EsManual { get; set; } // Nuevo campo
+    public int EstadoId { get; set; }  // Nuevo campo
 
-    // Opcional: Objeto padre si quieres navegar de regreso
-    public RegistroCodigo RegistroCodigo { get; set; }
+    // Propiedad calculada para la vista
+    public string Origen => EsManual ? "Manual" : "Automático";
 }

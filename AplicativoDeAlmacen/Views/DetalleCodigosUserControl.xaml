@@ -8,52 +8,70 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <TextBlock Text="🔍 Detalle de Lote de Códigos" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
 
-        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,20" BorderBrush="#E5E7EB" BorderThickness="1">
-            <StackPanel>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Producto:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="TxtProducto" Text="-" FontSize="16" FontWeight="Bold" Foreground="#1F2937"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="Categoría:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="TxtCategoria" Text="-" FontSize="16" FontWeight="Bold" Foreground="#1F2937"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="Rango Generado:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="TxtRango" Text="-" FontSize="16" FontWeight="Bold" Foreground="#1F2937"/>
-                    </StackPanel>
-                </Grid>
-            </StackPanel>
+        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,10" BorderBrush="#E5E7EB" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Producto:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtProducto" Text="-" FontSize="16" FontWeight="Bold"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="Categoría:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtCategoria" Text="-" FontSize="16" FontWeight="Bold"/>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Rango:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtRango" Text="-" FontSize="16" FontWeight="Bold"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <Border Grid.Row="2" CornerRadius="8" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBox x:Name="TxtNuevoCodigo" Width="200" Margin="0,0,10,0" Padding="5"/>
+            <Button Content="➕ Registrar Manual" Click="BtnRegistrarManual_Click" Background="#8B5CF6" Foreground="White" Padding="10,5"/>
+        </StackPanel>
+
+        <Border Grid.Row="3" CornerRadius="8" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                      Background="Transparent" BorderThickness="0" 
-                      RowHeight="30" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
+          Background="White" BorderThickness="0" 
+          RowHeight="35" HeadersVisibility="Column" 
+          GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F0F0F0">
+
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="#F9FAFB"/>
-                        <Setter Property="Foreground" Value="#374151"/>
+                        <Setter Property="Padding" Value="10"/>
                         <Setter Property="FontWeight" Value="Bold"/>
-                        <Setter Property="Padding" Value="10,8"/>
-                        <Setter Property="BorderThickness" Value="0,0,0,2"/>
-                        <Setter Property="BorderBrush" Value="#E5E7EB"/>
                     </Style>
                 </DataGrid.Resources>
+
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="80"/>
-                    <DataGridTextColumn Header="Código Generado" Binding="{Binding Codigo}" Width="*"/>
+                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
+                    <DataGridTextColumn Header="Código" Binding="{Binding Codigo}" Width="*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Padding" Value="5,0"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding EsManual}" Value="True">
+                                        <Setter Property="Foreground" Value="#8B5CF6"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Origen" Binding="{Binding Origen}" Width="100"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
