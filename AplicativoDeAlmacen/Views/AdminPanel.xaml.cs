@@ -132,7 +132,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)
         {
-             new PersonasComercialesWindow().Show();
+            // Abrimos la vista como UserControl dentro de una pestaña
+            AbrirPestaña("👥 Personas Comerciales", new TipoPersonaToIsReadOnlyConverter());
         }
 
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)

@@ -11,20 +11,7 @@
     <Window.Resources>
         <local:TipoPersonaToIsReadOnlyConverter x:Key="TipoPersonaToIsReadOnlyConverter"/>
 
-        <Style x:Key="RoundedButtonStyle" TargetType="Button">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="4" 
-                                Padding="{TemplateBinding Padding}" BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
+        <!-- Estilo General para Labels de Formulario -->
         <Style x:Key="FormLabelStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -32,36 +19,32 @@
             <Setter Property="Margin" Value="0,0,0,4"/>
         </Style>
 
+        <!-- Estilo Moderno para TextBox -->
         <Style TargetType="TextBox">
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="BorderBrush" Value="#CBD5E0"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Background" Value="White"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
-                            <ScrollViewer x:Name="PART_ContentHost"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="4"/>
+                </Style>
+            </Style.Resources>
         </Style>
 
+        <!-- Estilo Moderno para ComboBox -->
         <Style TargetType="ComboBox">
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Border Background="White" BorderBrush="#CBD5E0" BorderThickness="1" CornerRadius="4">
-                            <ContentPresenter/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="BorderBrush" Value="#CBD5E0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Style.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="4"/>
+                </Style>
+            </Style.Resources>
         </Style>
     </Window.Resources>
 
@@ -71,60 +54,132 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- BARRA SUPERIOR / CONTROL DE BÚSQUEDA Y ACCIONES -->
         <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="15,20">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Filtrar por:" Margin="0,0,15,0" FontWeight="SemiBold" Foreground="#4A5568"/>
-                    <RadioButton Content="Razón Social" IsChecked="True" Margin="0,0,15,0" Checked="FilterRadioButton_Checked"/>
-                    <RadioButton Content="Nombre Comercial" Margin="0,0,15,0" Checked="FilterRadioButton_Checked"/>
-                    <RadioButton Content="R.U.C." Margin="0,0,15,0" Checked="FilterRadioButton_Checked"/>
-                    <RadioButton Content="D.N.I." Margin="0,0,15,0" Checked="FilterRadioButton_Checked"/>
-                    <TextBox x:Name="SearchTextBox" Width="280" Margin="10,0,0,0" TextChanged="SearchTextBox_TextChanged"/>
+
+                <!-- Área de Filtros e Input -->
+                <StackPanel Orientation="Horizontal" Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Filtrar por:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#4A5568" Margin="0,0,15,0" FontSize="14"/>
+
+                    <RadioButton Content="Razón Social" IsChecked="True" Margin="0,0,15,0" Checked="FilterRadioButton_Checked" VerticalAlignment="Center" Foreground="#4A5568"/>
+                    <RadioButton Content="Nombre Comercial" Margin="0,0,15,0" Checked="FilterRadioButton_Checked" VerticalAlignment="Center" Foreground="#4A5568"/>
+                    <RadioButton Content="R.U.C." Margin="0,0,15,0" Checked="FilterRadioButton_Checked" VerticalAlignment="Center" Foreground="#4A5568"/>
+                    <RadioButton Content="D.N.I." Margin="0,0,15,0" Checked="FilterRadioButton_Checked" VerticalAlignment="Center" Foreground="#4A5568"/>
+
+                    <TextBox x:Name="SearchTextBox" Width="280" Margin="10,0,0,0" TextChanged="SearchTextBox_TextChanged" 
+                             Tag="Buscar..." Foreground="#2D3748" BorderBrush="#CBD5E0"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" Grid.Column="1">
-                    <Button Content="+ Agregar Persona" Click="AddButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#2B6CB0" Foreground="White" Width="160" Height="38" Margin="0,0,10,0"/>
-                    <Button x:Name="EditButton" Content="Editar Registro" Click="EditButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#EDF2F7" Foreground="#4A5568" Width="140" Height="38"/>
+
+                <!-- Botones de Acción Clientes -->
+                <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center">
+                    <!-- Botón Agregar (Estilo Primario Azul) -->
+                    <Button Content="+ Agregar Persona" Click="AddButton_Click" Width="160" Height="38" Margin="0,0,10,0" 
+                            Background="#2B6CB0" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="5"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+
+                    <!-- Botón Editar (Estilo Secundario Gris/Plata) -->
+                    <Button x:Name="EditButton" Content="Editar Registro" Click="EditButton_Click" Width="140" Height="38" IsEnabled="False" 
+                            Background="#EDF2F7" Foreground="#4A5568" FontWeight="SemiBold" BorderBrush="#CBD5E0" BorderThickness="1" Cursor="Hand">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="5"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Margin="20" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
-            <DataGrid x:Name="PersonasDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                      SelectionChanged="PersonasDataGrid_SelectionChanged" Background="Transparent" BorderThickness="0">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="70"/>
-                    <DataGridTextColumn Header="Razón Social" Binding="{Binding RazonSocial}" Width="2*"/>
-                    <DataGridTextColumn Header="Nombre Comercial" Binding="{Binding NombreComercial}" Width="2*"/>
-                    <DataGridTextColumn Header="T. Persona" Binding="{Binding TipoPersona.Nombre}" Width="100"/>
-                    <DataGridTextColumn Header="R.U.C." Binding="{Binding Ruc}" Width="110"/>
-                    <DataGridTextColumn Header="D.N.I." Binding="{Binding Dni}" Width="90"/>
-                    <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad.Nombre}" Width="1.2*"/>
-                    <DataGridTextColumn Header="Zona Promotoria" Binding="{Binding ZonaPromotoria.Descripcion}" Width="1.2*"/>
-                    <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="90"/>
-                </DataGrid.Columns>
-            </DataGrid>
-        </Border>
+        <!-- CONTENEDOR PRINCIPAL DEL DATAGRID -->
+        <Grid Grid.Row="1" Margin="20">
+            <Border Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="15" Direction="270" ShadowDepth="2" Opacity="0.05"/>
+                </Border.Effect>
 
-        <Grid x:Name="ModalBackground" Visibility="Collapsed" Background="#A0000000" Grid.RowSpan="2">
-            <Border Background="White" CornerRadius="8" Width="700" Height="650" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="25">
-                <Grid>
+                <DataGrid x:Name="PersonasDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
+                          SelectionChanged="PersonasDataGrid_SelectionChanged"
+                          Background="Transparent" RowHeight="40" GridLinesVisibility="Horizontal" 
+                          HorizontalGridLinesBrush="#EDF2F7" BorderThickness="0" HeadersVisibility="Column">
+
+                    <!-- Encabezados del DataGrid Modernos -->
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#F7FAFC"/>
+                            <Setter Property="Foreground" Value="#4A5568"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Setter Property="Padding" Value="12,10"/>
+                            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+
+                    <!-- Estilo de las Filas -->
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="Background" Value="White"/>
+                            <Setter Property="Foreground" Value="#2D3748"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#EBF8FF"/>
+                                    <Setter Property="Foreground" Value="#2B6CB0"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#F7FAFC"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="70"/>
+                        <DataGridTextColumn Header="Razón Social" Binding="{Binding RazonSocial}" Width="2*"/>
+                        <DataGridTextColumn Header="Nombre Comercial" Binding="{Binding NombreComercial}" Width="2*"/>
+                        <DataGridTextColumn Header="T. Persona" Binding="{Binding TipoPersona.Nombre}" Width="100"/>
+                        <DataGridTextColumn Header="R.U.C." Binding="{Binding Ruc}" Width="110"/>
+                        <DataGridTextColumn Header="D.N.I." Binding="{Binding Dni}" Width="90"/>
+                        <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad.Nombre}" Width="1.2*"/>
+                        <DataGridTextColumn Header="Zona Promotoria" Binding="{Binding ZonaPromotoria.Descripcion}" Width="1.2*"/>
+                        <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="90"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </Grid>
+
+        <!-- MODAL PARA AGREGAR / EDITAR (DISEÑO RE-ESTRUCTURADO) -->
+        <Grid x:Name="ModalBackground" Grid.RowSpan="2" Background="#A0000000" Visibility="Collapsed">
+            <Border Background="White" CornerRadius="8" Width="680" Height="620" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="25" ShadowDepth="5" Opacity="0.3"/>
+                </Border.Effect>
+
+                <Grid Margin="25">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock x:Name="ModalTitle" FontSize="20" FontWeight="Bold" Margin="0,0,0,15"/>
+                    <!-- Cabecera del Modal -->
+                    <TextBlock x:Name="ModalTitle" FontSize="20" FontWeight="Bold" Foreground="#1A202C" Margin="0,0,0,15"/>
 
-                    <ScrollViewer Grid.Row="1">
+                    <!-- Formulario Optimizado en Dos Columnas usando un Grid -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,15">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="20"/>
+                                <!-- Espaciador Central -->
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
@@ -139,87 +194,125 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <StackPanel Grid.Row="0" Grid.Column="0">
-                                <TextBlock Text="Tipo Persona" Style="{StaticResource FormLabelStyle}"/>
+                            <!-- Fila 1 -->
+                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
+                                <TextBlock Text="Tipo de Persona" Style="{StaticResource FormLabelStyle}"/>
                                 <ComboBox x:Name="TipoPersonaComboBox" SelectionChanged="TipoPersonaComboBox_SelectionChanged"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="0" Grid.Column="2">
+
+                            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,12">
                                 <TextBlock Text="Razón Social" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="RazonSocialTextBox" IsReadOnly="{Binding ElementName=TipoPersonaComboBox, Path=SelectedItem.Content, Converter={StaticResource TipoPersonaToIsReadOnlyConverter}}"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="1" Grid.Column="0">
-                                <TextBlock Text="Ap. Paterno" Style="{StaticResource FormLabelStyle}"/>
+                            <!-- Fila 2 -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,12">
+                                <TextBlock Text="Apellido Paterno" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="ApellidoPaternoTextBox"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="1" Grid.Column="2">
-                                <TextBlock Text="Ap. Materno" Style="{StaticResource FormLabelStyle}"/>
+
+                            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,12">
+                                <TextBlock Text="Apellido Materno" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="ApellidoMaternoTextBox"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="2" Grid.Column="0">
-                                <TextBlock Text="Nombres" Style="{StaticResource FormLabelStyle}"/>
+                            <!-- Fila 3 -->
+                            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,12">
+                                <TextBlock Text="Nombre(s)" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="NombresTextBox"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="2" Grid.Column="2">
+
+                            <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,12">
                                 <TextBlock Text="Nombre Comercial" Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="NombreComercialTextBox"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="3" Grid.Column="0">
+                            <!-- Fila 4 -->
+                            <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,0,12">
                                 <TextBlock Text="R.U.C." Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="RucTextBox" MaxLength="11"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="3" Grid.Column="2">
+
+                            <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,0,0,12">
                                 <TextBlock Text="D.N.I." Style="{StaticResource FormLabelStyle}"/>
                                 <TextBox x:Name="DniTextBox" MaxLength="8"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Horizontal" Margin="0,10">
-                                <CheckBox x:Name="DireccionFiscalCheckBox" Content="Dirección Fiscal" Checked="DireccionFiscalCheckBox_Checked" Unchecked="DireccionFiscalCheckBox_Unchecked"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal" Margin="0,10">
-                                <CheckBox x:Name="InstitucionEducativaCheckBox" Content="Inst. Educativa" Checked="InstitucionEducativaCheckBox_Checked" Unchecked="InstitucionEducativaCheckBox_Unchecked"/>
+                            <!-- Fila 5: Checkboxes -->
+                            <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,5,0,15">
+                                <CheckBox x:Name="DireccionFiscalCheckBox" Content="Dirección Fiscal" Checked="DireccionFiscalCheckBox_Checked" Unchecked="DireccionFiscalCheckBox_Unchecked" FontWeight="Medium"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="5" Grid.ColumnSpan="3">
-                                <TextBlock Text="Dirección" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="DireccionTextBox"/>
+                            <StackPanel Grid.Row="4" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,5,0,15">
+                                <CheckBox x:Name="InstitucionEducativaCheckBox" Content="Institución Educativa" Checked="InstitucionEducativaCheckBox_Checked" Unchecked="InstitucionEducativaCheckBox_Unchecked" FontWeight="Medium"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="6" Grid.Column="0">
+                            <!-- Fila 6 -->
+                            <Grid Grid.Row="5" Grid.ColumnSpan="3" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="Dirección" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="DireccionTextBox" IsEnabled="False"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Fila 7 -->
+                            <StackPanel Grid.Row="6" Grid.Column="0" Margin="0,0,0,12">
                                 <TextBlock Text="Departamento" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="DepartamentoComboBox" SelectionChanged="DepartamentoComboBox_SelectionChanged"/>
+                                <ComboBox x:Name="DepartamentoComboBox" IsEnabled="False" SelectionChanged="DepartamentoComboBox_SelectionChanged"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="6" Grid.Column="2">
+
+                            <StackPanel Grid.Row="6" Grid.Column="2" Margin="0,0,0,12">
                                 <TextBlock Text="Provincia" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="ProvinciaComboBox" SelectionChanged="ProvinciaComboBox_SelectionChanged"/>
+                                <ComboBox x:Name="ProvinciaComboBox" IsEnabled="False" SelectionChanged="ProvinciaComboBox_SelectionChanged"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="7" Grid.Column="0">
+                            <!-- Fila 8 -->
+                            <StackPanel Grid.Row="7" Grid.Column="0" Margin="0,0,0,12">
                                 <TextBlock Text="Distrito" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="DistritoComboBox"/>
-                            </StackPanel>
-                            <StackPanel Grid.Row="7" Grid.Column="2">
-                                <TextBlock Text="Localidad" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="LocalidadComboBox"/>
+                                <ComboBox x:Name="DistritoComboBox" IsEnabled="False"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Row="8" Grid.Column="0">
-                                <TextBlock Text="Zona Promotoria" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="ZonaPromotoriaComboBox"/>
+                            <StackPanel Grid.Row="7" Grid.Column="2" Margin="0,0,0,12">
+                                <TextBlock Text="Localidad" Style="{StaticResource FormLabelStyle}"/>
+                                <ComboBox x:Name="LocalidadComboBox" IsEnabled="False" SelectionChanged="LocalidadComboBox_SelectionChanged"/>
                             </StackPanel>
-                            <StackPanel Grid.Row="8" Grid.Column="2">
+
+                            <!-- Fila 9 -->
+                            <StackPanel Grid.Row="8" Grid.Column="0" Margin="0,0,0,12">
+                                <TextBlock Text="Zona Promotoria" Style="{StaticResource FormLabelStyle}"/>
+                                <ComboBox x:Name="ZonaPromotoriaComboBox" IsEnabled="False"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="8" Grid.Column="2" Margin="0,0,0,12">
                                 <TextBlock Text="Estado" Style="{StaticResource FormLabelStyle}"/>
                                 <ComboBox x:Name="EstadoComboBox"/>
                             </StackPanel>
+
                         </Grid>
                     </ScrollViewer>
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-                        <Button Content="Cancelar" Click="CancelButton_Click" Style="{StaticResource RoundedButtonStyle}" Width="100" Margin="0,0,10,0"/>
-                        <Button Content="Guardar" Click="SaveButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#2B6CB0" Foreground="White" Width="110"/>
-                    </StackPanel>
+                    <!-- Acciones del Modal -->
+                    <Border Grid.Row="2" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,15,0,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Cancelar" Click="CancelButton_Click" Width="100" Height="35" Margin="0,0,10,0"
+                                    Background="White" Foreground="#4A5568" BorderBrush="#CBD5E0" BorderThickness="1" FontWeight="SemiBold">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="4"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <Button Content="Guardar" Click="SaveButton_Click" Width="110" Height="35"
+                                    Background="#2B6CB0" Foreground="White" BorderThickness="0" FontWeight="SemiBold">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="4"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
                 </Grid>
             </Border>
         </Grid>
