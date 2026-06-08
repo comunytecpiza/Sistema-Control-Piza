@@ -95,8 +95,12 @@
                         <MenuItem.Icon>
                             <Image Source="/Icon/catalogos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
+                        <MenuItem Header="Localidades" Click="MenuItemLocalidades_Click"/>
+                        <MenuItem Header="Zonas de Promotoría" Click="MenuItemZonasPromotoria_Click"/>
+                        <MenuItem Header="Ubicaciones" Click="MenuItemUbicaciones_Click"/>
                         <MenuItem Header="Productos" Click="MenuItemProductos_Click"/>
                         <MenuItem Header="Unidades de Medida" Click="MenuItemUnidades_Click"/>
+                        <MenuItem Header="Personas Comerciales" Click="MenuItemPersonasComerciales_Click"/>
                         <MenuItem Header="Colecciones" Click="MenuItemColecciones_Click"/>
                         <MenuItem Header="Títulos" Click="MenuItemTitulos_Click"/>
                     </MenuItem>

@@ -1,5 +1,4 @@
-﻿
-using AplicativoDeAlmacen.Models.Models;
+﻿using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.ObjectModel;
@@ -10,12 +9,13 @@ using System.Threading.Tasks;
 
 namespace AplicativoDeAlmacen.Views
 {
-    public partial class LocalidadesUserControl : UserControl // Cambiado a UserControl
+    public partial class LocalidadesUserControl : UserControl
     {
         private ObservableCollection<Localidad> localidades = new ObservableCollection<Localidad>();
-        
+
         private readonly LocalidadService _service;
         private Localidad? _currentLocalidad;
+
         public LocalidadesUserControl()
         {
             InitializeComponent();
@@ -38,10 +38,10 @@ namespace AplicativoDeAlmacen.Views
                 CmbEstadoLocalidad.Items.Add(new ComboBoxItem { Content = estado.Nombre, Tag = estado.Id });
             }
         }
+
         private async Task LoadLocalidades()
         {
             localidades.Clear();
-
             var lista = await _service.ObtenerTodosAsync();
 
             foreach (var item in lista)
@@ -52,23 +52,41 @@ namespace AplicativoDeAlmacen.Views
             LocalidadesGrid.ItemsSource = localidades;
         }
 
-        private void LocalidadesSearchButton_Click(object sender, RoutedEventArgs e)
+        // =======================================================
+        // ESTE ES EL MÉTODO CORREGIDO QUE BUSCA AUTOMÁTICAMENTE
+        // =======================================================
+        private void BuscarTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
+            // Verificamos que el control ya esté cargado
+            if (LocalidadesSearchBox == null) return;
+
             string searchTerm = LocalidadesSearchBox.Text.ToLower();
-            var filteredLocalidades = localidades.Where(l =>
-                l.Nombre.ToLower().Contains(searchTerm) ||
-                l.Id.ToString().Contains(searchTerm));
-            LocalidadesGrid.ItemsSource = filteredLocalidades;
+
+            if (string.IsNullOrWhiteSpace(searchTerm))
+            {
+                LocalidadesGrid.ItemsSource = localidades;
+            }
+            else
+            {
+                var filteredLocalidades = localidades.Where(l =>
+                    (l.Nombre != null && l.Nombre.ToLower().Contains(searchTerm)) ||
+                    l.Id.ToString().Contains(searchTerm));
+
+                LocalidadesGrid.ItemsSource = filteredLocalidades;
+            }
         }
 
         private void AddLocalidadButton_Click(object sender, RoutedEventArgs e)
         {
             _currentLocalidad = null;
             TxtNombreLocalidad.Clear();
+            ModalTitle.Text = "Agregar Localidad"; // Añadido para actualizar título
             if (CmbEstadoLocalidad.Items.Count > 0)
                 CmbEstadoLocalidad.SelectedIndex = 0;
+
             AddEditLocalidadModal.Visibility = Visibility.Visible;
         }
+
         private void EditLocalidadButton_Click(object sender, RoutedEventArgs e)
         {
             if (LocalidadesGrid.SelectedItem is not Localidad localidad)
@@ -78,7 +96,7 @@ namespace AplicativoDeAlmacen.Views
             }
 
             _currentLocalidad = localidad;
-
+            ModalTitle.Text = "Editar Localidad"; // Añadido para actualizar título
             TxtNombreLocalidad.Text = localidad.Nombre;
 
             if (localidad.Estado != null)
@@ -110,7 +128,6 @@ namespace AplicativoDeAlmacen.Views
             {
                 Id = _currentLocalidad?.Id ?? 0,
                 Nombre = TxtNombreLocalidad.Text,
-
                 Estado = new Estado
                 {
                     Id = (int)((ComboBoxItem)CmbEstadoLocalidad.SelectedItem).Tag
@@ -118,7 +135,6 @@ namespace AplicativoDeAlmacen.Views
             };
 
             await _service.GuardarAsync(localidad);
-
             await LoadLocalidades();
 
             AddEditLocalidadModal.Visibility = Visibility.Collapsed;
@@ -128,8 +144,5 @@ namespace AplicativoDeAlmacen.Views
         {
             AddEditLocalidadModal.Visibility = Visibility.Collapsed;
         }
-
-        
     }
-  
 }

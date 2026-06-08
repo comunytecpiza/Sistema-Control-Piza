@@ -153,6 +153,27 @@ namespace AplicativoDeAlmacen.Views
         // =========================================================
         // EVENTOS DEL MENÚ (Abre Pestañas en lugar de Ventanas)
         // =========================================================
+        private void MenuItemLocalidades_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("🌎 Localidades", new LocalidadesUserControl());
+        }
+
+        private void MenuItemZonasPromotoria_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("📍 Zonas de Promotoría", new ZonasPromotoriaUserControl());
+        }
+
+        private void MenuItemUbicaciones_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("🏢 Ubicaciones", new UbicacionesUserControl());
+        }
+
+        private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("👥 Personas Comerciales", new PersonasComercialesUserControl()
+            );
+        }
+
         private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
         {
             AbrirPestaña("📦 Productos", new ProductosUserControl());
@@ -160,7 +181,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
         {
-            AbrirPestaña("📏 Unidades", new UnidadesMedidaUserControl());
+            AbrirPestaña("📏 Unidades de Medida", new UnidadesMedidaUserControl());
         }
 
         private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
@@ -172,15 +193,13 @@ namespace AplicativoDeAlmacen.Views
         {
             AbrirPestaña("🏷️ Títulos", new TitulosUserControl());
         }
-
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
         {
             AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
         }
-
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {
-            // AbrirPestaña("📥 Ingreso de Productos", new IngresoProductosUserControl()); 
+            //AbrirPestaña("📥 Ingreso de Productos", new IngresoProductosUserControl()); 
         }
     }
 }

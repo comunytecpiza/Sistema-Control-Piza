@@ -3,61 +3,254 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#F4F6F9" FontFamily="Segoe UI">
 
-    <Grid Margin="20">
+    <UserControl.Resources>
+        <Style x:Key="FormLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#4A5568"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="BorderBrush" Value="#CBD5E0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#2D3748"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="6"/>
+                </Style>
+            </Style.Resources>
+            <Style.Triggers>
+                <Trigger Property="IsFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="#3B82F6"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="BorderBrush" Value="#CBD5E0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#2D3748"/>
+            <Style.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="6"/>
+                </Style>
+            </Style.Resources>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="25">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="📍 Ubicaciones" FontSize="26" FontWeight="Bold" Margin="0,0,0,20"/>
+        <TextBlock Text="📍 Gestión de Ubicaciones" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
 
-        <Border Grid.Row="0" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,15" BorderBrush="#E2E8F0" BorderThickness="1">
-            <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="BuscarTextBox" Width="300" Tag="Buscar por descripción..." TextChanged="BuscarTextBox_TextChanged"/>
-                <Button Content="+ Agregar" Click="AgregarUbicacionButton_Click" Background="#10B981" Margin="10,0,10,0"/>
-                <Button Content="✏️ Editar" Click="EditarUbicacionButton_Click" Background="#F59E0B"/>
-            </StackPanel>
+        <Border Grid.Row="1" Background="White" CornerRadius="10" Padding="15,20" Margin="0,0,0,15" BorderBrush="#E2E8F0" BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="15" Direction="270" ShadowDepth="2" Opacity="0.04"/>
+            </Border.Effect>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="Buscar:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#4A5568" Margin="0,0,10,0" FontSize="14"/>
+                    <TextBox x:Name="BuscarTextBox" Width="300" Tag="Buscar por descripción..." TextChanged="BuscarTextBox_TextChanged"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center">
+                    <Button Content="+ Agregar Ubicación" Click="AgregarUbicacionButton_Click" Width="160" Height="38" Margin="0,0,10,0" 
+                            Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+                    <Button Content="✏️ Editar" Click="EditarUbicacionButton_Click" Width="120" Height="38" 
+                            Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <Border Grid.Row="1" CornerRadius="8" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" Padding="1">
-            <DataGrid x:Name="UbicacionesDataGrid" AutoGenerateColumns="False" IsReadOnly="True" Background="Transparent" BorderThickness="0">
+        <Border Grid.Row="2" CornerRadius="10" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" Padding="5">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="15" Direction="270" ShadowDepth="2" Opacity="0.04"/>
+            </Border.Effect>
+
+            <DataGrid x:Name="UbicacionesDataGrid" AutoGenerateColumns="False" IsReadOnly="True" Background="Transparent" 
+                      RowHeight="40" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EDF2F7" BorderThickness="0" HeadersVisibility="Column">
+
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#F8FAFC"/>
+                        <Setter Property="Foreground" Value="#475569"/>
+                        <Setter Property="FontWeight" Value="Bold"/>
+                        <Setter Property="Padding" Value="15,12"/>
+                        <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="White"/>
+                        <Setter Property="Foreground" Value="#1E293B"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#F1F5F9"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#E0F2FE"/>
+                                <Setter Property="Foreground" Value="#0369A1"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.RowStyle>
+
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="70"/>
-                    <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
-                    <DataGridTextColumn Header="Tipo" Binding="{Binding TipoUbicacion.Nombre}" Width="Auto"/>
-                    <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad.Nombre}" Width="Auto"/>
-                    <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="Auto"/>
+                    <DataGridTextColumn Header="Código" Binding="{Binding Id}" Width="80">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Padding" Value="15,0,0,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="2*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Padding" Value="15,0,0,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Tipo" Binding="{Binding TipoUbicacion.Nombre}" Width="1.5*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Padding" Value="15,0,0,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Localidad" Binding="{Binding Localidad.Nombre}" Width="1.5*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Padding" Value="15,0,0,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="120">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Padding" Value="15,0,0,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
 
-        <Grid x:Name="UbicacionModal" Visibility="Collapsed" Background="#A0000000" Grid.RowSpan="2">
-            <Border Background="White" Width="450" VerticalAlignment="Center" CornerRadius="8" Padding="25">
-                <StackPanel>
-                    <TextBlock x:Name="ModalTitle" FontSize="20" FontWeight="Bold" Margin="0,0,0,15"/>
+        <Grid x:Name="UbicacionModal" Visibility="Collapsed" Background="#660F172A" Grid.RowSpan="3" Margin="-25">
+            <Border Background="White" Width="480" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="30" ShadowDepth="10" Opacity="0.15" Direction="270"/>
+                </Border.Effect>
 
-                    <TextBlock Text="Descripción" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TxtDescripcion" Margin="0,0,0,10"/>
-                    <TextBlock Text="Tipo de Ubicación" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="CmbTipoUbicacion" Margin="0,0,0,10"/>
-                    <TextBlock Text="Localidad" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="CmbLocalidad" Margin="0,0,0,10"/>
-                    <TextBlock Text="Dirección" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TxtDireccion" Margin="0,0,0,10"/>
-                    <TextBlock Text="Departamento" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="CmbDepartamento" SelectionChanged="CmbDepartamento_SelectionChanged" Margin="0,0,0,10"/>
-                    <TextBlock Text="Provincia" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="CmbProvincia" SelectionChanged="CmbProvincia_SelectionChanged" Margin="0,0,0,10"/>
-                    <TextBlock Text="Distrito" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="CmbDistrito" Margin="0,0,0,10"/>
-                    <TextBlock Text="Estado" FontWeight="SemiBold"/>
-                    <ComboBox x:Name="CmbEstado" Margin="0,0,0,20"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="550" Margin="-10" Padding="10">
+                    <StackPanel>
+                        <TextBlock x:Name="ModalTitle" Text="Ubicación" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,25"/>
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Cancelar" Click="BtnCancelarUbicacion_Click" Background="#6B7280" Margin="0,0,10,0"/>
-                        <Button Content="Guardar" Click="BtnGuardarUbicacion_Click" Background="#3B82F6"/>
+                        <TextBlock Text="Descripción" Style="{StaticResource FormLabelStyle}"/>
+                        <TextBox x:Name="TxtDescripcion" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Tipo de Ubicación" Style="{StaticResource FormLabelStyle}"/>
+                        <ComboBox x:Name="CmbTipoUbicacion" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Localidad" Style="{StaticResource FormLabelStyle}"/>
+                        <ComboBox x:Name="CmbLocalidad" Margin="0,0,0,15"/>
+
+                        <TextBlock Text="Dirección" Style="{StaticResource FormLabelStyle}"/>
+                        <TextBox x:Name="TxtDireccion" Margin="0,0,0,15"/>
+
+                        <Grid Margin="0,0,0,15">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Departamento" Style="{StaticResource FormLabelStyle}"/>
+                                <ComboBox x:Name="CmbDepartamento" SelectionChanged="CmbDepartamento_SelectionChanged"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Provincia" Style="{StaticResource FormLabelStyle}"/>
+                                <ComboBox x:Name="CmbProvincia" SelectionChanged="CmbProvincia_SelectionChanged"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,25">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="15"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Distrito" Style="{StaticResource FormLabelStyle}"/>
+                                <ComboBox x:Name="CmbDistrito"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Estado" Style="{StaticResource FormLabelStyle}"/>
+                                <ComboBox x:Name="CmbEstado"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Border BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,20,0,0">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="Cancelar" Click="BtnCancelarUbicacion_Click" Width="110" Height="40" Margin="0,0,12,0" 
+                                        Background="White" Foreground="#475569" BorderBrush="#CBD5E0" BorderThickness="1" FontWeight="SemiBold" Cursor="Hand">
+                                    <Button.Resources>
+                                        <Style TargetType="Border">
+                                            <Setter Property="CornerRadius" Value="6"/>
+                                        </Style>
+                                    </Button.Resources>
+                                </Button>
+                                <Button Content="Guardar" Click="BtnGuardarUbicacion_Click" Width="110" Height="40" 
+                                        Background="#2563EB" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand">
+                                    <Button.Resources>
+                                        <Style TargetType="Border">
+                                            <Setter Property="CornerRadius" Value="6"/>
+                                        </Style>
+                                    </Button.Resources>
+                                </Button>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
     </Grid>

@@ -3,15 +3,76 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#F4F6F9" FontFamily="Segoe UI">
 
-    <Grid Margin="20">
+    <UserControl.Resources>
+        <Style x:Key="FormLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#4A5568"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="BorderBrush" Value="#CBD5E0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#2D3748"/>
+            <Setter Property="Background" Value="White"/>
+            <Style.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="6"/>
+                </Style>
+            </Style.Resources>
+        </Style>
+
+        <Style x:Key="ModernListBoxItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="Padding" Value="15,12"/>
+            <Setter Property="Foreground" Value="#1E293B"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="6" 
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#F8FAFC"/>
+                                <Setter Property="BorderBrush" Value="#CBD5E0"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#E0F2FE"/>
+                                <Setter Property="BorderBrush" Value="#3B82F6"/>
+                                <Setter Property="Foreground" Value="#0369A1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="25">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="🌍 Zonas de Promotoría" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+        <TextBlock Text="🌍 Zonas de Promotoría" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
 
-        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="20" BorderBrush="#E2E8F0" BorderThickness="1">
+        <Border Grid.Row="1" Background="White" CornerRadius="10" Padding="25" BorderBrush="#E2E8F0" BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="15" Direction="270" ShadowDepth="2" Opacity="0.04"/>
+            </Border.Effect>
+
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -19,25 +80,43 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <StackPanel Margin="0,0,0,15">
-                    <TextBlock Text="Seleccionar Localidad:" FontWeight="SemiBold" Foreground="#4A5568"/>
-                    <ComboBox x:Name="LocalidadComboBox" SelectionChanged="LocalidadComboBox_SelectionChanged" Height="35" Margin="0,5,0,0"/>
+                <StackPanel Margin="0,0,0,20">
+                    <TextBlock Text="Seleccionar Localidad" Style="{StaticResource FormLabelStyle}"/>
+                    <ComboBox x:Name="LocalidadComboBox" SelectionChanged="LocalidadComboBox_SelectionChanged" MaxWidth="400" HorizontalAlignment="Left" Width="400"/>
                 </StackPanel>
 
-                <ListBox x:Name="ZonasListBox" Grid.Row="1" BorderThickness="0" Background="Transparent">
+                <ListBox x:Name="ZonasListBox" Grid.Row="1" BorderThickness="0" Background="Transparent" 
+                         ItemContainerStyle="{StaticResource ModernListBoxItemStyle}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="-5,0,-5,0" Padding="5">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Border Padding="10" Margin="0,5" Background="#F7FAFC" CornerRadius="4" Width="300">
-                                <TextBlock Text="{Binding Descripcion}" FontWeight="Medium"/>
-                            </Border>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📍" Foreground="#9CA3AF" FontSize="16" Margin="0,0,10,0"/>
+                                <TextBlock Text="{Binding Descripcion}" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                            </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,15,0,0">
-                    <Button Content="+ Agregar" Click="AgregarZona_Click" Background="#10B981" Width="120" Margin="0,0,10,0"/>
-                    <Button Content="🗑️ Eliminar" Click="EliminarZona_Click" Background="#EF4444" Width="120"/>
-                </StackPanel>
+                <Border Grid.Row="2" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,20,0,0" Margin="0,10,0,0">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="+ Agregar Zona" Click="AgregarZona_Click" Width="140" Height="40" Margin="0,0,12,0" 
+                                Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="6"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                        <Button Content="🗑️ Eliminar" Click="EliminarZona_Click" Width="120" Height="40" 
+                                Background="#EF4444" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="6"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Border>
     </Grid>
