@@ -16,7 +16,7 @@ namespace AplicativoDeAlmacen
         {
             InitializeComponent();
 
-            // El sistema arranca limpio, sin overlays molestos
+            // El sistema arranca limpio, sin overlays molestos listo asdasdasdadasdasd
             LoadingOverlay.Visibility = Visibility.Collapsed;
         }
 
