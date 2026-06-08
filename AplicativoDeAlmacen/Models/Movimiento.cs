@@ -15,13 +15,13 @@ public partial class Movimiento
 
     public string NumeroDocumento { get; set; }
 
-    public int MotivoProductoId { get; set; }
+    public MotivoProducto MotivoProducto { get; set; }
 
-    public int? UbicacionId { get; set; }
+    public Ubicacion Ubicacion { get; set; }
 
-    public int UsuarioId { get; set; }
+    public Usuario Usuario { get; set; }
 
-    public int? PersonaComercialId { get; set; }
+    public PersonaComercial PersonaComercial { get; set; }
 
     public string SerieGuia { get; set; }
 
@@ -29,7 +29,7 @@ public partial class Movimiento
 
     public string Observacion { get; set; }
 
-    public int EstadoId { get; set; }
+    public Estado Estado { get; set; }
 
     public DateTime? CreatedAt { get; set; }
 }

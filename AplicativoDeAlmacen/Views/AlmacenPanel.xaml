@@ -105,7 +105,7 @@
                         <MenuItem Header="Títulos" Click="MenuItemTitulos_Click"/>
                     </MenuItem>
 
-                    <MenuItem Header="Movimientos" Style="{StaticResource ModernMenuItemStyle}">
+                    <MenuItem Header="Movimientos" Style="{StaticResource ModernMenuItemStyle}" Click="MenuItem_Click">
                         <MenuItem.Icon>
                             <Image Source="/Icon/movimientos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>

@@ -199,7 +199,13 @@ namespace AplicativoDeAlmacen.Views
         }
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {
-            //AbrirPestaña("📥 Ingreso de Productos", new IngresoProductosUserControl()); 
+            AbrirPestaña("📝 Ingreso de Productos", new IngresoProductosUserControl());
+        
+        }
+
+        private void MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+
         }
     }
 }
