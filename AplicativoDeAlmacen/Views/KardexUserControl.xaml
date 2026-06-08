@@ -259,102 +259,45 @@
 
         <!-- RESUMEN -->
 
-        <Border Grid.Row="3"
-                Margin="0,15,0,0"
-                Background="White"
-                CornerRadius="12"
-                BorderBrush="#E5E7EB"
-                BorderThickness="1"
-                Padding="15">
+        <Border Grid.Row="3" Margin="0,15,0,0" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="15">
+            <UniformGrid Columns="5">
 
-            <UniformGrid Columns="4">
-
-                <Border Background="#F8FAFC"
-                        CornerRadius="8"
-                        Margin="5"
-                        Padding="12">
-
+                <Border Background="#ECFDF5" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-
-                        <TextBlock Text="Stock Inicial"
-                                   FontSize="12"
-                                   Foreground="#6B7280"/>
-
-                        <TextBlock x:Name="TxtStockInicial"
-                                   Text="0.00"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="#111827"/>
-
+                        <TextBlock Text="Ingresos" FontSize="13" Foreground="#065F46" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtTotalIngresos" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#059669"/>
                     </StackPanel>
-
                 </Border>
 
-                <Border Background="#ECFDF5"
-                        CornerRadius="8"
-                        Margin="5"
-                        Padding="12">
-
+                <Border Background="#F0FDFA" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-
-                        <TextBlock Text="Total Ingresos"
-                                   FontSize="12"
-                                   Foreground="#065F46"/>
-
-                        <TextBlock x:Name="TxtTotalIngresos"
-                                   Text="0.00"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="#059669"/>
-
+                        <TextBlock Text="Devoluciones (Entradas)" FontSize="13" Foreground="#0F766E" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtTotalDevIngresos" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#0D9488"/>
                     </StackPanel>
-
                 </Border>
 
-                <Border Background="#FEF2F2"
-                        CornerRadius="8"
-                        Margin="5"
-                        Padding="12">
-
+                <Border Background="#FEF2F2" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-
-                        <TextBlock Text="Total Salidas"
-                                   FontSize="12"
-                                   Foreground="#991B1B"/>
-
-                        <TextBlock x:Name="TxtTotalSalidas"
-                                   Text="0.00"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="#DC2626"/>
-
+                        <TextBlock Text="Salidas" FontSize="13" Foreground="#991B1B" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtTotalSalidas" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#DC2626"/>
                     </StackPanel>
-
                 </Border>
 
-                <Border Background="#EFF6FF"
-                        CornerRadius="8"
-                        Margin="5"
-                        Padding="12">
-
+                <Border Background="#FFF7ED" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-
-                        <TextBlock Text="Stock Final"
-                                   FontSize="12"
-                                   Foreground="#1E3A8A"/>
-
-                        <TextBlock x:Name="TxtStockFinal"
-                                   Text="0.00"
-                                   FontSize="24"
-                                   FontWeight="Bold"
-                                   Foreground="#2563EB"/>
-
+                        <TextBlock Text="Devoluciones (Salidas)" FontSize="13" Foreground="#9A3412" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtTotalDevSalidas" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#EA580C"/>
                     </StackPanel>
+                </Border>
 
+                <Border Background="#EFF6FF" CornerRadius="8" Margin="5" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="Stock Final" FontSize="13" Foreground="#1E3A8A" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtStockFinal" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#2563EB"/>
+                    </StackPanel>
                 </Border>
 
             </UniformGrid>
-
         </Border>
 
     </Grid>

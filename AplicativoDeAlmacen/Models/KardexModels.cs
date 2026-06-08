@@ -26,9 +26,16 @@ namespace AplicativoDeAlmacen.Models.Models
     public class KardexFisicoReporte
     {
         public List<KardexFisicoItem> Detalles { get; set; } = new List<KardexFisicoItem>();
-        public decimal StockInicial { get; set; }
+
+        // Totales de Entradas
         public decimal TotalIngresos { get; set; }
+        public decimal TotalDevIngresos { get; set; }
+
+        // Totales de Salidas
         public decimal TotalSalidas { get; set; }
+        public decimal TotalDevSalidas { get; set; }
+
+        // Resumen Final (Se elimina StockInicial)
         public decimal StockFinal { get; set; }
     }
 }
