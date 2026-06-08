@@ -1,0 +1,362 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.KardexUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#F3F4F6"
+             FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+
+        <Style x:Key="RightAlignStyle" TargetType="DataGridCell">
+            <Setter Property="TextBlock.TextAlignment" Value="Right"/>
+            <Setter Property="Padding" Value="0,0,10,0"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="15,0"/>
+        </Style>
+
+    </UserControl.Resources>
+
+    <Grid Margin="20">
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- TITULO -->
+
+        <TextBlock Grid.Row="0"
+                   Text="Kardex Físico de Productos"
+                   FontSize="28"
+                   FontWeight="SemiBold"
+                   Foreground="#111827"
+                   Margin="0,0,0,20"/>
+
+        <!-- FILTROS -->
+
+        <Border Grid.Row="1"
+                Background="White"
+                CornerRadius="12"
+                Padding="20"
+                Margin="0,0,0,15"
+                BorderBrush="#E5E7EB"
+                BorderThickness="1">
+
+            <Grid>
+
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <WrapPanel>
+
+                    <!-- PRODUCTO -->
+
+                    <StackPanel Margin="0,0,20,0">
+
+                        <TextBlock Text="Producto"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,5"/>
+
+                        <Grid>
+
+                            <ComboBox x:Name="CboProductos"
+                              Width="350"
+                              Height="38"
+                              IsEditable="True"
+                              IsTextSearchEnabled="False"
+                              StaysOpenOnEdit="True"
+                              VerticalContentAlignment="Center"
+                              SelectionChanged="CboProductos_SelectionChanged"/>
+
+                        </Grid>
+
+                    </StackPanel>
+
+                    <!-- DESDE -->
+
+                    <StackPanel Margin="0,0,20,0">
+
+                        <TextBlock Text="Desde"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,5"/>
+
+                        <DatePicker x:Name="DpDesde"
+                                    Width="150"
+                                    Height="38"/>
+
+                    </StackPanel>
+
+                    <!-- HASTA -->
+
+                    <StackPanel>
+
+                        <TextBlock Text="Hasta"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,5"/>
+
+                        <DatePicker x:Name="DpHasta"
+                                    Width="150"
+                                    Height="38"/>
+
+                    </StackPanel>
+
+                </WrapPanel>
+
+                <!-- BOTONES -->
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Bottom">
+
+                    <Button Content="Generar Kardex"
+                            Width="150"
+                            Margin="0,0,10,0"
+                            Click="BtnEjecutarKardex_Click"
+                            Background="#2563EB"
+                            Foreground="White"/>
+
+                    <Button Content="Imprimir"
+                            Width="120"
+                            Background="#10B981"
+                            Foreground="White"/>
+
+                </StackPanel>
+
+            </Grid>
+
+        </Border>
+
+        <!-- TABLA -->
+
+        <Border Grid.Row="2"
+                Background="White"
+                CornerRadius="12"
+                BorderBrush="#E5E7EB"
+                BorderThickness="1">
+
+            <DataGrid x:Name="KardexDataGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      BorderThickness="0"
+                      Background="White"
+                      RowHeight="38"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      HorizontalGridLinesBrush="#E5E7EB">
+
+                <!-- CABECERAS -->
+
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+
+                        <Setter Property="Background"
+                                Value="#F8FAFC"/>
+
+                        <Setter Property="Foreground"
+                                Value="#334155"/>
+
+                        <Setter Property="FontWeight"
+                                Value="SemiBold"/>
+
+                        <Setter Property="Padding"
+                                Value="12"/>
+
+                        <Setter Property="BorderBrush"
+                                Value="#E5E7EB"/>
+
+                        <Setter Property="BorderThickness"
+                                Value="0,0,1,1"/>
+
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+
+                <!-- FILAS -->
+
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+
+                        <Setter Property="Background"
+                                Value="White"/>
+
+                        <Style.Triggers>
+
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+                                <Setter Property="Background"
+                                        Value="#F8FAFC"/>
+                            </Trigger>
+
+                            <Trigger Property="IsSelected"
+                                     Value="True">
+                                <Setter Property="Background"
+                                        Value="#DBEAFE"/>
+                                <Setter Property="Foreground"
+                                        Value="#111827"/>
+                            </Trigger>
+
+                        </Style.Triggers>
+
+                    </Style>
+                </DataGrid.RowStyle>
+
+                <DataGrid.Columns>
+
+                    <DataGridTextColumn Header="Fecha"
+                                        Binding="{Binding Fecha,StringFormat=dd/MM/yyyy}"
+                                        Width="100"/>
+
+                    <DataGridTextColumn Header="Tipo Movimiento"
+                                        Binding="{Binding Tipo}"
+                                        Width="180"/>
+
+                    <DataGridTextColumn Header="Documento"
+                                        Binding="{Binding Registro}"
+                                        Width="130"/>
+
+                    <DataGridTextColumn Header="Razón Social / Ubicación"
+                                        Binding="{Binding RazonSocialUbicacion}"
+                                        Width="*"/>
+
+                    <DataGridTextColumn Header="Ingreso"
+                                        Binding="{Binding IngresoNormal,StringFormat=N2}"
+                                        Width="100"
+                                        CellStyle="{StaticResource RightAlignStyle}"/>
+
+                    <DataGridTextColumn Header="Ingreso Dev."
+                                        Binding="{Binding IngresoDevolucion,StringFormat=N2}"
+                                        Width="110"
+                                        CellStyle="{StaticResource RightAlignStyle}"/>
+
+                    <DataGridTextColumn Header="Salida"
+                                        Binding="{Binding SalidaNormal,StringFormat=N2}"
+                                        Width="100"
+                                        CellStyle="{StaticResource RightAlignStyle}"/>
+
+                    <DataGridTextColumn Header="Salida Dev."
+                                        Binding="{Binding SalidaDevolucion,StringFormat=N2}"
+                                        Width="110"
+                                        CellStyle="{StaticResource RightAlignStyle}"/>
+
+                    <DataGridTextColumn Header="Saldo Final"
+                                        Binding="{Binding SaldoFinal,StringFormat=N2}"
+                                        Width="120"
+                                        CellStyle="{StaticResource RightAlignStyle}"/>
+
+                </DataGrid.Columns>
+
+            </DataGrid>
+
+        </Border>
+
+        <!-- RESUMEN -->
+
+        <Border Grid.Row="3"
+                Margin="0,15,0,0"
+                Background="White"
+                CornerRadius="12"
+                BorderBrush="#E5E7EB"
+                BorderThickness="1"
+                Padding="15">
+
+            <UniformGrid Columns="4">
+
+                <Border Background="#F8FAFC"
+                        CornerRadius="8"
+                        Margin="5"
+                        Padding="12">
+
+                    <StackPanel>
+
+                        <TextBlock Text="Stock Inicial"
+                                   FontSize="12"
+                                   Foreground="#6B7280"/>
+
+                        <TextBlock x:Name="TxtStockInicial"
+                                   Text="0.00"
+                                   FontSize="24"
+                                   FontWeight="Bold"
+                                   Foreground="#111827"/>
+
+                    </StackPanel>
+
+                </Border>
+
+                <Border Background="#ECFDF5"
+                        CornerRadius="8"
+                        Margin="5"
+                        Padding="12">
+
+                    <StackPanel>
+
+                        <TextBlock Text="Total Ingresos"
+                                   FontSize="12"
+                                   Foreground="#065F46"/>
+
+                        <TextBlock x:Name="TxtTotalIngresos"
+                                   Text="0.00"
+                                   FontSize="24"
+                                   FontWeight="Bold"
+                                   Foreground="#059669"/>
+
+                    </StackPanel>
+
+                </Border>
+
+                <Border Background="#FEF2F2"
+                        CornerRadius="8"
+                        Margin="5"
+                        Padding="12">
+
+                    <StackPanel>
+
+                        <TextBlock Text="Total Salidas"
+                                   FontSize="12"
+                                   Foreground="#991B1B"/>
+
+                        <TextBlock x:Name="TxtTotalSalidas"
+                                   Text="0.00"
+                                   FontSize="24"
+                                   FontWeight="Bold"
+                                   Foreground="#DC2626"/>
+
+                    </StackPanel>
+
+                </Border>
+
+                <Border Background="#EFF6FF"
+                        CornerRadius="8"
+                        Margin="5"
+                        Padding="12">
+
+                    <StackPanel>
+
+                        <TextBlock Text="Stock Final"
+                                   FontSize="12"
+                                   Foreground="#1E3A8A"/>
+
+                        <TextBlock x:Name="TxtStockFinal"
+                                   Text="0.00"
+                                   FontSize="24"
+                                   FontWeight="Bold"
+                                   Foreground="#2563EB"/>
+
+                    </StackPanel>
+
+                </Border>
+
+            </UniformGrid>
+
+        </Border>
+
+    </Grid>
+
+</UserControl>

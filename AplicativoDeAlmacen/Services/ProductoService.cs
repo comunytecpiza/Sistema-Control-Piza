@@ -264,5 +264,38 @@ namespace AplicativoDeAlmacen.Services
             }
             return lista;
         }
+
+        public List<Producto> BuscarProductos(string filtro)
+        {
+            var lista = new List<Producto>();
+
+            // CORRECCIÓN: Usamos las columnas reales 'descripcion' y 'abreviatura'
+            string query = "SELECT id, descripcion, abreviatura FROM productos WHERE descripcion LIKE @Filtro OR abreviatura LIKE @Filtro";
+
+            using (var conn = _database.GetConnection())
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@Filtro", "%" + filtro + "%");
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            lista.Add(new Producto
+                            {
+                                Id = Convert.ToInt32(reader["id"]),
+                                // Asignamos directamente la columna descripcion a tu propiedad Descripcion
+                                Descripcion = reader["descripcion"].ToString(),
+                                // Asignamos la abreviatura controlando si viene vacía de la BD
+                                Abreviatura = reader.IsDBNull(reader.GetOrdinal("abreviatura")) ? null : reader["abreviatura"].ToString()
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
     }
 }

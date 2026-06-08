@@ -197,9 +197,21 @@ namespace AplicativoDeAlmacen.Views
         {
             AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
         }
+
+        // Este es el método que conecta el menú con la vista del Kardex
+        private void MenuItemKardexFisico_Click(object sender, RoutedEventArgs e)
+        {
+            // Llamamos al método que abre la pestaña
+            AbrirPestaña("📊 Kardex Físico", new KardexUserControl());
+        }
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {
             //AbrirPestaña("📥 Ingreso de Productos", new IngresoProductosUserControl()); 
+        }
+
+        private void MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+
         }
     }
 }

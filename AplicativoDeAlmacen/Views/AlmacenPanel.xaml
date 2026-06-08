@@ -114,13 +114,13 @@
                         <MenuItem Header="Salida de Productos"/>
                     </MenuItem>
 
-                    <MenuItem Header="Consultas y Reportes" Style="{StaticResource ModernMenuItemStyle}">
+                    <MenuItem Header="Consultas y Reportes" Style="{StaticResource ModernMenuItemStyle}" Click="MenuItem_Click">
                         <MenuItem.Icon>
                             <Image Source="/Icon/reportes.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
                         <MenuItem Header="Saldos de Productos"/>
                         <MenuItem Header="Kardex de Productos">
-                            <MenuItem Header="Kardex Físico"/>
+                            <MenuItem Header="Kardex Físico" Click="MenuItemKardexFisico_Click"/>
                         </MenuItem>
                         <MenuItem Header="Movimiento de Productos"/>
                         <MenuItem Header="Historial x Código"/>
