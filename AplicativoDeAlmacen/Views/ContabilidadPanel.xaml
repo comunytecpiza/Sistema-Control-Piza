@@ -1,12 +1,12 @@
-<Window x:Class="AplicativoDeAlmacen.Views.AdminPanel"
+﻿<Window x:Class="AplicativoDeAlmacen.Views.ContabilidadPanel"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Panel de Administrador - Ediciones Piza" Height="700" Width="1100"
+        Title="Panel de Contabilidad y Auditoría - Ediciones Piza" Height="700" Width="1100"
         WindowState="Maximized" 
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI"
-        Background="#F3F4F6" Cursor="">
+        Background="#F3F4F6">
     <Window.Resources>
         <Style x:Key="ModernMenuItemStyle" TargetType="MenuItem">
             <Setter Property="Padding" Value="12,10"/>
@@ -17,7 +17,7 @@
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#E5E7EB"/>
-                    <Setter Property="Foreground" Value="#DC2626"/>
+                    <Setter Property="Foreground" Value="#0284C7"/>
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -26,45 +26,22 @@
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
 
-        <Style x:Key="RoundedButtonStyle" TargetType="Button">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                CornerRadius="6" 
-                                Padding="{TemplateBinding Padding}" 
-                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="0.85"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
         <Style TargetType="TabItem">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
                         <Border x:Name="Border" Padding="12,8" Margin="0,0,4,0" Background="#E5E7EB" 
-                        BorderBrush="#D1D5DB" BorderThickness="1,1,1,0" CornerRadius="6,6,0,0">
+                                BorderBrush="#D1D5DB" BorderThickness="1,1,1,0" CornerRadius="6,6,0,0">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="5,0">
                                 <ContentPresenter x:Name="ContentSite" ContentSource="Header" VerticalAlignment="Center"/>
-
                             </StackPanel>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#DC2626"/>
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#DC2626"/>
+                                <Setter TargetName="Border" Property="Background" Value="#0284C7"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#0284C7"/>
                                 <Setter Property="Foreground" Value="White"/>
-                                
                                 <Setter TargetName="Border" Property="Margin" Value="0,-2,4,0"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -92,19 +69,17 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Menu DockPanel.Dock="Left" Background="Transparent" VerticalAlignment="Center">
+                <Menu Grid.Column="0" Background="Transparent" VerticalAlignment="Center" Margin="5,0,10,0">
                     <Menu.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal"/>
                         </ItemsPanelTemplate>
                     </Menu.ItemsPanel>
 
-                    <MenuItem Header="Catálogos y Tablas" Style="{StaticResource ModernMenuItemStyle}">
+                    <MenuItem Header="Catálogos Generales" Style="{StaticResource ModernMenuItemStyle}">
                         <MenuItem.Icon>
                             <Image Source="/Icon/catalogos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
-
-                        <MenuItem x:Name="MenuUsuarios" Tag="MOD_USUARIOS" Header="Usuarios" Click="GestionUsuarios_Click"/>
                         <MenuItem x:Name="MenuLocalidades" Tag="MOD_LOCALIDADES" Header="Localidades" Click="MenuItemLocalidades_Click"/>
                         <MenuItem x:Name="MenuZonas" Tag="MOD_ZONAS" Header="Zonas de Promotoría" Click="MenuItemZonasPromotoria_Click"/>
                         <MenuItem x:Name="MenuUbicaciones" Tag="MOD_UBICACIONES" Header="Ubicaciones" Click="MenuItemUbicaciones_Click"/>
@@ -115,53 +90,42 @@
                         <MenuItem x:Name="MenuTitulos" Tag="MOD_TITULOS" Header="Títulos" Click="MenuItemTitulos_Click"/>
                     </MenuItem>
 
-                    <MenuItem Header="Movimientos" Style="{StaticResource ModernMenuItemStyle}">
+                    <MenuItem Header="Documentos y Ventas" Style="{StaticResource ModernMenuItemStyle}">
                         <MenuItem.Icon>
                             <Image Source="/Icon/movimientos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
-
-                        <MenuItem x:Name="MenuRegCodigos" Tag="MOD_REG_CODIGOS" Header="Registro de Códigos" Click="MenuItemRegistroCodigos_Click"/>
-                        <MenuItem x:Name="MenuIngProductos" Tag="MOD_ING_PRODUCTOS" Header="Ingreso de Productos" Click="MenuItemIngresoProductos_Click"/>
-                        <MenuItem x:Name="MenuSalProductos" Tag="MOD_SAL_PRODUCTOS" Header="Salida de Productos"/>
-                        <MenuItem x:Name="MenuProyeccion" Tag="MOD_PROYECCION" Header="% Proyección"/>
-                        <MenuItem x:Name="MenuRegFacturas" Tag="MOD_REG_FACTURAS" Header="Registro de Facturas, Boletos y Recibos"/>
-                        <MenuItem x:Name="MenuRepClientes" Tag="MOD_REP_CLIENTES" Header="Reporte de clientes"/>
+                        <MenuItem x:Name="MenuProyeccion" Tag="MOD_PROYECCION" Header="% Proyección" Click="MenuProyeccion_Click"/>
+                        <MenuItem x:Name="MenuRegFacturas" Tag="MOD_REG_FACTURAS" Header="Registro de Facturas, Boletos y Recibos" Click="MenuRegFacturas_Click"/>
+                        <MenuItem x:Name="MenuRepClientes" Tag="MOD_REP_CLIENTES" Header="Reporte de clientes" Click="MenuRepClientes_Click"/>
                     </MenuItem>
 
-                    <MenuItem Header="Procesos Internos" Style="{StaticResource ModernMenuItemStyle}">
+                    <MenuItem Header="Procesos de Cierre" Style="{StaticResource ModernMenuItemStyle}">
                         <MenuItem.Icon>
                             <Image Source="/Icon/procesos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
-
-                        <MenuItem x:Name="MenuValorizacion" Tag="MOD_VALORIZACION" Header="Valorización de Productos"/>
-                        <MenuItem x:Name="MenuImpClientes" Tag="MOD_IMP_CLIENTES" Header="Importación de Clientes"/>
-                        <MenuItem x:Name="MenuImpVentas" Tag="MOD_IMP_VENTAS" Header="Importación de Ventas"/>
+                        <MenuItem x:Name="MenuValorizacion" Tag="MOD_VALORIZACION" Header="Valorización de Productos" Click="MenuValorizacion_Click"/>
+                        <MenuItem x:Name="MenuImpClientes" Tag="MOD_IMP_CLIENTES" Header="Importación de Clientes" Click="MenuImpClientes_Click"/>
+                        <MenuItem x:Name="MenuImpVentas" Tag="MOD_IMP_VENTAS" Header="Importación de Ventas" Click="MenuImpVentas_Click"/>
                     </MenuItem>
 
-                    <MenuItem Header="Consultas y Reportes" Style="{StaticResource ModernMenuItemStyle}" Click="MenuItem_Click">
+                    <MenuItem Header="Consultas y Auditoría" Style="{StaticResource ModernMenuItemStyle}">
                         <MenuItem.Icon>
                             <Image Source="/Icon/reportes.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
-
                         <MenuItem x:Name="MenuSaldosProd" Tag="MOD_SALDOS_PROD" Header="Saldos de Productos" Click="MenuItemSaldosProductos_Click"/>
-
                         <MenuItem Header="Kardex de Productos">
                             <MenuItem x:Name="MenuKardexFis" Tag="MOD_KARDEX_FIS" Header="Kardex Físico" Click="MenuItemKardexFisico_Click"/>
-                            <MenuItem x:Name="MenuKardexVal" Tag="MOD_KARDEX_VAL" Header="Kardex Valorizado"/>
+                            <MenuItem x:Name="MenuKardexVal" Tag="MOD_KARDEX_VAL" Header="Kardex Valorizado" Click="MenuKardexVal_Click"/>
                         </MenuItem>
-
                         <MenuItem x:Name="MenuMovProd" Tag="MOD_MOV_PROD" Header="Movimiento de Productos" Click="MovimientoProductos_Click"/>
-                        <MenuItem x:Name="MenuHistCodigo" Tag="MOD_HIST_CODIGO" Header="Historial x Código"/>
-
-                        <MenuItem x:Name="MenuProyeccionRep" Tag="MOD_PROYECCION" Header="% Proyección"/>
-
-                        <MenuItem x:Name="MenuRegVentas" Tag="MOD_REG_VENTAS" Header="Registro de Ventas"/>
-                        <MenuItem x:Name="MenuVenCliente" Tag="MOD_VEN_CLIENTE" Header="Ventas x Cliente"/>
-                        <MenuItem x:Name="MenuVenUbicacion" Tag="MOD_VEN_UBICACION" Header="Ventas x Ubicación"/>
-                        <MenuItem x:Name="MenuCliEmitidos" Tag="MOD_CLI_EMITIDOS" Header="Reporte Clientes Emitidos"/>
-                        <MenuItem x:Name="MenuResLibVendidos" Tag="MOD_RES_LIB_VENDIDOS" Header="Resumen de Libros Vendidos"/>
-                        <MenuItem x:Name="MenuResLibCliente" Tag="MOD_RES_LIB_CLIENTE" Header="Resumen de Libros x Cliente"/>
-                        <MenuItem x:Name="MenuKardexUbicacion" Tag="MOD_KARDEX_UBICACION" Header="Kardex de Producto x Ubicación"/>
+                        <MenuItem x:Name="MenuHistCodigo" Tag="MOD_HIST_CODIGO" Header="Historial x Código" Click="MenuHistCodigo_Click"/>
+                        <MenuItem x:Name="MenuRegVentas" Tag="MOD_REG_VENTAS" Header="Registro de Ventas" Click="MenuRegVentas_Click"/>
+                        <MenuItem x:Name="MenuVenCliente" Tag="MOD_VEN_CLIENTE" Header="Ventas x Cliente" Click="MenuVenCliente_Click"/>
+                        <MenuItem x:Name="MenuVenUbicacion" Tag="MOD_VEN_UBICACION" Header="Ventas x Ubicación" Click="MenuVenUbicacion_Click"/>
+                        <MenuItem x:Name="MenuCliEmitidos" Tag="MOD_CLI_EMITIDOS" Header="Reporte Clientes Emitidos" Click="MenuCliEmitidos_Click"/>
+                        <MenuItem x:Name="MenuResLibVendidos" Tag="MOD_RES_LIB_VENDIDOS" Header="Resumen de Libros Vendidos" Click="MenuResLibVendidos_Click"/>
+                        <MenuItem x:Name="MenuResLibCliente" Tag="MOD_RES_LIB_CLIENTE" Header="Resumen de Libros x Cliente" Click="MenuResLibCliente_Click"/>
+                        <MenuItem x:Name="MenuKardexUbicacion" Tag="MOD_KARDEX_UBICACION" Header="Kardex de Producto x Ubicación" Click="MenuKardexUbicacion_Click"/>
                     </MenuItem>
 
                     <MenuItem Header="Salir" Click="BtnSalir_Click" Style="{StaticResource ModernMenuItemStyle}">
@@ -172,29 +136,24 @@
                 </Menu>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
-                    <Button x:Name="BtnAgregarUsuario" Content="+ Agregar Usuario" Click="BtnAgregarUsuario_Click" 
-                            Style="{StaticResource RoundedButtonStyle}"
-                            Background="#10B981" Foreground="White" FontWeight="Bold" Padding="15,8" 
-                            BorderThickness="0" Cursor="Hand" Margin="0,0,20,0"/>
-
-                    <TextBlock x:Name="WelcomeMessage" Text="Bienvenido(a) Administrador" Foreground="#111827" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
-                    <Border Width="36" Height="36" CornerRadius="18" Background="#DC2626" Margin="15,0,0,0">
-                        <TextBlock Text="👑" Foreground="White" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="WelcomeMessage" Text="Bienvenido(a) Auditor" Foreground="#111827" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                    <Border Width="36" Height="36" CornerRadius="18" Background="#0284C7" Margin="15,0,0,0">
+                        <TextBlock Text="💼" Foreground="White" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                 </StackPanel>
             </Grid>
         </Border>
 
         <TabControl x:Name="MainTabControl" Grid.Row="1" Margin="20,10,20,20" Background="Transparent" BorderThickness="0">
-            <TabItem Header="🏠 Panel Principal" x:Name="TabInicio">
+            <TabItem Header="🏠 Balance e Inicio" x:Name="TabInicio">
                 <Border Background="White" CornerRadius="15" Padding="40" BorderBrush="#E5E7EB" BorderThickness="1" MaxWidth="800" VerticalAlignment="Top" Margin="0,30,0,0">
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270" Color="Black" Opacity="0.05"/>
                     </Border.Effect>
                     <StackPanel>
-                        <TextBlock Text="Panel Administrativo Central" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
-                        <TextBlock Text="Tiene acceso total al sistema. Seleccione una opción en el menú superior para abrir una nueva pestaña de trabajo." FontSize="16" Foreground="#6B7280" TextWrapping="Wrap"/>
-                        <Border Height="4" Width="60" Background="#DC2626" HorizontalAlignment="Left" Margin="0,20,0,0" CornerRadius="2"/>
+                        <TextBlock Text="Módulo de Contabilidad, Costos y Auditoría" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
+                        <TextBlock Text="Interfaz optimizada para la verificación de inventarios valorizados, importación de cierres comerciales y conciliación de facturas de Ediciones Piza." FontSize="16" Foreground="#6B7280" TextWrapping="Wrap"/>
+                        <Border Height="4" Width="60" Background="#0284C7" HorizontalAlignment="Left" Margin="0,20,0,0" CornerRadius="2"/>
                     </StackPanel>
                 </Border>
             </TabItem>
@@ -203,8 +162,8 @@
         <Border Grid.Row="2" Background="#1F2937" Padding="20,10">
             <DockPanel LastChildFill="False">
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <TextBlock Text="📍" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0"/>
-                    <TextBlock Text="Ubicación: SEDE PRINCIPAL (ADMIN)" FontSize="14" Foreground="#E5E7EB" FontWeight="SemiBold"/>
+                    <TextBlock Text="📊" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0"/>
+                    <TextBlock Text="Área: OFICINA DE CONTABILIDAD Y COSTOS" FontSize="14" Foreground="#E5E7EB" FontWeight="SemiBold"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                     <TextBlock Text="🕒" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0"/>

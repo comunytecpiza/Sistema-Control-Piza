@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using System.Globalization;
 using System.Windows.Input;
 using System.Windows.Media;
+using AplicativoDeAlmacen.Core; // Importante para la Sesión
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -16,6 +17,9 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             SetupWelcomeMessage(userNames);
             StartClock();
+
+            // 🔒 Motor de Restricciones
+            AplicarSeguridadDinamica();
         }
 
         private void SetupWelcomeMessage(string userNames)
@@ -46,6 +50,45 @@ namespace AplicativoDeAlmacen.Views
             // Opcional: Confirmar si hay pestañas abiertas antes de salir
             new MainWindow().Show();
             Close();
+        }
+
+        // ==============================================================
+        // 🛡️ MOTOR DE SEGURIDAD (Solo evalúa lo que existe en este panel)
+        // ==============================================================
+        private void AplicarSeguridadDinamica()
+        {
+            // Si es SuperAdmin (1), ve todo
+            if (SesionSistema.UsuarioActual?.RolUsuarioId == 1) return;
+
+            // Catálogos
+            OcultarSiNoTienePermiso(MenuLocalidades, "MOD_LOCALIDADES");
+            OcultarSiNoTienePermiso(MenuZonas, "MOD_ZONAS");
+            OcultarSiNoTienePermiso(MenuUbicaciones, "MOD_UBICACIONES");
+            OcultarSiNoTienePermiso(MenuProductos, "MOD_PRODUCTOS");
+            OcultarSiNoTienePermiso(MenuUnidades, "MOD_UNIDADES");
+            OcultarSiNoTienePermiso(MenuPersonas, "MOD_PERSONAS");
+            OcultarSiNoTienePermiso(MenuColecciones, "MOD_COLECCIONES");
+            OcultarSiNoTienePermiso(MenuTitulos, "MOD_TITULOS");
+
+            // Movimientos
+            OcultarSiNoTienePermiso(MenuRegCodigos, "MOD_REG_CODIGOS");
+            OcultarSiNoTienePermiso(MenuIngProductos, "MOD_ING_PRODUCTOS");
+            OcultarSiNoTienePermiso(MenuSalProductos, "MOD_SAL_PRODUCTOS");
+
+            // Consultas
+            OcultarSiNoTienePermiso(MenuSaldosProd, "MOD_SALDOS_PROD");
+            OcultarSiNoTienePermiso(MenuKardexFis, "MOD_KARDEX_FIS");
+            OcultarSiNoTienePermiso(MenuMovProd, "MOD_MOV_PROD");
+        }
+
+        private void OcultarSiNoTienePermiso(MenuItem menu, string codigoModulo)
+        {
+            if (menu == null) return;
+            var permiso = SesionSistema.ObtenerPermiso(codigoModulo);
+            if (permiso == null || !permiso.PuedeVer)
+            {
+                menu.Visibility = Visibility.Collapsed;
+            }
         }
 
         // =========================================================
@@ -153,6 +196,7 @@ namespace AplicativoDeAlmacen.Views
         // =========================================================
         // EVENTOS DEL MENÚ (Abre Pestañas en lugar de Ventanas)
         // =========================================================
+
         private void MenuItemLocalidades_Click(object sender, RoutedEventArgs e)
         {
             AbrirPestaña("🌎 Localidades", new LocalidadesUserControl());
@@ -170,8 +214,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)
         {
-            AbrirPestaña("👥 Personas Comerciales", new PersonasComercialesUserControl()
-            );
+            AbrirPestaña("👥 Personas Comerciales", new PersonasComercialesUserControl());
         }
 
         private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
@@ -212,7 +255,7 @@ namespace AplicativoDeAlmacen.Views
         }
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {
-            AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl()); 
+            AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl());
         }
 
         private void MovimientoProductos_Click(object sender, RoutedEventArgs e)

@@ -3,21 +3,25 @@
 using System;
 using System.Collections.Generic;
 
-namespace AplicativoDeAlmacen.Models.Models;
-
-public partial class Usuario
+namespace AplicativoDeAlmacen.Models.Models
 {
-    public int Id { get; set; }
+    public partial class Usuario
+    {
+        public int Id { get; set; }
+        public string Username { get; set; }
+        public string Nombres { get; set; }
+        public string Password { get; set; }
+        public bool Estado { get; set; }
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
-    public string Username { get; set; }
+        // Clave Foránea
+        public int RolUsuarioId { get; set; }
 
-    public string Nombres { get; set; }
+        // PROPIEDAD DE NAVEGACIÓN: Relación de objeto fuertemente tipado
+        public RolesUsuario Rol { get; set; } = new RolesUsuario();
 
-    public string Password { get; set; }
-
-    public DateTime? CreatedAt { get; set; }
-
-    public DateTime? UpdatedAt { get; set; }
-
-    public int RolUsuarioId { get; set; }
+        // Propiedad calculada para visualización amigable en la UI
+        public string EstadoNombre => Estado ? "ACTIVO" : "INACTIVO";
+    }
 }
