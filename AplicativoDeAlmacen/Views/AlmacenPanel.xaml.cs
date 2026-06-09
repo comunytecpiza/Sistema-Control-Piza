@@ -215,6 +215,11 @@ namespace AplicativoDeAlmacen.Views
             AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl()); 
         }
 
+        private void MovimientoProductos_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("🔄 Movimiento de Productos", new ConsultaMovimientosUserControl());
+        }
+
         private void MenuItem_Click(object sender, RoutedEventArgs e)
         {
 

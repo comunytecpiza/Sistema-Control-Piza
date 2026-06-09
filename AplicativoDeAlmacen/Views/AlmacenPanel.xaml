@@ -122,8 +122,8 @@
                         <MenuItem Header="Kardex de Productos">
                             <MenuItem Header="Kardex Físico" Click="MenuItemKardexFisico_Click"/>
                         </MenuItem>
-                        <MenuItem Header="Movimiento de Productos"/>
-                        <MenuItem Header="Historial x Código"/>
+                        <MenuItem Header="Movimiento de Productos" Click="MovimientoProductos_Click"/>
+                        
                     </MenuItem>
 
                     <MenuItem Header="Salir" Click="BtnSalir_Click" Style="{StaticResource ModernMenuItemStyle}">
