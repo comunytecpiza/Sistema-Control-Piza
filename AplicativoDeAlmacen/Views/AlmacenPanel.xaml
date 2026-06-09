@@ -117,8 +117,8 @@
                     <MenuItem Header="Consultas y Reportes" Style="{StaticResource ModernMenuItemStyle}" Click="MenuItem_Click">
                         <MenuItem.Icon>
                             <Image Source="/Icon/reportes.png" Width="18" Height="18"/>
-                        </MenuItem.Icon>
-                        <MenuItem Header="Saldos de Productos"/>
+                        </MenuItem.Icon>                        
+                        <MenuItem Header="Saldos de Productos" Click="MenuItemSaldosProductos_Click"/>
                         <MenuItem Header="Kardex de Productos">
                             <MenuItem Header="Kardex Físico" Click="MenuItemKardexFisico_Click"/>
                         </MenuItem>

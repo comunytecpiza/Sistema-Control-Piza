@@ -204,6 +204,12 @@ namespace AplicativoDeAlmacen.Views
             // Llamamos al método que abre la pestaña
             AbrirPestaña("📊 Kardex Físico", new KardexUserControl());
         }
+
+        // Método para abrir la pestaña de Saldos de Productos
+        private void MenuItemSaldosProductos_Click(object sender, RoutedEventArgs e)
+        {
+            AbrirPestaña("📋 Saldos de Productos", new SaldosProductosUserControl());
+        }
         private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
         {
             AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl()); 

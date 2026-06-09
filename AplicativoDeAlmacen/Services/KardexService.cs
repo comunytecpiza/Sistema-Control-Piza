@@ -99,5 +99,59 @@ namespace AplicativoDeAlmacen.Services
 
             return reporte;
         }
+
+
+        public async Task<List<SaldoProductoItem>> ObtenerSaldosYMovimientosAsync(DateTime fechaDesde, DateTime fechaHasta)
+        {
+            var lista = new List<SaldoProductoItem>();
+            using var conn = _database.GetConnection();
+            await conn.OpenAsync();
+
+            string query = @"
+        WITH MovimientosRango AS (
+            SELECT md.producto_id,
+                   -- Stock Inicial: Todo lo anterior a la fecha Desde
+                   SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN md.cantidad_ingreso - md.cantidad_salida ELSE 0 END) AS StockInicial,
+                   -- Ingresos en el rango
+                   SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
+                   -- Salidas en el rango
+                   SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
+            FROM movimiento_detalles md
+            INNER JOIN movimientos m ON md.movimiento_id = m.id
+            GROUP BY md.producto_id
+        )
+        SELECT 
+            ISNULL(p.abreviatura, CAST(p.id AS VARCHAR)) AS codigo,
+            p.descripcion,
+            ISNULL(mr.StockInicial, 0) AS StockInicial,
+            ISNULL(mr.TotalIngresos, 0) AS TotalIngresos,
+            ISNULL(mr.TotalSalidas, 0) AS TotalSalidas
+        FROM productos p
+        LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
+        WHERE p.estado_id = 1 -- Solo productos activos
+        ORDER BY p.descripcion";
+
+            using (var cmd = new SqlCommand(query, conn))
+            {
+                cmd.Parameters.AddWithValue("@FechaDesde", fechaDesde.Date);
+                cmd.Parameters.AddWithValue("@FechaHasta", fechaHasta.Date);
+
+                using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        lista.Add(new SaldoProductoItem
+                        {
+                            Codigo = reader["codigo"].ToString(),
+                            Descripcion = reader["descripcion"].ToString(),
+                            StockInicial = reader.GetDecimal(2),
+                            TotalIngresos = reader.GetDecimal(3),
+                            TotalSalidas = reader.GetDecimal(4)
+                        });
+                    }
+                }
+            }
+            return lista;
+        }
     }
 }
