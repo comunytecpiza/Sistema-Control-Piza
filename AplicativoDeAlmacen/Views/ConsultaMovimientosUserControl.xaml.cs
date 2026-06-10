@@ -12,7 +12,7 @@ namespace AplicativoDeAlmacen.Views
         private readonly KardexService _kardexService;
         private readonly ProductoService _productoService;
         private int _productoSeleccionadoId;
-
+        private bool _estaSeleccionando;
         public ConsultaMovimientosUserControl()
         {
             InitializeComponent();
@@ -49,31 +49,53 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
+        private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
+            if (_estaSeleccionando)
+                return;
+
             try
             {
                 string texto = ((TextBox)sender).Text;
+
                 if (string.IsNullOrWhiteSpace(texto))
                 {
                     CboProductos.ItemsSource = null;
                     CboProductos.IsDropDownOpen = false;
+                    _productoSeleccionadoId = 0;
                     return;
                 }
 
-                var productos = _productoService.BuscarProductos(texto);
+                var productos = await _productoService.BuscarProductos(texto);
+
+                string textoActual = texto;
+
                 CboProductos.ItemsSource = productos;
                 CboProductos.DisplayMemberPath = "Descripcion";
-                CboProductos.IsDropDownOpen = productos != null && productos.Count > 0;
+
+                CboProductos.Text = textoActual;
+
+                CboProductos.IsDropDownOpen =
+                    productos != null &&
+                    productos.Count > 0;
             }
-            catch { }
+            catch
+            {
+            }
         }
 
         private void CboProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (CboProductos.SelectedItem is Producto producto)
             {
+                _estaSeleccionando = true;
+
                 _productoSeleccionadoId = producto.Id;
+
+                CboProductos.Text = producto.Descripcion;
+                CboProductos.IsDropDownOpen = false;
+
+                _estaSeleccionando = false;
             }
         }
 

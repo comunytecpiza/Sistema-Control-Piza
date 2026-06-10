@@ -1,11 +1,10 @@
 ﻿using AplicativoDeAlmacen.Models.Models;
 using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.Common;
 using System.Threading.Tasks;
 using static AplicativoDeAlmacen.Data.DataConnection;
-
-
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -23,7 +22,7 @@ namespace AplicativoDeAlmacen.Services
             var lista = new List<Localidad>();
 
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
             string query = @"
                 SELECT
@@ -34,8 +33,10 @@ namespace AplicativoDeAlmacen.Services
                 FROM localidades l
                 LEFT JOIN estados e ON l.estado_id = e.id";
 
-            using var cmd = new SqlCommand(query, conn);
-            using var reader = await cmd.ExecuteReaderAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
 
             while (await reader.ReadAsync())
             {
@@ -66,12 +67,14 @@ namespace AplicativoDeAlmacen.Services
             var lista = new List<Estado>();
 
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
-            string query = "SELECT id,nombre FROM estados ORDER BY nombre";
+            string query = "SELECT id, nombre FROM estados ORDER BY nombre";
 
-            using var cmd = new SqlCommand(query, conn);
-            using var reader = await cmd.ExecuteReaderAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
 
             while (await reader.ReadAsync())
             {
@@ -88,41 +91,51 @@ namespace AplicativoDeAlmacen.Services
         public async Task GuardarAsync(Localidad localidad)
         {
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
             bool esEdicion = localidad.Id > 0;
 
             string query = esEdicion
                 ? @"UPDATE localidades
-                    SET nombre = @nombre,
-                        estado_id = @estadoId
-                    WHERE id = @id"
+            SET nombre = @nombre,
+                estado_id = @estadoId
+            WHERE id = @id"
                 : @"INSERT INTO localidades
-                    (
-                        nombre,
-                        estado_id
-                    )
-                    VALUES
-                    (
-                        @nombre,
-                        @estadoId
-                    )";
+            (
+                nombre,
+                estado_id
+            )
+            VALUES
+            (
+                @nombre,
+                @estadoId
+            )";
 
-            using var cmd = new SqlCommand(query, conn);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
 
-            cmd.Parameters.AddWithValue("@nombre", localidad.Nombre);
+            AgregarParametro(cmd, "@nombre", localidad.Nombre);
 
-            cmd.Parameters.AddWithValue(
+            AgregarParametro(
+                cmd,
                 "@estadoId",
-                localidad.Estado?.Id ?? (object)DBNull.Value
+                localidad.Estado != null? (object)localidad.Estado.Id : DBNull.Value
             );
 
             if (esEdicion)
             {
-                cmd.Parameters.AddWithValue("@id", localidad.Id);
+                AgregarParametro(cmd, "@id", localidad.Id);
             }
 
-            await cmd.ExecuteNonQueryAsync();
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
+        }
+
+        private void AgregarParametro(IDbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
         }
     }
 }

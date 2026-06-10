@@ -4,14 +4,14 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Linq;
-using System.Data.SqlClient;
 using System.Windows.Input;
 using System.Threading.Tasks;
 using System.Windows.Media;
+using System.Data;
 using AplicativoDeAlmacen.Data;
-using AplicativoDeAlmacen.Core;      // Para acceder a SesionSistema
-using AplicativoDeAlmacen.Services;  // Para acceder a UsuarioService
-using AplicativoDeAlmacen.Models.Models; // Para acceder a la clase Usuario
+using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Models.Models;
 
 namespace AplicativoDeAlmacen
 {
@@ -34,7 +34,7 @@ namespace AplicativoDeAlmacen
             {
                 e.Handled = true; // Evita el menú contextual normal de Windows
 
-                // Abre el modal secreto para configurar la IP de SQL Server
+                // Abre el modal secreto para configurar la IP del servidor de BD
                 var configWindow = new ConfiguracionWindow();
                 configWindow.ShowDialog();
             }
@@ -73,21 +73,26 @@ namespace AplicativoDeAlmacen
 
             try
             {
-                string connString = ConfigManager.ObtenerCadenaConexion();
                 Usuario? usuarioLogueado = null;
 
                 // 2. Extraemos la información del usuario en un hilo secundario para no congelar la pantalla
                 await Task.Run(() =>
                 {
-                    using (var conn = new SqlConnection(connString))
+                    // Usamos la abstracción genérica: funciona con SQL Server y MySQL/MariaDB
+                    using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
                     {
                         conn.Open();
-                        // Nos aseguramos de traer el estado y el id para la sesión
-                        var query = "SELECT id, username, nombres, password, rol_usuario_id, estado FROM usuarios WHERE username = @username";
-                        using (var cmd = new SqlCommand(query, conn))
+
+                        using (IDbCommand cmd = conn.CreateCommand())
                         {
-                            cmd.Parameters.AddWithValue("@username", username);
-                            using (var reader = cmd.ExecuteReader())
+                            cmd.CommandText = "SELECT id, username, nombres, password, rol_usuario_id, estado FROM usuarios WHERE username = @username";
+
+                            var p = cmd.CreateParameter();
+                            p.ParameterName = "@username";
+                            p.Value = username;
+                            cmd.Parameters.Add(p);
+
+                            using (IDataReader reader = cmd.ExecuteReader())
                             {
                                 if (reader.Read())
                                 {
@@ -184,21 +189,29 @@ namespace AplicativoDeAlmacen
             if (ConfigManager.ExisteConfiguracion() && !string.IsNullOrWhiteSpace(UsernameTextBox.Text))
             {
                 string user = UsernameTextBox.Text;
-                string connString = "";
-                try { connString = ConfigManager.ObtenerCadenaConexion(); } catch { return; }
 
                 try
                 {
                     await Task.Run(() =>
                     {
-                        using (var conn = new SqlConnection(connString))
+                        // Usamos IDbConnection para evitar el error "Keyword not supported: 'port'"
+                        // que ocurría al pasar la cadena de MySQL a SqlConnection directamente.
+                        using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
                         {
                             conn.Open();
-                            using (var cmd = new SqlCommand("SELECT nombres FROM usuarios WHERE username = @username", conn))
+
+                            using (IDbCommand cmd = conn.CreateCommand())
                             {
-                                cmd.Parameters.AddWithValue("@username", user);
+                                cmd.CommandText = "SELECT nombres FROM usuarios WHERE username = @username";
+
+                                var p = cmd.CreateParameter();
+                                p.ParameterName = "@username";
+                                p.Value = user;
+                                cmd.Parameters.Add(p);
+
                                 var result = cmd.ExecuteScalar();
-                                Application.Current.Dispatcher.Invoke(() => NameTextBox.Text = result?.ToString() ?? "");
+                                Application.Current.Dispatcher.Invoke(() =>
+                                    NameTextBox.Text = result?.ToString() ?? "");
                             }
                         }
                     });

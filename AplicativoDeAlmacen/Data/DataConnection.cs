@@ -1,26 +1,29 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.SqlClient;       // Para SQL Server
+using MySql.Data.MySqlClient;     // Para MySQL / MariaDB (XAMPP o Hosting)
 
 namespace AplicativoDeAlmacen.Data
 {
-    class DataConnection
+    public class DataConnection
     {
         public class DatabaseConnection
         {
-            private readonly string _connectionString;
-
-            public SqlConnection GetConnection()
+            public IDbConnection GetConnection()
             {
-                // Cada vez que un servicio pida conectarse, leerá el archivo TXT
                 string connectionString = ConfigManager.ObtenerCadenaConexion();
-                return new SqlConnection(connectionString);
-            }
+                string motor = ConfigManager.ObtenerMotor();
 
-            
+                // Evaluamos dinámicamente qué objeto instanciar
+                if (motor.Contains("MySQL"))
+                {
+                    return new MySqlConnection(connectionString);
+                }
+                else
+                {
+                    return new SqlConnection(connectionString);
+                }
+            }
         }
     }
 }

@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Data;
+using System.Data.Common;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
+using DocumentFormat.OpenXml.Office.Word;
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -11,6 +14,13 @@ namespace AplicativoDeAlmacen.Services
     {
         private readonly DatabaseConnection _database;
 
+        private void AgregarParametro(IDbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
         public KardexService()
         {
             _database = new DatabaseConnection();
@@ -23,7 +33,7 @@ namespace AplicativoDeAlmacen.Services
         {
             var reporte = new KardexFisicoReporte();
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
             string queryDetalle = @"
         SELECT 
@@ -46,13 +56,15 @@ namespace AplicativoDeAlmacen.Services
           AND m.fecha_movimiento <= @FechaHasta
         ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
-            using (var cmdDetalle = new SqlCommand(queryDetalle, conn))
+            using var cmdDetalle = conn.CreateCommand();
             {
-                cmdDetalle.Parameters.AddWithValue("@ProductoId", productoId);
-                cmdDetalle.Parameters.AddWithValue("@FechaDesde", fechaDesde.Date);
-                cmdDetalle.Parameters.AddWithValue("@FechaHasta", fechaHasta.Date);
+                cmdDetalle.CommandText = queryDetalle;
 
-                using (var reader = await cmdDetalle.ExecuteReaderAsync())
+                AgregarParametro(cmdDetalle, "@ProductoId", productoId);
+                AgregarParametro(cmdDetalle, "@FechaDesde", fechaDesde.Date);
+                AgregarParametro(cmdDetalle, "@FechaHasta", fechaHasta.Date);
+
+                using var reader = await ((DbCommand)cmdDetalle).ExecuteReaderAsync();
                 {
                     decimal saldoAcumulado = 0;
                     decimal totalIngresos = 0;
@@ -102,7 +114,7 @@ namespace AplicativoDeAlmacen.Services
         {
             var lista = new List<SaldoProductoItem>();
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
             string query = @"
         WITH MovimientosRango AS (
@@ -125,12 +137,13 @@ namespace AplicativoDeAlmacen.Services
         WHERE p.estado_id = 1
         ORDER BY p.descripcion";
 
-            using (var cmd = new SqlCommand(query, conn))
+            using var cmd = conn.CreateCommand();
             {
-                cmd.Parameters.AddWithValue("@FechaDesde", fechaDesde.Date);
-                cmd.Parameters.AddWithValue("@FechaHasta", fechaHasta.Date);
+                cmd.CommandText = query;
+                AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
 
-                using (var reader = await cmd.ExecuteReaderAsync())
+                using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
                 {
                     while (await reader.ReadAsync())
                     {
@@ -155,7 +168,7 @@ namespace AplicativoDeAlmacen.Services
         {
             var reporte = new ConsultaMovimientoReporte();
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
             // 1. Obtener la tabla izquierda (Movimientos)
             string queryMov = @"
@@ -175,13 +188,13 @@ namespace AplicativoDeAlmacen.Services
           AND m.fecha_movimiento <= @FechaHasta
         ORDER BY m.fecha_movimiento ASC";
 
-            using (var cmdMov = new SqlCommand(queryMov, conn))
+            using var cmdMov = conn.CreateCommand();
+            cmdMov.CommandText = queryMov;
             {
-                cmdMov.Parameters.AddWithValue("@ProductoId", productoId);
-                cmdMov.Parameters.AddWithValue("@FechaDesde", fechaDesde.Date);
-                cmdMov.Parameters.AddWithValue("@FechaHasta", fechaHasta.Date);
-
-                using (var reader = await cmdMov.ExecuteReaderAsync())
+                AgregarParametro(cmdMov, "@ProductoId", productoId);
+                AgregarParametro(cmdMov, "@FechaDesde", fechaDesde.Date);
+                AgregarParametro(cmdMov, "@FechaHasta", fechaHasta.Date);
+                using var reader = await ((DbCommand)cmdMov).ExecuteReaderAsync();
                 {
                     while (await reader.ReadAsync())
                     {
@@ -210,10 +223,12 @@ namespace AplicativoDeAlmacen.Services
                 LEFT JOIN tipo_producto tp ON p.tipo_producto_id = tp.id
                 WHERE c.producto_id = @ProductoId";
 
-                using (var cmdCod = new SqlCommand(queryCod, conn))
+                using var cmdCod = conn.CreateCommand();
+                
                 {
-                    cmdCod.Parameters.AddWithValue("@ProductoId", productoId);
-                    using (var reader = await cmdCod.ExecuteReaderAsync())
+                    cmdCod.CommandText = queryCod;
+                    AgregarParametro(cmdCod, "@ProductoId", productoId);
+                    using var reader = await ((DbCommand)cmdCod).ExecuteReaderAsync();
                     {
                         while (await reader.ReadAsync())
                         {

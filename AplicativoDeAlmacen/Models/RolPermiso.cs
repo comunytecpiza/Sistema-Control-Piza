@@ -39,5 +39,7 @@ namespace AplicativoDeAlmacen.Models.Models
                 return "📊 CONSULTAS, REPORTES Y AUDITORÍA"; // Por defecto, todo lo demás va aquí
             }
         }
+
+        public bool Permanent { get; internal set; }
     }
 }

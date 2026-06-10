@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.Common;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
@@ -16,83 +17,149 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
+        private void AgregarParametro(IDbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
+
         public async Task<List<UnidadMedida>> ObtenerTodosAsync()
         {
             var lista = new List<UnidadMedida>();
+
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
-            string query = @"SELECT u.id, u.descripcion, u.abreviatura, u.estado_id, e.nombre AS estado_nombre 
-                             FROM unidad_medida u 
-                             LEFT JOIN estados e ON u.estado_id = e.id";
+            string query = @"
+                SELECT
+                    u.id,
+                    u.descripcion,
+                    u.abreviatura,
+                    u.estado_id,
+                    e.nombre AS estado_nombre
+                FROM unidad_medida u
+                LEFT JOIN estados e ON u.estado_id = e.id";
 
-            using var cmd = new SqlCommand(query, conn);
-            using var reader = await cmd.ExecuteReaderAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
 
             while (await reader.ReadAsync())
             {
                 lista.Add(new UnidadMedida
                 {
-                    Id = reader.GetInt32(reader.GetOrdinal("id")),
-                    Descripcion = reader.IsDBNull(reader.GetOrdinal("descripcion")) ? string.Empty : reader.GetString(reader.GetOrdinal("descripcion")),
-                    Abreviatura = reader.IsDBNull(reader.GetOrdinal("abreviatura")) ? string.Empty : reader.GetString(reader.GetOrdinal("abreviatura")),
+                    Id = Convert.ToInt32(reader["id"]),
+                    Descripcion = reader["descripcion"]?.ToString() ?? string.Empty,
+                    Abreviatura = reader["abreviatura"]?.ToString() ?? string.Empty,
 
-                    // Como en tu modelo EstadoId ya no tiene el signo de interrogación (?), asumimos que siempre tiene valor
-                    EstadoId = reader.GetInt32(reader.GetOrdinal("estado_id")),
+                    EstadoId = reader["estado_id"] == DBNull.Value
+                        ? 0
+                        : Convert.ToInt32(reader["estado_id"]),
 
-                    // Llenamos el objeto Estado directamente
                     Estado = new Estado
                     {
-                        Nombre = reader.IsDBNull(reader.GetOrdinal("estado_nombre")) ? "DESCONOCIDO" : reader.GetString(reader.GetOrdinal("estado_nombre"))
+                        Nombre = reader["estado_nombre"]?.ToString() ?? "DESCONOCIDO"
                     }
                 });
             }
+
             return lista;
         }
 
         public async Task InsertarAsync(UnidadMedida u)
         {
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            string query = "INSERT INTO unidad_medida (descripcion, abreviatura, estado_id) VALUES (@Descripcion, @Abreviatura, @EstadoId)";
+            await ((DbConnection)conn).OpenAsync();
 
-            using var cmd = new SqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@Descripcion", string.IsNullOrEmpty(u.Descripcion) ? (object)DBNull.Value : u.Descripcion);
-            cmd.Parameters.AddWithValue("@Abreviatura", string.IsNullOrEmpty(u.Abreviatura) ? (object)DBNull.Value : u.Abreviatura);
-            cmd.Parameters.AddWithValue("@EstadoId", u.EstadoId);
+            string query = @"
+                INSERT INTO unidad_medida
+                (
+                    descripcion,
+                    abreviatura,
+                    estado_id
+                )
+                VALUES
+                (
+                    @Descripcion,
+                    @Abreviatura,
+                    @EstadoId
+                )";
 
-            await cmd.ExecuteNonQueryAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+
+            AgregarParametro(cmd, "@Descripcion",
+                string.IsNullOrWhiteSpace(u.Descripcion)
+                    ? DBNull.Value
+                    : u.Descripcion);
+
+            AgregarParametro(cmd, "@Abreviatura",
+                string.IsNullOrWhiteSpace(u.Abreviatura)
+                    ? DBNull.Value
+                    : u.Abreviatura);
+
+            AgregarParametro(cmd, "@EstadoId", u.EstadoId);
+
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
         }
 
         public async Task ActualizarAsync(UnidadMedida u)
         {
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            string query = "UPDATE unidad_medida SET descripcion = @Descripcion, abreviatura = @Abreviatura, estado_id = @EstadoId WHERE id = @Id";
+            await ((DbConnection)conn).OpenAsync();
 
-            using var cmd = new SqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@Id", u.Id);
-            cmd.Parameters.AddWithValue("@Descripcion", string.IsNullOrEmpty(u.Descripcion) ? (object)DBNull.Value : u.Descripcion);
-            cmd.Parameters.AddWithValue("@Abreviatura", string.IsNullOrEmpty(u.Abreviatura) ? (object)DBNull.Value : u.Abreviatura);
-            cmd.Parameters.AddWithValue("@EstadoId", u.EstadoId);
+            string query = @"
+                UPDATE unidad_medida
+                SET
+                    descripcion = @Descripcion,
+                    abreviatura = @Abreviatura,
+                    estado_id = @EstadoId
+                WHERE id = @Id";
 
-            await cmd.ExecuteNonQueryAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+
+            AgregarParametro(cmd, "@Id", u.Id);
+
+            AgregarParametro(cmd, "@Descripcion",
+                string.IsNullOrWhiteSpace(u.Descripcion)
+                    ? DBNull.Value
+                    : u.Descripcion);
+
+            AgregarParametro(cmd, "@Abreviatura",
+                string.IsNullOrWhiteSpace(u.Abreviatura)
+                    ? DBNull.Value
+                    : u.Abreviatura);
+
+            AgregarParametro(cmd, "@EstadoId", u.EstadoId);
+
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
         }
 
-        // Método para cargar el ComboBox de Estados en la vista
         public async Task<List<Estado>> ObtenerEstadosAsync()
         {
             var lista = new List<Estado>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
 
-            using var cmd = new SqlCommand("SELECT id, nombre FROM estados ORDER BY nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
+            using var conn = _database.GetConnection();
+            await ((DbConnection)conn).OpenAsync();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, nombre FROM estados ORDER BY nombre";
+
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
 
             while (await reader.ReadAsync())
             {
-                lista.Add(new Estado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                lista.Add(new Estado
+                {
+                    Id = Convert.ToInt32(reader["id"]),
+                    Nombre = reader["nombre"]?.ToString() ?? string.Empty
+                });
             }
+
             return lista;
         }
     }

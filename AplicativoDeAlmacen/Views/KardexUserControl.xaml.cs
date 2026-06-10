@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 
@@ -10,8 +11,8 @@ namespace AplicativoDeAlmacen.Views
     {
         private readonly KardexService _kardexService;
         private readonly ProductoService _productoService;
-
         private int _productoSeleccionadoId;
+        private bool _estaSeleccionando; // Bandera de seguridad UX para evitar bucles de tipeo
 
         public KardexUserControl()
         {
@@ -24,7 +25,6 @@ namespace AplicativoDeAlmacen.Views
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             DpHasta.SelectedDate = DateTime.Today;
 
-            // Evento para cuando el control se cargue en pantalla
             Loaded += KardexUserControl_Loaded;
         }
 
@@ -39,8 +39,15 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
+        // CONTROL EXCELENTE DE UX ASÍNCRONO: async void controlado para el evento TextChanged
+        private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
+            if (_estaSeleccionando)
+                return;
+
+            if (CboProductos.SelectedItem is Producto)
+                return;
+
             try
             {
                 string texto = ((TextBox)sender).Text;
@@ -49,32 +56,36 @@ namespace AplicativoDeAlmacen.Views
                 {
                     CboProductos.ItemsSource = null;
                     CboProductos.IsDropDownOpen = false;
+                    _productoSeleccionadoId = 0;
                     return;
                 }
 
-                // Buscamos en la base de datos
-                var productos = _productoService.BuscarProductos(texto);
+                var productos = await _productoService.BuscarProductos(texto);
 
                 CboProductos.ItemsSource = productos;
-
-                // CRÍTICO: Recuerda que tu modelo usa Descripcion, no Nombre
                 CboProductos.DisplayMemberPath = "Descripcion";
-
-                // Abrimos el desplegable si hay resultados
-                CboProductos.IsDropDownOpen = productos != null && productos.Count > 0;
+                CboProductos.IsDropDownOpen = productos.Count > 0;
             }
             catch
             {
-                // Ignoramos errores de tipeo rápido
             }
         }
 
         private void CboProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // Cuando seleccionas un producto de la lista desplegable, guardamos su ID
             if (CboProductos.SelectedItem is Producto producto)
             {
+                _estaSeleccionando = true;
+
                 _productoSeleccionadoId = producto.Id;
+
+                // Mostrar texto seleccionado
+                CboProductos.Text = producto.Descripcion;
+
+                // Cerrar lista
+                CboProductos.IsDropDownOpen = false;
+
+                _estaSeleccionando = false;
             }
         }
 
@@ -82,22 +93,22 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_productoSeleccionadoId == 0)
             {
-                MessageBox.Show("Seleccione un producto válido de la lista.", "Kardex", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Seleccione un producto válido de la lista antes de ejecutar la consulta.", "Kardex Físico", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
-                // Ejecutamos el servicio del Kardex con las fechas
+                // Ejecutamos el servicio del Kardex multimotor con rango de fechas
                 var reporte = await _kardexService.GenerarKardexFisicoAsync(
                         _productoSeleccionadoId,
                         DpDesde.SelectedDate ?? DateTime.Today,
                         DpHasta.SelectedDate ?? DateTime.Today);
 
-                // Llenamos la tabla
+                // Llenamos la tabla del DataGrid de forma directa
                 KardexDataGrid.ItemsSource = reporte.Detalles;
 
-                // Actualizamos los cuadros de resumen (Asegurando formato de 2 decimales)
+                // Actualizamos los cuadros de resumen (Asegurando formato de 2 decimales para auditoría)
                 TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N2");
                 TxtTotalDevIngresos.Text = reporte.TotalDevIngresos.ToString("N2");
                 TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N2");

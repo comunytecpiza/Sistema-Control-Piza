@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.Common;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
-// ⚠️ Eliminamos 'using AplicativoDeAlmacen.Views;' para quitar la ambigüedad
 using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Services
@@ -17,73 +17,113 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
+        private void AgregarParametro(IDbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
+
         public async Task<List<Coleccion>> ObtenerTodosAsync()
         {
             var lista = new List<Coleccion>();
+
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
-            string query = @"SELECT c.id, c.ano, c.estado_id, e.nombre AS estado_nombre 
-                             FROM colecciones c 
-                             LEFT JOIN estados e ON c.estado_id = e.id 
-                             ORDER BY c.ano DESC";
+            string query = @"
+                SELECT c.id,
+                       c.ano,
+                       c.estado_id,
+                       e.nombre AS estado_nombre
+                FROM colecciones c
+                LEFT JOIN estados e ON c.estado_id = e.id
+                ORDER BY c.ano DESC";
 
-            using var cmd = new SqlCommand(query, conn);
-            using var reader = await cmd.ExecuteReaderAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
 
-            while (await reader.ReadAsync())
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
+
+            while (await ((DbDataReader)reader).ReadAsync())
             {
                 lista.Add(new Coleccion
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
 
-                    // Ano en tu modelo es int? (acepta nulos)
-                    Ano = reader.IsDBNull(reader.GetOrdinal("ano")) ? null : reader.GetInt32(reader.GetOrdinal("ano")),
+                    Ano = reader.IsDBNull(reader.GetOrdinal("ano"))
+                        ? null
+                        : reader.GetInt32(reader.GetOrdinal("ano")),
 
-                    // EstadoId en tu modelo es int (no acepta nulos, va directo)
                     EstadoId = reader.GetInt32(reader.GetOrdinal("estado_id")),
 
-                    // Llenamos el objeto Estado directamente
                     Estado = new Estado
                     {
-                        Nombre = reader.IsDBNull(reader.GetOrdinal("estado_nombre")) ? "DESCONOCIDO" : reader.GetString(reader.GetOrdinal("estado_nombre"))
+                        Nombre = reader.IsDBNull(reader.GetOrdinal("estado_nombre"))
+                            ? "DESCONOCIDO"
+                            : reader.GetString(reader.GetOrdinal("estado_nombre"))
                     }
                 });
             }
+
             return lista;
         }
 
         public async Task InsertarAsync(Coleccion c)
         {
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            string query = "INSERT INTO colecciones (ano, estado_id) VALUES (@Ano, @EstadoId)";
+            await ((DbConnection)conn).OpenAsync();
 
-            using var cmd = new SqlCommand(query, conn);
+            string query = @"
+                INSERT INTO colecciones
+                (
+                    ano,
+                    estado_id
+                )
+                VALUES
+                (
+                    @Ano,
+                    @EstadoId
+                )";
 
-            // Ano ahora es int?, mandamos DBNull si no tiene valor
-            cmd.Parameters.AddWithValue("@Ano", c.Ano ?? (object)DBNull.Value);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
 
-            // EstadoId es int, se manda directo
-            cmd.Parameters.AddWithValue("@EstadoId", c.EstadoId);
+            AgregarParametro(cmd, "@Ano", c.Ano);
+            AgregarParametro(cmd, "@EstadoId", c.EstadoId);
 
-            await cmd.ExecuteNonQueryAsync();
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
         }
 
-        // Reutilizamos el método para obtener estados
         public async Task<List<Estado>> ObtenerEstadosAsync()
         {
             var lista = new List<Estado>();
+
             using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            await ((DbConnection)conn).OpenAsync();
 
-            using var cmd = new SqlCommand("SELECT id, nombre FROM estados ORDER BY CASE WHEN nombre = 'Activo' THEN 0 ELSE 1 END, nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
+            string query = @"
+                SELECT id, nombre
+                FROM estados
+                ORDER BY
+                CASE WHEN nombre = 'Activo' THEN 0 ELSE 1 END,
+                nombre";
 
-            while (await reader.ReadAsync())
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
+
+            while (await ((DbDataReader)reader).ReadAsync())
             {
-                lista.Add(new Estado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                lista.Add(new Estado
+                {
+                    Id = reader.GetInt32(0),
+                    Nombre = reader.GetString(1)
+                });
             }
+
             return lista;
         }
     }

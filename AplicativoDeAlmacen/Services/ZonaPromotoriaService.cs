@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
-using AplicativoDeAlmacen.Models.Models; // Aquí deben estar tus clases Localidad y ZonaPromotoria
+using System.Data;
+using AplicativoDeAlmacen.Models.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Services
@@ -12,11 +12,17 @@ namespace AplicativoDeAlmacen.Services
 
         public ZonaPromotoriaService()
         {
-            // Usamos tu clase de conexión real
             _database = new DatabaseConnection();
         }
 
-        // Obtener todas las localidades como una Lista de OBJETOS
+        private void AgregarParametro(IDbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
+
         public List<Localidad> ObtenerLocalidades()
         {
             var lista = new List<Localidad>();
@@ -24,24 +30,23 @@ namespace AplicativoDeAlmacen.Services
 
             try
             {
-                using (SqlConnection conn = _database.GetConnection())
+                using var conn = _database.GetConnection();
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+
+                using var reader = cmd.ExecuteReader();
+
+                while (reader.Read())
                 {
-                    conn.Open();
-                    using (SqlCommand cmd = new SqlCommand(query, conn))
-                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    lista.Add(new Localidad
                     {
-                        while (reader.Read())
-                        {
-                            // Creamos el objeto en memoria y mapeamos sus propiedades
-                            var localidad = new Localidad
-                            {
-                                Id = Convert.ToInt32(reader["id"]),
-                                Nombre = reader["nombre"].ToString()
-                            };
-                            lista.Add(localidad);
-                        }
-                    }
+                        Id = Convert.ToInt32(reader["id"]),
+                        Nombre = reader["nombre"]?.ToString() ?? string.Empty
+                    });
                 }
+
                 return lista;
             }
             catch (Exception ex)
@@ -50,36 +55,37 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // Obtener zonas como una Lista de OBJETOS filtrada por ID de localidad
         public List<ZonaPromotoria> ObtenerZonasPorLocalidad(int localidadId)
         {
             var lista = new List<ZonaPromotoria>();
-            string query = "SELECT id, descripcion, localidad_id FROM zona_promotoria WHERE localidad_id = @LocalidadId";
+
+            string query = @"
+                SELECT id, descripcion, localidad_id
+                FROM zona_promotoria
+                WHERE localidad_id = @LocalidadId";
 
             try
             {
-                using (SqlConnection conn = _database.GetConnection())
+                using var conn = _database.GetConnection();
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+
+                AgregarParametro(cmd, "@LocalidadId", localidadId);
+
+                using var reader = cmd.ExecuteReader();
+
+                while (reader.Read())
                 {
-                    conn.Open();
-                    using (SqlCommand cmd = new SqlCommand(query, conn))
+                    lista.Add(new ZonaPromotoria
                     {
-                        cmd.Parameters.AddWithValue("@LocalidadId", localidadId);
-                        using (SqlDataReader reader = cmd.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                // Creamos el objeto ZonaPromotoria real
-                                var zona = new ZonaPromotoria
-                                {
-                                    Id = Convert.ToInt32(reader["id"]),
-                                    Descripcion = reader["descripcion"].ToString(),
-                                    LocalidadId = Convert.ToInt32(reader["localidad_id"])
-                                };
-                                lista.Add(zona);
-                            }
-                        }
-                    }
+                        Id = Convert.ToInt32(reader["id"]),
+                        Descripcion = reader["descripcion"]?.ToString() ?? string.Empty,
+                        LocalidadId = Convert.ToInt32(reader["localidad_id"])
+                    });
                 }
+
                 return lista;
             }
             catch (Exception ex)
@@ -88,23 +94,32 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // Registrar una nueva zona
         public void RegistrarZona(string descripcion, int localidadId)
         {
-            string query = "INSERT INTO zona_promotoria (descripcion, localidad_id) VALUES (@Descripcion, @LocalidadId)";
+            string query = @"
+                INSERT INTO zona_promotoria
+                (
+                    descripcion,
+                    localidad_id
+                )
+                VALUES
+                (
+                    @Descripcion,
+                    @LocalidadId
+                )";
 
             try
             {
-                using (SqlConnection conn = _database.GetConnection())
-                {
-                    conn.Open();
-                    using (SqlCommand cmd = new SqlCommand(query, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@Descripcion", descripcion);
-                        cmd.Parameters.AddWithValue("@LocalidadId", localidadId);
-                        cmd.ExecuteNonQuery();
-                    }
-                }
+                using var conn = _database.GetConnection();
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+
+                AgregarParametro(cmd, "@Descripcion", descripcion);
+                AgregarParametro(cmd, "@LocalidadId", localidadId);
+
+                cmd.ExecuteNonQuery();
             }
             catch (Exception ex)
             {
@@ -112,22 +127,21 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // Eliminar una zona por su ID
         public void EliminarZona(int zonaId)
         {
             string query = "DELETE FROM zona_promotoria WHERE id = @ZonaId";
 
             try
             {
-                using (SqlConnection conn = _database.GetConnection())
-                {
-                    conn.Open();
-                    using (SqlCommand cmd = new SqlCommand(query, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@ZonaId", zonaId);
-                        cmd.ExecuteNonQuery();
-                    }
-                }
+                using var conn = _database.GetConnection();
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+
+                AgregarParametro(cmd, "@ZonaId", zonaId);
+
+                cmd.ExecuteNonQuery();
             }
             catch (Exception ex)
             {
