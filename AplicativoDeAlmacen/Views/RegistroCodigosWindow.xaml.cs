@@ -170,18 +170,16 @@ namespace AplicativoDeAlmacen.Views
 
         private async void CmbProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (CmbProducto.SelectedItem is Producto prod)
+            if (CmbProducto.SelectedItem is Producto prod && CmbModalCategoria.SelectedValue is int catId)
             {
                 productoAbreviaturaActual = prod.Abreviatura;
                 try
                 {
-                    ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, prod.Abreviatura);
+                    // Ahora obtiene el último código filtrado por Categoria y Producto
+                    ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, prod.Abreviatura, catId);
                     CalcularRangos();
                 }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("No se pudo obtener el último código: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                catch (Exception ex) { MessageBox.Show("Error: " + ex.Message); }
             }
         }
 
@@ -208,15 +206,14 @@ namespace AplicativoDeAlmacen.Views
 
         private async void BtnGuardar_Click(object sender, RoutedEventArgs e)
         {
-            if (CmbModalColeccion.SelectedValue == null || CmbModalCategoria.SelectedValue == null ||
-                CmbProducto.SelectedItem == null || string.IsNullOrWhiteSpace(TxtDesde.Text))
-            {
-                MessageBox.Show("Complete todos los campos correctamente.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            if (CmbModalColeccion.SelectedValue == null || CmbProducto.SelectedItem == null) return;
 
             try
             {
+                // UI Feedback
+                PbProgreso.Visibility = Visibility.Visible;
+                Mouse.OverrideCursor = Cursors.Wait;
+
                 int coleccionId = (int)CmbModalColeccion.SelectedValue;
                 int categoriaId = (int)CmbModalCategoria.SelectedValue;
                 int productoId = ((Producto)CmbProducto.SelectedItem).Id;
@@ -224,14 +221,18 @@ namespace AplicativoDeAlmacen.Views
 
                 await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, TxtDesde.Text, TxtHasta.Text, categoriaId);
 
-                MessageBox.Show("Códigos generados y guardados con éxito en la base de datos.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Códigos generados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                 ModalAgregar.Visibility = Visibility.Collapsed;
-
-                Filtros_Changed(null, null); // Recargar Grid
+                await CargarGridAsync(coleccionId, categoriaId);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error Crítico en Base de Datos: " + ex.Message, "Rollback Ejecutado", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error: " + ex.Message);
+            }
+            finally
+            {
+                PbProgreso.Visibility = Visibility.Collapsed;
+                Mouse.OverrideCursor = null;
             }
         }
 

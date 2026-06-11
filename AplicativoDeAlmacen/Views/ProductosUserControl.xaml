@@ -130,7 +130,10 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="Tipo de Producto" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbTipoProducto" SelectionChanged="CmbTipoProducto_SelectionChanged"/>
+                                    <ComboBox x:Name="CmbTipoProducto" 
+                                                                      SelectionChanged="CmbTipoProducto_SelectionChanged"
+                                                                      DisplayMemberPath="Nombre" 
+                                                                      SelectedValuePath="Id" />
                                 </StackPanel>
                             </Grid>
 
@@ -184,7 +187,7 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="Grado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbGrado"/>
+                                    <ComboBox x:Name="CmbGrado" DisplayMemberPath="Nombre" SelectedValuePath="Id" />
                                 </StackPanel>
                             </Grid>
 

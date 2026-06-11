@@ -49,7 +49,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Text="📝 Registro de Códigos" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
-
+        <ProgressBar x:Name="PbProgreso" Grid.Row="1" Height="5" Margin="0,0,0,5" Visibility="Collapsed" IsIndeterminate="True" Foreground="#3B82F6"/>
         <Grid Grid.Row="1" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -183,5 +183,6 @@
                 </StackPanel>
             </Border>
         </Grid>
+        
     </Grid>
 </UserControl>

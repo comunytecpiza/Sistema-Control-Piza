@@ -159,7 +159,15 @@
                 </StackPanel>
 
                 <Button x:Name="IngresarButton" Click="IngresarButton_Click" Content="INGRESAR AL SISTEMA" 
-                        Style="{StaticResource BtnPrincipal}" Height="50" Margin="0,0,0,10"/>
+                        Style="{StaticResource BtnPrincipal}" Height="50" Margin="0,0,0,10"/> <Button Content="SALIR DE LA APLICACIÓN" 
+                Click="BtnSalir_Click" 
+                Background="Transparent" 
+                Foreground="#6B7280" 
+                FontWeight="SemiBold" 
+                FontSize="14" 
+                Cursor="Hand" 
+                Height="40" 
+        BorderThickness="0"/>
             </StackPanel>
         </Border>
 

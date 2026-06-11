@@ -18,6 +18,7 @@ namespace AplicativoDeAlmacen.Models.Models
     {
         public string Codigo { get; set; }
         public string ColeccionTipo { get; set; }
+        public string NumeroRegistro { get; set; }
     }
 
     public class ConsultaMovimientoReporte

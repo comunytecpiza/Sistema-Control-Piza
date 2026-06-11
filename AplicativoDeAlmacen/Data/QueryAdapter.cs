@@ -1,23 +1,24 @@
 ﻿using System;
-using System.Text.RegularExpressions;
-
+using AplicativoDeAlmacen.Core; // Asegúrate de tener este using
 
 namespace AplicativoDeAlmacen.Data
 {
     public static class QueryAdapter
     {
+        // Propiedad que verifica el motor
+        public static bool EsMySQL => ConfigManager.ObtenerMotor()?.Contains("MySQL") ?? false;
+
         public static string FormatearConsulta(string queryBase)
         {
-            string motor = ConfigManager.ObtenerMotor();
-
-            if (motor != null && motor.Contains("MySQL"))
+            if (EsMySQL)
             {
-                // Traduce funciones de fecha, nulos y tipos de conversión al vuelo
+                // Traducimos funciones de SQL Server a MySQL
                 queryBase = queryBase.Replace("GETDATE()", "NOW()")
                                      .Replace("ISNULL", "IFNULL")
+                                     .Replace("LEN(", "LENGTH(") // ¡Aquí arreglamos el error de LEN!
                                      .Replace("CAST(p.id AS VARCHAR)", "CAST(p.id AS CHAR)");
 
-                // INTEGRACIÓN DE TU INSTRUCCIÓN: Traduce el OUTPUT de SQL Server al LAST_INSERT_ID de MySQL
+                // Manejo del OUTPUT INSERTED.ID
                 if (queryBase.Contains("OUTPUT INSERTED.ID"))
                 {
                     queryBase = queryBase.Replace("OUTPUT INSERTED.ID", "");

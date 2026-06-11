@@ -155,56 +155,49 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
+                // 1. Limpiamos suscripciones para evitar que se disparen eventos mientras configuramos
+                CmbNivel.SelectionChanged -= CmbNivel_SelectionChanged;
+
                 TxtDescripcion.Text = producto.Descripcion ?? "";
                 TxtAbreviatura.Text = producto.Abreviatura ?? "";
                 TxtPrecioUnitario.Text = Convert.ToDecimal(producto.PrecioUnitario).ToString("N2");
                 TxtPorcentaje.Text = Convert.ToDecimal(producto.Porcentaje).ToString("N2");
 
                 CmbUnidadMedida.SelectedValue = producto.UnidadMedidaId;
-
-                // Esto disparará CmbTipoProducto_SelectionChanged automáticamente y bloqueará cursos si es necesario
                 CmbTipoProducto.SelectedValue = producto.TipoProductoId;
-
                 CmbAfectacionIgv.SelectedValue = producto.AfectacionIgvId;
                 CmbEstado.SelectedValue = producto.EstadoId;
 
-                CmbNivel.SelectionChanged -= CmbNivel_SelectionChanged;
-
                 if (producto.NivelId.HasValue)
                 {
+                    CmbNivel.SelectedValue = producto.NivelId.Value;
+
+                    // ¡IMPORTANTE! Forzamos la carga de grados y cursos AHORA, no por evento
                     await CargarGradosAsync(producto.NivelId.Value);
                     await CargarCursosAsync(producto.NivelId.Value);
-                    CmbGrado.SelectedValue = producto.GradoId;
 
-                    if (CmbCurso.IsEnabled)
-                        CmbCurso.SelectedValue = producto.CursoId;
+                    CmbGrado.SelectedValue = producto.GradoId;
+                    CmbCurso.SelectedValue = producto.CursoId;
                 }
                 else
                 {
                     CmbNivel.SelectedIndex = -1;
                 }
 
+                // Volvemos a suscribir el evento después de configurar todo
                 CmbNivel.SelectionChanged += CmbNivel_SelectionChanged;
 
-                ChkTitulo.Checked -= ChkTitulo_Checked;
+                // Lógica de Títulos
                 ChkTitulo.IsChecked = producto.TituloCursoId.HasValue;
-                ChkTitulo.Checked += ChkTitulo_Checked;
-
-                if (producto.TituloCursoId.HasValue && ChkTitulo.IsEnabled)
+                if (producto.TituloCursoId.HasValue)
                 {
-                    CmbTitulo.IsEnabled = true;
                     await CargarTitulosAsync();
                     CmbTitulo.SelectedValue = producto.TituloCursoId;
-                }
-                else
-                {
-                    CmbTitulo.IsEnabled = false;
-                    CmbTitulo.ItemsSource = null;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al cargar los datos en la interfaz: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error al cargar datos: " + ex.Message);
             }
         }
 
@@ -270,31 +263,37 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                CmbUnidadMedida.ItemsSource = await _productoService.ObtenerUnidadesMedidaAsync();
-                CmbUnidadMedida.DisplayMemberPath = "Descripcion";
+                // 1. Unidades de Medida
+                var unidades = await _productoService.ObtenerUnidadesMedidaAsync();
+                CmbUnidadMedida.ItemsSource = unidades;
+                CmbUnidadMedida.DisplayMemberPath = "Descripcion"; // Asegúrate que tu clase UnidadMedida tenga esta propiedad
                 CmbUnidadMedida.SelectedValuePath = "Id";
 
-                CmbTipoProducto.ItemsSource = await _productoService.ObtenerTiposProductoAsync();
-                CmbTipoProducto.DisplayMemberPath = "Nombre";
+                // 2. Tipos de Producto
+                var tipos = await _productoService.ObtenerTiposProductoAsync();
+                CmbTipoProducto.ItemsSource = tipos;
+                CmbTipoProducto.DisplayMemberPath = "Nombre";      // Asegúrate que TipoProducto tenga "Nombre"
                 CmbTipoProducto.SelectedValuePath = "Id";
 
+                // 3. Niveles
                 var niveles = await _productoService.ObtenerNivelesAsync();
-               /* niveles.Insert(0, new Nivele { Id = 0, Nombre = "-- Seleccione un Nivel --" });*/
                 CmbNivel.ItemsSource = niveles;
-                CmbNivel.DisplayMemberPath = "Nombre";
+                CmbNivel.DisplayMemberPath = "Nombre";             // Asegúrate que Nivel tenga "Nombre"
                 CmbNivel.SelectedValuePath = "Id";
 
+                // 4. Afectación IGV
                 CmbAfectacionIgv.ItemsSource = await _productoService.ObtenerAfectacionesIgvAsync();
                 CmbAfectacionIgv.DisplayMemberPath = "Nombre";
                 CmbAfectacionIgv.SelectedValuePath = "Id";
 
+                // 5. Estado
                 CmbEstado.ItemsSource = await _productoService.ObtenerEstadosAsync();
                 CmbEstado.DisplayMemberPath = "Nombre";
                 CmbEstado.SelectedValuePath = "Id";
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al cargar los catálogos base: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error al cargar catálogos: " + ex.Message);
             }
         }
 

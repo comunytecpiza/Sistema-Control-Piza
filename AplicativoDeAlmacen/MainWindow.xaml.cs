@@ -285,5 +285,18 @@ namespace AplicativoDeAlmacen
         {
             LoadingOverlay.Visibility = Visibility.Collapsed;
         }
+
+        private void BtnSalir_Click(object sender, RoutedEventArgs e)
+        {
+            if (MessageBox.Show("¿Está seguro que desea salir del sistema?", "Salir",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                Application.Current.Shutdown();
+            }
+        }
     }
+    // ==============================================================
+    // LÓGICA DE CIERRE DE APLICACIÓN
+    // ==============================================================
+    
 }

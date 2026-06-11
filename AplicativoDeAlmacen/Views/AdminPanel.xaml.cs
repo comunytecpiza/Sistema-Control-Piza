@@ -333,11 +333,23 @@ namespace AplicativoDeAlmacen.Views
             MessageBox.Show("Módulo en construcción...", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             // AbrirPestaña("👤 Resumen Libros x Cliente", new ResumenLibrosClienteUserControl());
         }
-
+      
         private void MenuKardexUbicacion_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show("Módulo en construcción...", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             // AbrirPestaña("🏢 Kardex x Ubicación", new KardexUbicacionUserControl());
+        }
+        
+        private void MenuItemAcademico_Click(object sender, RoutedEventArgs e)
+        {
+            
+            AbrirPestaña("🏢 Módulo Academico", new AcademicoMaestroUserControl());
+        }
+
+        private void MenuItemCatalogosMaestros_Click(object sender, RoutedEventArgs e)
+        {
+
+            AbrirPestaña("🏢 Módulo Academico", new CatalogoMaestroUserControl());
         }
     }
 }

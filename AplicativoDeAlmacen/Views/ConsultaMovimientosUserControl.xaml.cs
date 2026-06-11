@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 
@@ -13,6 +15,10 @@ namespace AplicativoDeAlmacen.Views
         private readonly ProductoService _productoService;
         private int _productoSeleccionadoId;
         private bool _estaSeleccionando;
+
+        // LA MEMORIA DEL SISTEMA: Aquí guardamos todos los códigos en secreto
+        private List<ConsultaCodigoItem> _todosLosCodigos;
+
         public ConsultaMovimientosUserControl()
         {
             InitializeComponent();
@@ -34,7 +40,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // --- EVENTO: Activa/Desactiva las cajas de texto de los filtros ---
         private void ChkFiltros_Click(object sender, RoutedEventArgs e)
         {
             if (TxtRazonSocial != null)
@@ -51,13 +56,11 @@ namespace AplicativoDeAlmacen.Views
 
         private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (_estaSeleccionando)
-                return;
+            if (_estaSeleccionando) return;
 
             try
             {
                 string texto = ((TextBox)sender).Text;
-
                 if (string.IsNullOrWhiteSpace(texto))
                 {
                     CboProductos.ItemsSource = null;
@@ -67,21 +70,13 @@ namespace AplicativoDeAlmacen.Views
                 }
 
                 var productos = await _productoService.BuscarProductos(texto);
-
                 string textoActual = texto;
-
                 CboProductos.ItemsSource = productos;
                 CboProductos.DisplayMemberPath = "Descripcion";
-
                 CboProductos.Text = textoActual;
-
-                CboProductos.IsDropDownOpen =
-                    productos != null &&
-                    productos.Count > 0;
+                CboProductos.IsDropDownOpen = productos != null && productos.Count > 0;
             }
-            catch
-            {
-            }
+            catch { /* Falla silenciosa permitida en tipeos rápidos */ }
         }
 
         private void CboProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -89,12 +84,9 @@ namespace AplicativoDeAlmacen.Views
             if (CboProductos.SelectedItem is Producto producto)
             {
                 _estaSeleccionando = true;
-
                 _productoSeleccionadoId = producto.Id;
-
                 CboProductos.Text = producto.Descripcion;
                 CboProductos.IsDropDownOpen = false;
-
                 _estaSeleccionando = false;
             }
         }
@@ -103,7 +95,7 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_productoSeleccionadoId == 0)
             {
-                MessageBox.Show("Seleccione un producto para generar el reporte.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, seleccione un producto maestro para generar la auditoría.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -114,53 +106,87 @@ namespace AplicativoDeAlmacen.Views
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                // Obtenemos todos los datos brutos desde la BD
+                // 1. Ejecutamos la consulta en base de datos
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(_productoSeleccionadoId, desde, hasta);
-
-                // Preparamos la lista para aplicar los filtros de texto
                 var movimientosFiltrados = reporte.Movimientos.AsEnumerable();
 
-                // Aplicar Filtro: Razón Social (Colegio, Librería, etc.)
+                // 2. Aplicamos filtros de texto (Memoria)
                 if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
                 {
                     string filtroRazon = TxtRazonSocial.Text.ToLower().Trim();
-                    movimientosFiltrados = movimientosFiltrados.Where(m =>
-                        m.RazonSocialUbicacion != null &&
-                        m.RazonSocialUbicacion.ToLower().Contains(filtroRazon));
+                    movimientosFiltrados = movimientosFiltrados.Where(m => m.RazonSocialUbicacion != null && m.RazonSocialUbicacion.ToLower().Contains(filtroRazon));
                 }
 
-                // Aplicar Filtro: Ubicación (Trujillo, Huanchaco, etc.)
                 if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text))
                 {
                     string filtroUbi = TxtUbicacion.Text.ToLower().Trim();
-                    movimientosFiltrados = movimientosFiltrados.Where(m =>
-                        m.RazonSocialUbicacion != null &&
-                        m.RazonSocialUbicacion.ToLower().Contains(filtroUbi));
+                    movimientosFiltrados = movimientosFiltrados.Where(m => m.RazonSocialUbicacion != null && m.RazonSocialUbicacion.ToLower().Contains(filtroUbi));
+                }
+
+                // 3. Aplicamos Filtros de RadioButtons (Guías vs Ventas/Facturas)
+                if (RbGuia.IsChecked == true)
+                {
+                    // Asumimos que Guía es cuando el comprobante (registro) está vacío o es solo guiones
+                    movimientosFiltrados = movimientosFiltrados.Where(m => m.NumeroRegistro == "-" || string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
+                }
+                else if (RbVenta.IsChecked == true)
+                {
+                    // Asumimos que Venta es cuando SÍ hay un número de comprobante (factura/boleta)
+                    movimientosFiltrados = movimientosFiltrados.Where(m => m.NumeroRegistro != "-" && !string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
                 }
 
                 var listaFinalMovimientos = movimientosFiltrados.ToList();
 
-                // Llenamos tablas
-                MovimientosDataGrid.ItemsSource = listaFinalMovimientos;
-                CodigosDataGrid.ItemsSource = reporte.Codigos; // Los códigos se mantienen iguales al producto
+                // =======================================================
+                // MAGIA MAESTRO-DETALLE
+                // =======================================================
+                // Guardamos los códigos internamente, pero NO los mostramos aún
+                _todosLosCodigos = reporte.Codigos;
 
-                // Recalculamos los pies de página según lo filtrado en memoria
+                // Llenamos solo la tabla de la izquierda
+                MovimientosDataGrid.ItemsSource = listaFinalMovimientos;
+                CodigosDataGrid.ItemsSource = null; // La tabla de códigos arranca vacía
+
+                // Actualizamos las Tarjetas de Dashboards (Cards)
                 decimal sumaIngresos = listaFinalMovimientos.Sum(m => m.Ingreso);
                 decimal sumaSalidas = listaFinalMovimientos.Sum(m => m.Salida);
 
                 TxtTotalIngreso.Text = sumaIngresos.ToString("N2");
                 TxtTotalSalida.Text = sumaSalidas.ToString("N2");
-                TxtTotalVendidos.Text = sumaSalidas.ToString("N2"); // Ventas netas filtradas
+                TxtTotalVendidos.Text = sumaSalidas.ToString("N2");
 
-                TxtTotalCodigos.Text = $"{reporte.TotalCodigos} Códigos Registrados";
+                TxtTotalCodigos.Text = "Seleccione un movimiento de la lista izquierda para auditar sus códigos";
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al generar consulta: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error de auditoría: " + ex.Message, "Error de Datos", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
                 ((Button)sender).IsEnabled = true;
+            }
+        }
+
+        // ==============================================================
+        // EVENTO DEL CLIC: Llena la tabla derecha al tocar un movimiento
+        // ==============================================================
+        private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_todosLosCodigos == null || !_todosLosCodigos.Any()) return;
+
+            // Extraemos qué fila tocó el contador
+            if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimientoSeleccionado)
+            {
+                // Filtramos la memoria: buscamos qué códigos están "amarrados" a este documento/registro
+                var codigosDelMovimiento = _todosLosCodigos
+                    .Where(c => c.NumeroRegistro == movimientoSeleccionado.NumeroRegistro)
+                    .ToList();
+
+                // Llenamos la tabla derecha solo con esa pequeña fracción
+                CodigosDataGrid.ItemsSource = codigosDelMovimiento;
+
+                // Refrescamos la píldora informativa
+                TxtTotalCodigos.Text = $"Se auditaron {codigosDelMovimiento.Count} Códigos Físicos en esta operación";
             }
         }
     }
