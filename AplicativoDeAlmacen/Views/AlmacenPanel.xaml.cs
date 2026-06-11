@@ -5,23 +5,79 @@ using System.Windows.Threading;
 using System.Globalization;
 using System.Windows.Input;
 using System.Windows.Media;
-using AplicativoDeAlmacen.Core; // Importante para la Sesión
+using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Services;
+using System.Collections.ObjectModel;
+using AplicativoDeAlmacen.Models;
+using System.Windows.Data; // Importante para la Sesión
 
 namespace AplicativoDeAlmacen.Views
 {
     // IMPORTANTE: Agregamos IMainWindow aquí
+    public class StockColorConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            int stock = (int)value;
+            if (stock == 0) return new SolidColorBrush(Color.FromRgb(220, 38, 38)); // Rojo
+            return new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Naranja
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => null;
+    }
     public partial class AlmacenPanel : Window, IMainWindow
     {
+        private ObservableCollection<string> notasPendientes = new ObservableCollection<string>();
+        private readonly ProductoService _productoService;
         public AlmacenPanel(string userNames)
         {
             InitializeComponent();
+            // ¡Asegúrate de que esta línea esté aquí!
+            _productoService = new ProductoService();
+
             SetupWelcomeMessage(userNames);
             StartClock();
-
-            // 🔒 Motor de Restricciones
             AplicarSeguridadDinamica();
+
+            LbNotas.ItemsSource = notasPendientes;
+            _ = CargarPanelPrincipal();
         }
 
+        private async Task CargarPanelPrincipal()
+        {
+            try
+            {
+                // Validación de seguridad:
+                if (_productoService == null) throw new Exception("_productoService no está inicializado.");
+                if (DgStockCritico == null) throw new Exception("El DataGrid DgStockCritico no existe en el XAML.");
+
+                var stockCritico = await _productoService.ObtenerStockCriticoAsync();
+
+                // Si stockCritico es null, asignamos una lista vacía para evitar errores
+                DgStockCritico.ItemsSource = stockCritico ?? new List<ProductoStock>();
+            }
+            catch (Exception ex)
+            {
+                // Aquí verás el mensaje real si el error es otro
+                MessageBox.Show("Error en CargarPanelPrincipal: " + ex.Message);
+            }
+        }
+
+        private void BtnAgregarNota_Click(object sender, RoutedEventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(TxtNuevaNota.Text))
+            {
+                notasPendientes.Add(TxtNuevaNota.Text);
+                TxtNuevaNota.Clear();
+            }
+        }
+
+        private void BtnEliminarNota_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender is CheckBox cb && cb.Content is string nota)
+            {
+                notasPendientes.Remove(nota);
+            }
+        }
         private void SetupWelcomeMessage(string userNames)
         {
             WelcomeMessage.Text = $"Operador(a) de Almacén: {userNames}";

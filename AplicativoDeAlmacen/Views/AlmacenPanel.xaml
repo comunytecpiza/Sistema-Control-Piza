@@ -138,17 +138,44 @@
 
         <TabControl x:Name="MainTabControl" Grid.Row="1" Margin="20,10,20,20" Background="White" BorderThickness="0">
             <TabItem Header="🏠 Inicio">
-                <Border Background="White" CornerRadius="15" Padding="40" BorderBrush="#E5E7EB" BorderThickness="1" MaxWidth="800" VerticalAlignment="Top" Margin="0,30,0,0">
-                    <Border.Effect>
-                        <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270" Color="Black" Opacity="0.05"/>
-                    </Border.Effect>
-                    <StackPanel>
-                        <TextBlock Text="Panel de Control de Almacén" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
-                        <TextBlock Text="Seleccione una opción en el menú superior para abrir una nueva pestaña de trabajo." 
-                                   FontSize="16" Foreground="#6B7280" TextWrapping="Wrap"/>
-                        <Border Height="4" Width="60" Background="#DC2626" HorizontalAlignment="Left" Margin="0,20,0,0" CornerRadius="2"/>
-                    </StackPanel>
-                </Border>
+                <Grid Margin="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="350"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Background="White" CornerRadius="15" Padding="20" Margin="0,0,10,0" BorderBrush="#E5E7EB" BorderThickness="1">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.1"/>
+                        </Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="⚠️ Productos con Stock Crítico" FontSize="20" FontWeight="Bold" Foreground="#DC2626" Margin="0,0,0,15"/>
+                            <DataGrid x:Name="DgStockCritico" AutoGenerateColumns="False" IsReadOnly="True" Height="450" 
+                          HeadersVisibility="Column" GridLinesVisibility="Horizontal" BorderThickness="0">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Producto" Binding="{Binding Descripcion}" Width="*"/>
+                                    <DataGridTextColumn Header="Stock Actual" Binding="{Binding StockActual}" Width="100"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Background="#FFFBEB" CornerRadius="15" Padding="20" Margin="10,0,0,0" BorderBrush="#FCD34D" BorderThickness="1">
+                        <StackPanel>
+                            <TextBlock Text="📌 Mis Pendientes" FontSize="20" FontWeight="Bold" Foreground="#92400E" Margin="0,0,0,15"/>
+                            <TextBox x:Name="TxtNuevaNota" Height="80" TextWrapping="Wrap" Margin="0,0,0,10" 
+                         FontSize="14" VerticalContentAlignment="Top" Padding="5"/>
+                            <Button Content="Agregar Tarea" Click="BtnAgregarNota_Click" Background="#D97706" Foreground="White" Height="35"/>
+                            <ListBox x:Name="LbNotas" Background="Transparent" BorderThickness="0" Margin="0,15,0,0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox Content="{Binding}" Margin="0,5" Checked="BtnEliminarNota_Checked"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </TabItem>
         </TabControl>
 

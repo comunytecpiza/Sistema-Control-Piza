@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
+using AplicativoDeAlmacen.Models;
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -316,6 +317,41 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
+        public async Task<List<ProductoStock>> ObtenerStockCriticoAsync()
+        {
+            var lista = new List<ProductoStock>();
+            using var conn = _database.GetConnection();
+            await ((DbConnection)conn).OpenAsync();
 
+            // Envolvemos todo en un SELECT principal para que 'StockActual' sea reconocido por el motor
+            string query = @"
+        SELECT Descripcion, StockActual 
+        FROM (
+            SELECT p.descripcion AS Descripcion, 
+                   (COALESCE(ing.total, 0) - COALESCE(sal.total, 0)) AS StockActual
+            FROM productos p
+            LEFT JOIN (SELECT producto_id, SUM(cantidad_ingreso) as total FROM movimiento_detalles GROUP BY producto_id) ing ON p.id = ing.producto_id
+            LEFT JOIN (SELECT producto_id, SUM(cantidad_salida) as total FROM movimiento_detalles GROUP BY producto_id) sal ON p.id = sal.producto_id
+        ) AS Resultado
+        WHERE StockActual <= 50"; // WHERE es mejor que HAVING para subconsultas
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+            using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
+            while (await ((DbDataReader)reader).ReadAsync())
+            {
+                // Usamos GetOrdinal para evitar el error de "nombre no válido"
+                int ordDesc = reader.GetOrdinal("Descripcion");
+                int ordStock = reader.GetOrdinal("StockActual");
+
+                lista.Add(new ProductoStock
+                {
+                    Descripcion = reader.GetString(ordDesc),
+                    StockActual = Convert.ToInt32(reader.GetDecimal(ordStock))
+                });
+            }
+            return lista;
+        }
     }
 }
