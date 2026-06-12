@@ -351,5 +351,13 @@ namespace AplicativoDeAlmacen.Views
 
             AbrirPestaña("🏢 Mòdulo de Catalogos", new CatalogoMaestroUserControl());
         }
+
+        
+            
+        private void MenuItemSalidasProductos_Click(object sender, RoutedEventArgs e)
+        {
+           AbrirPestaña("📥 Salidas de Productos", new SalidasUserControl());
+        }
+
     }
 }

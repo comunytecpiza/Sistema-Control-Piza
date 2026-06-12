@@ -58,38 +58,57 @@
 
 				<!-- Tercera fila -->
 				<TextBlock Text="Razón Social:" Grid.Row="2" VerticalAlignment="Center" FontSize="15" FontWeight="Bold"/>
-				<Grid Grid.Row="2" Grid.Column="1" Margin="5,2">
-					<Grid.RowDefinitions>
-						<RowDefinition Height="Auto"/>
-						<RowDefinition Height="Auto"/>
-					</Grid.RowDefinitions>
+                <Grid Grid.Row="2" Grid.Column="1" Margin="5,2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-					<TextBox x:Name="txtRazonSocial" Height="23" FontSize="15"/>
+                    <TextBox x:Name="txtRazonSocial" Height="23" FontSize="15"/>
 
-					<Popup x:Name="popupSugerencias"
-						   PlacementTarget="{Binding ElementName=txtRazonSocial}"
-						   Placement="Bottom"
-						   Width="{Binding ActualWidth, ElementName=txtRazonSocial}"
-						   AllowsTransparency="True"
-						   PopupAnimation="Slide">
-						<ListBox x:Name="lstSugerencias"
-								 MaxHeight="150"
-								 Background="White"
-								 BorderBrush="#FFABADB3"
-								 BorderThickness="1"
-								 VirtualizingPanel.IsVirtualizing="True"
-								 VirtualizingPanel.VirtualizationMode="Recycling"
-								 ScrollViewer.VerticalScrollBarVisibility="Auto">
-							<ListBox.ItemTemplate>
-								<DataTemplate>
-									<TextBlock Text="{Binding RazonSocial}" Padding="5,2"/>
-								</DataTemplate>
-							</ListBox.ItemTemplate>
-						</ListBox>
-					</Popup>
-				</Grid>
+                    <Popup x:Name="popupSugerencias"
+           PlacementTarget="{Binding ElementName=txtRazonSocial}"
+           Placement="Bottom"
+           Width="{Binding ActualWidth, ElementName=txtRazonSocial}"
+           AllowsTransparency="True"
+           PopupAnimation="Slide">
+                        <ListBox x:Name="lstSugerencias"
+                 MaxHeight="150"
+                 Background="White"
+                 BorderBrush="#FFABADB3"
+                 BorderThickness="1"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="2,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
 
-				<TextBlock Text="Código:" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="15" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding RazonSocial}" 
+                                   Grid.Column="0" 
+                                   Padding="5,2" 
+                                   FontSize="14"
+                                   VerticalAlignment="Center"/>
+
+                                        <TextBlock Text="{Binding Id, StringFormat=\{0:D6\}}" 
+                                   Grid.Column="1" 
+                                   Foreground="#4F46E5" 
+                                   FontWeight="SemiBold" 
+                                   Padding="5,2" 
+                                   Margin="0,0,15,0" 
+                                   VerticalAlignment="Center"
+                                   FontSize="14"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Popup>
+                </Grid>
+                <TextBlock Text="Código:" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="15" FontWeight="Bold"/>
 				<TextBox x:Name="txtCodigoRazonSocial" Grid.Row="2" Grid.Column="3"
                          Height="23" Margin="5,2" IsReadOnly="True" FontSize="15"/>
 

@@ -137,12 +137,14 @@
                             <Image Source="/Icon/movimientos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
 
+
                         <MenuItem x:Name="MenuRegCodigos" Tag="MOD_REG_CODIGOS" Header="Registro de Códigos" Click="MenuItemRegistroCodigos_Click"/>
                         <MenuItem x:Name="MenuIngProductos" Tag="MOD_ING_PRODUCTOS" Header="Ingreso de Productos" Click="MenuItemIngresoProductos_Click"/>
-                        <MenuItem x:Name="MenuSalProductos" Tag="MOD_SAL_PRODUCTOS" Header="Salida de Productos"/>
+                        <MenuItem x:Name="MenuSalProductos" Tag="MOD_SAL_PRODUCTOS" Header="Salida de Productos" Click="MenuItemSalidasProductos_Click"/>
                         <MenuItem x:Name="MenuProyeccion" Tag="MOD_PROYECCION" Header="% Proyección"/>
                         <MenuItem x:Name="MenuRegFacturas" Tag="MOD_REG_FACTURAS" Header="Registro de Facturas, Boletos y Recibos"/>
                         <MenuItem x:Name="MenuRepClientes" Tag="MOD_REP_CLIENTES" Header="Reporte de clientes"/>
+
                     </MenuItem>
 
                     <MenuItem Header="Procesos Internos" Style="{StaticResource ModernMenuItemStyle}">

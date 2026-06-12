@@ -253,6 +253,142 @@ namespace AplicativoDeAlmacen.Services
 
             await ((DbCommand)cmd).ExecuteNonQueryAsync();
         }
+
+
+        public async Task<List<PersonaComercial>> BuscarPorRazonSocialAsync(string filtro)
+        {
+            var lista = new List<PersonaComercial>();
+
+            if (string.IsNullOrWhiteSpace(filtro)) return lista;
+
+            using var conn = _database.GetConnection();
+            await conn.OpenAsync();
+
+            // Filtramos usando LIKE tanto en la razón social como en nombres para cubrir personas naturales y jurídicas
+            string query = @"
+        SELECT pc.*,
+            tp.nombre AS tipo_persona,
+            l.nombre AS localidad,
+            zp.descripcion AS zona_promotoria,
+            e.nombre AS estado,
+            d.nombre AS departamento,
+            p.nombre AS provincia,
+            di.nombre AS distrito
+        FROM personas_comerciales pc
+        LEFT JOIN tipo_persona tp ON pc.tipo_persona_id = tp.id
+        LEFT JOIN localidades l ON pc.localidad_id = l.id
+        LEFT JOIN zona_promotoria zp ON pc.zona_promotoria_id = zp.id
+        LEFT JOIN estados e ON pc.estado_id = e.id
+        LEFT JOIN departamentos d ON pc.departamento_id = d.id
+        LEFT JOIN provincias p ON pc.provincia_id = p.id
+        LEFT JOIN distritos di ON pc.distrito_id = di.id
+        WHERE pc.razon_social LIKE @filtro OR pc.nombres LIKE @filtro
+        ORDER BY pc.razon_social ASC";
+
+            using var cmd = new SqlCommand(query, conn);
+            // Agregamos los comodines % para que busque cualquier coincidencia interna
+            cmd.Parameters.AddWithValue("@filtro", $"%{filtro}%");
+
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            while (reader.Read())
+            {
+                // Reutilizamos exactamente tu lógica de mapeo de objetos e integridad relacional
+                Localidad localidad = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("localidad_id")))
+                {
+                    localidad = new Localidad
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("localidad_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("localidad"))
+                    };
+                }
+
+                Departamento departamento = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("departamento_id")))
+                {
+                    departamento = new Departamento
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("departamento_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("departamento"))
+                    };
+                }
+
+                Provincia provincia = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("provincia_id")))
+                {
+                    provincia = new Provincia
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("provincia_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("provincia"))
+                    };
+                }
+
+                Distrito distrito = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("distrito_id")))
+                {
+                    distrito = new Distrito
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("distrito_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("distrito"))
+                    };
+                }
+
+                ZonaPromotoria zonaPromotoria = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("zona_promotoria_id")))
+                {
+                    zonaPromotoria = new ZonaPromotoria
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("zona_promotoria_id")),
+                        Descripcion = reader.GetString(reader.GetOrdinal("zona_promotoria"))
+                    };
+                }
+
+                Estado estado = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("estado_id")))
+                {
+                    estado = new Estado
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("estado_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("estado"))
+                    };
+                }
+
+                TipoPersona tipoPersona = null;
+                if (!reader.IsDBNull(reader.GetOrdinal("tipo_persona_id")))
+                {
+                    tipoPersona = new TipoPersona
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("tipo_persona_id")),
+                        Nombre = reader.GetString(reader.GetOrdinal("tipo_persona"))
+                    };
+                }
+
+                PersonaComercial persona = new PersonaComercial
+                {
+                    Id = reader.GetInt32(reader.GetOrdinal("id")),
+                    TipoPersona = tipoPersona,
+                    Nombres = reader["nombres"] as string,
+                    ApellidoPaterno = reader["apellido_paterno"] as string,
+                    ApellidoMaterno = reader["apellido_materno"] as string,
+                    RazonSocial = reader["razon_social"] as string,
+                    NombreComercial = reader["nombre_comercial"] as string,
+                    Ruc = reader["ruc"] as string,
+                    Dni = reader["dni"] as string,
+                    Direccion = reader["direccion"] as string,
+                    Localidad = localidad,
+                    Departamento = departamento,
+                    Provincia = provincia,
+                    Distrito = distrito,
+                    Estado = estado,
+                    ZonaPromotoria = zonaPromotoria
+                };
+
+                lista.Add(persona);
+            }
+
+            return lista;
+        }
     }
 
 }

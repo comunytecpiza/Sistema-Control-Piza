@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Data.SqlClient;
+using static AplicativoDeAlmacen.Data.DataConnection;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
@@ -27,10 +29,7 @@ namespace AplicativoDeAlmacen.Services
             cmd.Parameters.Add(p);
         }
 
-        // =========================================================================
-        // 1. CRUD PRINCIPAL DE PRODUCTOS
-        // =========================================================================
-
+        
         public async Task<List<Producto>> ObtenerTodosAsync()
         {
             var lista = new List<Producto>();
@@ -152,9 +151,7 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmd, "@EstadoId", p.EstadoId ?? (object)DBNull.Value);
         }
 
-        // =========================================================================
-        // 2. MÉTODOS PARA LLENAR LOS COMBOBOX (CATÁLOGOS MULTI-MOTOR)
-        // =========================================================================
+        
 
         public async Task<List<UnidadMedida>> ObtenerUnidadesMedidaAsync()
         {
@@ -286,10 +283,6 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        // =========================================================================
-        // 3. BÚSQUEDA ASÍNCRONA CORREGIDA (EVITA CONGELAMIENTO)
-        // =========================================================================
-
         public async Task<List<Producto>> BuscarProductos(string filtro)
         {
             var lista = new List<Producto>();
@@ -323,7 +316,7 @@ namespace AplicativoDeAlmacen.Services
             using var conn = _database.GetConnection();
             await ((DbConnection)conn).OpenAsync();
 
-            // Envolvemos todo en un SELECT principal para que 'StockActual' sea reconocido por el motor
+            
             string query = @"
         SELECT Descripcion, StockActual 
         FROM (
@@ -333,7 +326,7 @@ namespace AplicativoDeAlmacen.Services
             LEFT JOIN (SELECT producto_id, SUM(cantidad_ingreso) as total FROM movimiento_detalles GROUP BY producto_id) ing ON p.id = ing.producto_id
             LEFT JOIN (SELECT producto_id, SUM(cantidad_salida) as total FROM movimiento_detalles GROUP BY producto_id) sal ON p.id = sal.producto_id
         ) AS Resultado
-        WHERE StockActual <= 50"; // WHERE es mejor que HAVING para subconsultas
+        WHERE StockActual <= 50"; 
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -341,7 +334,7 @@ namespace AplicativoDeAlmacen.Services
             using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
             while (await ((DbDataReader)reader).ReadAsync())
             {
-                // Usamos GetOrdinal para evitar el error de "nombre no válido"
+                
                 int ordDesc = reader.GetOrdinal("Descripcion");
                 int ordStock = reader.GetOrdinal("StockActual");
 
@@ -353,5 +346,54 @@ namespace AplicativoDeAlmacen.Services
             }
             return lista;
         }
+
+        public List<Producto> BuscarProductosPorTexto(string texto)
+        {
+            List<Producto> resultados = new List<Producto>();
+            
+            
+            string query = @"
+                SELECT id, descripcion, abreviatura, unidad_medida_id, precio_unitario 
+                FROM [dbo].[productos] 
+                WHERE (descripcion LIKE @Texto OR abreviatura LIKE @Texto)
+                  AND estado_id = 1";
+
+            using (SqlConnection conn = _database.GetConnection())
+            {
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@Texto", "%" + texto + "%");
+
+                    try
+                    {
+                        if (conn.State == System.Data.ConnectionState.Closed) conn.Open();
+
+                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                Producto prod = new Producto();
+                                
+                                prod.Id = Convert.ToInt32(reader["id"]);
+                                prod.Descripcion = reader["descripcion"].ToString();
+                                prod.Abreviatura = reader["abreviatura"] != DBNull.Value ? reader["abreviatura"].ToString() : "";
+                                
+                                
+                                prod.UnidadMedidaId = reader["unidad_medida_id"] != DBNull.Value ? Convert.ToInt32(reader["unidad_medida_id"]) : (int?)null;
+                                prod.PrecioUnitario = reader["precio_unitario"] != DBNull.Value ? Convert.ToDecimal(reader["precio_unitario"]) : (decimal?)null;
+
+                                resultados.Add(prod);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new Exception("Error al consultar productos con el modelo oficial: " + ex.Message);
+                    }
+                }
+            }
+            return resultados;
+        }
+
     }
 }

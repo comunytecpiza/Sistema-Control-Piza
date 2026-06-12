@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 
+
 namespace AplicativoDeAlmacen.Services
 {
     public class RegistroCodigoService
@@ -169,9 +170,20 @@ namespace AplicativoDeAlmacen.Services
                     registroId = Convert.ToInt32(await ((DbCommand)cmd).ExecuteScalarAsync());
                 }
 
+
                 // 2. INSERCIÓN MASIVA (Optimizado)
                 int desdeInt = int.Parse(desde.Substring(desde.LastIndexOf('-') + 1));
                 string prefijo = desde.Substring(0, desde.LastIndexOf('-') + 1);
+
+                string queryCodigos = "INSERT INTO codigos_creados (registro_codigo_id, codigo,estado_id) VALUES (@registroId, @codigo,1)";
+                using (var cmd = new SqlCommand(queryCodigos, conn, transaction))
+                {
+                    string desdeNumerico = desde.Substring(desde.LastIndexOf('-') + 1);
+                    string hastaNumerico = hasta.Substring(hasta.LastIndexOf('-') + 1);
+                    int desdeInt = int.Parse(desdeNumerico);
+                    int hastaInt = int.Parse(hastaNumerico);
+                    string prefijo = desde.Substring(0, desde.LastIndexOf('-') + 1);
+
 
                 // Construimos un solo comando masivo: INSERT INTO ... VALUES (...), (...), (...)
                 var sb = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo) VALUES ");
@@ -182,9 +194,17 @@ namespace AplicativoDeAlmacen.Services
                     cmd.Transaction = transaction;
                     for (int i = 0; i < cantidad; i++)
                     {
+
                         string paramName = $"@cod{i}";
                         inserts.Add($"({registroId}, {paramName})");
                         AgregarParametro(cmd, paramName, $"{prefijo}{(desdeInt + i):D7}");
+
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@registroId", registroId);
+                        cmd.Parameters.AddWithValue("@codigo", $"{prefijo}{i:D7}");
+
+                        await cmd.ExecuteNonQueryAsync();
+
                     }
                     cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString() + string.Join(",", inserts));
                     await ((DbCommand)cmd).ExecuteNonQueryAsync();

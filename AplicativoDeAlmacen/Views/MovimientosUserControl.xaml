@@ -135,12 +135,18 @@
 
             <StackPanel Grid.Column="0" Margin="0,0,20,0">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                    <Button x:Name="btnAgregar" Style="{StaticResource ModernButton}" Content="➕ Agregar" Background="#10B981" Margin="0,0,8,0" MinWidth="105"/>
+                    <Button x:Name="btnAgregar" 
+                        Style="{StaticResource ModernButton}" 
+                        Content="➕ Nuevo" 
+                        Background="#10B981" 
+                        Margin="0,0,8,0" 
+                        MinWidth="105"
+                        Click="BtnAgregar_Click"/>  
+
                     <Button x:Name="btnEditar" Style="{StaticResource ModernButton}" Content="📝 Editar" Background="#F59E0B" Margin="0,0,8,0" MinWidth="105"/>
                     <Button x:Name="btnImprimir" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
                     <Button x:Name="btnAnular" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#EF4444" MinWidth="105"/>
                 </StackPanel>
-
                 <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}">
                     <Grid x:Name="grdFormulario">
                         <Grid.ColumnDefinitions>
@@ -158,13 +164,54 @@
                         </Grid.RowDefinitions>
 
                         <TextBlock Text="N° Registro" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                        <TextBox x:Name="txtRegistro" Grid.Column="1" Height="32" Margin="0,0,20,12" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC"/>
 
+                        <Grid Grid.Column="1" Margin="0,0,20,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="65*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="135*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox x:Name="txtNumSerie" 
+             Grid.Column="0" 
+             Height="32" 
+             IsReadOnly="True" 
+             FontSize="13" 
+             FontWeight="Bold" 
+             Background="#F8FAFC" 
+             HorizontalContentAlignment="Center" 
+             VerticalContentAlignment="Center"/>
+
+                            <TextBox x:Name="txtNumDocumento" 
+             Grid.Column="2" 
+             Height="32" 
+             IsReadOnly="True" 
+             FontSize="13" 
+             FontWeight="Bold" 
+             Background="#F8FAFC" 
+             HorizontalContentAlignment="Center" 
+             VerticalContentAlignment="Center"/>
+                        </Grid>
                         <TextBlock Text="Fecha de Recepción" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <DatePicker x:Name="dtpFechaRecepcion" Grid.Column="3" Height="32" Margin="0,0,0,12" FontSize="13" VerticalContentAlignment="Center"/>
 
-                        <TextBlock Text="Motivo" Grid.Row="1" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                        <ComboBox x:Name="cboMotivo" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBlock Text="Motivo" 
+                               Grid.Row="1" 
+                               VerticalAlignment="Center" 
+                               Foreground="#475569" 
+                               FontWeight="Medium" 
+                               Margin="0,0,0,12" 
+                               FontSize="13"/>
+
+                        <ComboBox x:Name="cboMotivo" 
+                              Grid.Row="1" 
+                              Grid.Column="1" 
+                              Grid.ColumnSpan="3" 
+                              Height="32" 
+                              Margin="0,0,0,12" 
+                              FontSize="13"
+                              DisplayMemberPath="Descripcion" 
+                              SelectedValuePath="Id"/>
 
                         <TextBlock Text="Razón Social" Grid.Row="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <Grid Grid.Row="2" Grid.Column="1" Margin="0,0,20,12">
@@ -186,7 +233,7 @@
                                     </ListBox>
                                 </Border>
                             </Popup>
-                        </Grid>
+                        </Grid> 
 
                         <TextBlock Text="Código Cliente" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <TextBox x:Name="txtCodigoRazonSocial" Grid.Row="2" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
@@ -221,19 +268,27 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Horizontal" Grid.Column="0">
-                    <Button x:Name="btnAgregarProducto" Style="{StaticResource ModernButton}" Content="➕ Agregar Ítem" Background="#4F46E5" Margin="0,0,8,0" MinWidth="120"/>
+                    <Button x:Name="btnAgregarProducto" Style="{StaticResource ModernButton}" Content="➕ Agregar Ítem" Background="#007BFF" Margin="0,0,8,0" MinWidth="120"/>
                     <Button x:Name="btnModificar" Style="{StaticResource ModernButton}" Content="✏️ Modificar" Background="#D97706" Margin="0,0,8,0" MinWidth="110"/>
                     <Button x:Name="btnEliminar" Style="{StaticResource ModernButton}" Content="🗑️ Eliminar" Background="#DC2626" Margin="0,0,8,0" MinWidth="110"/>
+                    
                     <Button x:Name="btnImportar" Style="{StaticResource ModernButton}" Content="📥 Importar de Excel" Background="#7C3AED" MinWidth="150"/>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" Grid.Column="1">
-                    <Button x:Name="btnGrabar" Style="{StaticResource ModernButton}" Content="💾 Guardar Entrada" Background="#1E293B" Margin="0,0,8,0" MinWidth="150"/>
-                    <Button x:Name="btnCancelar" Style="{StaticResource ModernButton}" Content="❌ Cancelar" Background="#94A3B8" MinWidth="110"/>
+                    <Button x:Name="btnGrabar" Style="{StaticResource ModernButton}" Content="💾 Guardar Entrada" Background="#1E293B" Margin="0,0,8,0" MinWidth="150" Click="RegistrarMovimientoCompleto"/>
+                    <Button x:Name="btnCancelar" 
+                            Style="{StaticResource ModernButton}" 
+                            Content="❌ Cancelar" 
+                            Background="#64748B" 
+                            Margin="0,0,8,0" 
+                            MinWidth="105"
+                            Click="BtnCancelar_Click"/>         
+
                 </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="1" Cursor="">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1.3*"/>
                     <ColumnDefinition Width="16"/>
@@ -265,13 +320,7 @@
                                     <Setter Property="BorderBrush" Value="#E2E8F0"/>
                                 </Style>
                             </DataGrid.Resources>
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Código" Binding="{Binding Codigo}" Width="85"/>
-                                <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
-                                <DataGridTextColumn Header="U. Medida" Binding="{Binding UnidadMedida}" Width="85"/>
-                                <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="80"/>
-                                <DataGridTextColumn Header="C. Unitario" Binding="{Binding CostoUnitario, StringFormat=S/ {0:N2}}" Width="95"/>
-                            </DataGrid.Columns>
+                           
                         </DataGrid>
                     </Border>
                 </Grid>
@@ -293,21 +342,11 @@
                     </Border>
 
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgCodigos" Style="{StaticResource ModernDataGrid}">
-                            <DataGrid.Resources>
-                                <Style TargetType="DataGridColumnHeader">
-                                    <Setter Property="Background" Value="#F8FAFC"/>
-                                    <Setter Property="Foreground" Value="#475569"/>
-                                    <Setter Property="FontWeight" Value="SemiBold"/>
-                                    <Setter Property="Padding" Value="8,6"/>
-                                    <Setter Property="BorderThickness" Value="0,0,0,1"/>
-                                    <Setter Property="BorderBrush" Value="#E2E8F0"/>
-                                </Style>
-                            </DataGrid.Resources>
+                        <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" CanUserAddRows="False">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="70"/>
-                                <DataGridTextColumn Header="Código" Binding="{Binding Codigo}" Width="*"/>
-                                <DataGridTextColumn Header="Colección / Tipo" Binding="{Binding ColeccionTipo}" Width="130"/>
+                                <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60"/>
+                                <DataGridTextColumn Header="Código Único" Binding="{Binding CodigoUnique}" Width="*"/>
+                                <DataGridTextColumn Header="Tipo de Colección" Binding="{Binding ColeccionTipo}" Width="150"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>
