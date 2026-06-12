@@ -349,7 +349,7 @@ namespace AplicativoDeAlmacen.Views
         private void MenuItemCatalogosMaestros_Click(object sender, RoutedEventArgs e)
         {
 
-            AbrirPestaña("🏢 Módulo Academico", new CatalogoMaestroUserControl());
+            AbrirPestaña("🏢 Mòdulo de Catalogos", new CatalogoMaestroUserControl());
         }
     }
 }
