@@ -247,7 +247,7 @@ namespace AplicativoDeAlmacen.Views
             if (txtRazonSocial.Text.Length < 2)
                 return;
 
-         /*   var sugerencias = await _personaService.BuscarAsync(txtRazonSocial.Text);*
+         /*   var sugerencias = await _personaService.BuscarAsync(txtRazonSocial.Text);
 
             lstSugerencias.ItemsSource = sugerencias;
             popupSugerencias.IsOpen = sugerencias.Any();
@@ -256,7 +256,7 @@ namespace AplicativoDeAlmacen.Views
             if (sugerencias.Count == 1 &&
                     string.Equals(sugerencias[0].RazonSocial, txtRazonSocial.Text, StringComparison.OrdinalIgnoreCase))
             {
-              /*  SeleccionarRazonSocial(sugerencias[0]);
+               SeleccionarRazonSocial(sugerencias[0]);
             }
          */
 

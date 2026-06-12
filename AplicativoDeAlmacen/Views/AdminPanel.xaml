@@ -119,7 +119,7 @@
                         </MenuItem.Icon>
                         <MenuItem Header="Registro de Códigos" Click="MenuItemRegistroCodigos_Click"/>
                         <MenuItem Header="Ingreso de Productos" Click="MenuItemIngresoProductos_Click"/>
-                        <MenuItem Header="Salida de Productos"/>
+                        <MenuItem Header="Salida de Productos"  Click="MenuItemSalidasProductos_Click"/>
                         <MenuItem Header="% Proyección"/>
                         <MenuItem Header="Registro de Facturas, Boletos y Recibos"/>
                         <MenuItem Header="Reporte de clientes"/>

@@ -264,5 +264,13 @@ namespace AplicativoDeAlmacen.Views
         {
             AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl());
         }
+
+        
+            
+        private void MenuItemSalidasProductos_Click(object sender, RoutedEventArgs e)
+        {
+           AbrirPestaña("📥 Salidas de Productos", new SalidasUserControl());
+        }
+
     }
 }

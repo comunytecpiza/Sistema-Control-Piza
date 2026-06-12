@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
+using static AplicativoDeAlmacen.Data.DataConnection;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
@@ -297,5 +298,54 @@ namespace AplicativoDeAlmacen.Services
             }
             return lista;
         }
+
+        public List<Producto> BuscarProductosPorTexto(string texto)
+        {
+            List<Producto> resultados = new List<Producto>();
+            
+            // Buscamos coincidencias por descripción o abreviatura, filtrando los activos (estado_id = 1)
+            string query = @"
+                SELECT id, descripcion, abreviatura, unidad_medida_id, precio_unitario 
+                FROM [dbo].[productos] 
+                WHERE (descripcion LIKE @Texto OR abreviatura LIKE @Texto)
+                  AND estado_id = 1";
+
+            using (SqlConnection conn = _database.GetConnection())
+            {
+                using (SqlCommand cmd = new SqlCommand(query, conn))
+                {
+                    cmd.Parameters.AddWithValue("@Texto", "%" + texto + "%");
+
+                    try
+                    {
+                        if (conn.State == System.Data.ConnectionState.Closed) conn.Open();
+
+                        using (SqlDataReader reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                Producto prod = new Producto();
+                                
+                                prod.Id = Convert.ToInt32(reader["id"]);
+                                prod.Descripcion = reader["descripcion"].ToString();
+                                prod.Abreviatura = reader["abreviatura"] != DBNull.Value ? reader["abreviatura"].ToString() : "";
+                                
+                                // Controlamos campos anulables de forma segura (int? y decimal?)
+                                prod.UnidadMedidaId = reader["unidad_medida_id"] != DBNull.Value ? Convert.ToInt32(reader["unidad_medida_id"]) : (int?)null;
+                                prod.PrecioUnitario = reader["precio_unitario"] != DBNull.Value ? Convert.ToDecimal(reader["precio_unitario"]) : (decimal?)null;
+
+                                resultados.Add(prod);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new Exception("Error al consultar productos con el modelo oficial: " + ex.Message);
+                    }
+                }
+            }
+            return resultados;
+        }
+
     }
 }

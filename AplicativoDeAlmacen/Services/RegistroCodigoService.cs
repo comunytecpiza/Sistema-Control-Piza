@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 
+
 namespace AplicativoDeAlmacen.Services
 {
     public class RegistroCodigoService
@@ -163,7 +164,7 @@ namespace AplicativoDeAlmacen.Services
                     registroId = (int)await cmd.ExecuteScalarAsync();
                 }
 
-                string queryCodigos = "INSERT INTO codigos_creados (registro_codigo_id, codigo) VALUES (@registroId, @codigo)";
+                string queryCodigos = "INSERT INTO codigos_creados (registro_codigo_id, codigo,estado_id) VALUES (@registroId, @codigo,1)";
                 using (var cmd = new SqlCommand(queryCodigos, conn, transaction))
                 {
                     string desdeNumerico = desde.Substring(desde.LastIndexOf('-') + 1);
@@ -177,6 +178,7 @@ namespace AplicativoDeAlmacen.Services
                         cmd.Parameters.Clear();
                         cmd.Parameters.AddWithValue("@registroId", registroId);
                         cmd.Parameters.AddWithValue("@codigo", $"{prefijo}{i:D7}");
+
                         await cmd.ExecuteNonQueryAsync();
                     }
                 }
