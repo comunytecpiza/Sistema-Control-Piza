@@ -7,6 +7,7 @@
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI"
         Background="White">
+
     <Window.Resources>
         <Style x:Key="ModernMenuItemStyle" TargetType="MenuItem">
             <Setter Property="Padding" Value="15,12"/>
@@ -31,18 +32,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
-                        <Border x:Name="Border" 
-                                Padding="12,8" 
-                                Margin="0,0,4,0" 
-                                Background="#E5E7EB" 
-                                BorderBrush="#D1D5DB"
-                                BorderThickness="1,1,1,0"
-                                CornerRadius="6,6,0,0">
-                            <ContentPresenter x:Name="ContentSite" 
-                                              VerticalAlignment="Center" 
-                                              HorizontalAlignment="Center" 
-                                              ContentSource="Header" 
-                                              Margin="5,0"/>
+                        <Border x:Name="Border" Padding="12,8" Margin="0,0,4,0" Background="#E5E7EB" BorderBrush="#D1D5DB" BorderThickness="1,1,1,0" CornerRadius="6,6,0,0">
+                            <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="5,0"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
@@ -83,8 +74,7 @@
 
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
-                    <TextBlock x:Name="WelcomeMessage" Text="Bienvenido(a)" 
-                               Foreground="#111827" FontWeight="Bold" FontSize="15" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="WelcomeMessage" Text="Bienvenido(a)" Foreground="#111827" FontWeight="Bold" FontSize="15" VerticalAlignment="Center"/>
                     <Border Width="36" Height="36" CornerRadius="18" Background="#DC2626" Margin="15,0,0,0">
                         <TextBlock Text="👤" Foreground="White" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -95,8 +85,6 @@
                         <MenuItem.Icon>
                             <Image Source="/Icon/catalogos.png" Width="18" Height="18"/>
                         </MenuItem.Icon>
-
-                        <!-- Agregado x:Name y Tag a las opciones existentes -->
                         <MenuItem x:Name="MenuLocalidades" Tag="MOD_LOCALIDADES" Header="Localidades" Click="MenuItemLocalidades_Click"/>
                         <MenuItem x:Name="MenuZonas" Tag="MOD_ZONAS" Header="Zonas de Promotoría" Click="MenuItemZonasPromotoria_Click"/>
                         <MenuItem x:Name="MenuUbicaciones" Tag="MOD_UBICACIONES" Header="Ubicaciones" Click="MenuItemUbicaciones_Click"/>
@@ -144,36 +132,117 @@
                         <ColumnDefinition Width="350"/>
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Column="0" Background="White" CornerRadius="15" Padding="20" Margin="0,0,10,0" BorderBrush="#E5E7EB" BorderThickness="1">
+                    <Border Grid.Column="0" Background="White" CornerRadius="15" Padding="20" Margin="0,0,10,-25" BorderBrush="#E5E7EB" BorderThickness="1">
                         <Border.Effect>
                             <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.1"/>
                         </Border.Effect>
                         <StackPanel>
                             <TextBlock Text="⚠️ Productos con Stock Crítico" FontSize="20" FontWeight="Bold" Foreground="#DC2626" Margin="0,0,0,15"/>
-                            <DataGrid x:Name="DgStockCritico" AutoGenerateColumns="False" IsReadOnly="True" Height="450" 
-                          HeadersVisibility="Column" GridLinesVisibility="Horizontal" BorderThickness="0">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Producto" Binding="{Binding Descripcion}" Width="*"/>
-                                    <DataGridTextColumn Header="Stock Actual" Binding="{Binding StockActual}" Width="100"/>
-                                </DataGrid.Columns>
-                            </DataGrid>
+
+                            <ScrollViewer Height="450" VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
+                                <ItemsControl x:Name="DgStockCritico">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#F9FAFB" CornerRadius="10" Padding="15" Margin="0,0,0,12" BorderBrush="#F3F4F6" BorderThickness="1">
+                                                <StackPanel>
+                                                    <Grid Margin="0,0,0,8">
+                                                        <TextBlock Text="{Binding Descripcion}" FontWeight="Bold" Foreground="#1F2937" FontSize="14" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" Margin="0,0,60,0"/>
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                            <TextBlock Text="{Binding StockActual}" FontWeight="Bold" Foreground="#DC2626" FontSize="16"/>
+                                                            <TextBlock Text=" unds" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Bottom" Margin="2,0,0,2"/>
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <Grid Height="8" Margin="0,5,0,0">
+                                                        <Border Background="#E5E7EB" CornerRadius="4"/>
+                                                        <ProgressBar Value="{Binding StockActual}" Maximum="10" Minimum="0" Background="Transparent" Foreground="#EF4444" BorderThickness="0">
+                                                            <ProgressBar.Template>
+                                                                <ControlTemplate TargetType="ProgressBar">
+                                                                    <Border x:Name="PART_Track" Background="Transparent" CornerRadius="4">
+                                                                        <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" CornerRadius="4" HorizontalAlignment="Left"/>
+                                                                    </Border>
+                                                                </ControlTemplate>
+                                                            </ProgressBar.Template>
+                                                        </ProgressBar>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Column="1" Background="#FFFBEB" CornerRadius="15" Padding="20" Margin="10,0,0,0" BorderBrush="#FCD34D" BorderThickness="1">
-                        <StackPanel>
-                            <TextBlock Text="📌 Mis Pendientes" FontSize="20" FontWeight="Bold" Foreground="#92400E" Margin="0,0,0,15"/>
-                            <TextBox x:Name="TxtNuevaNota" Height="80" TextWrapping="Wrap" Margin="0,0,0,10" 
-                         FontSize="14" VerticalContentAlignment="Top" Padding="5"/>
-                            <Button Content="Agregar Tarea" Click="BtnAgregarNota_Click" Background="#D97706" Foreground="White" Height="35"/>
-                            <ListBox x:Name="LbNotas" Background="Transparent" BorderThickness="0" Margin="0,15,0,0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="📌 Mis Pendientes" FontSize="20" FontWeight="Bold" Foreground="#92400E" Margin="0,0,0,15"/>
+
+                            <Border Grid.Row="1" Background="White" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="6" Margin="0,0,0,10">
+                                <TextBox x:Name="TxtNuevaNota" Height="70" TextWrapping="Wrap" FontSize="14" VerticalContentAlignment="Top" Padding="8" BorderThickness="0" Background="Transparent"/>
+                            </Border>
+
+                            <Button Grid.Row="2" Content="Agregar Tarea" Click="BtnAgregarNota_Click" Background="#D97706" Foreground="White" Height="35" FontWeight="Bold" BorderThickness="0" Cursor="Hand">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+
+                            <ListBox Grid.Row="3" x:Name="LbNotas" Background="Transparent" BorderThickness="0" Margin="0,15,0,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Margin" Value="0,0,0,8"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <CheckBox Content="{Binding}" Margin="0,5" Checked="BtnEliminarNota_Checked"/>
+                                        <Border Background="White" CornerRadius="8" Padding="12,10" BorderBrush="#FDE68A" BorderThickness="1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsCompleted}" Margin="0,0,10,0" VerticalAlignment="Center" Checked="CheckBox_CambioEstado" Unchecked="CheckBox_CambioEstado" Cursor="Hand"/>
+
+                                                <TextBlock Grid.Column="1" Text="{Binding Texto}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="14" Foreground="#4B5563">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsCompleted}" Value="True">
+                                                                    <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                                                    <Setter Property="Foreground" Value="#9CA3AF"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+
+                                                <Button Grid.Column="2" Content="🗑️" Background="Transparent" BorderThickness="0" Foreground="#EF4444" FontSize="16" Cursor="Hand" VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnEliminarNota_Click" Tag="{Binding}"/>
+                                            </Grid>
+                                        </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
-                        </StackPanel>
+                        </Grid>
                     </Border>
                 </Grid>
             </TabItem>

@@ -5,15 +5,26 @@ using System.Windows.Threading;
 using System.Globalization;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Collections.ObjectModel;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Threading.Tasks;
+using System.Windows.Data;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Services;
-using System.Collections.ObjectModel;
 using AplicativoDeAlmacen.Models;
-using System.Windows.Data; // Importante para la Sesión
 
 namespace AplicativoDeAlmacen.Views
 {
-    // IMPORTANTE: Agregamos IMainWindow aquí
+    // Modelo para las notas
+    public class NotaItem
+    {
+        public string Texto { get; set; }
+        public bool IsCompleted { get; set; }
+    }
+
+    // Convertidor de colores (Lo dejamos por si lo usas en otro lado)
     public class StockColorConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -24,60 +35,113 @@ namespace AplicativoDeAlmacen.Views
         }
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => null;
     }
+
     public partial class AlmacenPanel : Window, IMainWindow
     {
-        private ObservableCollection<string> notasPendientes = new ObservableCollection<string>();
+        // Variables globales para tus notas
+        private ObservableCollection<NotaItem> _misNotas;
+        private string _rutaArchivoNotas;
+
         private readonly ProductoService _productoService;
+
         public AlmacenPanel(string userNames)
         {
             InitializeComponent();
-            // ¡Asegúrate de que esta línea esté aquí!
             _productoService = new ProductoService();
 
             SetupWelcomeMessage(userNames);
             StartClock();
             AplicarSeguridadDinamica();
 
-            LbNotas.ItemsSource = notasPendientes;
+            // Cargar notas desde el almacenamiento local
+            CargarNotas();
+
             _ = CargarPanelPrincipal();
         }
 
-        private async Task CargarPanelPrincipal()
+        // =========================================================
+        // 📌 MOTOR DE NOTAS LOCALES
+        // =========================================================
+        private void CargarNotas()
         {
-            try
-            {
-                // Validación de seguridad:
-                if (_productoService == null) throw new Exception("_productoService no está inicializado.");
-                if (DgStockCritico == null) throw new Exception("El DataGrid DgStockCritico no existe en el XAML.");
+            // Crea la ruta única por usuario de Windows
+            string carpetaAppData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EdicionesPiza");
+            Directory.CreateDirectory(carpetaAppData);
 
-                var stockCritico = await _productoService.ObtenerStockCriticoAsync();
+            _rutaArchivoNotas = Path.Combine(carpetaAppData, "notas.json");
 
-                // Si stockCritico es null, asignamos una lista vacía para evitar errores
-                DgStockCritico.ItemsSource = stockCritico ?? new List<ProductoStock>();
-            }
-            catch (Exception ex)
+            if (File.Exists(_rutaArchivoNotas))
             {
-                // Aquí verás el mensaje real si el error es otro
-                MessageBox.Show("Error en CargarPanelPrincipal: " + ex.Message);
+                string json = File.ReadAllText(_rutaArchivoNotas);
+                var listaGuardada = JsonSerializer.Deserialize<List<NotaItem>>(json);
+                _misNotas = new ObservableCollection<NotaItem>(listaGuardada ?? new List<NotaItem>());
             }
+            else
+            {
+                _misNotas = new ObservableCollection<NotaItem>();
+            }
+
+            // Conecta la lista visual con los datos
+            LbNotas.ItemsSource = _misNotas;
+        }
+
+        private void GuardarNotas()
+        {
+            string json = JsonSerializer.Serialize(_misNotas);
+            File.WriteAllText(_rutaArchivoNotas, json);
         }
 
         private void BtnAgregarNota_Click(object sender, RoutedEventArgs e)
         {
             if (!string.IsNullOrWhiteSpace(TxtNuevaNota.Text))
             {
-                notasPendientes.Add(TxtNuevaNota.Text);
+                _misNotas.Add(new NotaItem { Texto = TxtNuevaNota.Text, IsCompleted = false });
+                GuardarNotas();
                 TxtNuevaNota.Clear();
             }
         }
 
-        private void BtnEliminarNota_Checked(object sender, RoutedEventArgs e)
+        private void BtnEliminarNota_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is CheckBox cb && cb.Content is string nota)
+            var boton = sender as Button;
+            var notaAEliminar = boton?.Tag as NotaItem;
+
+            if (notaAEliminar != null)
             {
-                notasPendientes.Remove(nota);
+                _misNotas.Remove(notaAEliminar);
+                GuardarNotas();
             }
         }
+
+        private void CheckBox_CambioEstado(object sender, RoutedEventArgs e)
+        {
+            // Guarda automáticamente cuando se marca o desmarca el CheckBox
+            GuardarNotas();
+        }
+
+
+        // =========================================================
+        // 📦 CARGA DE PANEL Y STOCK
+        // =========================================================
+        private async Task CargarPanelPrincipal()
+        {
+            try
+            {
+                if (_productoService == null) throw new Exception("_productoService no está inicializado.");
+                if (DgStockCritico == null) throw new Exception("El elemento DgStockCritico no existe en el XAML.");
+
+                var stockCritico = await _productoService.ObtenerStockCriticoAsync();
+                DgStockCritico.ItemsSource = stockCritico ?? new List<ProductoStock>();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error en CargarPanelPrincipal: " + ex.Message);
+            }
+        }
+
+        // =========================================================
+        // 🕒 UTILIDADES (Reloj y Bienvenida)
+        // =========================================================
         private void SetupWelcomeMessage(string userNames)
         {
             WelcomeMessage.Text = $"Operador(a) de Almacén: {userNames}";
@@ -103,20 +167,17 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
-            // Opcional: Confirmar si hay pestañas abiertas antes de salir
             new MainWindow().Show();
             Close();
         }
 
         // ==============================================================
-        // 🛡️ MOTOR DE SEGURIDAD (Solo evalúa lo que existe en este panel)
+        // 🛡️ MOTOR DE SEGURIDAD
         // ==============================================================
         private void AplicarSeguridadDinamica()
         {
-            // Si es SuperAdmin (1), ve todo
             if (SesionSistema.UsuarioActual?.RolUsuarioId == 1) return;
 
-            // Catálogos
             OcultarSiNoTienePermiso(MenuLocalidades, "MOD_LOCALIDADES");
             OcultarSiNoTienePermiso(MenuZonas, "MOD_ZONAS");
             OcultarSiNoTienePermiso(MenuUbicaciones, "MOD_UBICACIONES");
@@ -126,12 +187,10 @@ namespace AplicativoDeAlmacen.Views
             OcultarSiNoTienePermiso(MenuColecciones, "MOD_COLECCIONES");
             OcultarSiNoTienePermiso(MenuTitulos, "MOD_TITULOS");
 
-            // Movimientos
             OcultarSiNoTienePermiso(MenuRegCodigos, "MOD_REG_CODIGOS");
             OcultarSiNoTienePermiso(MenuIngProductos, "MOD_ING_PRODUCTOS");
             OcultarSiNoTienePermiso(MenuSalProductos, "MOD_SAL_PRODUCTOS");
 
-            // Consultas
             OcultarSiNoTienePermiso(MenuSaldosProd, "MOD_SALDOS_PROD");
             OcultarSiNoTienePermiso(MenuKardexFis, "MOD_KARDEX_FIS");
             OcultarSiNoTienePermiso(MenuMovProd, "MOD_MOV_PROD");
@@ -148,7 +207,7 @@ namespace AplicativoDeAlmacen.Views
         }
 
         // =========================================================
-        // MOTOR DE PESTAÑAS (CUMPLE CON IMAINWINDOW)
+        // 🗂️ MOTOR DE PESTAÑAS (CUMPLE CON IMAINWINDOW)
         // =========================================================
         public void AbrirPestaña(string titulo, UserControl contenido)
         {
@@ -161,22 +220,17 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // 1. Contenedor principal de la pestaña
             StackPanel headerPanel = new StackPanel { Orientation = Orientation.Horizontal };
 
-            // Título de la pestaña
             headerPanel.Children.Add(new TextBlock
             {
                 Text = titulo,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 15, 0), // Más espacio entre el texto y los botones
+                Margin = new Thickness(0, 0, 15, 0),
                 FontWeight = FontWeights.SemiBold
             });
 
-            // 2. Creación del Botón Desvincular (↗)
             Button btnDesvincular = CrearBotonPestaña("↗", "Separar en ventana independiente");
-
-            // 3. Creación del Botón Cerrar (✕)
             Button btnClose = CrearBotonPestaña("✕", "Cerrar pestaña");
 
             TabItem nuevaPestaña = new TabItem
@@ -185,7 +239,6 @@ namespace AplicativoDeAlmacen.Views
                 Content = contenido
             };
 
-            // Lógicas de los botones
             btnClose.Click += (s, e) => { MainTabControl.Items.Remove(nuevaPestaña); };
 
             btnDesvincular.Click += (s, e) =>
@@ -214,7 +267,6 @@ namespace AplicativoDeAlmacen.Views
                 ventanaFlotante.Show();
             };
 
-            // Añadimos los botones al contenedor
             headerPanel.Children.Add(btnDesvincular);
             headerPanel.Children.Add(btnClose);
 
@@ -222,27 +274,23 @@ namespace AplicativoDeAlmacen.Views
             MainTabControl.SelectedItem = nuevaPestaña;
         }
 
-        // =========================================================
-        // FUNCIÓN AUXILIAR PARA DIBUJAR BOTONES BONITOS
-        // =========================================================
         private Button CrearBotonPestaña(string texto, string tooltip)
         {
             Button btn = new Button
             {
                 Content = texto,
-                Background = System.Windows.Media.Brushes.Transparent, // Fondo invisible
+                Background = System.Windows.Media.Brushes.Transparent,
                 BorderThickness = new Thickness(0),
-                Foreground = System.Windows.Media.Brushes.White, // Letra blanca (porque la pestaña activa es roja)
+                Foreground = System.Windows.Media.Brushes.White,
                 FontWeight = FontWeights.Bold,
                 Cursor = Cursors.Hand,
-                Width = 24, // Tamaño fijo para que se vea cuadrado y simétrico
+                Width = 24,
                 Height = 24,
                 Margin = new Thickness(0, 0, 4, 0),
                 ToolTip = tooltip,
-                FocusVisualStyle = null // Quita el recuadro punteado feo
+                FocusVisualStyle = null
             };
 
-            // Efecto Hover: Se pone un poco negro transparente al pasar el ratón
             btn.MouseEnter += (s, e) => btn.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(50, 0, 0, 0));
             btn.MouseLeave += (s, e) => btn.Background = System.Windows.Media.Brushes.Transparent;
 
@@ -250,78 +298,21 @@ namespace AplicativoDeAlmacen.Views
         }
 
         // =========================================================
-        // EVENTOS DEL MENÚ (Abre Pestañas en lugar de Ventanas)
+        // 🖱️ EVENTOS DEL MENÚ
         // =========================================================
-
-        private void MenuItemLocalidades_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("🌎 Localidades", new LocalidadesUserControl());
-        }
-
-        private void MenuItemZonasPromotoria_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📍 Zonas de Promotoría", new ZonasPromotoriaUserControl());
-        }
-
-        private void MenuItemUbicaciones_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("🏢 Ubicaciones", new UbicacionesUserControl());
-        }
-
-        private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("👥 Personas Comerciales", new PersonasComercialesUserControl());
-        }
-
-        private void MenuItemProductos_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📦 Productos", new ProductosUserControl());
-        }
-
-        private void MenuItemUnidades_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📏 Unidades de Medida", new UnidadesMedidaUserControl());
-        }
-
-        private void MenuItemColecciones_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📚 Colecciones", new ColeccionesUserControl());
-        }
-
-        private void MenuItemTitulos_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("🏷️ Títulos", new TitulosUserControl());
-        }
-        private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
-        }
-
-        // Este es el método que conecta el menú con la vista del Kardex
-        private void MenuItemKardexFisico_Click(object sender, RoutedEventArgs e)
-        {
-            // Llamamos al método que abre la pestaña
-            AbrirPestaña("📊 Kardex Físico", new KardexUserControl());
-        }
-
-        // Método para abrir la pestaña de Saldos de Productos
-        private void MenuItemSaldosProductos_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📋 Saldos de Productos", new SaldosProductosUserControl());
-        }
-        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl());
-        }
-
-        private void MovimientoProductos_Click(object sender, RoutedEventArgs e)
-        {
-            AbrirPestaña("🔄 Movimiento de Productos", new ConsultaMovimientosUserControl());
-        }
-
-        private void MenuItem_Click(object sender, RoutedEventArgs e)
-        {
-
-        }
+        private void MenuItemLocalidades_Click(object sender, RoutedEventArgs e) => AbrirPestaña("🌎 Localidades", new LocalidadesUserControl());
+        private void MenuItemZonasPromotoria_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📍 Zonas de Promotoría", new ZonasPromotoriaUserControl());
+        private void MenuItemUbicaciones_Click(object sender, RoutedEventArgs e) => AbrirPestaña("🏢 Ubicaciones", new UbicacionesUserControl());
+        private void MenuItemPersonasComerciales_Click(object sender, RoutedEventArgs e) => AbrirPestaña("👥 Personas Comerciales", new PersonasComercialesUserControl());
+        private void MenuItemProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📦 Productos", new ProductosUserControl());
+        private void MenuItemUnidades_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📏 Unidades de Medida", new UnidadesMedidaUserControl());
+        private void MenuItemColecciones_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📚 Colecciones", new ColeccionesUserControl());
+        private void MenuItemTitulos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("🏷️ Títulos", new TitulosUserControl());
+        private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
+        private void MenuItemKardexFisico_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📊 Kardex Físico", new KardexUserControl());
+        private void MenuItemSaldosProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📋 Saldos de Productos", new SaldosProductosUserControl());
+        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl());
+        private void MovimientoProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("🔄 Movimiento de Productos", new ConsultaMovimientosUserControl());
+        private void MenuItem_Click(object sender, RoutedEventArgs e) { }
     }
 }
