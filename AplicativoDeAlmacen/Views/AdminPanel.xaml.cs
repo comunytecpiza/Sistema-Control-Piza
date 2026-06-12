@@ -337,7 +337,7 @@ namespace AplicativoDeAlmacen.Views
         private void MenuKardexUbicacion_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show("Módulo en construcción...", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
-            // AbrirPestaña("🏢 Kardex x Ubicación", new KardexUbicacionUserControl());
+            // AbrirPestaña("🏢 Kardex x Ubicación", new KardexUbicacionUserControl());ll
         }
         
         private void MenuItemAcademico_Click(object sender, RoutedEventArgs e)
