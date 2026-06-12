@@ -1,15 +1,14 @@
 ﻿using AplicativoDeAlmacen.Data;
-using System.Data.SqlClient;
 using System;
 using System.Collections.Generic;
 using System.Data;
-using static AplicativoDeAlmacen.Data.DataConnection;
+using System.Data.Common;
+using static AplicativoDeAlmacen.Data.DataConnection; 
 
 namespace AplicativoDeAlmacen.Services
 {
     public class GenardorRangoService
     {
-        // Instanciamos tu clase de conexión respetando la directiva static superior
         private readonly DatabaseConnection _database;
 
         public GenardorRangoService()
@@ -20,71 +19,79 @@ namespace AplicativoDeAlmacen.Services
         /// <summary>
         /// Valida en SQL si un rango correlativo de códigos choca con las existencias actuales del Kardex.
         /// </summary>
-        /// <param name="abreviatura">Raíz del producto (Ej: 'JA2-C25-G')</param>
-        /// <param name="desde">Número inicial (Ej: 1)</param>
-        /// <param name="hasta">Número final (Ej: 5)</param>
-        /// <param name="tipoMovimiento">'INGRESO' o 'SALIDA'</param>
-        /// <returns>Lista de códigos que causan conflicto. Si está vacía, el rango es válido.</returns>
         public List<string> ValidarCodigosKardexDirecto(string abreviatura, int desde, int hasta, string tipoMovimiento)
         {
             List<string> codigosConConflicto = new List<string>();
             string query = "";
 
-            // 1. Elegimos la validación según el sentido del Kardex (estado_id 1: Disponible, 2: Vendido)
+            // 1. Elegimos la validación según el sentido del Kardex
+            // Nota: Quitamos el [dbo]. para que no explote si se usa MySQL
             if (tipoMovimiento.ToUpper() == "INGRESO")
             {
-                // ERROR: Si el código ya existe en el almacén como DISPONIBLE (No se permite duplicar entrada)
                 query = @"
                     SELECT codigo 
-                    FROM [dbo].[codigos_creados]
-                    WHERE codigo LIKE @Abreviatura + '-%'
+                    FROM codigos_creados
+                    WHERE codigo LIKE @Abreviatura
                       AND ISNUMERIC(RIGHT(codigo, 7)) = 1
                       AND CAST(RIGHT(codigo, 7) AS INT) BETWEEN @Desde AND @Hasta
                       AND estado_id = 1";
             }
             else if (tipoMovimiento.ToUpper() == "SALIDA")
             {
-                // ERROR: Si el código que se intenta despachar ya figura como VENDIDO / ENTREGADO
                 query = @"
                     SELECT codigo 
-                    FROM [dbo].[codigos_creados]
-                    WHERE codigo LIKE @Abreviatura + '-%'
+                    FROM codigos_creados
+                    WHERE codigo LIKE @Abreviatura
                       AND ISNUMERIC(RIGHT(codigo, 7)) = 1
                       AND CAST(RIGHT(codigo, 7) AS INT) BETWEEN @Desde AND @Hasta
                       AND estado_id = 2";
             }
 
-            // 2. Consumimos tu método real GetConnection() corregido 🚀
-            using (SqlConnection conn = _database.GetConnection())
+            // 2. Usamos la conexión abstracta (soporta SQL Server y MySQL)
+            using (var conn = _database.GetConnection())
             {
-                using (SqlCommand cmd = new SqlCommand(query, conn))
+                var dbConn = (DbConnection)conn;
+
+                try
                 {
-                    // Pasamos los parámetros de forma segura contra Inyección SQL
-                    cmd.Parameters.AddWithValue("@Abreviatura", abreviatura);
-                    cmd.Parameters.AddWithValue("@Desde", desde);
-                    cmd.Parameters.AddWithValue("@Hasta", hasta);
-
-                    try
+                    if (dbConn.State == ConnectionState.Closed)
                     {
-                        if (conn.State == ConnectionState.Closed)
-                        {
-                            conn.Open(); // Abre la conexión creada por tu GetConnection
-                        }
+                        dbConn.Open();
+                    }
 
-                        using (SqlDataReader reader = cmd.ExecuteReader())
+                    using (var cmd = dbConn.CreateCommand())
+                    {
+                        // Formateamos la consulta por si están usando MySQL
+                        cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                        // Creación de parámetros universales (DbParameter)
+                        var paramAbr = cmd.CreateParameter();
+                        paramAbr.ParameterName = "@Abreviatura";
+                        paramAbr.Value = abreviatura + "-%"; // El comodín % se agrega aquí, es más seguro
+                        cmd.Parameters.Add(paramAbr);
+
+                        var paramDesde = cmd.CreateParameter();
+                        paramDesde.ParameterName = "@Desde";
+                        paramDesde.Value = desde;
+                        cmd.Parameters.Add(paramDesde);
+
+                        var paramHasta = cmd.CreateParameter();
+                        paramHasta.ParameterName = "@Hasta";
+                        paramHasta.Value = hasta;
+                        cmd.Parameters.Add(paramHasta);
+
+                        using (var reader = cmd.ExecuteReader())
                         {
                             while (reader.Read())
                             {
-                                // Añadimos los códigos infractores
                                 codigosConConflicto.Add(reader["codigo"].ToString());
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        throw new Exception("Error al validar el rango de códigos en el Kardex: " + ex.Message);
-                    }
-                    // El bloque 'using' se encargará de cerrar y destruir la conexión 'conn' automáticamente al terminar
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception("Error al validar el rango de códigos en el Kardex: " + ex.Message);
                 }
             }
 

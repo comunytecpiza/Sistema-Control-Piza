@@ -1,9 +1,11 @@
 ﻿using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Data; // Agregado para usar DatabaseConnection
 using System;
-using System.Data.SqlClient;
+using System.Data.Common; // Cambiado para Multi-Motor
 using System.Windows;
 using System.Windows.Controls;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -16,7 +18,8 @@ namespace AplicativoDeAlmacen.Views
         private int _categoriaActualId = 1; // 1 = Guía, 2 = Venta
         private int _productoId;
 
-        private readonly string TuCadenaConexion = "Data Source=DESKTOP-AI2LEQI;Initial Catalog=EdicionesPizaControl;Integrated Security=True;";
+        // 1. ELIMINAMOS la cadena hardcodeada y usamos la conexión central
+        private readonly DatabaseConnection _database;
         private System.Collections.IEnumerable _itemsEnGrilla;
 
         public AsignarCodigoWindow(System.Collections.IEnumerable itemsEnGrilla, string abreviaturaProducto, int productoId)
@@ -26,18 +29,30 @@ namespace AplicativoDeAlmacen.Views
             this._abreviaturaProducto = abreviaturaProducto;
             this._productoId = productoId;
 
-            // Dejamos libre el campo para que el usuario ponga el tamaño de este paquete/lote (ej. 100, 50, etc.)
-            txtSubCantidad.Text = "0"; // Valor sugerido por defecto
+            // Inicializamos la conexión global
+            _database = new DatabaseConnection();
+
+            txtSubCantidad.Text = "0";
             txtSubCantidad.IsReadOnly = false;
             txtSubCantidad.Background = System.Windows.Media.Brushes.White;
 
-            // Al cambiar el tamaño del paquete, se recalcula el "Hasta" en tiempo real
             txtSubCantidad.TextChanged += (s, e) => RecalcularRangoAutomatico();
 
             rbLibroGuia.Checked += (s, e) => { _categoriaActualId = 1; RecalcularRangoAutomatico(); };
             rbLibroVenta.Checked += (s, e) => { _categoriaActualId = 2; RecalcularRangoAutomatico(); };
 
             RecalcularRangoAutomatico();
+        }
+
+        // =======================================================
+        // HELPER PARA PARÁMETROS
+        // =======================================================
+        private void AgregarParametro(DbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
         }
 
         private void RecalcularRangoAutomatico()
@@ -48,7 +63,6 @@ namespace AplicativoDeAlmacen.Views
             lblPrefijoDesde.Text = prefijo;
             lblPrefijoHasta.Text = prefijo;
 
-            // Leer cuántos códigos contiene este paquete específico
             if (!int.TryParse(txtSubCantidad.Text, out int tamanoPaquete) || tamanoPaquete <= 0)
             {
                 txtDesde.Text = "";
@@ -58,7 +72,6 @@ namespace AplicativoDeAlmacen.Views
 
             int proximoNumeroBD = ObtenerSiguienteNumeroDesdeBD(_abreviaturaProducto, _categoriaActualId);
 
-            // Buscar el último número usado en la grilla local de esta sesión para continuar la secuencia
             int maxHastaLocal = 0;
             foreach (var item in _itemsEnGrilla)
             {
@@ -71,10 +84,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // El "Desde" inicia en el número más alto disponible
             int desdeFinal = Math.Max(proximoNumeroBD, maxHastaLocal > 0 ? maxHastaLocal + 1 : 1);
-
-            // LÓGICA SECUENCIAL CORRECTA: Desde + el tamaño del bloque consecutivo - 1
             int hastaFinal = desdeFinal + tamanoPaquete - 1;
 
             txtDesde.Text = desdeFinal.ToString();
@@ -92,22 +102,26 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                using (SqlConnection conexion = new SqlConnection(TuCadenaConexion))
+                // Usamos la conexión central
+                using (var conn = _database.GetConnection())
                 {
+                    var dbConn = (DbConnection)conn;
+                    dbConn.Open(); // Síncrono porque estamos en evento UI rápido
+
                     string query = @"
-                        SELECT ISNULL(MAX(hasta_num), 0) + 1 
+                        SELECT COALESCE(MAX(hasta_num), 0) + 1 
                         FROM registro_rangos 
                         WHERE producto_id = @productoId
                           AND abreviatura_base = @baseLimpia 
                           AND categoria_producto_id = @categoriaId";
 
-                    using (SqlCommand cmd = new SqlCommand(query, conexion))
+                    using (var cmd = dbConn.CreateCommand())
                     {
-                        cmd.Parameters.AddWithValue("@productoId", this._productoId);
-                        cmd.Parameters.AddWithValue("@baseLimpia", baseLimpia);
-                        cmd.Parameters.AddWithValue("@categoriaId", categoriaId);
+                        cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                        AgregarParametro(cmd, "@productoId", this._productoId);
+                        AgregarParametro(cmd, "@baseLimpia", baseLimpia);
+                        AgregarParametro(cmd, "@categoriaId", categoriaId);
 
-                        conexion.Open();
                         return Convert.ToInt32(cmd.ExecuteScalar());
                     }
                 }
@@ -125,48 +139,57 @@ namespace AplicativoDeAlmacen.Views
                 ? abreviaturaOriginal.Substring(0, abreviaturaOriginal.Length - 2)
                 : abreviaturaOriginal;
 
-            // Buscamos con comodines flexibles para asegurar coincidencia
             string patronBusqueda = "%" + baseLimpia + "%";
 
-            using (SqlConnection conexion = new SqlConnection(TuCadenaConexion))
+            // APLICAMOS TRY-CATCH PARA UX Y USAMOS CONEXIÓN CENTRAL
+            try
             {
-                // MODIFICACIÓN DE SEGURIDAD: 
-                // Usamos REVERSE y SUBSTRING para capturar el número final sin importar si hay espacios (CHAR) o guiones.
-                string query = @"
-            SELECT COUNT(*) 
-            FROM codigos_creados cc
-            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-            WHERE rc.producto_id = @productoId
-              AND rc.categoria_producto_id = @categoriaId
-              AND LTRIM(RTRIM(cc.codigo)) LIKE @patron
-              AND cc.estado_id = 1
-              AND TRY_CAST(
-                    REVERSE(
-                        SUBSTRING(
-                            REVERSE(LTRIM(RTRIM(cc.codigo))), 
-                            1, 
-                            CHARINDEX('-', REVERSE(LTRIM(RTRIM(cc.codigo)))) - 1
-                        )
-                    ) AS INT
-                  ) BETWEEN @desde AND @hasta";
-
-                using (SqlCommand cmd = new SqlCommand(query, conexion))
+                using (var conn = _database.GetConnection())
                 {
-                    cmd.Parameters.AddWithValue("@productoId", productoId);
-                    cmd.Parameters.AddWithValue("@patron", patronBusqueda);
-                    cmd.Parameters.AddWithValue("@categoriaId", categoriaId);
-                    cmd.Parameters.AddWithValue("@desde", desde);
-                    cmd.Parameters.AddWithValue("@hasta", hasta);
+                    var dbConn = (DbConnection)conn;
+                    dbConn.Open();
 
-                    conexion.Open();
-                    totalEncontrados = Convert.ToInt32(cmd.ExecuteScalar());
+                    // Mantenemos tu consulta compleja pero la pasamos por el Formateador
+                    string query = @"
+                        SELECT COUNT(*) 
+                        FROM codigos_creados cc
+                        INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                        WHERE rc.producto_id = @productoId
+                          AND rc.categoria_producto_id = @categoriaId
+                          AND LTRIM(RTRIM(cc.codigo)) LIKE @patron
+                          AND cc.estado_id = 1
+                          AND TRY_CAST(
+                                REVERSE(
+                                    SUBSTRING(
+                                        REVERSE(LTRIM(RTRIM(cc.codigo))), 
+                                        1, 
+                                        CHARINDEX('-', REVERSE(LTRIM(RTRIM(cc.codigo)))) - 1
+                                    )
+                                ) AS INT
+                              ) BETWEEN @desde AND @hasta";
 
-                    // Cantidad esperada en el tramo inclusivo
-                    int cantidadTeorica = (hasta - desde) + 1;
+                    using (var cmd = dbConn.CreateCommand())
+                    {
+                        cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                        AgregarParametro(cmd, "@productoId", productoId);
+                        AgregarParametro(cmd, "@patron", patronBusqueda);
+                        AgregarParametro(cmd, "@categoriaId", categoriaId);
+                        AgregarParametro(cmd, "@desde", desde);
+                        AgregarParametro(cmd, "@hasta", hasta);
 
-                    // Retorna true si los códigos encontrados en la BD cubren la solicitud
-                    return totalEncontrados == cantidadTeorica;
+                        totalEncontrados = Convert.ToInt32(cmd.ExecuteScalar());
+
+                        int cantidadTeorica = (hasta - desde) + 1;
+                        return totalEncontrados == cantidadTeorica;
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                // Mejora de UX: Muestra el error real de la base de datos sin crashear la app
+                MessageBox.Show($"Ocurrió un error al validar los códigos en la base de datos.\n\nDetalle técnico: {ex.Message}",
+                                "Error de Conexión", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
             }
         }
 
@@ -187,7 +210,6 @@ namespace AplicativoDeAlmacen.Views
             int categoriaId = rbLibroGuia.IsChecked == true ? 1 : 2;
             string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
 
-            // Validar solapamiento en memoria local de la grilla
             foreach (var item in _itemsEnGrilla)
             {
                 if (item is RangoCodigoItem rangoExistente && rangoExistente.CategoriaProductoId == categoriaId)
@@ -205,20 +227,23 @@ namespace AplicativoDeAlmacen.Views
 
             int totalFisicosEncontrados = 0;
 
-            // Ejecutamos la validación blindada por Producto ID
             bool rangoEsValido = ValidarExistenciaRangoEnBD(this._productoId, abreviaturaOriginal, categoriaId, intDesde, intHasta, out totalFisicosEncontrados);
             int cantidadSolicitada = (intHasta - intDesde) + 1;
 
             if (!rangoEsValido)
             {
-                MessageBox.Show($"Error de Inventario ❌\n\nEl rango requiere {cantidadSolicitada} códigos libres cargados en el sistema, pero la base de datos registra {totalFisicosEncontrados} códigos activos válidos de tipo '{tipoTexto}' para este producto.\n\nPor favor, verifique que los códigos físicos estén importados en la tabla 'codigos_creados'.", "Validación Fallida", MessageBoxButton.OK, MessageBoxImage.Stop);
+                // Si la validación devuelve 0 y falla, pero sabemos que hubo un Exception en el TryCatch, el usuario ya vio el mensaje.
+                // Evitamos mostrar el mensaje de inventario si el error fue de conexión (totalFisicosEncontrados == 0 por error).
+                if (totalFisicosEncontrados > 0 || cantidadSolicitada > 0)
+                {
+                    MessageBox.Show($"Error de Inventario ❌\n\nEl rango requiere {cantidadSolicitada} códigos libres cargados en el sistema, pero la base de datos registra {totalFisicosEncontrados} códigos activos válidos de tipo '{tipoTexto}' para este producto.\n\nPor favor, verifique que los códigos físicos estén importados en la tabla 'codigos_creados'.", "Validación Fallida", MessageBoxButton.OK, MessageBoxImage.Stop);
+                }
                 return;
             }
 
             string sufijoVisual = categoriaId == 1 ? "-G" : "-V";
             string baseLimpia = abreviaturaOriginal.EndsWith("-V") || abreviaturaOriginal.EndsWith("-G") ? abreviaturaOriginal.Substring(0, abreviaturaOriginal.Length - 2) : abreviaturaOriginal;
 
-            // Formateamos los strings visuales para la grilla principal de guardado
             this.RangoProcesado = new RangoCodigoItem
             {
                 Cantidad = cantidadSolicitada.ToString(),
@@ -243,7 +268,6 @@ namespace AplicativoDeAlmacen.Views
         }
     }
 
-    // Extensión rápida para no romper la lectura de propiedades en la validación local
     public static class RangoExtension
     {
         public static int OriginalDesdeNum(this RangoCodigoItem item)
