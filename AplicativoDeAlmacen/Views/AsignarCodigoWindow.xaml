@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Asignar Códigos Únicos" 
-        Height="310" Width="460"
+        Height="340" Width="460"
         WindowStartupLocation="CenterOwner" 
         ResizeMode="NoResize"
         Background="#F8FAFC">
@@ -22,6 +22,7 @@
 
         <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="16" Margin="0,0,0,12">
             <StackPanel VerticalAlignment="Center">
+
                 <Grid Margin="0,0,0,10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="80"/>
@@ -37,11 +38,24 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
+
                     <TextBlock Text="Desde:" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium"/>
+
                     <Border Grid.Column="1" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1,1,0,1" CornerRadius="4,0,0,4" Padding="8,0" Height="32">
                         <TextBlock x:Name="lblPrefijoDesde" Text="G-" VerticalAlignment="Center" FontWeight="Bold" Foreground="#64748B"/>
                     </Border>
-                    <TextBox x:Name="txtDesde" Grid.Column="2" Height="32" VerticalContentAlignment="Center" Padding="5,0"/>
+
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                        <TextBlock x:Name="lblInfoUltimoRango" 
+                                   Text="💡 Último BD: Ninguno | En grilla: Ninguno" 
+                                   Foreground="#FF1976D2" 
+                                   FontSize="10"
+                                   FontWeight="SemiBold" 
+                                   Margin="0,0,0,3" 
+                                   TextWrapping="Wrap"/>
+
+                        <TextBox x:Name="txtDesde" Height="32" VerticalContentAlignment="Center" Padding="5,0"/>
+                    </StackPanel>
                 </Grid>
 
                 <Grid>
@@ -51,11 +65,13 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="Hasta:" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium"/>
+
                     <Border Grid.Column="1" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1,1,0,1" CornerRadius="4,0,0,4" Padding="8,0" Height="32">
                         <TextBlock x:Name="lblPrefijoHasta" Text="G-" VerticalAlignment="Center" FontWeight="Bold" Foreground="#64748B"/>
                     </Border>
                     <TextBox x:Name="txtHasta" Grid.Column="2" Height="32" VerticalContentAlignment="Center" Padding="5,0"/>
                 </Grid>
+
             </StackPanel>
         </Border>
 

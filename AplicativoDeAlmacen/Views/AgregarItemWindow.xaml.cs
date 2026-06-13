@@ -32,6 +32,7 @@ namespace AplicativoDeAlmacen.Views
             lstSugerenciasProductos.SelectionChanged += LstSugerenciasProductos_SelectionChanged;
         }
 
+
         #region MOTOR DE BÚSQUEDA PREDICTIVA
 
         private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
@@ -100,29 +101,43 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            // 2. Validar la cantidad de paquetes/lotes masivos que se esperan acumular
-            if (!int.TryParse(txtCantidad.Text, out int cantidadPaquetesEsperados) || cantidadPaquetesEsperados <= 0)
+            // 2. Validar la cantidad de unidades/códigos que se esperan acumular
+            if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
             {
-                MessageBox.Show("Por favor, ingrese una cantidad de paquetes válida en el campo del producto.", "Aviso ⚠️", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, ingrese una cantidad válida en el campo del producto.", "Aviso ⚠️", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 3. Controlar que no se agreguen más filas a la grilla que la cantidad estipulada
-            int paquetesYaAgregados = dgDetalleCodigos.Items.Count;
-
-            if (paquetesYaAgregados >= cantidadPaquetesEsperados)
+            // 3. NUEVO CONTROL: Sumar las cantidades de los códigos ya agregados
+            int totalCodigosYaAgregados = 0;
+            foreach (var item in dgDetalleCodigos.Items)
             {
-                MessageBox.Show($"Ya ha registrado los {cantidadPaquetesEsperados} lotes/rangos indicados en la cantidad del producto.", "Lotes Completos", MessageBoxButton.OK, MessageBoxImage.Information);
+                if (item is RangoCodigoItem rango)
+                {
+                    if (int.TryParse(rango.Cantidad, out int cantRango))
+                    {
+                        totalCodigosYaAgregados += cantRango;
+                    }
+                }
+            }
+
+            // Si ya completamos la cantidad requerida, bloqueamos el ingreso de más rangos
+            if (totalCodigosYaAgregados >= cantidadCodigosEsperados)
+            {
+                MessageBox.Show($"Ya ha registrado el total de {cantidadCodigosEsperados} códigos únicos indicados en la cantidad del producto.", "Lotes Completos", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
+
+            // Calculamos cuánto le falta asignar por si quiere meter los códigos en varios tramos
+            int cantidadFaltantePorAsignar = cantidadCodigosEsperados - totalCodigosYaAgregados;
 
             try
             {
                 string abreviatura = _productoSeleccionado.Abreviatura ?? "";
                 int productoId = _productoSeleccionado.Id;
 
-                // Abrimos el administrador de rangos (este calculará el tramo independientemente)
-                AsignarCodigoWindow ventanaCodigo = new AsignarCodigoWindow(dgDetalleCodigos.Items, abreviatura, productoId);
+                // Pasamos los parámetros necesarios a la ventana secundaria
+                AsignarCodigoWindow ventanaCodigo = new AsignarCodigoWindow(dgDetalleCodigos.Items, abreviatura, productoId, cantidadFaltantePorAsignar);
                 ventanaCodigo.Owner = this;
 
                 if (ventanaCodigo.ShowDialog() == true && ventanaCodigo.FueConfirmado)
@@ -131,7 +146,12 @@ namespace AplicativoDeAlmacen.Views
                     if (nuevoRango != null)
                     {
                         dgDetalleCodigos.Items.Add(nuevoRango);
-                        txtCantidad.IsReadOnly = true; // Bloqueamos la cantidad para no romper la consistencia de filas
+
+                        // Bloqueamos controles principales para mantener la integridad de los datos
+                        txtCantidad.IsReadOnly = true;
+
+                        // 🔥 NUEVO CONTROL: Bloquea tu buscador de productos si ya metiste códigos
+                        if (txtProducto != null) txtProducto.IsEnabled = false;
                     }
                 }
             }
@@ -156,11 +176,28 @@ namespace AplicativoDeAlmacen.Views
             }
 
             // REGLA DE ORO: La cantidad de filas en la grilla debe ser idéntica a la cantidad de paquetes declarada
-            int totalFilasRangos = dgDetalleCodigos.Items.Count;
+            int totalCodigosUnicosRegistrados = 0;
 
-            if ((int)cantidadPaquetesDeclarados != totalFilasRangos)
+            foreach (var item in dgDetalleCodigos.Items)
             {
-                MessageBox.Show($"Inconsistencia de Lotes ❌\n\nDeclaró que ingresará {cantidadPaquetesDeclarados} unidades (paquetes), pero en la lista inferior tiene registrados {totalFilasRangos} rangos de códigos.\n\nDebe ingresar exactamente un rango masivo por cada unidad/paquete.", "Error de Cuadrante", MessageBoxButton.OK, MessageBoxImage.Warning);
+                if (item is RangoCodigoItem rango)
+                {
+                    // Sumamos la propiedad Cantidad que se calculó en la ventana AsignarCodigoWindow
+                    if (int.TryParse(rango.Cantidad, out int cantidadDelRango))
+                    {
+                        totalCodigosUnicosRegistrados += cantidadDelRango;
+                    }
+                }
+            }
+
+            // Ahora comparamos unidades físicas vs total de códigos únicos generados
+            if ((int)cantidadPaquetesDeclarados != totalCodigosUnicosRegistrados)
+            {
+                MessageBox.Show($"Inconsistencia de Códigos Únicos ❌\n\n" +
+                                $"En la cantidad del producto indicó: {cantidadPaquetesDeclarados} unidades.\n" +
+                                $"Sin embargo, la suma de los códigos en los rangos agregados es de: {totalCodigosUnicosRegistrados} códigos.\n\n" +
+                                $"Por favor, configure los rangos para que la cantidad total de códigos coincida exactamente con la cantidad de productos a ingresar.",
+                                "Error de Cuadrante", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 

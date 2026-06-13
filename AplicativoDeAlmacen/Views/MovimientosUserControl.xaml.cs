@@ -277,7 +277,8 @@ namespace AplicativoDeAlmacen.Views
                     },
                     CodigoProducto = idProducto.ToString(),
                     Descripcion = productoSelected.Descripcion,
-                    UnidadMedida = "UNIDAD"
+                    UnidadMedida = "UNIDAD",
+                    ProductoId = idProducto // 🔥 CORRECCIÓN: Asignamos el ID entero aquí para que no sea 0
                 };
                 _productosGridList.Add(nuevoProductoGrid);
 
@@ -307,37 +308,31 @@ namespace AplicativoDeAlmacen.Views
                 dgProductos.ItemsSource = null;
                 dgProductos.ItemsSource = _productosGridList;
 
-                // 4. Seleccionamos el producto. Al estar enlazado el evento en el Paso 1, 
-                // esto disparará automáticamente la actualización de la tabla de la derecha.
+                // 4. Seleccionamos el producto recién agregado
                 dgProductos.SelectedItem = nuevoProductoGrid;
             }
         }
 
         private void DgProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // Si limpias la grilla o no seleccionas nada, vaciamos la tabla de códigos
-            if (dgProductos.SelectedItem == null)
+            // 1. Verificamos si realmente se seleccionó algo en la grilla izquierda
+            if (dgProductos.SelectedItem is VistaProductoGrid productoSeleccionado)
             {
+                // 2. LIMPIEZA: Rompemos el origen de datos para limpiar la grilla de la derecha de forma segura
                 dgCodigos.ItemsSource = null;
-                return;
+
+                // 3. FILTRADO: Buscamos en la lista global '_codigosGridList' los códigos que tengan el mismo ProductoId
+                var codigosDelProducto = _codigosGridList
+                                         .Where(c => c.ProductoId == productoSeleccionado.ProductoId)
+                                         .ToList();
+
+                // 4. CARGA: Asignamos la lista filtrada directamente al ItemsSource
+                dgCodigos.ItemsSource = codigosDelProducto;
             }
-
-            // Obtenemos el producto que el usuario seleccionó en la grilla izquierda
-            var filaSeleccionada = dgProductos.SelectedItem as VistaProductoGrid;
-
-            if (filaSeleccionada != null)
+            else
             {
-                // Convertimos el código de string a int para comparar con el de la memoria
-                int idProductoSeleccionado = int.Parse(filaSeleccionada.CodigoProducto);
-
-                // FILTRADO EN MEMORIA: Buscamos solo los códigos que tengan grabados ese ProductoId
-                var codigosFiltrados = _codigosGridList
-                    .Where(c => c.ProductoId == idProductoSeleccionado)
-                    .ToList();
-
-                // Asignamos el resultado limpio a la grilla de la derecha
+                // Si no hay ningún producto seleccionado, la tabla de la derecha se queda vacía
                 dgCodigos.ItemsSource = null;
-                dgCodigos.ItemsSource = codigosFiltrados;
             }
         }
         private void LimpiarFormulario()

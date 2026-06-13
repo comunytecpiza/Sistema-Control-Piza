@@ -15,6 +15,8 @@ namespace AplicativoDeAlmacen.Models
         public string ColeccionTipo { get; set; }        // Descripción complementaria
         // 💡 AGREGA ESTA LÍNEA: Sirve de puente para que tu DataGrid XAML lea la propiedad "Codigo"
         public string Codigo => CodigoUnique;
-        public int ProductoId { get; set; }
+
+        public int ProductoId;
+
     }
 }

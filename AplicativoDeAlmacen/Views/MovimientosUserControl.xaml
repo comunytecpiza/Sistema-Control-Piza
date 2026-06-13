@@ -309,7 +309,7 @@
                     </Border>
 
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgProductos" Style="{StaticResource ModernDataGrid}">
+                        <DataGrid x:Name="dgProductos" IsReadOnly="True" Style="{StaticResource ModernDataGrid}">
                             <DataGrid.Resources>
                                 <Style TargetType="DataGridColumnHeader">
                                     <Setter Property="Background" Value="#F8FAFC"/>
@@ -342,7 +342,7 @@
                     </Border>
 
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" CanUserAddRows="False">
+                        <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60"/>
                                 <DataGridTextColumn Header="Código Único" Binding="{Binding CodigoUnique}" Width="*"/>
