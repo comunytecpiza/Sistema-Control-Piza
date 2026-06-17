@@ -124,8 +124,8 @@ namespace AplicativoDeAlmacen.Services
                         // =======================================================
                         string queryCabecera = $@"
                             INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, 
-                                                     motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id)
-                            VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, @estadoId);
+                                                     motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id,serie_guia,numero_guia)
+                            VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, @estadoId,@serieGuia,@numeroGuia);
                             {selectId}";
 
                         int movimientoIdInserted = 0;
@@ -147,6 +147,8 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId);
                             AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
                             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
+                            AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
+                            AgregarParametro(cmdCab,"@numeroGuia",cabecera.NumeroGuia);
 
                             object resultCab = await cmdCab.ExecuteScalarAsync();
                             if (resultCab == null || resultCab == DBNull.Value) throw new Exception("No se pudo obtener el ID de la cabecera.");

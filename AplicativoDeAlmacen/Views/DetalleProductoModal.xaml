@@ -1,0 +1,114 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.DetalleProductoModal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Detalle de Producto" Height="520" Width="650"
+        WindowStartupLocation="CenterScreen" Background="#F8FAFC"
+        FontFamily="Segoe UI" WindowStyle="ThreeDBorderWindow">
+
+    <Window.Resources>
+        <DropShadowEffect x:Key="PopupShadow" BlurRadius="15" Direction="270" ShadowDepth="3" Opacity="0.15" Color="#0F172A"/>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="Producto / Artículo" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,6" FontSize="13"/>
+            <Grid Margin="0,0,0,12">
+                <TextBox x:Name="txtProducto" Height="32" FontSize="13" Padding="8,5" VerticalContentAlignment="Center" TextChanged="TxtProducto_TextChanged"/>
+
+                <Popup x:Name="popupProductos" PlacementTarget="{Binding ElementName=txtProducto}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtProducto}" AllowsTransparency="True" PopupAnimation="Fade" StaysOpen="False">
+                    <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Effect="{StaticResource PopupShadow}">
+                        <ListBox x:Name="lstProductos" MaxHeight="180" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseLeftButtonUp="LstProductos_PreviewMouseLeftButtonUp">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Background="Transparent">
+                                        <StackPanel Margin="10,8">
+                                            <TextBlock Text="{Binding Descripcion}" FontSize="13" FontWeight="Medium" Foreground="#1E293B"/>
+                                            <TextBlock Text="{Binding Abreviatura}" FontSize="11" Foreground="#64748B" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Popup>
+            </Grid>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="20"/>
+                    <ColumnDefinition Width="150"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="U. Medida" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,6" FontSize="13"/>
+                    <TextBox x:Name="txtUMedida" Height="32" FontSize="13" Padding="8,5" IsReadOnly="True" Background="#F1F5F9" VerticalContentAlignment="Center"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Cantidad Total" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,6" FontSize="13"/>
+                    <TextBox x:Name="txtCantidadTotal" Height="32" FontSize="13" Padding="8,5" Text="0.00" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" FontWeight="Bold"  Background="#F1F5F9"/>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" SnapsToDevicePixels="True">
+            <DockPanel LastChildFill="True">
+                <Border DockPanel.Dock="Top" Background="#E11D48" Padding="12,8" CornerRadius="5,5,0,0">
+                    <TextBlock Text="Detalle de Códigos de Libros / Licencias" FontWeight="SemiBold" Foreground="White" FontSize="13"/>
+                </Border>
+
+                <DataGrid x:Name="dgvCodigos" AutoGenerateColumns="False" BorderThickness="0" Background="Transparent" RowHeaderWidth="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC" FontSize="13">
+                    <DataGrid.Resources>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#F1F5F9"/>
+                            <Setter Property="Foreground" Value="#475569"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Padding" Value="10,8"/>
+                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                        </Style>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="Padding" Value="10,6"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="DataGridCell">
+                                        <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                                            <ContentPresenter SnapsToDevicePixels="True"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </DataGrid.Resources>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="90"/>
+                        <DataGridTextColumn Header="Desde" Binding="{Binding Desde}" Width="*"/>
+                        <DataGridTextColumn Header="Hasta" Binding="{Binding Hasta}" Width="*"/>
+                        <DataGridTextColumn Header="Colección / Tipo" Binding="{Binding ColeccionTipo}" Width="140"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button x:Name="btnAgregar" Content="➕ Agregar" Background="#2563EB" Foreground="White" FontWeight="Medium" FontSize="13" Padding="14,7" Margin="4,0" BorderThickness="0" Cursor="Hand" Click=" BtnAbrirModalRango_Click"/>
+            <Button x:Name="btnModificar" Content="✏️ Modificar" Background="#D97706" Foreground="White" FontWeight="Medium" FontSize="13" Padding="14,7" Margin="4,0" BorderThickness="0" Cursor="Hand"/>
+            <Button x:Name="btnEliminar" Content="🗑️ Eliminar" Background="#DC2626" Foreground="White" FontWeight="Medium" FontSize="13" Padding="14,7" Margin="4,0" BorderThickness="0" Cursor="Hand"/>
+            <Button x:Name="btnGrabar" Content="💾 Grabar" Background="#0F172A" Foreground="White" FontWeight="Medium" FontSize="13" Padding="14,7" Margin="4,0" BorderThickness="0" Cursor="Hand" Click="BtnGrabar_Click"/>
+            <Button x:Name="btnSalir" Content="❌ Salir" Background="#64748B" Foreground="White" FontWeight="Medium" FontSize="13" Padding="14,7" Margin="4,0" BorderThickness="0" Cursor="Hand" Click="BtnSalir_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
