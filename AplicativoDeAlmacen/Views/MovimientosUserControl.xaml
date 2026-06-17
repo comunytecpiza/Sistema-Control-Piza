@@ -122,8 +122,8 @@
 
         <Border BorderBrush="#6366F1" BorderThickness="4,0,0,0" Padding="12,2,0,2" Margin="0,0,0,20">
             <StackPanel>
-                <TextBlock Text="Registro de Ingreso de Productos" FontSize="22" FontWeight="Bold" Foreground="#1E293B"/>
-                <TextBlock Text="Gestión de inventario, proveedores y asignación de códigos únicos" FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
+                <TextBlock Text="Registro de Ingreso de Productos" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Height="34"/>
+                <TextBlock Text="Gestión de inventario, proveedores y asignación de códigos únicos" FontSize="12" Foreground="#64748B" Margin="0,2,0,0" Height="21"/>
             </StackPanel>
         </Border>
 
@@ -135,19 +135,13 @@
 
             <StackPanel Grid.Column="0" Margin="0,0,20,0">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                    <Button x:Name="btnAgregar" 
-                        Style="{StaticResource ModernButton}" 
-                        Content="➕ Nuevo" 
-                        Background="#10B981" 
-                        Margin="0,0,8,0" 
-                        MinWidth="105"
-                        Click="BtnAgregar_Click"/>  
-
+                    <Button x:Name="btnAgregar" Style="{StaticResource ModernButton}" Content="➕ Nuevo" Background="#10B981" Margin="0,0,8,0" MinWidth="105" Click="BtnAgregar_Click"/>
                     <Button x:Name="btnEditar" Style="{StaticResource ModernButton}" Content="📝 Editar" Background="#F59E0B" Margin="0,0,8,0" MinWidth="105"/>
                     <Button x:Name="btnImprimir" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
                     <Button x:Name="btnAnular" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#EF4444" MinWidth="105"/>
                 </StackPanel>
-                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}">
+
+                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}" Height="310">
                     <Grid x:Name="grdFormulario">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="130"/>
@@ -161,68 +155,29 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Text="N° Registro" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-
                         <Grid Grid.Column="1" Margin="0,0,20,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="65*"/>
                                 <ColumnDefinition Width="10"/>
                                 <ColumnDefinition Width="135*"/>
                             </Grid.ColumnDefinitions>
-
-                            <TextBox x:Name="txtNumSerie" 
-             Grid.Column="0" 
-             Height="32" 
-             IsReadOnly="True" 
-             FontSize="13" 
-             FontWeight="Bold" 
-             Background="#F8FAFC" 
-             HorizontalContentAlignment="Center" 
-             VerticalContentAlignment="Center"/>
-
-                            <TextBox x:Name="txtNumDocumento" 
-             Grid.Column="2" 
-             Height="32" 
-             IsReadOnly="True" 
-             FontSize="13" 
-             FontWeight="Bold" 
-             Background="#F8FAFC" 
-             HorizontalContentAlignment="Center" 
-             VerticalContentAlignment="Center"/>
+                            <TextBox x:Name="txtNumSerie" Grid.Column="0" Height="32" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                            <TextBox x:Name="txtNumDocumento" Grid.Column="2" Height="32" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                         </Grid>
                         <TextBlock Text="Fecha de Recepción" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <DatePicker x:Name="dtpFechaRecepcion" Grid.Column="3" Height="32" Margin="0,0,0,12" FontSize="13" VerticalContentAlignment="Center"/>
 
-                        <TextBlock Text="Motivo" 
-                               Grid.Row="1" 
-                               VerticalAlignment="Center" 
-                               Foreground="#475569" 
-                               FontWeight="Medium" 
-                               Margin="0,0,0,12" 
-                               FontSize="13"/>
-
-                        <ComboBox x:Name="cboMotivo" 
-                              Grid.Row="1" 
-                              Grid.Column="1" 
-                              Grid.ColumnSpan="3" 
-                              Height="32" 
-                              Margin="0,0,0,12" 
-                              FontSize="13"
-                              DisplayMemberPath="Descripcion" 
-                              SelectedValuePath="Id"/>
+                        <TextBlock Text="Motivo" Grid.Row="1" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <ComboBox x:Name="cboMotivo" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id"/>
 
                         <TextBlock Text="Razón Social" Grid.Row="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <Grid Grid.Row="2" Grid.Column="1" Margin="0,0,20,12">
                             <TextBox x:Name="txtRazonSocial" Height="32" FontSize="13"/>
-
-                            <Popup x:Name="popupSugerencias"
-                                   PlacementTarget="{Binding ElementName=txtRazonSocial}"
-                                   Placement="Bottom"
-                                   Width="{Binding ActualWidth, ElementName=txtRazonSocial}"
-                                   AllowsTransparency="True"
-                                   PopupAnimation="Fade">
+                            <Popup x:Name="popupSugerencias" PlacementTarget="{Binding ElementName=txtRazonSocial}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtRazonSocial}" AllowsTransparency="True" PopupAnimation="Fade">
                                 <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Effect="{StaticResource CardShadow}">
                                     <ListBox x:Name="lstSugerencias" MaxHeight="160" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                         <ListBox.ItemTemplate>
@@ -233,16 +188,26 @@
                                     </ListBox>
                                 </Border>
                             </Popup>
-                        </Grid> 
-
+                        </Grid>
                         <TextBlock Text="Código Cliente" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <TextBox x:Name="txtCodigoRazonSocial" Grid.Row="2" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
                         <TextBlock Text="Dirección" Grid.Row="3" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <TextBox x:Name="txtDireccion" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
-                        <TextBlock Text="Observación" Grid.Row="4" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
-                        <TextBox x:Name="txtObservacion" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13"/>
+                        <TextBlock Text="Guía de Remisión" Grid.Row="4" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <Grid Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="85"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="txtSerieGuia" Grid.Column="0" Height="32" FontSize="13" HorizontalContentAlignment="Center" MaxLength="4"/>
+                            <TextBox x:Name="txtNumeroGuia" Grid.Column="2" Height="32" FontSize="13"/>
+                        </Grid>
+
+                        <TextBlock Text="Observación" Grid.Row="5" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
+                        <TextBox x:Name="txtObservacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13"/>
                     </Grid>
                 </Border>
             </StackPanel>
@@ -266,29 +231,19 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-
                 <StackPanel Orientation="Horizontal" Grid.Column="0">
                     <Button x:Name="btnAgregarProducto" Style="{StaticResource ModernButton}" Content="➕ Agregar Ítem" Background="#007BFF" Margin="0,0,8,0" MinWidth="120"/>
                     <Button x:Name="btnModificar" Style="{StaticResource ModernButton}" Content="✏️ Modificar" Background="#D97706" Margin="0,0,8,0" MinWidth="110"/>
                     <Button x:Name="btnEliminar" Style="{StaticResource ModernButton}" Content="🗑️ Eliminar" Background="#DC2626" Margin="0,0,8,0" MinWidth="110"/>
-                    
                     <Button x:Name="btnImportar" Style="{StaticResource ModernButton}" Content="📥 Importar de Excel" Background="#7C3AED" MinWidth="150"/>
                 </StackPanel>
-
                 <StackPanel Orientation="Horizontal" Grid.Column="1">
                     <Button x:Name="btnGrabar" Style="{StaticResource ModernButton}" Content="💾 Guardar Entrada" Background="#1E293B" Margin="0,0,8,0" MinWidth="150" Click="RegistrarMovimientoCompleto"/>
-                    <Button x:Name="btnCancelar" 
-                            Style="{StaticResource ModernButton}" 
-                            Content="❌ Cancelar" 
-                            Background="#64748B" 
-                            Margin="0,0,8,0" 
-                            MinWidth="105"
-                            Click="BtnCancelar_Click"/>         
-
+                    <Button x:Name="btnCancelar" Style="{StaticResource ModernButton}" Content="❌ Cancelar" Background="#64748B" Margin="0,0,8,0" MinWidth="105" Click="BtnCancelar_Click"/>
                 </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="1" Cursor="">
+            <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1.3*"/>
                     <ColumnDefinition Width="16"/>
@@ -300,14 +255,12 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-
                     <Border Background="#4F46E5" CornerRadius="6,6,0,0" Padding="12,8">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📋" Margin="0,0,6,0" VerticalAlignment="Center"/>
                             <TextBlock Text="Productos Recibidos" Foreground="White" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
-
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
                         <DataGrid x:Name="dgProductos" IsReadOnly="True" Style="{StaticResource ModernDataGrid}">
                             <DataGrid.Resources>
@@ -320,7 +273,6 @@
                                     <Setter Property="BorderBrush" Value="#E2E8F0"/>
                                 </Style>
                             </DataGrid.Resources>
-                           
                         </DataGrid>
                     </Border>
                 </Grid>
@@ -330,17 +282,15 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-
                     <Border Background="#1E293B" CornerRadius="6,6,0,0" Padding="12,5">
                         <DockPanel LastChildFill="True">
-                            <StackPanel Orientation="Horizontal"  VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="🔑" Margin="0,0,6,0" VerticalAlignment="Center"/>
                                 <TextBlock Text="Detalle de Códigos" Foreground="White" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
                             </StackPanel>
                             <Button x:Name="btnDescargarExcel" Content="📊 Exportar Excel" Foreground="#93C5FD" Background="Transparent" BorderThickness="0" HorizontalAlignment="Right" Padding="4" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
                         </DockPanel>
                     </Border>
-
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
                         <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
                             <DataGrid.Columns>

@@ -218,6 +218,8 @@ namespace AplicativoDeAlmacen.Views
                     UbicacionId = UBICACION_ID_SELECCIONADA,
                     UsuarioId = 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
+                    SerieGuia=txtSerieGuia.Text.Trim(),
+                    NumeroGuia=txtNumeroGuia.Text.Trim(),
                     Observacion = txtObservacion.Text.Trim()
                 };
 
@@ -370,6 +372,8 @@ namespace AplicativoDeAlmacen.Views
             cboMotivo.IsEnabled = habilitar;
             txtRazonSocial.IsEnabled = habilitar;
             txtObservacion.IsEnabled = habilitar;
+            txtSerieGuia.IsEnabled = habilitar;
+            txtNumeroGuia.IsEnabled = habilitar;
 
             if (btnModificar != null) btnModificar.IsEnabled = habilitar;
             if (btnEliminar != null) btnEliminar.IsEnabled = habilitar;

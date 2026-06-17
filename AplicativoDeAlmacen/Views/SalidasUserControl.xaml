@@ -5,7 +5,10 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
              mc:Ignorable="d" 
-             d:DesignHeight="450" d:DesignWidth="800">
+             d:DesignHeight="720" d:DesignWidth="1150"
+             Background="#F8FAFC"
+             FontFamily="Segoe UI">
+
     <UserControl.Resources>
         <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="1" Color="#0F172A" Opacity="0.05"/>
 
@@ -19,10 +22,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
-                            BorderBrush="{TemplateBinding BorderBrush}" 
-                            BorderThickness="{TemplateBinding BorderThickness}" 
-                            CornerRadius="5">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="5">
                             <ScrollViewer x:Name="PART_ContentHost" Focusable="false" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -65,8 +65,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="buttonBorder" Background="{TemplateBinding Background}" 
-                            CornerRadius="6" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="buttonBorder" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -110,7 +109,217 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid>
-            
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" BorderBrush="#EF4444" BorderThickness="4,0,0,0" Padding="12,2,0,2" Margin="0,0,0,20">
+            <TextBlock Text="Registro de Salida de Productos" FontSize="22" FontWeight="Bold" Foreground="#1E293B"/>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                    <Button x:Name="btnNuevo" Style="{StaticResource ModernButton}" Content="➕ Nueva Salida" Background="#3B82F6" Margin="0,0,8,0" MinWidth="120" Click="BtnNuevo_Click"/>
+                    <Button x:Name="btnImprimirTicket" Style="{StaticResource ModernButton}" Content="🖨️ Imp. Ticket" Background="#64748B" Margin="0,0,8,0" MinWidth="115"/>
+                    <Button x:Name="btnAnularSalida" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#EF4444" MinWidth="105"/>
+                </StackPanel>
+
+                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}">
+                    <Grid x:Name="grdFormularioSalida">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Text="N° Operación" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <Grid Grid.Column="1" Margin="0,0,20,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="65*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="135*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="txtSerieSalida" Grid.Column="0" Height="32" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC" HorizontalContentAlignment="Center"/>
+                            <TextBox x:Name="txtNumeroSalida" Grid.Column="2" Height="32" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC" HorizontalContentAlignment="Center"/>
+                        </Grid>
+                        <TextBlock Text="Fecha de Despacho" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <DatePicker x:Name="dtpFechaDespacho" Grid.Column="3" Height="32" Margin="0,0,0,12" FontSize="13" VerticalContentAlignment="Center"/>
+                        <TextBlock Text="Motivo Salida" Grid.Row="1" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <ComboBox x:Name="cboMotivoSalida" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id" SelectionChanged="CboMotivoSalida_SelectionChanged" />
+                        <TextBlock Text="Cliente / Destino" Grid.Row="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <Grid Grid.Row="2" Grid.Column="1" Margin="0,0,20,12">
+                            <TextBox x:Name="txtCliente" Height="32" FontSize="13" Padding="10,6" TextChanged="TxtCliente_TextChanged"/>
+                            <Popup x:Name="popupClientes" PlacementTarget="{Binding ElementName=txtCliente}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtCliente}" AllowsTransparency="True" PopupAnimation="Fade" StaysOpen="False">
+                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Effect="{StaticResource CardShadow}">
+                                    <ListBox x:Name="lstClientes" MaxHeight="160" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseLeftButtonUp="LstClientes_PreviewMouseLeftButtonUp">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Background="Transparent">
+                                                    <TextBlock Text="{Binding RazonSocial}" FontSize="13" Foreground="#334155" Margin="10,6"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <TextBlock Text="Código Cliente" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBox x:Name="txtCodigoCliente" Grid.Row="2" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
+                        <TextBlock Text="Dirección Cliente" Grid.Row="3" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBox x:Name="txtDireccionCliente" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
+                        <TextBlock Text="Ubicación / Dest" Grid.Row="4" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <Grid Grid.Row="4" Grid.Column="1" Margin="0,0,20,12">
+                            <TextBox x:Name="txtUbicacion" Height="32" FontSize="13" Padding="10,6" TextChanged="TxtUbicacion_TextChanged"/>
+                            <Popup x:Name="popupUbicaciones" PlacementTarget="{Binding ElementName=txtUbicacion}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtUbicacion}" AllowsTransparency="True" PopupAnimation="Fade" StaysOpen="False">
+                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Effect="{StaticResource CardShadow}">
+                                    <ListBox x:Name="lstUbicaciones" MaxHeight="160" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseLeftButtonUp="LstUbicaciones_PreviewMouseLeftButtonUp">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Background="Transparent">
+                                                    <TextBlock Text="{Binding Descripcion}" FontSize="13" Foreground="#334155" Margin="10,6"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <TextBlock Text="Código Ubicación" Grid.Row="4" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBox x:Name="txtCodigoUbicacion" Grid.Row="4" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
+                        <TextBlock Text="Dirección Ubic." Grid.Row="5" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBox x:Name="txtDireccionUbicacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
+                        <TextBlock Text="# Guía" Grid.Row="6" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <Grid Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="80"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="txtSerieGuia" Grid.Column="0" Height="32" FontSize="13" HorizontalContentAlignment="Center"/>
+                            <TextBox x:Name="txtNumeroGuia" Grid.Column="2" Height="32" FontSize="13"/>
+                        </Grid>
+                        <TextBlock Text="Observación" Grid.Row="7" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
+                        <TextBox x:Name="txtObservacionSalida" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <Border Grid.Column="1" CornerRadius="8" Background="White" Padding="6" Effect="{StaticResource CardShadow}" Margin="20,0,0,0" Height="235" VerticalAlignment="Top">
+                <Image Source="/Images/ingreso-almacen.jpg" Stretch="UniformToFill"/>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Grid.Column="0">
+                    <Button x:Name="btnAgregarItem" Style="{StaticResource ModernButton}" Content="+ Agregar" Background="#007bff" Margin="0,0,8,0" MinWidth="90" Click="btnAgregarItem_Click" />
+                    <Button x:Name="btnModificarItem" Style="{StaticResource ModernButton}" Content="✏️ Modificar" Background="#F59E0B" Margin="0,0,8,0" MinWidth="100"/>
+                    <Button x:Name="btnEliminarItem" Style="{StaticResource ModernButton}" Content="🗑️ Eliminar" Background="#EF4444" Margin="0,0,8,0" MinWidth="100"/>
+                    <Button x:Name="btnImportarExcel" Style="{StaticResource ModernButton}" Content="📊 Importar Excel" Background="#10B981" Margin="0,0,8,0" MinWidth="120"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Grid.Column="1">
+                    <Button x:Name="btnGrabarSalida" Style="{StaticResource ModernButton}" Content="💾 Procesar Salida" Background="#1E293B" Margin="0,0,8,0" MinWidth="160" Click="btnGrabarSalida_Click" />
+                    <Button x:Name="btnCancelar" Style="{StaticResource ModernButton}" Content="❌ Cancelar" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="6*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="4*"/>
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Background="#EF4444" CornerRadius="6,6,0,0" Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📦" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Productos a Despachar (Items)" Foreground="White" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
+                        <DataGrid x:Name="dgProductosSalida" IsReadOnly="True" Style="{StaticResource ModernDataGrid}" SelectionChanged="DgProductosSalida_SelectionChanged">
+                            <DataGrid.Resources>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#F8FAFC"/>
+                                    <Setter Property="Foreground" Value="#475569"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                    <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                                </Style>
+                            </DataGrid.Resources>
+                        </DataGrid>
+                    </Border>
+                </Grid>
+
+                <Grid Grid.Column="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Border Background="#1E293B" CornerRadius="6,6,0,0" Padding="12,5">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🔑" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Códigos Únicos Escaneados / Asignados" Foreground="White" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
+                        <DataGrid x:Name="dgCodigosSalida" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60"/>
+                                <DataGridTextColumn Header="Código Asignado" Binding="{Binding CodigoUnique}" Width="*"/>
+                                <DataGridTextColumn Header="Estado Validación" Binding="{Binding EstadoValidacion}" Width="130"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
     </Grid>
 </UserControl>
