@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common; // Clave para compatibilidad Multi-Motor
+using System.Data.Common;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
@@ -19,9 +19,6 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
-        // =======================================================
-        // FUNCIÓN AYUDANTE MULTI-MOTOR
-        // =======================================================
         private void AgregarParametro(DbCommand cmd, string nombre, object valor)
         {
             var p = cmd.CreateParameter();
@@ -118,7 +115,10 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"SELECT rc.id, rc.cantidad, rc.desde, rc.hasta, p.descripcion AS producto_desc, 
+                // 🌟 LA MAGIA: Hacemos un SELECT COUNT() dinámico para que la cantidad SIEMPRE sea exacta
+                string query = @"SELECT rc.id, 
+                                        (SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id) AS cantidad_real, 
+                                        rc.desde, rc.hasta, p.descripcion AS producto_desc, 
                                         p.abreviatura, um.descripcion AS unidad_medida_desc, cp.nombre AS categoria_nombre
                                  FROM registro_codigos rc
                                  INNER JOIN productos p ON rc.producto_id = p.id
@@ -140,7 +140,8 @@ namespace AplicativoDeAlmacen.Services
                             lista.Add(new RegistroCodigo
                             {
                                 Id = reader.GetInt32(0),
-                                Cantidad = reader.GetInt32(1),
+                                // Usamos Convert.ToInt32 porque COUNT en MySQL devuelve un BigInt y en SQLServer un Int
+                                Cantidad = Convert.ToInt32(reader.GetValue(1)),
                                 Desde = reader["desde"] as string,
                                 Hasta = reader["hasta"] as string,
                                 Producto = new Producto
@@ -166,9 +167,10 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string lenFunc = QueryAdapter.EsMySQL ? "LENGTH" : "LEN";
+                string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
 
                 string query = $@"
-                    SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@abreviatura) + 2, {lenFunc}(codigo)) AS SIGNED))
+                    SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@abreviatura) + 2, {lenFunc}(codigo)) AS {castType}))
                     FROM codigos_creados cc
                     INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
                     WHERE rc.producto_id = @productoId 
@@ -187,9 +189,6 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // =======================================================
-        // METODO REFACTORIZADO Y LIMPIADO
-        // =======================================================
         public async Task GuardarCodigosTransactionAsync(int coleccionId, int productoId, int cantidad, string desde, string hasta, int categoriaId)
         {
             using (var conn = _database.GetConnection())
@@ -201,7 +200,6 @@ namespace AplicativoDeAlmacen.Services
                 {
                     try
                     {
-                        // 1. Obtener registroId (Multi-Motor)
                         string queryRegistro = "INSERT INTO registro_codigos (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id) VALUES (@cId, @pId, @cant, @des, @has, @catId);";
                         string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
@@ -220,7 +218,6 @@ namespace AplicativoDeAlmacen.Services
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        // 2. INSERCIÓN MASIVA (Optimizado y Limpiado)
                         int lastDashIndex = desde.LastIndexOf('-');
                         int desdeInt = int.Parse(desde.Substring(lastDashIndex + 1));
                         string prefijo = desde.Substring(0, lastDashIndex + 1);
@@ -232,7 +229,6 @@ namespace AplicativoDeAlmacen.Services
                             cmd.Transaction = transaction;
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryCodigos);
 
-                            // Pre-creamos los parámetros para no destruirlos y crearlos en cada ciclo
                             var pRegId = cmd.CreateParameter();
                             pRegId.ParameterName = "@regId";
                             cmd.Parameters.Add(pRegId);
@@ -241,7 +237,6 @@ namespace AplicativoDeAlmacen.Services
                             pCod.ParameterName = "@cod";
                             cmd.Parameters.Add(pCod);
 
-                            // Bucle ultra rápido reutilizando el mismo comando
                             for (int i = 0; i < cantidad; i++)
                             {
                                 pRegId.Value = registroId;

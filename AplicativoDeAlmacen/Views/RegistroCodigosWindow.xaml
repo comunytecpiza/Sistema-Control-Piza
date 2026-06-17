@@ -32,12 +32,32 @@
             <Setter Property="BorderBrush" Value="#D1D5DB"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Background" Value="White"/>
+            <Setter Property="SelectionBrush" Value="#3B82F6"/>
         </Style>
 
         <Style TargetType="ComboBox">
             <Setter Property="Padding" Value="10,6"/>
             <Setter Property="BorderBrush" Value="#D1D5DB"/>
             <Setter Property="Background" Value="White"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Padding" Value="10,8"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#EFF6FF"/>
+                                <Setter Property="Foreground" Value="#2563EB"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#DBEAFE"/>
+                                <Setter Property="Foreground" Value="#1D4ED8"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
     </UserControl.Resources>
 
@@ -50,6 +70,7 @@
 
         <TextBlock Text="📝 Registro de Códigos" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
         <ProgressBar x:Name="PbProgreso" Grid.Row="1" Height="5" Margin="0,0,0,5" Visibility="Collapsed" IsIndeterminate="True" Foreground="#3B82F6"/>
+
         <Grid Grid.Row="1" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -150,10 +171,11 @@
                     </Grid>
 
                     <TextBlock Text="Producto:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                    <ComboBox x:Name="CmbProducto" IsEditable="True" IsTextSearchEnabled="True" 
+
+                    <ComboBox x:Name="CmbProducto" IsEditable="True" StaysOpenOnEdit="True"
                               DisplayMemberPath="Descripcion" TextSearch.TextPath="Descripcion"
                               TextBoxBase.TextChanged="CmbProducto_TextChanged" SelectionChanged="CmbProducto_SelectionChanged"
-                              Margin="0,0,0,15"/>
+                              Margin="0,0,0,15" Height="35"/>
 
                     <TextBlock Text="Cantidad de códigos a generar:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
                     <TextBox x:Name="TxtCantidad" TextChanged="TxtCantidad_TextChanged" Margin="0,0,0,15" Height="35"/>
@@ -183,6 +205,5 @@
                 </StackPanel>
             </Border>
         </Grid>
-        
     </Grid>
 </UserControl>
