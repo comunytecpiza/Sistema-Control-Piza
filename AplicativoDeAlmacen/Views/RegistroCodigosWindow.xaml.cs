@@ -9,6 +9,7 @@ using System.Windows.Data;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Models.Models;
 using System.Windows.Input;
+using AplicativoDeAlmacen.Core; // Asegúrate de tener este using para el EventBus
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -24,6 +25,9 @@ namespace AplicativoDeAlmacen.Views
         private int ultimoCodigoActual = 0;
         private bool isTyping = false;
 
+        // 🌟 CANDADO UX: Previene el doble clic
+        private bool _isGuardando = false;
+
         public RegistroCodigosUserControl()
         {
             InitializeComponent();
@@ -34,19 +38,18 @@ namespace AplicativoDeAlmacen.Views
 
             _ = InicializarPantallaAsync();
 
-            // 🌟 LA MAGIA: Escuchamos cuando la pestaña se vuelve a mostrar en pantalla
+            EventBus.OnProductosChanged += ActualizarComboProductosDesdeEvento;
+            EventBus.OnRegistroCodigosChanged += () => Application.Current.Dispatcher.InvokeAsync(async () => {
+                if (CmbFiltroColeccion.SelectedValue is int cId) await CargarGridAsync(cId, RbLibroGuia.IsChecked == true ? 1 : 2);
+            });
+
             this.IsVisibleChanged += RegistroCodigosUserControl_IsVisibleChanged;
         }
 
-        // ==============================================================
-        // ACTUALIZACIÓN AUTOMÁTICA AL CAMBIAR DE PESTAÑA
-        // ==============================================================
         private async void RegistroCodigosUserControl_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            // Si la pestaña acaba de hacerse visible...
             if (this.IsVisible && (bool)e.NewValue == true)
             {
-                // Y ya hay una colección seleccionada, recargamos la tabla para traer datos frescos
                 if (CmbFiltroColeccion.SelectedValue is int coleccionId)
                 {
                     int categoriaId = RbLibroGuia.IsChecked == true ? 1 : 2;
@@ -94,6 +97,26 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+        private async void ActualizarComboProductosDesdeEvento()
+        {
+            await Application.Current.Dispatcher.InvokeAsync(async () =>
+            {
+                try
+                {
+                    var productosFrescos = await _registroService.ObtenerProductosComboAsync();
+                    productosTodos.Clear();
+                    foreach (var p in productosFrescos)
+                    {
+                        productosTodos.Add(p);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Error recargando combo: " + ex.Message);
+                }
+            });
+        }
+
         private async Task CargarGridAsync(int coleccionId, int categoriaId)
         {
             try
@@ -120,6 +143,7 @@ namespace AplicativoDeAlmacen.Views
                         await _registroService.EliminarRegistroTransactionAsync(item.Id);
                         MessageBox.Show("Códigos eliminados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                         Filtros_Changed(null, null);
+                        EventBus.NotificarRegistroCodigosChanged();
                     }
                     catch (Exception ex)
                     {
@@ -244,12 +268,27 @@ namespace AplicativoDeAlmacen.Views
 
         private async void BtnGuardar_Click(object sender, RoutedEventArgs e)
         {
+            // 🛡️ CANDADO UX: Si ya hay un proceso corriendo, ignora clics adicionales
+            if (_isGuardando) return;
+
             if (CmbModalColeccion.SelectedValue == null || CmbProducto.SelectedItem == null) return;
+
+            // Cerramos la puerta
+            _isGuardando = true;
+
+            Button btnGuardar = (Button)sender;
+            string textoOriginal = btnGuardar.Content?.ToString() ?? "Guardar";
 
             try
             {
+                btnGuardar.IsEnabled = false;
+                btnGuardar.Content = "⏳ Verificando disponibilidad...";
+
                 PbProgreso.Visibility = Visibility.Visible;
                 Mouse.OverrideCursor = Cursors.Wait;
+
+                await Task.Delay(1000);
+                btnGuardar.Content = "☁️ Subiendo códigos...";
 
                 int coleccionId = (int)CmbModalColeccion.SelectedValue;
                 int categoriaId = (int)CmbModalCategoria.SelectedValue;
@@ -258,16 +297,22 @@ namespace AplicativoDeAlmacen.Views
 
                 await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, TxtDesde.Text, TxtHasta.Text, categoriaId);
 
-                MessageBox.Show("Códigos generados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                 ModalAgregar.Visibility = Visibility.Collapsed;
                 await CargarGridAsync(coleccionId, categoriaId);
+                EventBus.NotificarRegistroCodigosChanged();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error: " + ex.Message);
+                MessageBox.Show(ex.Message, "Aviso del Sistema", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
+                // 🔄 Abrimos la puerta siempre
+                _isGuardando = false;
+
+                btnGuardar.IsEnabled = true;
+                btnGuardar.Content = textoOriginal;
                 PbProgreso.Visibility = Visibility.Collapsed;
                 Mouse.OverrideCursor = null;
             }

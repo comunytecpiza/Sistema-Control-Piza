@@ -447,6 +447,7 @@ namespace AplicativoDeAlmacen.Views
                 {
                     MessageBox.Show("Salida registrada correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                     EstadoInicialFormulario(); // Limpia todo para una nueva operación
+                    EventBus.NotificarMovimientosChanged();
                 }
                 else
                 {

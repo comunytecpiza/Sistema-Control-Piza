@@ -5,7 +5,6 @@
              FontFamily="Segoe UI">
 
     <UserControl.Resources>
-
         <Style x:Key="RightAlignStyle" TargetType="DataGridCell">
             <Setter Property="TextBlock.TextAlignment" Value="Right"/>
             <Setter Property="Padding" Value="0,0,10,0"/>
@@ -17,12 +16,39 @@
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="15,0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderBrush" Value="#D1D5DB"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Padding" Value="10,8"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#EFF6FF"/>
+                                <Setter Property="Foreground" Value="#2563EB"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid Margin="20">
-
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -30,238 +56,97 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- TITULO -->
+        <TextBlock Grid.Row="0" Text="Kardex Físico de Productos" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
 
-        <TextBlock Grid.Row="0"
-                   Text="Kardex Físico de Productos"
-                   FontSize="28"
-                   FontWeight="SemiBold"
-                   Foreground="#111827"
-                   Margin="0,0,0,20"/>
-
-        <!-- FILTROS -->
-
-        <Border Grid.Row="1"
-                Background="White"
-                CornerRadius="12"
-                Padding="20"
-                Margin="0,0,0,15"
-                BorderBrush="#E5E7EB"
-                BorderThickness="1">
-
+        <Border Grid.Row="1" Background="White" CornerRadius="12" Padding="20" Margin="0,0,0,15" BorderBrush="#E5E7EB" BorderThickness="1">
             <Grid>
-
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <WrapPanel>
-
-                    <!-- PRODUCTO -->
-
                     <StackPanel Margin="0,0,20,0">
-
-                        <TextBlock Text="Producto"
-                                   FontWeight="SemiBold"
-                                   Margin="0,0,0,5"/>
-
+                        <TextBlock Text="Producto" FontWeight="SemiBold" Foreground="#4B5563" Margin="0,0,0,5"/>
                         <Grid>
-
                             <ComboBox x:Name="CboProductos"
-                              Width="350"
-                              Height="38"
-                              IsEditable="True"
-                              IsTextSearchEnabled="False"
-                              StaysOpenOnEdit="True"
-                              VerticalContentAlignment="Center"
-                              SelectionChanged="CboProductos_SelectionChanged"/>
-
+                                      Width="350" Height="38"
+                                      IsEditable="True"
+                                      StaysOpenOnEdit="True"
+                                      IsTextSearchEnabled="False"
+                                      VerticalContentAlignment="Center"
+                                      TextBoxBase.TextChanged="CboProductos_TextChanged"
+                                      SelectionChanged="CboProductos_SelectionChanged"/>
                         </Grid>
-
                     </StackPanel>
-
-                    <!-- DESDE -->
 
                     <StackPanel Margin="0,0,20,0">
-
-                        <TextBlock Text="Desde"
-                                   FontWeight="SemiBold"
-                                   Margin="0,0,0,5"/>
-
-                        <DatePicker x:Name="DpDesde"
-                                    Width="150"
-                                    Height="38"/>
-
+                        <TextBlock Text="Desde" FontWeight="SemiBold" Foreground="#4B5563" Margin="0,0,0,5"/>
+                        <DatePicker x:Name="DpDesde" Width="150" Height="38"/>
                     </StackPanel>
-
-                    <!-- HASTA -->
 
                     <StackPanel>
-
-                        <TextBlock Text="Hasta"
-                                   FontWeight="SemiBold"
-                                   Margin="0,0,0,5"/>
-
-                        <DatePicker x:Name="DpHasta"
-                                    Width="150"
-                                    Height="38"/>
-
+                        <TextBlock Text="Hasta" FontWeight="SemiBold" Foreground="#4B5563" Margin="0,0,0,5"/>
+                        <DatePicker x:Name="DpHasta" Width="150" Height="38"/>
                     </StackPanel>
-
                 </WrapPanel>
 
-                <!-- BOTONES -->
-
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Bottom">
-
-                    <Button Content="Generar Kardex"
-                            Width="150"
-                            Margin="0,0,10,0"
-                            Click="BtnEjecutarKardex_Click"
-                            Background="#2563EB"
-                            Foreground="White"/>
-
-                    <Button Content="Imprimir"
-                            Width="120"
-                            Background="#10B981"
-                            Foreground="White"/>
-
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+                    <Button Content="Generar Kardex" Width="150" Margin="0,0,10,0" Click="BtnEjecutarKardex_Click" Background="#2563EB" Foreground="White"/>
+                    <Button Content="Imprimir" Width="120" Background="#10B981" Foreground="White"/>
                 </StackPanel>
-
             </Grid>
-
         </Border>
 
-        <!-- TABLA -->
-
-        <Border Grid.Row="2"
-                Background="White"
-                CornerRadius="12"
-                BorderBrush="#E5E7EB"
-                BorderThickness="1">
-
-            <DataGrid x:Name="KardexDataGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      BorderThickness="0"
-                      Background="White"
-                      RowHeight="38"
-                      HeadersVisibility="Column"
-                      GridLinesVisibility="Horizontal"
-                      HorizontalGridLinesBrush="#E5E7EB">
-
-                <!-- CABECERAS -->
+        <Border Grid.Row="2" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
+            <DataGrid x:Name="KardexDataGrid" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" Background="White"
+                      RowHeight="38" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
 
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader">
-
-                        <Setter Property="Background"
-                                Value="#F8FAFC"/>
-
-                        <Setter Property="Foreground"
-                                Value="#334155"/>
-
-                        <Setter Property="FontWeight"
-                                Value="SemiBold"/>
-
-                        <Setter Property="Padding"
-                                Value="12"/>
-
-                        <Setter Property="BorderBrush"
-                                Value="#E5E7EB"/>
-
-                        <Setter Property="BorderThickness"
-                                Value="0,0,1,1"/>
-
+                        <Setter Property="Background" Value="#F8FAFC"/>
+                        <Setter Property="Foreground" Value="#6B7280"/>
+                        <Setter Property="FontWeight" Value="Bold"/>
+                        <Setter Property="Padding" Value="15,12"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Setter Property="BorderBrush" Value="#E5E7EB"/>
                     </Style>
                 </DataGrid.ColumnHeaderStyle>
 
-                <!-- FILAS -->
-
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
-
-                        <Setter Property="Background"
-                                Value="White"/>
-
+                        <Setter Property="Background" Value="White"/>
                         <Style.Triggers>
-
-                            <Trigger Property="IsMouseOver"
-                                     Value="True">
-                                <Setter Property="Background"
-                                        Value="#F8FAFC"/>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#F9FAFB"/>
                             </Trigger>
-
-                            <Trigger Property="IsSelected"
-                                     Value="True">
-                                <Setter Property="Background"
-                                        Value="#DBEAFE"/>
-                                <Setter Property="Foreground"
-                                        Value="#111827"/>
-                            </Trigger>
-
                         </Style.Triggers>
-
                     </Style>
                 </DataGrid.RowStyle>
 
                 <DataGrid.Columns>
-
-                    <DataGridTextColumn Header="Fecha"
-                                        Binding="{Binding Fecha,StringFormat=dd/MM/yyyy}"
-                                        Width="100"/>
-
-                    <DataGridTextColumn Header="Tipo Movimiento"
-                                        Binding="{Binding Tipo}"
-                                        Width="180"/>
-
-                    <DataGridTextColumn Header="Documento"
-                                        Binding="{Binding Registro}"
-                                        Width="130"/>
-
-                    <DataGridTextColumn Header="Razón Social / Ubicación"
-                                        Binding="{Binding RazonSocialUbicacion}"
-                                        Width="*"/>
-
-                    <DataGridTextColumn Header="Ingreso"
-                                        Binding="{Binding IngresoNormal,StringFormat=N2}"
-                                        Width="100"
-                                        CellStyle="{StaticResource RightAlignStyle}"/>
-
-                    <DataGridTextColumn Header="Ingreso Dev."
-                                        Binding="{Binding IngresoDevolucion,StringFormat=N2}"
-                                        Width="110"
-                                        CellStyle="{StaticResource RightAlignStyle}"/>
-
-                    <DataGridTextColumn Header="Salida"
-                                        Binding="{Binding SalidaNormal,StringFormat=N2}"
-                                        Width="100"
-                                        CellStyle="{StaticResource RightAlignStyle}"/>
-
-                    <DataGridTextColumn Header="Salida Dev."
-                                        Binding="{Binding SalidaDevolucion,StringFormat=N2}"
-                                        Width="110"
-                                        CellStyle="{StaticResource RightAlignStyle}"/>
-
-                    <DataGridTextColumn Header="Saldo Final"
-                                        Binding="{Binding SaldoFinal,StringFormat=N2}"
-                                        Width="120"
-                                        CellStyle="{StaticResource RightAlignStyle}"/>
-
+                    <DataGridTextColumn Header="FECHA" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="100"/>
+                    <DataGridTextColumn Header="TIPO MOVIMIENTO" Binding="{Binding Tipo}" Width="180"/>
+                    <DataGridTextColumn Header="DOCUMENTO" Binding="{Binding Registro}" Width="130"/>
+                    <DataGridTextColumn Header="RAZÓN SOCIAL / UBICACIÓN" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
+                    <DataGridTextColumn Header="INGRESO" Binding="{Binding IngresoNormal, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
+                    <DataGridTextColumn Header="ING. DEV." Binding="{Binding IngresoDevolucion, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
+                    <DataGridTextColumn Header="SALIDA" Binding="{Binding SalidaNormal, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
+                    <DataGridTextColumn Header="SAL. DEV." Binding="{Binding SalidaDevolucion, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
+                    <DataGridTextColumn Header="SALDO FINAL" Binding="{Binding SaldoFinal, StringFormat=N2}" Width="120" CellStyle="{StaticResource RightAlignStyle}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Foreground" Value="#2563EB"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
                 </DataGrid.Columns>
-
             </DataGrid>
-
         </Border>
-
-        <!-- RESUMEN -->
 
         <Border Grid.Row="3" Margin="0,15,0,0" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="15">
             <UniformGrid Columns="5">
-
                 <Border Background="#ECFDF5" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
                         <TextBlock Text="Ingresos" FontSize="13" Foreground="#065F46" FontWeight="SemiBold"/>
@@ -271,7 +156,7 @@
 
                 <Border Background="#F0FDFA" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-                        <TextBlock Text="Devoluciones (Entradas)" FontSize="13" Foreground="#0F766E" FontWeight="SemiBold"/>
+                        <TextBlock Text="Dev. (Entradas)" FontSize="13" Foreground="#0F766E" FontWeight="SemiBold"/>
                         <TextBlock x:Name="TxtTotalDevIngresos" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#0D9488"/>
                     </StackPanel>
                 </Border>
@@ -285,7 +170,7 @@
 
                 <Border Background="#FFF7ED" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-                        <TextBlock Text="Devoluciones (Salidas)" FontSize="13" Foreground="#9A3412" FontWeight="SemiBold"/>
+                        <TextBlock Text="Dev. (Salidas)" FontSize="13" Foreground="#9A3412" FontWeight="SemiBold"/>
                         <TextBlock x:Name="TxtTotalDevSalidas" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#EA580C"/>
                     </StackPanel>
                 </Border>
@@ -296,10 +181,7 @@
                         <TextBlock x:Name="TxtStockFinal" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#2563EB"/>
                     </StackPanel>
                 </Border>
-
             </UniformGrid>
         </Border>
-
     </Grid>
-
 </UserControl>

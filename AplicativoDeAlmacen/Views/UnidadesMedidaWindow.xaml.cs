@@ -20,6 +20,7 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             _unidadService = new UnidadMedidaService();
             _ = InicializarPantallaAsync();
+            EventBus.OnUnidadesMedidaChanged += () => Application.Current.Dispatcher.InvokeAsync(CargarUnidadesAsync);
         }
 
         private async Task InicializarPantallaAsync()
@@ -139,6 +140,7 @@ namespace AplicativoDeAlmacen.Views
 
                 AddEditUnidadModal.Visibility = Visibility.Collapsed;
                 await CargarUnidadesAsync();
+                EventBus.NotificarUnidadesMedidaChanged();
             }
             catch (Exception ex)
             {

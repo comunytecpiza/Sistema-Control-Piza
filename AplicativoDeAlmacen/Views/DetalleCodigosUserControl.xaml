@@ -4,86 +4,146 @@
              Background="#F3F4F6"
              FontFamily="Segoe UI">
 
-    <Grid Margin="20">
+    <Grid Margin="30">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="🔍 Detalle de Lote de Códigos" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
+        <Border Background="White" CornerRadius="10" Padding="20" Margin="0,0,0,20">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.05" Direction="270"/>
+            </Border.Effect>
 
-        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,10" BorderBrush="#E5E7EB" BorderThickness="1">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="3*"/>
+                    <ColumnDefinition Width="1*"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Producto:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtProducto" Text="-" FontSize="16" FontWeight="Bold"/>
+
+                <StackPanel Grid.Column="0" Margin="0,0,15,0" VerticalAlignment="Center">
+                    <TextBlock Text="PRODUCTO" FontSize="12" Foreground="#9CA3AF" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtProducto" FontSize="16" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1">
-                    <TextBlock Text="Categoría:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtCategoria" Text="-" FontSize="16" FontWeight="Bold"/>
+
+                <StackPanel Grid.Column="1" Margin="0,0,15,0" VerticalAlignment="Center">
+                    <TextBlock Text="CATEGORÍA" FontSize="12" Foreground="#9CA3AF" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtCategoria" FontSize="16" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap"/>
                 </StackPanel>
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="Rango:" Foreground="#6B7280" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtRango" Text="-" FontSize="16" FontWeight="Bold"/>
+
+                <StackPanel Grid.Column="2" Margin="0,0,15,0" VerticalAlignment="Center">
+                    <TextBlock Text="RANGO PRINCIPAL" FontSize="12" Foreground="#9CA3AF" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtRango" FontSize="15" Foreground="#111827" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="TxtTotal" FontSize="14" Foreground="#2563EB" FontWeight="Bold" Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" VerticalAlignment="Center">
+                    <TextBlock Text="EXCEPCIONES" FontSize="12" Foreground="#9CA3AF" FontWeight="Bold"/>
+                    <TextBlock x:Name="TxtExcepciones" FontSize="16" Foreground="#DC2626" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBox x:Name="TxtNuevoCodigo" Width="200" Margin="0,0,10,0" Padding="5"/>
-            <Button Content="➕ Registrar Manual" Click="BtnRegistrarManual_Click" Background="#8B5CF6" Foreground="White" Padding="10,5" Cursor="Hand"/>
-        </StackPanel>
+        <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,15">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="Ingresar Excepción Manual:" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,15,0"/>
 
-        <Border Grid.Row="3" CornerRadius="8" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
+                <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="4">
+                    <TextBox x:Name="TxtNuevoCodigo" Width="140" FontSize="15" FontWeight="Bold" Padding="10,6" 
+                             VerticalContentAlignment="Center" BorderThickness="0" Background="Transparent"/>
+                </Border>
+
+                <Button Content="+ Registrar" Click="BtnRegistrarManual_Click" Background="#2563EB" Foreground="White" 
+                        FontWeight="Bold" Padding="15,8" Margin="10,0,0,0" BorderThickness="0" Cursor="Hand">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                <TextBlock x:Name="TxtUltimoAviso" Foreground="#6B7280" FontStyle="Italic" VerticalAlignment="Center" Margin="20,0,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" CornerRadius="10" Background="White" Padding="5">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="15" ShadowDepth="3" Opacity="0.08" Direction="270"/>
+            </Border.Effect>
+
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                      Background="White" BorderThickness="0" 
-                      RowHeight="35" HeadersVisibility="Column" 
-                      GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F0F0F0">
-
+                      Background="Transparent" BorderThickness="0" 
+                      RowHeight="40" HeadersVisibility="Column" GridLinesVisibility="None">
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="#F9FAFB"/>
-                        <Setter Property="Padding" Value="10"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Foreground" Value="#6B7280"/>
                         <Setter Property="FontWeight" Value="Bold"/>
+                        <Setter Property="Padding" Value="15,12"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Setter Property="BorderBrush" Value="#E5E7EB"/>
+                    </Style>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#F9FAFB"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Padding" Value="15,0"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                     </Style>
                 </DataGrid.Resources>
 
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
-                    <DataGridTextColumn Header="Código" Binding="{Binding Codigo}" Width="*">
+                    <DataGridTextColumn Header="ID INTERNO" Binding="{Binding Id}" Width="100"/>
+
+                    <DataGridTextColumn Header="CÓDIGO GENERADO" Binding="{Binding Codigo}" Width="*">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Foreground" Value="#111827"/>
                                 <Setter Property="VerticalAlignment" Value="Center"/>
-                                <Setter Property="Padding" Value="5,0"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding EsManual}" Value="True">
-                                        <Setter Property="Foreground" Value="#8B5CF6"/>
-                                        <Setter Property="FontWeight" Value="Bold"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="Origen" Binding="{Binding Origen}" Width="100"/>
 
-                    <DataGridTemplateColumn Header="Acciones" Width="80">
+                    <DataGridTemplateColumn Header="ORIGEN" Width="200">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Content="🗑️" 
-                                        ToolTip="Eliminar este código"
-                                        Click="BtnEliminarCodigo_Click" 
-                                        Background="Transparent" 
-                                        Foreground="#EF4444" 
-                                        BorderThickness="0" 
-                                        FontSize="16" 
-                                        Cursor="Hand"/>
+                                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="Automático"/>
+                                            <Setter Property="Foreground" Value="#6B7280"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding EsManual}" Value="True">
+                                                    <Setter Property="Text" Value="Excepción (Manual)"/>
+                                                    <Setter Property="Foreground" Value="#EAB308"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Header="ACCIONES" Width="120">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="🗑️ Eliminar" Click="BtnEliminarCodigo_Click" Background="Transparent" 
+                                        Foreground="#EF4444" FontWeight="Bold" Cursor="Hand" BorderThickness="0"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

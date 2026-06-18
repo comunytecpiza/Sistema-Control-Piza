@@ -19,6 +19,7 @@ namespace AplicativoDeAlmacen.Views
         {
             InitializeComponent();
             _tituloService = new TituloCursoService();
+            EventBus.OnTitulosChanged += () => Application.Current.Dispatcher.InvokeAsync(CargarTitulosAsync);
             _ = InicializarPantallaAsync();
         }
 
@@ -129,6 +130,7 @@ namespace AplicativoDeAlmacen.Views
 
                 ModalBackground.Visibility = Visibility.Collapsed;
                 await CargarTitulosAsync();
+                EventBus.NotificarTitulosChanged();
             }
             catch (Exception ex)
             {

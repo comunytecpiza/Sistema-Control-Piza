@@ -8,8 +8,9 @@
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Padding" Value="15,10"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -27,16 +28,30 @@
         </Style>
 
         <Style TargetType="TextBox">
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Padding" Value="12,8"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="BorderBrush" Value="#D1D5DB"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Background" Value="White"/>
-            <Setter Property="SelectionBrush" Value="#3B82F6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="0"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsReadOnly" Value="True">
+                    <Setter Property="Background" Value="#F3F4F6"/>
+                    <Setter Property="Foreground" Value="#6B7280"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Padding" Value="12,8"/>
             <Setter Property="BorderBrush" Value="#D1D5DB"/>
             <Setter Property="Background" Value="White"/>
             <Setter Property="ItemContainerStyle">
@@ -61,82 +76,128 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="20">
+    <Grid Margin="30">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="📝 Registro de Códigos" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
-        <ProgressBar x:Name="PbProgreso" Grid.Row="1" Height="5" Margin="0,0,0,5" Visibility="Collapsed" IsIndeterminate="True" Foreground="#3B82F6"/>
+        <TextBlock Text="📝 Maestro de Códigos de Barras" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,25"/>
+        <ProgressBar x:Name="PbProgreso" Grid.Row="1" Height="4" Margin="0,0,0,10" Visibility="Collapsed" IsIndeterminate="True" Foreground="#3B82F6"/>
 
-        <Grid Grid.Row="1" Margin="0,0,0,15">
+        <Grid Grid.Row="1" Margin="0,0,0,20">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal" Background="White" Margin="0,0,15,0">
-                <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10,5">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Colección:" VerticalAlignment="Center" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,10,0"/>
-                        <ComboBox x:Name="CmbFiltroColeccion" Width="100" SelectionChanged="Filtros_Changed"/>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+            <Border Background="White" CornerRadius="8" Padding="15,10" Margin="0,0,15,0">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.05" Direction="270"/>
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Colección:" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,10,0"/>
+                    <ComboBox x:Name="CmbFiltroColeccion" Width="120" SelectionChanged="Filtros_Changed"/>
+                </StackPanel>
+            </Border>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="15,5">
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <RadioButton x:Name="RbLibroGuia" Content="Libros Guía" IsChecked="True" Checked="Filtros_Changed" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,15,0" VerticalAlignment="Center"/>
-                        <RadioButton x:Name="RbLibroVenta" Content="Libros Venta" Checked="Filtros_Changed" Foreground="#4B5563" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
+            <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="20,10">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.05" Direction="270"/>
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <RadioButton x:Name="RbLibroGuia" Content="Libros Guía" IsChecked="True" Checked="Filtros_Changed" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,20,0" VerticalAlignment="Center"/>
+                    <RadioButton x:Name="RbLibroVenta" Content="Libros Venta" Checked="Filtros_Changed" Foreground="#374151" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="+ Nuevo Registro" Click="BtnNuevo_Click" Background="#10B981" Margin="0,0,10,0" MinWidth="140"/>
-                <Button Content="🗑️ Eliminar" Click="BtnEliminar_Click" Background="#EF4444" MinWidth="110"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button Content="+ Generar Nuevo Lote" Click="BtnNuevo_Click" Background="#10B981" Margin="0,0,15,0" MinWidth="170"/>
+                <Button Content="🗑️ Eliminar Lote" Click="BtnEliminar_Click" Background="#EF4444" MinWidth="130"/>
             </StackPanel>
         </Grid>
 
-        <Border Grid.Row="2" CornerRadius="8" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
+        <Border Grid.Row="2" CornerRadius="10" Background="White" Padding="5">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="15" ShadowDepth="3" Opacity="0.08" Direction="270"/>
+            </Border.Effect>
+
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
                       Background="Transparent" BorderThickness="0" 
-                      RowHeight="35" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
+                      RowHeight="45" HeadersVisibility="Column" GridLinesVisibility="None">
 
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
                         <EventSetter Event="MouseDoubleClick" Handler="DataGridRow_MouseDoubleClick"/>
                         <Setter Property="Cursor" Value="Hand"/>
+                        <Setter Property="BorderBrush" Value="#F3F4F6"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#F9FAFB"/>
+                            </Trigger>
+                        </Style.Triggers>
                     </Style>
                 </DataGrid.RowStyle>
 
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="#F9FAFB"/>
-                        <Setter Property="Foreground" Value="#374151"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Foreground" Value="#6B7280"/>
                         <Setter Property="FontWeight" Value="Bold"/>
-                        <Setter Property="Padding" Value="10,8"/>
-                        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                        <Setter Property="Padding" Value="10,12"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
                         <Setter Property="BorderBrush" Value="#E5E7EB"/>
                     </Style>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Padding" Value="10,0"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                    </Style>
                 </DataGrid.Resources>
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Producto" Binding="{Binding Producto.Descripcion}" Width="*"/>
-                    <DataGridTextColumn Header="U. Medida" Binding="{Binding Producto.UnidadMedida.Descripcion}" Width="100"/>
-                    <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="80"/>
-                    <DataGridTextColumn Header="Desde" Binding="{Binding Desde}" Width="140"/>
-                    <DataGridTextColumn Header="Hasta" Binding="{Binding Hasta}" Width="140"/>
 
-                    <DataGridTemplateColumn Header="Acciones" Width="100">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="PRODUCTO" Binding="{Binding Producto.Descripcion}" Width="2.5*"/>
+                    <DataGridTextColumn Header="U. MEDIDA" Binding="{Binding Producto.UnidadMedida.Descripcion}" Width="1.5*"/>
+
+                    <DataGridTextColumn Header="CANTIDAD" Binding="{Binding Cantidad}" Width="1*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Foreground" Value="#2563EB"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="DESDE" Binding="{Binding Desde}" Width="2*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="TextWrapping" Value="Wrap"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Foreground" Value="#374151"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="HASTA" Binding="{Binding Hasta}" Width="2*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="TextWrapping" Value="Wrap"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Foreground" Value="#374151"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTemplateColumn Header="ACCIONES" Width="110">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Content="👁️ Detalle" Click="BtnVerDetalle_Click" Background="#3B82F6" 
-                                        Foreground="White" FontWeight="Bold" Padding="8,2" Margin="2" Cursor="Hand"
-                                        BorderThickness="0"/>
+                                <Button Content="👁️ Detalles" Click="BtnVerDetalle_Click" Background="#EFF6FF" 
+                                        Foreground="#2563EB" FontWeight="Bold" Padding="10,6" Margin="2,0" Cursor="Hand"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
@@ -144,63 +205,80 @@
             </DataGrid>
         </Border>
 
-        <Grid x:Name="ModalAgregar" Visibility="Collapsed" Background="#80000000" Grid.RowSpan="3" Margin="-20">
-            <Border Background="White" Width="500" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
+        <Grid x:Name="ModalAgregar" Visibility="Collapsed" Background="#99000000" Grid.RowSpan="3" Margin="-30">
+            <Border Background="White" Width="800" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="16" Padding="40">
                 <Border.Effect>
-                    <DropShadowEffect BlurRadius="25" ShadowDepth="5" Opacity="0.3" Direction="270"/>
+                    <DropShadowEffect BlurRadius="40" ShadowDepth="10" Opacity="0.4" Direction="270"/>
                 </Border.Effect>
 
                 <StackPanel>
-                    <TextBlock Text="Agregar Nuevos Códigos" FontSize="22" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,15" TextAlignment="Center"/>
-                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
+                    <TextBlock Text="Generar Nuevos Códigos" FontSize="24" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
+                    <TextBlock Text="Configure los detalles para la generación del nuevo bloque de códigos." Foreground="#6B7280" FontSize="14" Margin="0,0,0,25"/>
+                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,30"/>
 
-                    <Grid Margin="0,0,0,15">
+                    <Grid Margin="0,0,0,30">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="15"/>
+                            <ColumnDefinition Width="40"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel Grid.Column="0">
-                            <TextBlock Text="Colección:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <ComboBox x:Name="CmbModalColeccion"/>
+                            <TextBlock Text="Datos Base" FontWeight="Bold" Foreground="#374151" Margin="0,0,0,15" FontSize="16"/>
+
+                            <Grid Margin="0,0,0,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="15"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Colección:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbModalColeccion"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Categoría:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <ComboBox x:Name="CmbModalCategoria"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Producto:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CmbProducto" IsEditable="True" StaysOpenOnEdit="True"
+                                      DisplayMemberPath="Descripcion" TextSearch.TextPath="Descripcion"
+                                      TextBoxBase.TextChanged="CmbProducto_TextChanged" SelectionChanged="CmbProducto_SelectionChanged"/>
                         </StackPanel>
+
+                        <Border Grid.Column="1" Width="1" Background="#E5E7EB" Margin="19,0"/>
+
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Categoría:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <ComboBox x:Name="CmbModalCategoria"/>
+                            <TextBlock Text="Rango de Generación" FontWeight="Bold" Foreground="#374151" Margin="0,0,0,15" FontSize="16"/>
+
+                            <TextBlock Text="Cantidad a generar:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <TextBox x:Name="TxtCantidad" TextChanged="TxtCantidad_TextChanged" Margin="0,0,0,15"/>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="15"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Código Inicial:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtDesde" IsReadOnly="True" Foreground="#111827" FontWeight="Medium"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Código Final:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtHasta" IsReadOnly="True" Foreground="#111827" FontWeight="Medium"/>
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Grid>
 
-                    <TextBlock Text="Producto:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-
-                    <ComboBox x:Name="CmbProducto" IsEditable="True" StaysOpenOnEdit="True"
-                              DisplayMemberPath="Descripcion" TextSearch.TextPath="Descripcion"
-                              TextBoxBase.TextChanged="CmbProducto_TextChanged" SelectionChanged="CmbProducto_SelectionChanged"
-                              Margin="0,0,0,15" Height="35"/>
-
-                    <TextBlock Text="Cantidad de códigos a generar:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                    <TextBox x:Name="TxtCantidad" TextChanged="TxtCantidad_TextChanged" Margin="0,0,0,15" Height="35"/>
-
-                    <Grid Margin="0,0,0,25">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="15"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="Desde:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <TextBox x:Name="TxtDesde" IsReadOnly="True" Background="#F3F4F6"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="Hasta:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <TextBox x:Name="TxtHasta" IsReadOnly="True" Background="#F3F4F6"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
+                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,25"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Cancelar" Click="BtnCancelar_Click" Background="#6B7280" Margin="0,0,10,0" Width="100"/>
-                        <Button Content="💾 Grabar Códigos" Click="BtnGuardar_Click" Background="#3B82F6" Width="150"/>
+                        <Button Content="Cancelar" Click="BtnCancelar_Click" Background="Transparent" Foreground="#6B7280" FontWeight="Bold" Margin="0,0,15,0" Width="100"/>
+                        <Button x:Name="btnGuardar" Content="💾 Subir y Generar Lote" Click="BtnGuardar_Click" Background="#3B82F6" Width="220" FontSize="15"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

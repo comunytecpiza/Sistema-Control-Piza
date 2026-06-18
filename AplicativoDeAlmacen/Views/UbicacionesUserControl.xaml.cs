@@ -24,6 +24,8 @@ namespace AplicativoDeAlmacen.Views
                 ConfigurarFormatosCombos();
                 CargarUbicaciones();
             };
+
+            EventBus.OnUbicacionesChanged += () => Application.Current.Dispatcher.InvokeAsync(CargarUbicaciones);
         }
 
         private void ConfigurarFormatosCombos()
@@ -121,6 +123,7 @@ namespace AplicativoDeAlmacen.Views
 
                 UbicacionModal.Visibility = Visibility.Collapsed;
                 CargarUbicaciones();
+                EventBus.NotificarUbicacionesChanged();
             }
             catch (Exception ex)
             {
