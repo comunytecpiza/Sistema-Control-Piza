@@ -17,6 +17,7 @@ namespace AplicativoDeAlmacen.Views
         private List<RangoCodigoItem> ListaTodosLosCodigosDelMovimiento = new List<RangoCodigoItem>();
         private readonly PersonaComercialService _service;
         private readonly IngresoMovimientoService _serviceMovimiento;
+        private readonly UbicacionService _ubicacionService;
 
         private List<VistaProductoGrid> _productosGridList;
         private List<VistaCodigoGrid> _codigosGridList;
@@ -29,11 +30,13 @@ namespace AplicativoDeAlmacen.Views
 
         public MovimientosUserControl()
         {
+          
             _productosGridList = new List<VistaProductoGrid>();
             _codigosGridList = new List<VistaCodigoGrid>();
             _rangosProcesadosGlobal = new List<RangoCodigoItem>();
             _service = new PersonaComercialService();
             _serviceMovimiento = new IngresoMovimientoService();
+            _ubicacionService = new UbicacionService();
 
             InitializeComponent(); // ¡Primero se inicializa todo el XAML!
 
@@ -58,6 +61,7 @@ namespace AplicativoDeAlmacen.Views
             // Ahora los asignamos con la certeza de que serán únicos
             txtRazonSocial.TextChanged += TxtRazonSocial_TextChanged;
             lstSugerencias.SelectionChanged += LstSugerencias_SelectionChanged;
+            lstSugerenciasUbicacion.SelectionChanged += LstSugerenciasUbicacion_SelectionChanged;
             this.PreviewMouseDown += MovimientosUserControl_PreviewMouseDown;
             Loaded += MovimientosUserControl_Loaded;
             btnAgregar.Click += BtnAgregar_Click;
@@ -66,9 +70,70 @@ namespace AplicativoDeAlmacen.Views
             btnGrabar.Click += RegistrarMovimientoCompleto;
             // 🔥 COLÓCALO AQUÍ ABAJO (Para registrar el evento):
             dgProductos.SelectionChanged += DgProductos_SelectionChanged;
+
+
+            txtRazonSocial.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+            cboMotivo.SelectionChanged -= CboMotivo_SelectionChanged;
+            cboMotivo.SelectionChanged += CboMotivo_SelectionChanged;
+        }
+
+        private void CboMotivo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (cboMotivo.SelectedItem == null)
+                return;
+
+            // Obtén la descripción del motivo
+            dynamic motivo = cboMotivo.SelectedItem;
+            string descripcion = motivo.Descripcion?.Trim().ToUpper() ?? "";
+
+            // Primero deshabilitamos todo
+            txtRazonSocial.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+
+            // Limpiamos valores opcionalmente
+            txtRazonSocial.Clear();
+            txtCodigoRazonSocial.Clear();
+            txtDireccion.Clear();
+
+            txtUbicacion.Clear();
+            txtCodigoUbicacion.Clear();
+            txtDireccionUbicacion.Clear();
+
+            switch (descripcion)
+            {
+                case "COMPRA":
+                    txtRazonSocial.IsEnabled = true;
+                    break;
+
+                case "DEVOLUCION RECIBIDA":
+                    txtRazonSocial.IsEnabled = true;
+                    break;
+
+                case "OTROS":
+                    txtRazonSocial.IsEnabled = true;
+                    txtUbicacion.IsEnabled = true;
+                    break;
+
+                case "PROMOCION/PROMOTORIA":
+                    txtRazonSocial.IsEnabled = true;
+                    txtUbicacion.IsEnabled = true;
+                    break;
+
+                case "TRANSFERENCIA ENTRE ALMACENES":
+                    txtUbicacion.IsEnabled = true;
+                    break;
+            }
         }
         private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
         {
+            if (!txtRazonSocial.IsEnabled)
+                return;
+
+            if (_isUpdatingFromSelection)
+                return;
+
+
             if (_isUpdatingFromSelection) return;
             string textoBusqueda = txtRazonSocial.Text.Trim();
 
@@ -116,6 +181,45 @@ namespace AplicativoDeAlmacen.Views
                 lstSugerencias.SelectedIndex = -1;
 
                 _isUpdatingFromSelection = false;
+            }
+        }
+
+        private void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!txtUbicacion.IsEnabled)
+                return;
+
+
+            string busqueda = txtUbicacion.Text;
+
+            if (string.IsNullOrWhiteSpace(busqueda))
+            {
+                popupUbicacion.IsOpen = false;
+                return;
+            }
+
+            // Aquí llamas a tu servicio de base de datos
+            // Supongamos que tienes un método 'BuscarUbicaciones(string criterio)'
+            var resultados = _ubicacionService.BuscarUbicaciones(busqueda);
+
+            if (resultados != null && resultados.Count > 0)
+            {
+                lstSugerenciasUbicacion.ItemsSource = resultados;
+                popupUbicacion.IsOpen = true;
+            }
+            else
+            {
+                popupUbicacion.IsOpen = false;
+            }
+        }
+
+        private void LstSugerenciasUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (lstSugerenciasUbicacion.SelectedItem is Ubicacion itemSeleccionado)
+            {
+                txtUbicacion.Text = itemSeleccionado.Descripcion;
+                txtCodigoUbicacion.Text = itemSeleccionado.Id.ToString(); // Autocompleta el código
+                popupUbicacion.IsOpen = false;
             }
         }
 
@@ -395,5 +499,6 @@ namespace AplicativoDeAlmacen.Views
             HabilitarCamposFormulario(false);
             GestionarBotonesPrincipales(enEdicion: false);
         }
+
     }
 }

@@ -140,8 +140,7 @@
                     <Button x:Name="btnImprimir" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
                     <Button x:Name="btnAnular" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#EF4444" MinWidth="105"/>
                 </StackPanel>
-
-                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}" Height="310">
+                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}" Height="396">
                     <Grid x:Name="grdFormulario">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="130"/>
@@ -150,6 +149,9 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -172,7 +174,7 @@
                         <DatePicker x:Name="dtpFechaRecepcion" Grid.Column="3" Height="32" Margin="0,0,0,12" FontSize="13" VerticalContentAlignment="Center"/>
 
                         <TextBlock Text="Motivo" Grid.Row="1" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                        <ComboBox x:Name="cboMotivo" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id"/>
+                        <ComboBox x:Name="cboMotivo" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id"   />
 
                         <TextBlock Text="Razón Social" Grid.Row="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <Grid Grid.Row="2" Grid.Column="1" Margin="0,0,20,12">
@@ -195,19 +197,35 @@
                         <TextBlock Text="Dirección" Grid.Row="3" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <TextBox x:Name="txtDireccion" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
-                        <TextBlock Text="Guía de Remisión" Grid.Row="4" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                        <Grid Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="85"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="txtSerieGuia" Grid.Column="0" Height="32" FontSize="13" HorizontalContentAlignment="Center" MaxLength="4"/>
-                            <TextBox x:Name="txtNumeroGuia" Grid.Column="2" Height="32" FontSize="13"/>
+                        <TextBlock Text="Ubicación" Grid.Row="4" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <Grid Grid.Row="4" Grid.Column="1" Margin="0,0,8,12">
+                            <TextBox x:Name="txtUbicacion" Height="32" FontSize="13" TextChanged="TxtUbicacion_TextChanged"/>
+                            <Popup x:Name="popupUbicacion" PlacementTarget="{Binding ElementName=txtUbicacion}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtUbicacion}" AllowsTransparency="True" PopupAnimation="Fade">
+                                <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Effect="{StaticResource CardShadow}">
+                                    <ListBox x:Name="lstSugerenciasUbicacion" MaxHeight="160" Background="Transparent" BorderThickness="0" SelectionChanged="LstSugerenciasUbicacion_SelectionChanged">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Descripcion  }" Padding="10,6" FontSize="13" Foreground="#334155"/>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                            </Popup>
                         </Grid>
+                        <TextBlock Text="Cód. Ubicación" Grid.Row="4" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBox x:Name="txtCodigoUbicacion" Grid.Row="4" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
-                        <TextBlock Text="Observación" Grid.Row="5" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
-                        <TextBox x:Name="txtObservacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13"/>
+                        <TextBlock Text="Dir. Ubicación" Grid.Row="5" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <TextBox x:Name="txtDireccionUbicacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
+
+                        <TextBlock Text="Guía de Remisión" Grid.Row="6" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                        <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal">
+                            <TextBox x:Name="txtSerieGuia" Width="80" Height="32" Margin="0,0,8,12" FontSize="13"/>
+                            <TextBox x:Name="txtNumeroGuia" Width="456" Height="32" Margin="0,0,0,12" FontSize="13"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Observación" Grid.Row="7" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
+                        <TextBox x:Name="txtObservacion" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13" />
                     </Grid>
                 </Border>
             </StackPanel>

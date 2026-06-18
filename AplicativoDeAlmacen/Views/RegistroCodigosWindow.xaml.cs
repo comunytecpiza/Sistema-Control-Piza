@@ -15,10 +15,8 @@ namespace AplicativoDeAlmacen.Views
     public partial class RegistroCodigosUserControl : UserControl
     {
         private readonly RegistroCodigoService _registroService;
-
         private ObservableCollection<RegistroCodigo> registrosGrid = new ObservableCollection<RegistroCodigo>();
         private ObservableCollection<Producto> productosTodos = new ObservableCollection<Producto>();
-
         private DispatcherTimer searchTimer;
         private string? productoAbreviaturaActual;
         private int ultimoCodigoActual = 0;

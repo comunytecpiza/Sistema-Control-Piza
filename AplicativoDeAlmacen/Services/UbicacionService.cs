@@ -225,6 +225,44 @@ namespace AplicativoDeAlmacen.Services
         // MÉTODOS DE CARGA INDISPENSABLES PARA LOS COMBOBOXES DE LA UI (CON DATOS)
         // =========================================================================
 
+        public List<Ubicacion> BuscarUbicaciones(string criterio)
+        {
+            var lista = new List<Ubicacion>();
+            // Usamos LIKE con comodines '%' para buscar coincidencias parciales
+            string query = "SELECT id, descripcion FROM ubicaciones WHERE descripcion LIKE @criterio ORDER BY descripcion";
+
+            try
+            {
+                using var conn = _database.GetConnection();
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+
+                // Es vital usar parámetros para evitar inyecciones SQL
+                var param = cmd.CreateParameter();
+                param.ParameterName = "@criterio";
+                param.Value = "%" + criterio + "%";
+                cmd.Parameters.Add(param);
+
+                using var reader = cmd.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    lista.Add(new Ubicacion
+                    {
+                        Id = Convert.ToInt32(reader["id"]),
+                        Descripcion = reader["descripcion"]?.ToString() ?? string.Empty
+                    });
+                }
+
+                return lista;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("Error al buscar ubicaciones: " + ex.Message);
+            }
+        }
         public List<TipoUbicacion> ObtenerTiposUbicacion()
         {
             var lista = new List<TipoUbicacion>();

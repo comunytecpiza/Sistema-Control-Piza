@@ -126,7 +126,7 @@ namespace AplicativoDeAlmacen.Services
                             INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, 
                                                      motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id,serie_guia,numero_guia)
                             VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, @estadoId,@serieGuia,@numeroGuia);
-                            {selectId}";
+                            {selectId}"; 
 
                         int movimientoIdInserted = 0;
                         using (var cmdCab = dbConn.CreateCommand())
