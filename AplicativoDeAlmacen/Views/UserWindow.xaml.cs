@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AplicativoDeAlmacen.Services;
+using System;
 using System.Data.SqlClient;
 using System.Windows;
 
@@ -46,7 +47,9 @@ namespace AplicativoDeAlmacen.Views
                         if (result > 0)
                         {
                             MessageBox.Show("Usuario registrado exitosamente.");
+                            EventBus.NotificarUsuariosChanged();
                             this.Close(); // Cierra la ventana después de registrar
+
                         }
                     }
                 }

@@ -36,14 +36,10 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string query = @"
-                    SELECT id,
-                           registro_codigo_id,
-                           codigo,
-                           es_manual,
-                           estado_id
+                    SELECT id, registro_codigo_id, codigo, es_manual, estado_id
                     FROM codigos_creados
                     WHERE registro_codigo_id = @id
-                    ORDER BY es_manual ASC, codigo ASC";
+                    ORDER BY codigo ASC"; // Ordenamos por código para mantener la secuencia visual
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -69,6 +65,34 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
+        // 🌟 NUEVO MÉTODO: Evita duplicados a nivel de base de datos
+        public async Task<bool> ExisteCodigoAsync(int registroId, string codigo)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                // Verificamos si este código ya existe para el mismo producto (incluso en otros lotes)
+                string query = @"
+                    SELECT COUNT(1) 
+                    FROM codigos_creados cc
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    WHERE cc.codigo = @cod 
+                      AND rc.producto_id = (SELECT producto_id FROM registro_codigos WHERE id = @rid)";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@cod", codigo);
+                    AgregarParametro(cmd, "@rid", registroId);
+
+                    int count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                    return count > 0;
+                }
+            }
+        }
+
         public async Task RegistrarManualAsync(int registroId, string codigo)
         {
             using (var conn = _database.GetConnection())
@@ -77,20 +101,8 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string query = @"
-                    INSERT INTO codigos_creados
-                    (
-                        registro_codigo_id,
-                        codigo,
-                        es_manual,
-                        estado_id
-                    )
-                    VALUES
-                    (
-                        @rid,
-                        @cod,
-                        1,
-                        1
-                    )";
+                    INSERT INTO codigos_creados (registro_codigo_id, codigo, es_manual, estado_id)
+                    VALUES (@rid, @cod, 1, 1)"; // es_manual = 1
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -103,9 +115,6 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // ==============================================================
-        // ESTE ES EL MÉTODO QUE TE FALTABA PARA QUE DEJE DE SALIR EL ERROR
-        // ==============================================================
         public async Task EliminarAsync(int id)
         {
             using (var conn = _database.GetConnection())

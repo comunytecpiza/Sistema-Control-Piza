@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 
@@ -11,7 +13,10 @@ namespace AplicativoDeAlmacen.Views
     public partial class SaldosProductosUserControl : UserControl
     {
         private readonly KardexService _kardexService;
-        private List<SaldoProductoItem> _todosLosSaldos; // Guarda en memoria para el filtro rápido
+        private List<SaldoProductoItem> _todosLosSaldos;
+
+        // 🌟 Candado de UX para evitar "Doble Clic"
+        private bool _isCargando = false;
 
         public SaldosProductosUserControl()
         {
@@ -19,25 +24,69 @@ namespace AplicativoDeAlmacen.Views
             _kardexService = new KardexService();
             _todosLosSaldos = new List<SaldoProductoItem>();
 
+            // Reactividad: Si alguien mueve inventario, esta pantalla se actualiza sola
+            EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
+                if (this.IsVisible) BtnEjecutar_Click(null, null);
+            });
+
             // Fechas iniciales por defecto (Desde inicio de año hasta hoy)
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
             DpHasta.SelectedDate = DateTime.Today;
+
+            Loaded += SaldosProductosUserControl_Loaded;
+        }
+
+        private void SaldosProductosUserControl_Loaded(object sender, RoutedEventArgs e)
+        {
+            // 🌟 MÁSCARA: Activamos el formato inteligente en las fechas (XX/XX/XXXX)
+            ConfigurarMascaraFecha(DpDesde);
+            ConfigurarMascaraFecha(DpHasta);
+
+            // 🌟 TECLADO: Escuchamos el ENTER en los filtros
+            DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
+            DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
+            TxtFiltro.PreviewKeyDown += Filtros_PreviewKeyDown;
+        }
+
+        // ====================================================================
+        // 🌟 ATAJO DE TECLADO (Presionar ENTER para buscar)
+        // ====================================================================
+        private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                BtnEjecutar_Click(null, null); // Simula el clic en el botón Ejecutar
+            }
         }
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
+            // 🛡️ CANDADO UX: Evita consultas dobles a la base de datos
+            if (_isCargando) return;
+
+            // Identificamos el botón real (Si vino del teclado, lo buscamos manual)
+            Button btnEjecutar = sender as Button;
+            string textoOriginal = btnEjecutar?.Content?.ToString() ?? "Ejecutar";
+
             try
             {
+                _isCargando = true;
+                Mouse.OverrideCursor = Cursors.Wait;
+
+                if (btnEjecutar != null)
+                {
+                    btnEjecutar.IsEnabled = false;
+                    btnEjecutar.Content = "⏳ Cargando...";
+                }
+
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
-
-                // Bloqueamos el botón mientras carga
-                ((Button)sender).IsEnabled = false;
 
                 // Llamamos a la base de datos
                 _todosLosSaldos = await _kardexService.ObtenerSaldosYMovimientosAsync(desde, hasta);
 
-                // Aplicamos el filtro por si hay algo escrito
+                // Aplicamos el filtro por si el usuario ya había escrito algo
                 FiltrarData();
             }
             catch (Exception ex)
@@ -46,7 +95,15 @@ namespace AplicativoDeAlmacen.Views
             }
             finally
             {
-                ((Button)sender).IsEnabled = true;
+                // 🔄 Restauramos la UI a la normalidad
+                if (btnEjecutar != null)
+                {
+                    btnEjecutar.IsEnabled = true;
+                    btnEjecutar.Content = textoOriginal;
+                }
+
+                Mouse.OverrideCursor = null;
+                _isCargando = false;
             }
         }
 
@@ -67,13 +124,54 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
-                // Filtramos por descripción o código al vuelo
+                // Filtramos por descripción o código al vuelo en memoria RAM
                 var filtrados = _todosLosSaldos.Where(p =>
                     (p.Descripcion != null && p.Descripcion.ToLower().Contains(filtro)) ||
                     (p.Codigo != null && p.Codigo.ToLower().Contains(filtro))
                 ).ToList();
 
                 SaldosDataGrid.ItemsSource = filtrados;
+            }
+        }
+
+        // ====================================================================
+        // 🌟 MÁSCARA INTELIGENTE PARA FECHAS (Autocompleta las diagonales / )
+        // ====================================================================
+        private bool _isFormattingDate = false;
+
+        private void ConfigurarMascaraFecha(DatePicker datePicker)
+        {
+            datePicker.ApplyTemplate();
+
+            if (datePicker.Template.FindName("PART_TextBox", datePicker) is TextBox textBox)
+            {
+                textBox.MaxLength = 10;
+                textBox.TextChanged += (s, ev) =>
+                {
+                    if (_isFormattingDate) return;
+
+                    var tb = s as TextBox;
+                    if (tb == null) return;
+
+                    if (ev.Changes.Any(c => c.RemovedLength > 0 && c.AddedLength == 0)) return;
+
+                    _isFormattingDate = true;
+
+                    string numeros = new string(tb.Text.Where(char.IsDigit).ToArray());
+
+                    if (numeros.Length >= 2 && numeros.Length < 4)
+                    {
+                        tb.Text = numeros.Insert(2, "/");
+                        tb.CaretIndex = tb.Text.Length;
+                    }
+                    else if (numeros.Length >= 4 && numeros.Length <= 8)
+                    {
+                        tb.Text = numeros.Insert(2, "/").Insert(5, "/");
+                        tb.CaretIndex = tb.Text.Length;
+                    }
+
+                    _isFormattingDate = false;
+                };
             }
         }
     }

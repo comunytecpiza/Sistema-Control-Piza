@@ -19,6 +19,9 @@ namespace AplicativoDeAlmacen.Views
             
 
             this.Loaded += (s, e) => CargarLocalidades();
+            EventBus.OnZonasChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
+                if (LocalidadComboBox.SelectedItem is Localidad loc) CargarZonas(loc.Id);
+            });
         }
 
         private void CargarLocalidades()
@@ -62,6 +65,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 _zonaService.RegistrarZona(descripcion, loc.Id);
                 CargarZonas(loc.Id);
+                EventBus.NotificarZonasChanged();
             }
         }
 

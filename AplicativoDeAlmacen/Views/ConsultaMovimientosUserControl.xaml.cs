@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
@@ -15,8 +16,8 @@ namespace AplicativoDeAlmacen.Views
         private readonly ProductoService _productoService;
         private int _productoSeleccionadoId;
         private bool _estaSeleccionando;
+        private bool _isCargando = false;
 
-        // LA MEMORIA DEL SISTEMA: Aquí guardamos todos los códigos en secreto
         private List<ConsultaCodigoItem> _todosLosCodigos;
 
         public ConsultaMovimientosUserControl()
@@ -24,6 +25,7 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             _kardexService = new KardexService();
             _productoService = new ProductoService();
+            _todosLosCodigos = new List<ConsultaCodigoItem>();
 
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
             DpHasta.SelectedDate = DateTime.Today;
@@ -34,49 +36,60 @@ namespace AplicativoDeAlmacen.Views
         private void Control_Loaded(object sender, RoutedEventArgs e)
         {
             var txt = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
-            if (txt != null)
-            {
-                txt.TextChanged += TxtProducto_TextChanged;
-            }
+            if (txt != null) txt.TextChanged += TxtProducto_TextChanged;
+
+            ConfigurarMascaraFecha(DpDesde);
+            ConfigurarMascaraFecha(DpHasta);
+
+            // Vinculamos Enter a los filtros
+            CboProductos.PreviewKeyDown += Filtros_PreviewKeyDown;
+            DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
+            DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
         }
+
+        // --- MÉTODOS QUE FALTABAN PARA CORREGIR ERRORES CS1061 ---
 
         private void ChkFiltros_Click(object sender, RoutedEventArgs e)
         {
-            if (TxtRazonSocial != null)
+            // Lógica para habilitar/deshabilitar los campos de texto según el checkbox
+            if (TxtRazonSocial != null) TxtRazonSocial.IsEnabled = ChkRazonSocial.IsChecked == true;
+            if (TxtUbicacion != null) TxtUbicacion.IsEnabled = ChkUbicacion.IsChecked == true;
+        }
+
+        private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
             {
-                TxtRazonSocial.IsEnabled = ChkRazonSocial.IsChecked == true;
-                if (ChkRazonSocial.IsChecked == false) TxtRazonSocial.Text = string.Empty;
+                // Filtramos los códigos de la memoria secreta
+                var codigos = _todosLosCodigos.Where(c => c.NumeroRegistro == movimiento.NumeroRegistro).ToList();
+                CodigosDataGrid.ItemsSource = codigos;
+                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos en esta operación";
             }
-            if (TxtUbicacion != null)
+        }
+
+        private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
             {
-                TxtUbicacion.IsEnabled = ChkUbicacion.IsChecked == true;
-                if (ChkUbicacion.IsChecked == false) TxtUbicacion.Text = string.Empty;
+                e.Handled = true;
+                // Llamamos a ejecutar pasando null, ya que nuestro BtnEjecutar_Click maneja el null con 'sender as Button'
+                BtnEjecutar_Click(BtnEjecutar, null);
             }
         }
 
         private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (_estaSeleccionando) return;
-
             try
             {
                 string texto = ((TextBox)sender).Text;
-                if (string.IsNullOrWhiteSpace(texto))
-                {
-                    CboProductos.ItemsSource = null;
-                    CboProductos.IsDropDownOpen = false;
-                    _productoSeleccionadoId = 0;
-                    return;
-                }
+                if (string.IsNullOrWhiteSpace(texto)) { CboProductos.ItemsSource = null; _productoSeleccionadoId = 0; return; }
 
                 var productos = await _productoService.BuscarProductos(texto);
-                string textoActual = texto;
                 CboProductos.ItemsSource = productos;
-                CboProductos.DisplayMemberPath = "Descripcion";
-                CboProductos.Text = textoActual;
                 CboProductos.IsDropDownOpen = productos != null && productos.Count > 0;
             }
-            catch { /* Falla silenciosa permitida en tipeos rápidos */ }
+            catch { }
         }
 
         private void CboProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -93,100 +106,60 @@ namespace AplicativoDeAlmacen.Views
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
-            if (_productoSeleccionadoId == 0)
-            {
-                MessageBox.Show("Por favor, seleccione un producto maestro para generar la auditoría.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            if (_isCargando) return;
+            if (_productoSeleccionadoId == 0) { MessageBox.Show("Seleccione un producto."); return; }
+
+            Button btn = sender as Button;
+            string txtOriginal = btn?.Content?.ToString() ?? "Ejecutar";
+
+            _isCargando = true;
+            if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Cargando..."; }
+            Mouse.OverrideCursor = Cursors.Wait;
 
             try
             {
-                ((Button)sender).IsEnabled = false;
-
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                // 1. Ejecutamos la consulta en base de datos
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(_productoSeleccionadoId, desde, hasta);
-                var movimientosFiltrados = reporte.Movimientos.AsEnumerable();
+                var movimientos = reporte.Movimientos.AsEnumerable();
 
-                // 2. Aplicamos filtros de texto (Memoria)
                 if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
-                {
-                    string filtroRazon = TxtRazonSocial.Text.ToLower().Trim();
-                    movimientosFiltrados = movimientosFiltrados.Where(m => m.RazonSocialUbicacion != null && m.RazonSocialUbicacion.ToLower().Contains(filtroRazon));
-                }
+                    movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtRazonSocial.Text.ToLower()));
 
-                if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text))
-                {
-                    string filtroUbi = TxtUbicacion.Text.ToLower().Trim();
-                    movimientosFiltrados = movimientosFiltrados.Where(m => m.RazonSocialUbicacion != null && m.RazonSocialUbicacion.ToLower().Contains(filtroUbi));
-                }
+                // RadioButtons (Asegúrate de que RbGuia y RbVenta existan en el XAML)
+                if (RbGuia != null && RbGuia.IsChecked == true) movimientos = movimientos.Where(m => m.NumeroRegistro.Contains("-"));
+                else if (RbVenta != null && RbVenta.IsChecked == true) movimientos = movimientos.Where(m => !m.NumeroRegistro.Contains("-"));
 
-                // 3. Aplicamos Filtros de RadioButtons (Guías vs Ventas/Facturas)
-                if (RbGuia.IsChecked == true)
-                {
-                    // Asumimos que Guía es cuando el comprobante (registro) está vacío o es solo guiones
-                    movimientosFiltrados = movimientosFiltrados.Where(m => m.NumeroRegistro == "-" || string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
-                }
-                else if (RbVenta.IsChecked == true)
-                {
-                    // Asumimos que Venta es cuando SÍ hay un número de comprobante (factura/boleta)
-                    movimientosFiltrados = movimientosFiltrados.Where(m => m.NumeroRegistro != "-" && !string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
-                }
-
-                var listaFinalMovimientos = movimientosFiltrados.ToList();
-
-                // =======================================================
-                // MAGIA MAESTRO-DETALLE
-                // =======================================================
-                // Guardamos los códigos internamente, pero NO los mostramos aún
+                MovimientosDataGrid.ItemsSource = movimientos.ToList();
                 _todosLosCodigos = reporte.Codigos;
-
-                // Llenamos solo la tabla de la izquierda
-                MovimientosDataGrid.ItemsSource = listaFinalMovimientos;
-                CodigosDataGrid.ItemsSource = null; // La tabla de códigos arranca vacía
-
-                // Actualizamos las Tarjetas de Dashboards (Cards)
-                decimal sumaIngresos = listaFinalMovimientos.Sum(m => m.Ingreso);
-                decimal sumaSalidas = listaFinalMovimientos.Sum(m => m.Salida);
-
-                TxtTotalIngreso.Text = sumaIngresos.ToString("N2");
-                TxtTotalSalida.Text = sumaSalidas.ToString("N2");
-                TxtTotalVendidos.Text = sumaSalidas.ToString("N2");
-
-                TxtTotalCodigos.Text = "Seleccione un movimiento de la lista izquierda para auditar sus códigos";
+                CodigosDataGrid.ItemsSource = null;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error de auditoría: " + ex.Message, "Error de Datos", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
             finally
             {
-                ((Button)sender).IsEnabled = true;
+                _isCargando = false;
+                Mouse.OverrideCursor = null;
+                if (btn != null) { btn.IsEnabled = true; btn.Content = txtOriginal; }
             }
         }
 
-        // ==============================================================
-        // EVENTO DEL CLIC: Llena la tabla derecha al tocar un movimiento
-        // ==============================================================
-        private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private bool _isFormattingDate = false;
+        private void ConfigurarMascaraFecha(DatePicker dp)
         {
-            if (_todosLosCodigos == null || !_todosLosCodigos.Any()) return;
-
-            // Extraemos qué fila tocó el contador
-            if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimientoSeleccionado)
+            dp.ApplyTemplate();
+            if (dp.Template.FindName("PART_TextBox", dp) is TextBox tb)
             {
-                // Filtramos la memoria: buscamos qué códigos están "amarrados" a este documento/registro
-                var codigosDelMovimiento = _todosLosCodigos
-                    .Where(c => c.NumeroRegistro == movimientoSeleccionado.NumeroRegistro)
-                    .ToList();
-
-                // Llenamos la tabla derecha solo con esa pequeña fracción
-                CodigosDataGrid.ItemsSource = codigosDelMovimiento;
-
-                // Refrescamos la píldora informativa
-                TxtTotalCodigos.Text = $"Se auditaron {codigosDelMovimiento.Count} Códigos Físicos en esta operación";
+                tb.MaxLength = 10;
+                tb.TextChanged += (s, ev) => {
+                    if (_isFormattingDate || ev.Changes.Any(c => c.RemovedLength > 0)) return;
+                    _isFormattingDate = true;
+                    string n = new string(tb.Text.Where(char.IsDigit).ToArray());
+                    if (n.Length >= 2 && n.Length < 4) tb.Text = n.Insert(2, "/");
+                    else if (n.Length >= 4) tb.Text = n.Insert(2, "/").Insert(5, "/");
+                    tb.CaretIndex = tb.Text.Length;
+                    _isFormattingDate = false;
+                };
             }
         }
     }

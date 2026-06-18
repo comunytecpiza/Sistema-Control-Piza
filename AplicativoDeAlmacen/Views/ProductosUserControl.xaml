@@ -200,7 +200,11 @@
                             <TextBlock Text="⚙️ Configuración" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,10"/>
 
                             <TextBlock Text="Estado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <ComboBox x:Name="CmbEstado" Width="180" HorizontalAlignment="Left"/>
+
+                            <TextBox Text="Activo" Width="180" HorizontalAlignment="Left" IsReadOnly="True" 
+                                     Background="#E5E7EB" Foreground="#6B7280" FontWeight="Bold" Cursor="No"/>
+
+                            <ComboBox x:Name="CmbEstado" Visibility="Collapsed"/>
                         </StackPanel>
                     </Grid>
                     <Border Height="1" Background="#E5E7EB" Margin="0,20,0,20"/>

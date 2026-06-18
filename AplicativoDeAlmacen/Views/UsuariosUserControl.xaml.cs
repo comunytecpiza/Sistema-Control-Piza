@@ -18,6 +18,7 @@ namespace AplicativoDeAlmacen.Views
 
             // Inicialización Asíncrona Controlada
             InicializarComponentesNegocio();
+            EventBus.OnUsuariosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => CargarUsuarios(""));
         }
 
         private async void InicializarComponentesNegocio()
@@ -120,6 +121,7 @@ namespace AplicativoDeAlmacen.Views
 
                 CargarUsuarios();
                 BtnNuevo_Click(null, null); // Limpieza de campos post-transacción
+                EventBus.NotificarUsuariosChanged();
             }
             catch (Exception ex)
             {

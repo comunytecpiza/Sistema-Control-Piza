@@ -17,6 +17,7 @@ namespace AplicativoDeAlmacen.Views
 
         public ProductosUserControl()
         {
+            EventBus.OnProductosChanged += () => Application.Current.Dispatcher.InvokeAsync(CargarProductosAsync);
             InitializeComponent();
             _productoService = new ProductoService();
             _ = InicializarPantallaAsync();
@@ -73,7 +74,7 @@ namespace AplicativoDeAlmacen.Views
                     TituloCursoId = ChkTitulo.IsChecked == true && CmbTitulo.IsEnabled ? (int?)CmbTitulo.SelectedValue : null,
 
                     AfectacionIgvId = (int?)CmbAfectacionIgv.SelectedValue,
-                    EstadoId = (int?)CmbEstado.SelectedValue
+                    EstadoId = 1
                 };
 
                 if (productoActual == null)
@@ -89,6 +90,7 @@ namespace AplicativoDeAlmacen.Views
 
                 ProductoModal.Visibility = Visibility.Collapsed;
                 await CargarProductosAsync();
+                EventBus.NotificarProductosChanged();
             }
             catch (Exception ex)
             {
@@ -106,6 +108,7 @@ namespace AplicativoDeAlmacen.Views
                     {
                         await _productoService.EliminarAsync(productoAEliminar.Id);
                         await CargarProductosAsync();
+                        EventBus.NotificarProductosChanged();
                     }
                     catch (Exception ex)
                     {
@@ -138,6 +141,7 @@ namespace AplicativoDeAlmacen.Views
                 productoActual = seleccionado;
                 ModalTitle.Text = "Editar Producto";
                 await CargarDatosProductoEnUI(productoActual);
+                EventBus.NotificarProductosChanged();
                 ProductoModal.Visibility = Visibility.Visible;
             }
             else
@@ -397,11 +401,70 @@ namespace AplicativoDeAlmacen.Views
 
         private bool ValidarCampos()
         {
+            // 1. Textos Obligatorios
             if (string.IsNullOrWhiteSpace(TxtDescripcion.Text))
             {
-                MessageBox.Show("La descripción es obligatoria.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("La descripción del producto es obligatoria.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtDescripcion.Focus();
                 return false;
             }
+
+            if (string.IsNullOrWhiteSpace(TxtAbreviatura.Text))
+            {
+                MessageBox.Show("La abreviatura es obligatoria para poder generar los códigos en el sistema.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtAbreviatura.Focus();
+                return false;
+            }
+
+            // 2. Combos Maestros Obligatorios
+            if (CmbUnidadMedida.SelectedValue == null)
+            {
+                MessageBox.Show("Debe seleccionar una Unidad de Medida (Ej. Unidad, Docena, Paquete).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                CmbUnidadMedida.Focus();
+                return false;
+            }
+
+            if (CmbTipoProducto.SelectedValue == null)
+            {
+                MessageBox.Show("Debe clasificar el producto seleccionando un Tipo de Producto.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                CmbTipoProducto.Focus();
+                return false;
+            }
+
+            // 3. Contabilidad
+            if (CmbAfectacionIgv.SelectedValue == null)
+            {
+                MessageBox.Show("Debe seleccionar el tipo de Afectación IGV para la facturación.", "Validación Contable", MessageBoxButton.OK, MessageBoxImage.Warning);
+                CmbAfectacionIgv.Focus();
+                return false;
+            }
+
+            // 4. Validaciones Numéricas Seguras (Precios y Porcentajes)
+            if (!string.IsNullOrWhiteSpace(TxtPrecioUnitario.Text) && !decimal.TryParse(TxtPrecioUnitario.Text, out _))
+            {
+                MessageBox.Show("El Precio Unitario ingresado no tiene un formato numérico válido.", "Validación Numérica", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtPrecioUnitario.Focus();
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(TxtPorcentaje.Text) && !decimal.TryParse(TxtPorcentaje.Text, out _))
+            {
+                MessageBox.Show("El Porcentaje ingresado no tiene un formato numérico válido.", "Validación Numérica", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtPorcentaje.Focus();
+                return false;
+            }
+
+            // 5. Validación Lógica Condicional Académica
+            if (CmbNivel.SelectedValue != null && CmbNivel.SelectedValue is int nivelId && nivelId > 0)
+            {
+                if (CmbGrado.SelectedValue == null || (CmbGrado.SelectedValue is int gradoId && gradoId == 0))
+                {
+                    MessageBox.Show("Si ha seleccionado un Nivel Académico, debe especificar obligatoriamente el Grado.", "Validación Académica", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    CmbGrado.Focus();
+                    return false;
+                }
+            }
+
             return true;
         }
     }

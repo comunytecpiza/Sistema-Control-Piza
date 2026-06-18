@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Text;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
@@ -61,7 +62,10 @@ namespace AplicativoDeAlmacen.Services
                 string query = @"SELECT p.id, p.descripcion, p.abreviatura, um.descripcion AS unidad_medida 
                                  FROM productos p 
                                  INNER JOIN unidad_medida um ON p.unidad_medida_id = um.id 
-                                 WHERE p.descripcion IS NOT NULL AND p.abreviatura IS NOT NULL";
+                                 INNER JOIN tipo_producto tp ON p.tipo_producto_id = tp.id
+                                 WHERE p.descripcion IS NOT NULL 
+                                   AND p.abreviatura IS NOT NULL
+                                   AND (tp.nombre LIKE '%Texto Escolar%' OR tp.nombre LIKE '%Plan Lector%')";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -115,7 +119,6 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 LA MAGIA: Hacemos un SELECT COUNT() dinámico para que la cantidad SIEMPRE sea exacta
                 string query = @"SELECT rc.id, 
                                         (SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id) AS cantidad_real, 
                                         rc.desde, rc.hasta, p.descripcion AS producto_desc, 
@@ -140,7 +143,6 @@ namespace AplicativoDeAlmacen.Services
                             lista.Add(new RegistroCodigo
                             {
                                 Id = reader.GetInt32(0),
-                                // Usamos Convert.ToInt32 porque COUNT en MySQL devuelve un BigInt y en SQLServer un Int
                                 Cantidad = Convert.ToInt32(reader.GetValue(1)),
                                 Desde = reader["desde"] as string,
                                 Hasta = reader["hasta"] as string,
@@ -200,6 +202,47 @@ namespace AplicativoDeAlmacen.Services
                 {
                     try
                     {
+                        // =========================================================================
+                        // 🛡️ ESCUDO ANTI-COLISIONES (Para múltiples sedes simultáneas)
+                        // =========================================================================
+                        int lastDashIndex = desde.LastIndexOf('-');
+                        int desdeInt = int.Parse(desde.Substring(lastDashIndex + 1));
+                        string prefijo = desde.Substring(0, lastDashIndex + 1);
+
+                        string lenFunc = QueryAdapter.EsMySQL ? "LENGTH" : "LEN";
+                        string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
+
+                        // Si es SQL Server, usa WITH (UPDLOCK, HOLDLOCK). Si es MySQL, usa FOR UPDATE.
+                        string bloqueoSQLServer = QueryAdapter.EsMySQL ? "" : "WITH (UPDLOCK, HOLDLOCK)";
+                        string bloqueoMySQL = QueryAdapter.EsMySQL ? "FOR UPDATE" : "";
+
+                        string queryVerif = $@"
+                            SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@pref) + 1, {lenFunc}(codigo)) AS {castType}))
+                            FROM codigos_creados cc {bloqueoSQLServer}
+                            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                            WHERE rc.producto_id = @pId AND rc.categoria_producto_id = @catId
+                            {bloqueoMySQL}";
+
+                        using (var cmdVerif = dbConn.CreateCommand())
+                        {
+                            cmdVerif.Transaction = transaction;
+                            cmdVerif.CommandText = QueryAdapter.FormatearConsulta(queryVerif);
+                            AgregarParametro(cmdVerif, "@pref", prefijo);
+                            AgregarParametro(cmdVerif, "@pId", productoId);
+                            AgregarParametro(cmdVerif, "@catId", categoriaId);
+
+                            object resultVerif = await cmdVerif.ExecuteScalarAsync();
+                            int maxActual = (resultVerif != DBNull.Value && resultVerif != null) ? Convert.ToInt32(resultVerif) : 0;
+
+                            if (maxActual >= desdeInt)
+                            {
+                                throw new Exception($"¡Colisión detectada!\n\nOtro operador en otra sede acaba de registrar códigos para este producto.\n\nEl sistema intentaba registrar desde el código {desdeInt}, pero la base de datos ya va en el {maxActual}.\n\nPor favor, cancele esta ventana y vuelva a seleccionar el producto para obtener el rango actualizado.");
+                            }
+                        }
+
+                        // =========================================================================
+                        // 1. GUARDAR REGISTRO MAESTRO
+                        // =========================================================================
                         string queryRegistro = "INSERT INTO registro_codigos (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id) VALUES (@cId, @pId, @cant, @des, @has, @catId);";
                         string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
@@ -218,29 +261,32 @@ namespace AplicativoDeAlmacen.Services
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        int lastDashIndex = desde.LastIndexOf('-');
-                        int desdeInt = int.Parse(desde.Substring(lastDashIndex + 1));
-                        string prefijo = desde.Substring(0, lastDashIndex + 1);
-
-                        string queryCodigos = "INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES (@regId, @cod, 1)";
-
-                        using (var cmd = dbConn.CreateCommand())
+                        // =========================================================================
+                        // 2. INSERCIÓN EN BLOQUE (BULK INSERT) PARA LA NUBE
+                        // =========================================================================
+                        int batchSize = 500;
+                        for (int i = 0; i < cantidad; i += batchSize)
                         {
-                            cmd.Transaction = transaction;
-                            cmd.CommandText = QueryAdapter.FormatearConsulta(queryCodigos);
+                            int currentBatch = Math.Min(batchSize, cantidad - i);
+                            System.Text.StringBuilder queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES ");
 
-                            var pRegId = cmd.CreateParameter();
-                            pRegId.ParameterName = "@regId";
-                            cmd.Parameters.Add(pRegId);
-
-                            var pCod = cmd.CreateParameter();
-                            pCod.ParameterName = "@cod";
-                            cmd.Parameters.Add(pCod);
-
-                            for (int i = 0; i < cantidad; i++)
+                            using (var cmd = dbConn.CreateCommand())
                             {
-                                pRegId.Value = registroId;
-                                pCod.Value = $"{prefijo}{(desdeInt + i):D7}";
+                                cmd.Transaction = transaction;
+
+                                for (int j = 0; j < currentBatch; j++)
+                                {
+                                    int idx = i + j;
+                                    string paramCod = $"@cod{idx}";
+                                    string codigoGenerado = $"{prefijo}{(desdeInt + idx):D7}";
+
+                                    queryBuilder.Append($"({registroId}, {paramCod}, 1)");
+                                    if (j < currentBatch - 1) queryBuilder.Append(", ");
+
+                                    AgregarParametro(cmd, paramCod, codigoGenerado);
+                                }
+
+                                cmd.CommandText = QueryAdapter.FormatearConsulta(queryBuilder.ToString());
                                 await cmd.ExecuteNonQueryAsync();
                             }
                         }
