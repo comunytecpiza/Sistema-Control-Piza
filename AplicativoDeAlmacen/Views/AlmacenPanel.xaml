@@ -137,13 +137,26 @@
                             <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.1"/>
                         </Border.Effect>
                         <StackPanel>
-                            <TextBlock Text="⚠️ Productos con Stock Crítico" FontSize="20" FontWeight="Bold" Foreground="#DC2626" Margin="0,0,0,15"/>
+                            <TextBlock Text="⚠️ Alertas de Stock (100 unds o menos)" FontSize="20" FontWeight="Bold" Foreground="#DC2626" Margin="0,0,0,15"/>
 
                             <ScrollViewer Height="450" VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
                                 <ItemsControl x:Name="DgStockCritico">
+
+                                    <ItemsControl.GroupStyle>
+                                        <GroupStyle>
+                                            <GroupStyle.HeaderTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#1E293B" CornerRadius="6" Padding="10,5" Margin="0,15,0,10">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="White" FontSize="14"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </GroupStyle.HeaderTemplate>
+                                        </GroupStyle>
+                                    </ItemsControl.GroupStyle>
+
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Background="#F9FAFB" CornerRadius="10" Padding="15" Margin="0,0,0,12" BorderBrush="#F3F4F6" BorderThickness="1">
+                                            <Border Background="#F9FAFB" CornerRadius="10" Padding="15" Margin="0,0,0,8" BorderBrush="#F3F4F6" BorderThickness="1">
                                                 <StackPanel>
                                                     <Grid Margin="0,0,0,8">
                                                         <TextBlock Text="{Binding Descripcion}" FontWeight="Bold" Foreground="#1F2937" FontSize="14" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" Margin="0,0,60,0"/>
@@ -152,10 +165,9 @@
                                                             <TextBlock Text=" unds" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Bottom" Margin="2,0,0,2"/>
                                                         </StackPanel>
                                                     </Grid>
-
                                                     <Grid Height="8" Margin="0,5,0,0">
                                                         <Border Background="#E5E7EB" CornerRadius="4"/>
-                                                        <ProgressBar Value="{Binding StockActual}" Maximum="10" Minimum="0" Background="Transparent" Foreground="#EF4444" BorderThickness="0">
+                                                        <ProgressBar Value="{Binding StockActual}" Maximum="100" Minimum="0" Background="Transparent" Foreground="#EF4444" BorderThickness="0">
                                                             <ProgressBar.Template>
                                                                 <ControlTemplate TargetType="ProgressBar">
                                                                     <Border x:Name="PART_Track" Background="Transparent" CornerRadius="4">
@@ -181,15 +193,17 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <TextBlock Grid.Row="0" Text="📌 Mis Pendientes" FontSize="20" FontWeight="Bold" Foreground="#92400E" Margin="0,0,0,15"/>
+                            <TextBlock Grid.Row="0" Text="📌 Mi Pizarra" FontSize="20" FontWeight="Bold" Foreground="#92400E" Margin="0,0,0,15"/>
 
                             <Border Grid.Row="1" Background="White" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="6" Margin="0,0,0,10">
-                                <TextBox x:Name="TxtNuevaNota" Height="70" TextWrapping="Wrap" FontSize="14" VerticalContentAlignment="Top" Padding="8" BorderThickness="0" Background="Transparent"/>
+                                <TextBox x:Name="TxtNuevaNota" FontFamily="Segoe UI, Segoe UI Emoji" Height="60" TextWrapping="Wrap" FontSize="14" VerticalContentAlignment="Top" Padding="8" BorderThickness="0" Background="Transparent"/>
                             </Border>
 
-                            <Button Grid.Row="2" Content="Agregar Tarea" Click="BtnAgregarNota_Click" Background="#D97706" Foreground="White" Height="35" FontWeight="Bold" BorderThickness="0" Cursor="Hand">
+                            <Button Grid.Row="2" Content="Agregar Tarea" Click="BtnAgregarNota_Click" Background="#D97706" Foreground="White" Height="35" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Margin="0,0,0,15">
                                 <Button.Resources>
                                     <Style TargetType="Border">
                                         <Setter Property="CornerRadius" Value="6"/>
@@ -197,7 +211,8 @@
                                 </Button.Resources>
                             </Button>
 
-                            <ListBox Grid.Row="3" x:Name="LbNotas" Background="Transparent" BorderThickness="0" Margin="0,15,0,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <TextBlock Grid.Row="3" Text="⏳ Pendientes:" Foreground="#92400E" FontWeight="Bold" Margin="0,0,0,5" VerticalAlignment="Top"/>
+                            <ListBox Grid.Row="3" x:Name="LbNotasPendientes" Background="Transparent" BorderThickness="0" Margin="0,25,0,10" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListBox.ItemContainerStyle>
                                     <Style TargetType="ListBoxItem">
                                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -213,35 +228,53 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Background="White" CornerRadius="8" Padding="12,10" BorderBrush="#FDE68A" BorderThickness="1">
+                                        <Border Background="White" CornerRadius="8" Padding="12,10" BorderBrush="#FCD34D" BorderThickness="1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsCompleted}" Margin="0,0,10,0" VerticalAlignment="Center" Checked="CheckBox_CambioEstado" Cursor="Hand"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Texto}" FontFamily="Segoe UI, Segoe UI Emoji" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="14" Foreground="#4B5563"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <TextBlock Grid.Row="4" Text="✅ Completadas:" Foreground="#065F46" FontWeight="Bold" Margin="0,10,0,5"/>
+                            <ListBox Grid.Row="5" x:Name="LbNotasCompletadas" Background="Transparent" BorderThickness="0" Margin="0,0,0,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                        <Setter Property="Margin" Value="0,0,0,8"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#F3F4F6" CornerRadius="8" Padding="12,10" BorderBrush="#D1D5DB" BorderThickness="1" Opacity="0.7">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto"/>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-
-                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsCompleted}" Margin="0,0,10,0" VerticalAlignment="Center" Checked="CheckBox_CambioEstado" Unchecked="CheckBox_CambioEstado" Cursor="Hand"/>
-
-                                                <TextBlock Grid.Column="1" Text="{Binding Texto}" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="14" Foreground="#4B5563">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsCompleted}" Value="True">
-                                                                    <Setter Property="TextDecorations" Value="Strikethrough"/>
-                                                                    <Setter Property="Foreground" Value="#9CA3AF"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-
-                                                <Button Grid.Column="2" Content="🗑️" Background="Transparent" BorderThickness="0" Foreground="#EF4444" FontSize="16" Cursor="Hand" VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnEliminarNota_Click" Tag="{Binding}"/>
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsCompleted}" Margin="0,0,10,0" VerticalAlignment="Center" Unchecked="CheckBox_CambioEstado" Cursor="Hand"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Texto}" FontFamily="Segoe UI, Segoe UI Emoji" TextDecorations="Strikethrough" TextWrapping="Wrap" VerticalAlignment="Center" FontSize="14" Foreground="#9CA3AF"/>
+                                                <Button Grid.Column="2" Content="🗑️" Background="Transparent" BorderThickness="0" Foreground="#EF4444" FontSize="14" Cursor="Hand" VerticalAlignment="Center" Margin="10,0,0,0" Click="BtnEliminarNota_Click" Tag="{Binding}"/>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+
                         </Grid>
                     </Border>
                 </Grid>

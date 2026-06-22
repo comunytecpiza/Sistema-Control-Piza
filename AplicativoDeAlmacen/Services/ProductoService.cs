@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common; // Usamos Common para soporte Multi-Motor, adi�s a SqlClient
+using System.Data.Common; // Usamos Common para soporte Multi-Motor, adiós a SqlClient
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
@@ -20,7 +20,7 @@ namespace AplicativoDeAlmacen.Services
         }
 
         // =======================================================
-        // FUNCI�N AYUDANTE MULTI-MOTOR
+        // FUNCIÓN AYUDANTE MULTI-MOTOR
         // =======================================================
         private void AgregarParametro(DbCommand cmd, string nombre, object valor)
         {
@@ -175,7 +175,7 @@ namespace AplicativoDeAlmacen.Services
         }
 
         // =======================================================
-        // CAT�LOGOS AUXILIARES
+        // CATÁLOGOS AUXILIARES
         // =======================================================
         public async Task<List<UnidadMedida>> ObtenerUnidadesMedidaAsync()
         {
@@ -407,16 +407,23 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
+                // 🌟 CORRECCIÓN MULTI-MOTOR: 
+                // 1. Usamos ISNULL para que tu QueryAdapter lo traduzca a IFNULL en MySQL.
+                // 2. Ordenamos por GradoNombre para que el Dashboard lo agrupe bonito.
                 string query = @"
-                SELECT Descripcion, StockActual 
-                FROM (
-                    SELECT p.descripcion AS Descripcion, 
-                           (COALESCE(ing.total, 0) - COALESCE(sal.total, 0)) AS StockActual
-                    FROM productos p
-                    LEFT JOIN (SELECT producto_id, SUM(cantidad_ingreso) as total FROM movimiento_detalles GROUP BY producto_id) ing ON p.id = ing.producto_id
-                    LEFT JOIN (SELECT producto_id, SUM(cantidad_salida) as total FROM movimiento_detalles GROUP BY producto_id) sal ON p.id = sal.producto_id
-                ) AS Resultado
-                WHERE StockActual <= 50";
+        SELECT Descripcion, StockActual, TipoProductoId, GradoNombre
+        FROM (
+            SELECT p.descripcion AS Descripcion, 
+                   (ISNULL(ing.total, 0) - ISNULL(sal.total, 0)) AS StockActual,
+                   p.tipo_producto_id AS TipoProductoId,
+                   ISNULL(g.nombre, 'Sin Grado') AS GradoNombre
+            FROM productos p
+            LEFT JOIN (SELECT producto_id, SUM(cantidad_ingreso) as total FROM movimiento_detalles GROUP BY producto_id) ing ON p.id = ing.producto_id
+            LEFT JOIN (SELECT producto_id, SUM(cantidad_salida) as total FROM movimiento_detalles GROUP BY producto_id) sal ON p.id = sal.producto_id
+            LEFT JOIN grados g ON p.grado_id = g.id
+        ) AS Resultado
+        WHERE StockActual <= 100
+        ORDER BY GradoNombre ASC, Descripcion ASC";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -428,11 +435,18 @@ namespace AplicativoDeAlmacen.Services
                         {
                             int ordDesc = reader.GetOrdinal("Descripcion");
                             int ordStock = reader.GetOrdinal("StockActual");
+                            int ordTipo = reader.GetOrdinal("TipoProductoId");
+                            int ordGrado = reader.GetOrdinal("GradoNombre");
 
                             lista.Add(new ProductoStock
                             {
-                                Descripcion = reader.GetString(ordDesc),
-                                StockActual = Convert.ToInt32(reader.GetDecimal(ordStock))
+                                Descripcion = reader.IsDBNull(ordDesc) ? "Sin Descripción" : reader.GetString(ordDesc),
+
+                                // 🌟 PROTECCIÓN MULTI-MOTOR: GetValue() evita el crash si MySQL devuelve Double y SQLServer devuelve Decimal
+                                StockActual = reader.IsDBNull(ordStock) ? 0 : Convert.ToInt32(reader.GetValue(ordStock)),
+
+                                TipoProductoId = reader.IsDBNull(ordTipo) ? 0 : Convert.ToInt32(reader.GetValue(ordTipo)),
+                                GradoNombre = reader.IsDBNull(ordGrado) ? "Sin Grado" : reader.GetString(ordGrado)
                             });
                         }
                     }
@@ -469,7 +483,7 @@ namespace AplicativoDeAlmacen.Services
                         // 3. Pasamos por el formateador de consultas
                         cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-                        // 4. Usamos nuestro helper para par�metros
+                        // 4. Usamos nuestro helper para parámetros
                         AgregarParametro(cmd, "@Texto", "%" + texto + "%");
 
                         using (var reader = cmd.ExecuteReader())

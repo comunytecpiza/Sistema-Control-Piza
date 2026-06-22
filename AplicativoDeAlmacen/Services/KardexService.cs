@@ -287,5 +287,50 @@ namespace AplicativoDeAlmacen.Services
 
             return reporte;
         }
+
+        // =========================================================
+        // LISTAS PARA AUTOCOMPLETADO (Filtros RAM)
+        // =========================================================
+        public async Task<List<string>> ObtenerRazonesSocialesAsync()
+        {
+            var lista = new List<string>();
+            using (IDbConnection conn = _database.GetConnection())
+            {
+                await ((DbConnection)conn).OpenAsync();
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT DISTINCT razon_social FROM personas_comerciales WHERE razon_social IS NOT NULL";
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            lista.Add(reader.GetString(0));
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
+
+        public async Task<List<string>> ObtenerUbicacionesAsync()
+        {
+            var lista = new List<string>();
+            using (IDbConnection conn = _database.GetConnection())
+            {
+                await ((DbConnection)conn).OpenAsync();
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT DISTINCT descripcion FROM ubicaciones WHERE descripcion IS NOT NULL";
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            lista.Add(reader.GetString(0));
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
     }
 }

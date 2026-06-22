@@ -14,17 +14,27 @@ namespace AplicativoDeAlmacen.Views
     {
         private readonly KardexService _kardexService;
         private readonly ProductoService _productoService;
+
+        // Servicios reales que me pasaste
+        private readonly PersonaComercialService _personaService;
+        private readonly UbicacionService _ubicacionService;
+
         private int _productoSeleccionadoId;
         private bool _estaSeleccionando;
+        private bool _isUpdatingFromSelection = false;
         private bool _isCargando = false;
 
         private List<ConsultaCodigoItem> _todosLosCodigos;
+        private List<Producto> _todosLosProductos = new List<Producto>();
 
         public ConsultaMovimientosUserControl()
         {
             InitializeComponent();
             _kardexService = new KardexService();
             _productoService = new ProductoService();
+            _personaService = new PersonaComercialService();
+            _ubicacionService = new UbicacionService();
+
             _todosLosCodigos = new List<ConsultaCodigoItem>();
 
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
@@ -33,63 +43,82 @@ namespace AplicativoDeAlmacen.Views
             Loaded += Control_Loaded;
         }
 
-        private void Control_Loaded(object sender, RoutedEventArgs e)
+        private async void Control_Loaded(object sender, RoutedEventArgs e)
         {
-            var txt = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
-            if (txt != null) txt.TextChanged += TxtProducto_TextChanged;
+            try
+            {
+                // Cargar RAM solo para Productos (es más rápido así para el maestro)
+                var dbProductos = await _productoService.ObtenerTodosAsync();
+                _todosLosProductos = dbProductos.ToList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al cargar los catálogos base: " + ex.Message);
+            }
+
+            var txtProd = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
+            if (txtProd != null) txtProd.TextChanged += TxtProducto_TextChanged;
 
             ConfigurarMascaraFecha(DpDesde);
             ConfigurarMascaraFecha(DpHasta);
 
-            // Vinculamos Enter a los filtros
             CboProductos.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
+            TxtRazonSocial.PreviewKeyDown += Filtros_PreviewKeyDown;
+            TxtUbicacion.PreviewKeyDown += Filtros_PreviewKeyDown;
         }
-
-        // --- MÉTODOS QUE FALTABAN PARA CORREGIR ERRORES CS1061 ---
 
         private void ChkFiltros_Click(object sender, RoutedEventArgs e)
         {
-            // Lógica para habilitar/deshabilitar los campos de texto según el checkbox
-            if (TxtRazonSocial != null) TxtRazonSocial.IsEnabled = ChkRazonSocial.IsChecked == true;
-            if (TxtUbicacion != null) TxtUbicacion.IsEnabled = ChkUbicacion.IsChecked == true;
-        }
+            TxtRazonSocial.IsEnabled = ChkRazonSocial.IsChecked == true;
+            if (ChkRazonSocial.IsChecked == false) TxtRazonSocial.Text = string.Empty;
 
-        private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
-            {
-                // Filtramos los códigos de la memoria secreta
-                var codigos = _todosLosCodigos.Where(c => c.NumeroRegistro == movimiento.NumeroRegistro).ToList();
-                CodigosDataGrid.ItemsSource = codigos;
-                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos en esta operación";
-            }
+            TxtUbicacion.IsEnabled = ChkUbicacion.IsChecked == true;
+            if (ChkUbicacion.IsChecked == false) TxtUbicacion.Text = string.Empty;
         }
 
         private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
             {
+                if (CboProductos.IsDropDownOpen || PopupRazonSocial.IsOpen || PopupUbicacion.IsOpen) return;
                 e.Handled = true;
-                // Llamamos a ejecutar pasando null, ya que nuestro BtnEjecutar_Click maneja el null con 'sender as Button'
                 BtnEjecutar_Click(BtnEjecutar, null);
             }
         }
 
-        private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
+        // ====================================================================
+        // BÚSQUEDA DE PRODUCTOS (Se mantiene en RAM)
+        // ====================================================================
+        private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (_estaSeleccionando) return;
-            try
-            {
-                string texto = ((TextBox)sender).Text;
-                if (string.IsNullOrWhiteSpace(texto)) { CboProductos.ItemsSource = null; _productoSeleccionadoId = 0; return; }
+            var textBox = sender as TextBox;
+            if (textBox == null) return;
 
-                var productos = await _productoService.BuscarProductos(texto);
-                CboProductos.ItemsSource = productos;
-                CboProductos.IsDropDownOpen = productos != null && productos.Count > 0;
+            string searchText = textBox.Text;
+            if (string.IsNullOrWhiteSpace(searchText))
+            {
+                CboProductos.IsDropDownOpen = false;
+                CboProductos.ItemsSource = null;
+                _productoSeleccionadoId = 0;
+                return;
             }
-            catch { }
+
+            _estaSeleccionando = true;
+            int cursorPosition = textBox.CaretIndex;
+
+            var filtrados = _todosLosProductos
+                .Where(p => p.Descripcion != null && p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                .Take(5).ToList();
+
+            CboProductos.ItemsSource = filtrados;
+            CboProductos.IsDropDownOpen = filtrados.Any();
+
+            textBox.Text = searchText;
+            textBox.CaretIndex = cursorPosition;
+            _estaSeleccionando = false;
         }
 
         private void CboProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -98,22 +127,136 @@ namespace AplicativoDeAlmacen.Views
             {
                 _estaSeleccionando = true;
                 _productoSeleccionadoId = producto.Id;
-                CboProductos.Text = producto.Descripcion;
+
+                var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
+                if (textBox != null)
+                {
+                    textBox.Text = producto.Descripcion;
+                    textBox.CaretIndex = textBox.Text.Length;
+                }
                 CboProductos.IsDropDownOpen = false;
                 _estaSeleccionando = false;
             }
         }
 
+        // ====================================================================
+        // MAGIA DEL COMPAÑERO: RAZÓN SOCIAL (Con PersonaComercialService)
+        // ====================================================================
+        private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!TxtRazonSocial.IsEnabled || _isUpdatingFromSelection) return;
+
+            string textoBusqueda = TxtRazonSocial.Text.Trim();
+
+            if (textoBusqueda.Length >= 2)
+            {
+                try
+                {
+                    // Usa el método async que tienes en tu PersonaComercialService
+                    var sugerencias = await _personaService.BuscarPorRazonSocialAsync(textoBusqueda);
+                    if (sugerencias != null && sugerencias.Count > 0)
+                    {
+                        LstRazonSocial.ItemsSource = sugerencias;
+                        PopupRazonSocial.IsOpen = true;
+                    }
+                    else
+                    {
+                        PopupRazonSocial.IsOpen = false;
+                    }
+                }
+                catch { PopupRazonSocial.IsOpen = false; }
+            }
+            else
+            {
+                PopupRazonSocial.IsOpen = false;
+            }
+        }
+
+        private void LstRazonSocial_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (LstRazonSocial.SelectedItem is PersonaComercial personaSeleccionada)
+            {
+                _isUpdatingFromSelection = true;
+
+                // Asignamos el texto al TextBox y cerramos el popup
+                TxtRazonSocial.Text = !string.IsNullOrEmpty(personaSeleccionada.RazonSocial)
+                                        ? personaSeleccionada.RazonSocial
+                                        : $"{personaSeleccionada.Nombres} {personaSeleccionada.ApellidoPaterno}";
+
+                PopupRazonSocial.IsOpen = false;
+                LstRazonSocial.SelectedIndex = -1;
+
+                _isUpdatingFromSelection = false;
+            }
+        }
+
+        // ====================================================================
+        // MAGIA DEL COMPAÑERO: UBICACIÓN (Con UbicacionService)
+        // ====================================================================
+        private async void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!TxtUbicacion.IsEnabled || _isUpdatingFromSelection) return;
+
+            string textoBusqueda = TxtUbicacion.Text.Trim();
+
+            if (textoBusqueda.Length >= 2)
+            {
+                try
+                {
+                    // 🌟 SOLUCIÓN: Usamos el método síncrono que tienes, pero sin congelar la UI
+                    var sugerencias = await Task.Run(() => _ubicacionService.BuscarUbicaciones(textoBusqueda));
+
+                    if (sugerencias != null && sugerencias.Count > 0)
+                    {
+                        LstUbicacion.ItemsSource = sugerencias;
+                        PopupUbicacion.IsOpen = true;
+                    }
+                    else
+                    {
+                        PopupUbicacion.IsOpen = false;
+                    }
+                }
+                catch { PopupUbicacion.IsOpen = false; }
+            }
+            else
+            {
+                PopupUbicacion.IsOpen = false;
+            }
+        }
+
+        private void LstUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (LstUbicacion.SelectedItem is Ubicacion ubiSeleccionada)
+            {
+                _isUpdatingFromSelection = true;
+
+                TxtUbicacion.Text = ubiSeleccionada.Descripcion;
+
+                PopupUbicacion.IsOpen = false;
+                LstUbicacion.SelectedIndex = -1;
+
+                _isUpdatingFromSelection = false;
+            }
+        }
+
+        // ====================================================================
+        // EJECUCIÓN DINÁMICA
+        // ====================================================================
+        private void RbFiltro_Click(object sender, RoutedEventArgs e)
+        {
+            if (_productoSeleccionadoId != 0 && this.IsLoaded) BtnEjecutar_Click(BtnEjecutar, null);
+        }
+
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
             if (_isCargando) return;
-            if (_productoSeleccionadoId == 0) { MessageBox.Show("Seleccione un producto."); return; }
+            if (_productoSeleccionadoId == 0) { MessageBox.Show("Seleccione un producto maestro para auditar.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
 
             Button btn = sender as Button;
             string txtOriginal = btn?.Content?.ToString() ?? "Ejecutar";
 
             _isCargando = true;
-            if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Cargando..."; }
+            if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Consultando..."; }
             Mouse.OverrideCursor = Cursors.Wait;
 
             try
@@ -124,23 +267,42 @@ namespace AplicativoDeAlmacen.Views
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(_productoSeleccionadoId, desde, hasta);
                 var movimientos = reporte.Movimientos.AsEnumerable();
 
+                // 🌟 Leemos el texto de los TextBoxes de autocompletado
                 if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
                     movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtRazonSocial.Text.ToLower()));
 
-                // RadioButtons (Asegúrate de que RbGuia y RbVenta existan en el XAML)
-                if (RbGuia != null && RbGuia.IsChecked == true) movimientos = movimientos.Where(m => m.NumeroRegistro.Contains("-"));
-                else if (RbVenta != null && RbVenta.IsChecked == true) movimientos = movimientos.Where(m => !m.NumeroRegistro.Contains("-"));
+                if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text))
+                    movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtUbicacion.Text.ToLower()));
 
-                MovimientosDataGrid.ItemsSource = movimientos.ToList();
+                if (RbGuia != null && RbGuia.IsChecked == true) movimientos = movimientos.Where(m => m.NumeroRegistro.Contains("-") || string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
+                else if (RbVenta != null && RbVenta.IsChecked == true) movimientos = movimientos.Where(m => !m.NumeroRegistro.Contains("-") && !string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
+
+                var listaFinal = movimientos.ToList();
+                MovimientosDataGrid.ItemsSource = listaFinal;
+
+                TxtTotalIngreso.Text = listaFinal.Sum(m => m.Ingreso).ToString("N2");
+                TxtTotalSalida.Text = listaFinal.Sum(m => m.Salida).ToString("N2");
+
                 _todosLosCodigos = reporte.Codigos;
                 CodigosDataGrid.ItemsSource = null;
+                TxtTotalCodigos.Text = "Seleccione un movimiento para auditar códigos";
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message); }
+            catch (Exception ex) { MessageBox.Show("Error al ejecutar auditoría: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
             finally
             {
                 _isCargando = false;
                 Mouse.OverrideCursor = null;
                 if (btn != null) { btn.IsEnabled = true; btn.Content = txtOriginal; }
+            }
+        }
+
+        private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
+            {
+                var codigos = _todosLosCodigos.Where(c => c.NumeroRegistro == movimiento.NumeroRegistro).ToList();
+                CodigosDataGrid.ItemsSource = codigos;
+                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos en esta operación";
             }
         }
 

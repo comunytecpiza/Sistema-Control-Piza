@@ -39,7 +39,8 @@ namespace AplicativoDeAlmacen.Views
     public partial class AlmacenPanel : Window, IMainWindow
     {
         // Variables globales para tus notas
-        private ObservableCollection<NotaItem> _misNotas;
+        private ObservableCollection<NotaItem> _notasPendientes = new ObservableCollection<NotaItem>();
+        private ObservableCollection<NotaItem> _notasCompletadas = new ObservableCollection<NotaItem>();
         private string _rutaArchivoNotas;
 
         private readonly ProductoService _productoService;
@@ -56,38 +57,66 @@ namespace AplicativoDeAlmacen.Views
             // Cargar notas desde el almacenamiento local
             CargarNotas();
 
+            // Primera carga del panel
             _ = CargarPanelPrincipal();
+
+            // ====================================================================
+            // 🌟 REACTIVIDAD DEL DASHBOARD: Escuchar al EventBus
+            // ====================================================================
+
+            // Cuando haya un nuevo movimiento (Ingreso/Salida), recargamos el Stock Crítico
+            EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(async () => {
+                await CargarPanelPrincipal();
+            });
+
+            // Si se crea o edita un producto, también actualizamos el panel
+            EventBus.OnProductosChanged += () => Application.Current.Dispatcher.InvokeAsync(async () => {
+                await CargarPanelPrincipal();
+            });
+
+            // Opcional: Si quieres que también se actualice al cambiar de pestaña hacia el "Inicio"
+            MainTabControl.SelectionChanged += async (s, e) =>
+            {
+                if (e.Source is TabControl && MainTabControl.SelectedIndex == 0) // El índice 0 es "🏠 Inicio"
+                {
+                    await CargarPanelPrincipal();
+                }
+            };
         }
 
         // =========================================================
-        // 📌 MOTOR DE NOTAS LOCALES
+        // 📌 MOTOR DE NOTAS LOCALES (MEJORADO)
         // =========================================================
         private void CargarNotas()
         {
-            // Crea la ruta única por usuario de Windows
             string carpetaAppData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EdicionesPiza");
             Directory.CreateDirectory(carpetaAppData);
-
             _rutaArchivoNotas = Path.Combine(carpetaAppData, "notas.json");
 
             if (File.Exists(_rutaArchivoNotas))
             {
                 string json = File.ReadAllText(_rutaArchivoNotas);
-                var listaGuardada = JsonSerializer.Deserialize<List<NotaItem>>(json);
-                _misNotas = new ObservableCollection<NotaItem>(listaGuardada ?? new List<NotaItem>());
-            }
-            else
-            {
-                _misNotas = new ObservableCollection<NotaItem>();
+                var listaGuardada = JsonSerializer.Deserialize<List<NotaItem>>(json) ?? new List<NotaItem>();
+
+                // Repartimos las notas en sus listas correspondientes
+                foreach (var nota in listaGuardada)
+                {
+                    if (nota.IsCompleted) _notasCompletadas.Add(nota);
+                    else _notasPendientes.Add(nota);
+                }
             }
 
-            // Conecta la lista visual con los datos
-            LbNotas.ItemsSource = _misNotas;
+            LbNotasPendientes.ItemsSource = _notasPendientes;
+            LbNotasCompletadas.ItemsSource = _notasCompletadas;
         }
 
         private void GuardarNotas()
         {
-            string json = JsonSerializer.Serialize(_misNotas);
+            var todasLasNotas = new List<NotaItem>();
+            todasLasNotas.AddRange(_notasPendientes);
+            todasLasNotas.AddRange(_notasCompletadas);
+
+            string json = JsonSerializer.Serialize(todasLasNotas);
             File.WriteAllText(_rutaArchivoNotas, json);
         }
 
@@ -95,7 +124,7 @@ namespace AplicativoDeAlmacen.Views
         {
             if (!string.IsNullOrWhiteSpace(TxtNuevaNota.Text))
             {
-                _misNotas.Add(new NotaItem { Texto = TxtNuevaNota.Text, IsCompleted = false });
+                _notasPendientes.Insert(0, new NotaItem { Texto = TxtNuevaNota.Text, IsCompleted = false });
                 GuardarNotas();
                 TxtNuevaNota.Clear();
             }
@@ -104,34 +133,62 @@ namespace AplicativoDeAlmacen.Views
         private void BtnEliminarNota_Click(object sender, RoutedEventArgs e)
         {
             var boton = sender as Button;
-            var notaAEliminar = boton?.Tag as NotaItem;
-
-            if (notaAEliminar != null)
+            if (boton?.Tag is NotaItem notaAEliminar)
             {
-                _misNotas.Remove(notaAEliminar);
+                _notasPendientes.Remove(notaAEliminar);
+                _notasCompletadas.Remove(notaAEliminar);
                 GuardarNotas();
             }
         }
 
         private void CheckBox_CambioEstado(object sender, RoutedEventArgs e)
         {
-            // Guarda automáticamente cuando se marca o desmarca el CheckBox
-            GuardarNotas();
+            var cb = sender as CheckBox;
+            if (cb?.DataContext is NotaItem nota)
+            {
+                // Si la nota acaba de ser completada
+                if (nota.IsCompleted && _notasPendientes.Contains(nota))
+                {
+                    _notasPendientes.Remove(nota);
+                    _notasCompletadas.Insert(0, nota); // Se va a la lista de completadas
+                }
+                // Si la nota fue desmarcada
+                else if (!nota.IsCompleted && _notasCompletadas.Contains(nota))
+                {
+                    _notasCompletadas.Remove(nota);
+                    _notasPendientes.Add(nota); // Regresa a la lista de pendientes
+                }
+
+                GuardarNotas();
+            }
         }
 
-
         // =========================================================
-        // 📦 CARGA DE PANEL Y STOCK
+        // 📦 CARGA DE PANEL Y STOCK (CON FILTRO DE TIPO DE PRODUCTO)
         // =========================================================
         private async Task CargarPanelPrincipal()
         {
             try
             {
-                if (_productoService == null) throw new Exception("_productoService no está inicializado.");
-                if (DgStockCritico == null) throw new Exception("El elemento DgStockCritico no existe en el XAML.");
+                var stockCriticoBD = await _productoService.ObtenerStockCriticoAsync();
 
-                var stockCritico = await _productoService.ObtenerStockCriticoAsync();
-                DgStockCritico.ItemsSource = stockCritico ?? new List<ProductoStock>();
+                if (stockCriticoBD != null)
+                {
+                    // 1. FILTRAMOS: Stock <= 100 Y que sea de TipoProductoId 1 o 2 
+                    // (⚠️ Cambia el 1 y 2 por los IDs reales de Plan Lector y Texto Escolar en tu BD)
+                    var filtrado = stockCriticoBD.Where(p =>
+                        p.StockActual <= 100 &&
+                        (p.TipoProductoId == 1 || p.TipoProductoId == 2)
+                    ).ToList();
+
+                    // 2. AGRUPAMOS: Por el nombre del Grado
+                    CollectionViewSource cvs = new CollectionViewSource { Source = filtrado };
+
+                    // Ahora sí agrupará correctamente usando la nueva propiedad
+                    cvs.GroupDescriptions.Add(new PropertyGroupDescription("GradoNombre"));
+
+                    DgStockCritico.ItemsSource = cvs.View;
+                }
             }
             catch (Exception ex)
             {

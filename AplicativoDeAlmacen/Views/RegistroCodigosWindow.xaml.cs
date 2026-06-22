@@ -1,38 +1,35 @@
 ﻿using System;
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
-using System.Windows.Data;
+using System.Windows.Input;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Models.Models;
-using System.Windows.Input;
-using AplicativoDeAlmacen.Core; // Asegúrate de tener este using para el EventBus
+using AplicativoDeAlmacen.Core;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class RegistroCodigosUserControl : UserControl
     {
         private readonly RegistroCodigoService _registroService;
-        private ObservableCollection<RegistroCodigo> registrosGrid = new ObservableCollection<RegistroCodigo>();
-        private ObservableCollection<Producto> productosTodos = new ObservableCollection<Producto>();
-        private DispatcherTimer searchTimer;
+        private List<RegistroCodigo> _registrosGrid = new List<RegistroCodigo>();
+
+        // 🌟 Memoria RAM rápida para búsqueda
+        private List<Producto> _todosLosProductos = new List<Producto>();
+
         private string? productoAbreviaturaActual;
         private int ultimoCodigoActual = 0;
-        private bool isTyping = false;
 
-        // 🌟 CANDADO UX: Previene el doble clic
+        private int _productoSeleccionadoId = 0;
+        private bool _isUpdatingFromSelection = false;
         private bool _isGuardando = false;
 
         public RegistroCodigosUserControl()
         {
             InitializeComponent();
             _registroService = new RegistroCodigoService();
-
-            searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-            searchTimer.Tick += SearchTimer_Tick;
 
             _ = InicializarPantallaAsync();
 
@@ -76,9 +73,9 @@ namespace AplicativoDeAlmacen.Views
                 CmbModalCategoria.DisplayMemberPath = "Nombre";
                 CmbModalCategoria.SelectedValuePath = "Id";
 
+                // Cargamos todos los productos a la memoria para búsqueda rápida
                 var productos = await _registroService.ObtenerProductosComboAsync();
-                foreach (var p in productos) productosTodos.Add(p);
-                CmbProducto.ItemsSource = productosTodos;
+                _todosLosProductos = productos.ToList();
             }
             catch (Exception ex)
             {
@@ -102,15 +99,11 @@ namespace AplicativoDeAlmacen.Views
                 try
                 {
                     var productosFrescos = await _registroService.ObtenerProductosComboAsync();
-                    productosTodos.Clear();
-                    foreach (var p in productosFrescos)
-                    {
-                        productosTodos.Add(p);
-                    }
+                    _todosLosProductos = productosFrescos.ToList();
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Error recargando combo: " + ex.Message);
+                    Console.WriteLine("Error recargando productos: " + ex.Message);
                 }
             });
         }
@@ -119,14 +112,147 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                registrosGrid.Clear();
                 var data = await _registroService.ObtenerRegistrosAsync(coleccionId, categoriaId);
-                foreach (var item in data) registrosGrid.Add(item);
-                CodigosDataGrid.ItemsSource = registrosGrid;
+                _registrosGrid = data.ToList();
+                CodigosDataGrid.ItemsSource = _registrosGrid;
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error al cargar la tabla: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ====================================================================
+        // 🌟 BÚSQUEDA TIPO AUTOCOMPLETADO (TEXTBOX + LISTBOX)
+        // ====================================================================
+        private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!TxtProducto.IsEnabled || _isUpdatingFromSelection) return;
+
+            string textoBusqueda = TxtProducto.Text.Trim();
+
+            if (!string.IsNullOrWhiteSpace(textoBusqueda))
+            {
+                // Busca coincidencias en RAM al vuelo
+                var sugerencias = _todosLosProductos
+                    .Where(p => p.Descripcion != null && p.Descripcion.Contains(textoBusqueda, StringComparison.OrdinalIgnoreCase))
+                    .Take(10) // Limitamos a 10 resultados para no colapsar la vista
+                    .ToList();
+
+                if (sugerencias.Any())
+                {
+                    LstProducto.ItemsSource = sugerencias;
+                    PopupProducto.IsOpen = true;
+                }
+                else
+                {
+                    PopupProducto.IsOpen = false;
+                }
+            }
+            else
+            {
+                PopupProducto.IsOpen = false;
+            }
+        }
+
+        private async void LstProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (LstProducto.SelectedItem is Producto prod)
+            {
+                // Bloqueamos el TextChanged para que no vuelva a buscar
+                _isUpdatingFromSelection = true;
+
+                _productoSeleccionadoId = prod.Id;
+                TxtProducto.Text = prod.Descripcion;
+
+                PopupProducto.IsOpen = false;
+                LstProducto.SelectedIndex = -1;
+
+                productoAbreviaturaActual = prod.Abreviatura;
+
+                // Calculamos automáticamente el rango
+                if (CmbModalCategoria.SelectedValue is int catId)
+                {
+                    try
+                    {
+                        ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, prod.Abreviatura, catId);
+                        CalcularRangos();
+                    }
+                    catch (Exception ex) { MessageBox.Show("Error al obtener último código: " + ex.Message); }
+                }
+
+                _isUpdatingFromSelection = false;
+            }
+        }
+
+        // ====================================================================
+
+        private void TxtCantidad_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            CalcularRangos();
+        }
+
+        private void CalcularRangos()
+        {
+            if (int.TryParse(TxtCantidad.Text, out int cantidad) && !string.IsNullOrEmpty(productoAbreviaturaActual))
+            {
+                int desde = ultimoCodigoActual + 1;
+                int hasta = desde + cantidad - 1;
+                TxtDesde.Text = $"{productoAbreviaturaActual}-{desde:D7}";
+                TxtHasta.Text = $"{productoAbreviaturaActual}-{hasta:D7}";
+            }
+            else
+            {
+                TxtDesde.Text = "";
+                TxtHasta.Text = "";
+            }
+        }
+
+        private async void BtnGuardar_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isGuardando) return;
+
+            if (CmbModalColeccion.SelectedValue == null || _productoSeleccionadoId == 0) return;
+
+            _isGuardando = true;
+
+            Button btnGuardar = (Button)sender;
+            string textoOriginal = btnGuardar.Content?.ToString() ?? "Guardar";
+
+            try
+            {
+                btnGuardar.IsEnabled = false;
+                btnGuardar.Content = "⏳ Verificando...";
+
+                PbProgreso.Visibility = Visibility.Visible;
+                Mouse.OverrideCursor = Cursors.Wait;
+
+                await Task.Delay(1000);
+                btnGuardar.Content = "☁️ Subiendo códigos...";
+
+                int coleccionId = (int)CmbModalColeccion.SelectedValue;
+                int categoriaId = (int)CmbModalCategoria.SelectedValue;
+                int productoId = _productoSeleccionadoId;
+                int cantidad = int.Parse(TxtCantidad.Text);
+
+                await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, TxtDesde.Text, TxtHasta.Text, categoriaId);
+
+                MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                ModalAgregar.Visibility = Visibility.Collapsed;
+                await CargarGridAsync(coleccionId, categoriaId);
+                EventBus.NotificarRegistroCodigosChanged();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Aviso del Sistema", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                _isGuardando = false;
+                btnGuardar.IsEnabled = true;
+                btnGuardar.Content = textoOriginal;
+                PbProgreso.Visibility = Visibility.Collapsed;
+                Mouse.OverrideCursor = null;
             }
         }
 
@@ -170,150 +296,16 @@ namespace AplicativoDeAlmacen.Views
 
         private void LimpiarModal()
         {
-            CmbProducto.SelectedIndex = -1;
-            CmbProducto.Text = string.Empty;
+            _isUpdatingFromSelection = true;
+            TxtProducto.Text = string.Empty;
+            _productoSeleccionadoId = 0;
+            _isUpdatingFromSelection = false;
+
             TxtCantidad.Text = string.Empty;
             TxtDesde.Text = string.Empty;
             TxtHasta.Text = string.Empty;
             productoAbreviaturaActual = null;
             ultimoCodigoActual = 0;
-
-            var view = CollectionViewSource.GetDefaultView(productosTodos);
-            view.Filter = null;
-        }
-
-        private void CmbProducto_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            if (CmbProducto.SelectedIndex != -1) return;
-
-            isTyping = true;
-            searchTimer.Stop();
-            searchTimer.Start();
-        }
-
-        private void SearchTimer_Tick(object? sender, EventArgs e)
-        {
-            searchTimer.Stop();
-
-            if (!isTyping) return;
-
-            var textBox = CmbProducto.Template.FindName("PART_EditableTextBox", CmbProducto) as TextBox;
-            int cursorPosition = textBox?.CaretIndex ?? 0;
-            string search = CmbProducto.Text ?? "";
-
-            var view = CollectionViewSource.GetDefaultView(productosTodos);
-
-            if (string.IsNullOrWhiteSpace(search))
-            {
-                view.Filter = null;
-            }
-            else
-            {
-                string lowerSearch = search.ToLower();
-                view.Filter = item =>
-                {
-                    var p = (Producto)item;
-                    return p.Descripcion != null && p.Descripcion.ToLower().Contains(lowerSearch);
-                };
-            }
-
-            CmbProducto.IsDropDownOpen = true;
-
-            if (textBox != null)
-            {
-                textBox.Text = search;
-                textBox.CaretIndex = cursorPosition;
-            }
-
-            isTyping = false;
-        }
-
-        private async void CmbProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (CmbProducto.SelectedItem is Producto prod && CmbModalCategoria.SelectedValue is int catId)
-            {
-                isTyping = false;
-                productoAbreviaturaActual = prod.Abreviatura;
-                try
-                {
-                    ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, prod.Abreviatura, catId);
-                    CalcularRangos();
-                }
-                catch (Exception ex) { MessageBox.Show("Error: " + ex.Message); }
-            }
-        }
-
-        private void TxtCantidad_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            CalcularRangos();
-        }
-
-        private void CalcularRangos()
-        {
-            if (int.TryParse(TxtCantidad.Text, out int cantidad) && !string.IsNullOrEmpty(productoAbreviaturaActual))
-            {
-                int desde = ultimoCodigoActual + 1;
-                int hasta = desde + cantidad - 1;
-                TxtDesde.Text = $"{productoAbreviaturaActual}-{desde:D7}";
-                TxtHasta.Text = $"{productoAbreviaturaActual}-{hasta:D7}";
-            }
-            else
-            {
-                TxtDesde.Text = "";
-                TxtHasta.Text = "";
-            }
-        }
-
-        private async void BtnGuardar_Click(object sender, RoutedEventArgs e)
-        {
-            // 🛡️ CANDADO UX: Si ya hay un proceso corriendo, ignora clics adicionales
-            if (_isGuardando) return;
-
-            if (CmbModalColeccion.SelectedValue == null || CmbProducto.SelectedItem == null) return;
-
-            // Cerramos la puerta
-            _isGuardando = true;
-
-            Button btnGuardar = (Button)sender;
-            string textoOriginal = btnGuardar.Content?.ToString() ?? "Guardar";
-
-            try
-            {
-                btnGuardar.IsEnabled = false;
-                btnGuardar.Content = "⏳ Verificando disponibilidad...";
-
-                PbProgreso.Visibility = Visibility.Visible;
-                Mouse.OverrideCursor = Cursors.Wait;
-
-                await Task.Delay(1000);
-                btnGuardar.Content = "☁️ Subiendo códigos...";
-
-                int coleccionId = (int)CmbModalColeccion.SelectedValue;
-                int categoriaId = (int)CmbModalCategoria.SelectedValue;
-                int productoId = ((Producto)CmbProducto.SelectedItem).Id;
-                int cantidad = int.Parse(TxtCantidad.Text);
-
-                await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, TxtDesde.Text, TxtHasta.Text, categoriaId);
-
-                MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
-                ModalAgregar.Visibility = Visibility.Collapsed;
-                await CargarGridAsync(coleccionId, categoriaId);
-                EventBus.NotificarRegistroCodigosChanged();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message, "Aviso del Sistema", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-            finally
-            {
-                // 🔄 Abrimos la puerta siempre
-                _isGuardando = false;
-
-                btnGuardar.IsEnabled = true;
-                btnGuardar.Content = textoOriginal;
-                PbProgreso.Visibility = Visibility.Collapsed;
-                Mouse.OverrideCursor = null;
-            }
         }
 
         private void BtnVerDetalle_Click(object sender, RoutedEventArgs e)

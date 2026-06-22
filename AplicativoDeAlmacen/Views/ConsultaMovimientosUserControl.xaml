@@ -7,6 +7,7 @@
         <Style x:Key="RightAlignStyle" TargetType="DataGridCell">
             <Setter Property="TextBlock.TextAlignment" Value="Right"/>
             <Setter Property="Padding" Value="0,0,15,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style x:Key="IngresoStyle" TargetType="DataGridCell" BasedOn="{StaticResource RightAlignStyle}">
             <Setter Property="Foreground" Value="#059669"/>
@@ -21,10 +22,13 @@
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Border Background="White" CornerRadius="12" Padding="25" Margin="0,0,0,15">
+        <TextBlock Text="📋 Auditoría de Movimientos y Códigos" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+
+        <Border Grid.Row="1" Background="White" CornerRadius="12" Padding="20" Margin="0,0,0,15" BorderBrush="#E5E7EB" BorderThickness="1">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="15" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.06"/>
             </Border.Effect>
@@ -34,57 +38,79 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <TextBlock Text="Producto Maestro:" VerticalAlignment="Center" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,20,15"/>
-                    <ComboBox x:Name="CboProductos" Grid.Column="1" Height="40" IsEditable="True" Margin="0,0,0,15" SelectionChanged="CboProductos_SelectionChanged" FontSize="14" BorderBrush="#CBD5E1"/>
-
-                    <TextBlock Text="Filtros de Auditoría:" Grid.Row="1" VerticalAlignment="Center" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,20,15"/>
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,15" VerticalAlignment="Center">
-                        <CheckBox x:Name="ChkRazonSocial" Content="Razón Social:" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
-                        <TextBox x:Name="TxtRazonSocial" Width="220" Height="36" Margin="0,0,30,0" IsEnabled="False" VerticalContentAlignment="Center" Padding="10,0" FontSize="13" BorderBrush="#CBD5E1"/>
-
-                        <CheckBox x:Name="ChkUbicacion" Content="Ubicación:" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
-                        <TextBox x:Name="TxtUbicacion" Width="220" Height="36" IsEnabled="False" VerticalContentAlignment="Center" Padding="10,0" FontSize="13" BorderBrush="#CBD5E1"/>
+                <WrapPanel VerticalAlignment="Center">
+                    <StackPanel Margin="0,0,20,10">
+                        <TextBlock Text="Producto Maestro:" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
+                        <ComboBox x:Name="CboProductos" Width="300" Height="40" IsEditable="True" 
+                                  StaysOpenOnEdit="True" IsTextSearchEnabled="False"
+                                  DisplayMemberPath="Descripcion" TextSearch.TextPath="Descripcion"
+                                  SelectionChanged="CboProductos_SelectionChanged" FontSize="14" BorderBrush="#CBD5E1" 
+                                  TextBoxBase.TextChanged="TxtProducto_TextChanged"/>
                     </StackPanel>
 
-                    <TextBlock Text="Rango de Fechas:" Grid.Row="2" VerticalAlignment="Center" FontWeight="Bold" FontSize="13" Foreground="#475569"/>
-                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
-                        <TextBlock Text="Desde" VerticalAlignment="Center" Foreground="#64748B" FontWeight="SemiBold" Margin="0,0,10,0"/>
-                        <DatePicker x:Name="DpDesde" Width="140" Height="38" Margin="0,0,25,0" BorderBrush="#CBD5E1"/>
+                    <StackPanel Margin="0,0,20,10">
+                        <TextBlock Text="Fechas (Desde / Hasta)" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <DatePicker x:Name="DpDesde" Width="140" Height="40" Margin="0,0,10,0"/>
+                            <DatePicker x:Name="DpHasta" Width="140" Height="40"/>
+                        </StackPanel>
+                    </StackPanel>
 
-                        <TextBlock Text="Hasta" VerticalAlignment="Center" Foreground="#64748B" FontWeight="SemiBold" Margin="0,0,10,0"/>
-                        <DatePicker x:Name="DpHasta" Width="140" Height="38" Margin="0,0,35,0" BorderBrush="#CBD5E1"/>
+                    <StackPanel Margin="0,0,20,10">
+                        <TextBlock Text="Filtros Extra (Autocompletado):" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
 
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="15,5">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Tipo de Operación:" FontWeight="Bold" Foreground="#475569" Margin="0,0,15,0" VerticalAlignment="Center"/>
-                                <RadioButton x:Name="RbGuia" Content="Solo Guías" Margin="0,0,15,0" Foreground="#334155" VerticalAlignment="Center"/>
-                                <RadioButton x:Name="RbVenta" Content="Solo Ventas" Margin="0,0,15,0" Foreground="#334155" VerticalAlignment="Center"/>
-                                <RadioButton x:Name="RbTodos" Content="Todos" IsChecked="True" Foreground="#334155" VerticalAlignment="Center" FontWeight="Bold"/>
+                            <CheckBox x:Name="ChkRazonSocial" Content="Razón Social:" Margin="0,0,10,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
+                            <Grid Margin="0,0,20,0">
+                                <TextBox x:Name="TxtRazonSocial" Width="180" Height="36" IsEnabled="False" 
+                                         VerticalContentAlignment="Center" Padding="5,0" BorderBrush="#CBD5E1"
+                                         TextChanged="TxtRazonSocial_TextChanged"/>
+                                <Popup x:Name="PopupRazonSocial" PlacementTarget="{Binding ElementName=TxtRazonSocial}" StaysOpen="False" AllowsTransparency="True">
+                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Margin="0,2,0,0">
+                                        <Border.Effect>
+                                            <DropShadowEffect BlurRadius="5" ShadowDepth="2" Opacity="0.1"/>
+                                        </Border.Effect>
+                                        <ListBox x:Name="LstRazonSocial" Width="180" MaxHeight="150" BorderThickness="0" 
+                                                 DisplayMemberPath="RazonSocial" 
+                                                 SelectionChanged="LstRazonSocial_SelectionChanged"/>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+
+                            <CheckBox x:Name="ChkUbicacion" Content="Ubicación:" Margin="0,0,10,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
+                            <Grid>
+                                <TextBox x:Name="TxtUbicacion" Width="180" Height="36" IsEnabled="False" 
+                                         VerticalContentAlignment="Center" Padding="5,0" BorderBrush="#CBD5E1"
+                                         TextChanged="TxtUbicacion_TextChanged"/>
+                                <Popup x:Name="PopupUbicacion" PlacementTarget="{Binding ElementName=TxtUbicacion}" StaysOpen="False" AllowsTransparency="True">
+                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Margin="0,2,0,0">
+                                        <Border.Effect>
+                                            <DropShadowEffect BlurRadius="5" ShadowDepth="2" Opacity="0.1"/>
+                                        </Border.Effect>
+                                        <ListBox x:Name="LstUbicacion" Width="180" MaxHeight="150" BorderThickness="0" 
+                                                 DisplayMemberPath="Descripcion" 
+                                                 SelectionChanged="LstUbicacion_SelectionChanged"/>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Margin="0,0,20,10">
+                        <TextBlock Text="Tipo de Operación:" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
+                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="15,0" Height="40">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton x:Name="RbGuia" Content="Solo Guías" Margin="0,0,15,0" Foreground="#334155" VerticalAlignment="Center" PreviewKeyDown="Filtros_PreviewKeyDown" Click="RbFiltro_Click"/>
+                                <RadioButton x:Name="RbVenta" Content="Solo Ventas" Margin="0,0,15,0" Foreground="#334155" VerticalAlignment="Center" PreviewKeyDown="Filtros_PreviewKeyDown" Click="RbFiltro_Click"/>
+                                <RadioButton x:Name="RbTodos" Content="Todos" IsChecked="True" Foreground="#334155" VerticalAlignment="Center" FontWeight="Bold" PreviewKeyDown="Filtros_PreviewKeyDown" Click="RbFiltro_Click"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
-                </Grid>
+                </WrapPanel>
 
-                <StackPanel Grid.Column="1" Margin="30,0,0,0" VerticalAlignment="Bottom">
-                    <Button Content="🚀 Ejecutar Consulta" Height="45" Width="180" Margin="0,0,0,10" Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="14" BorderThickness="0" Cursor="Hand" Click="BtnEjecutar_Click">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="6"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
-                    <Button Content="🖨️ Imprimir Reporte" Height="45" Width="180" Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="14" BorderThickness="0" Cursor="Hand">
+                <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="20,0,0,10">
+                    <Button x:Name="BtnEjecutar" Content="🚀 Ejecutar Consulta" Height="45" Width="180" Margin="0,0,10,10" Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="14" BorderThickness="0" Cursor="Hand" Click="BtnEjecutar_Click">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="6"/>
@@ -95,7 +121,7 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="6.5*"/>
                 <ColumnDefinition Width="3.5*"/>
@@ -128,10 +154,10 @@
                             </Style>
                         </DataGrid.ColumnHeaderStyle>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Fecha" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="90"/>
-                            <DataGridTextColumn Header="Comprobante" Binding="{Binding NumeroRegistro}" Width="120"/>
-                            <DataGridTextColumn Header="Guía Remisión" Binding="{Binding NumeroGuia}" Width="110"/>
-                            <DataGridTextColumn Header="Razón Social / Entidad" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
+                            <DataGridTextColumn Header="FECHA" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="90"/>
+                            <DataGridTextColumn Header="COMPROBANTE" Binding="{Binding NumeroRegistro}" Width="120"/>
+                            <DataGridTextColumn Header="GUÍA" Binding="{Binding NumeroGuia}" Width="110"/>
+                            <DataGridTextColumn Header="ENTIDAD / UBICACIÓN" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
                             <DataGridTextColumn Header="ENTRAN" Binding="{Binding Ingreso, StringFormat=N2}" Width="90" CellStyle="{StaticResource IngresoStyle}"/>
                             <DataGridTextColumn Header="SALEN" Binding="{Binding Salida, StringFormat=N2}" Width="90" CellStyle="{StaticResource SalidaStyle}"/>
                         </DataGrid.Columns>
@@ -161,7 +187,7 @@
 
                             <Border Grid.Column="2" Background="#EFF6FF" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="8" Padding="15,10">
                                 <StackPanel>
-                                    <TextBlock Text="Ventas / Salidas Netas" Foreground="#3730A3" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Ventas Netas" Foreground="#3730A3" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
                                     <TextBlock x:Name="TxtTotalVendidos" Text="0.00" Foreground="#4338CA" FontWeight="Black" FontSize="20"/>
                                 </StackPanel>
                             </Border>
@@ -197,14 +223,14 @@
                             </Style>
                         </DataGrid.ColumnHeaderStyle>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Código QR / Físico" Binding="{Binding Codigo}" Width="*" FontWeight="SemiBold" Foreground="#334155"/>
-                            <DataGridTextColumn Header="Tipo Asignado" Binding="{Binding ColeccionTipo}" Width="*"/>
+                            <DataGridTextColumn Header="CÓDIGO QR / FÍSICO" Binding="{Binding Codigo}" Width="*" FontWeight="SemiBold" Foreground="#334155"/>
+                            <DataGridTextColumn Header="TIPO" Binding="{Binding ColeccionTipo}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
 
                     <Border Grid.Row="2" Background="#F8FAFC" Padding="15" BorderBrush="#E2E8F0" BorderThickness="0,2,0,0">
-                        <Border Background="#EEF2FF" CornerRadius="15" Padding="10,8" HorizontalAlignment="Center">
-                            <TextBlock x:Name="TxtTotalCodigos" Text="Seleccione un movimiento para auditar códigos" FontWeight="Bold" Foreground="#4F46E5" FontSize="13"/>
+                        <Border Background="#EEF2FF" CornerRadius="8" Padding="10,8" HorizontalAlignment="Center">
+                            <TextBlock x:Name="TxtTotalCodigos" Text="Seleccione un movimiento" FontWeight="Bold" Foreground="#4F46E5" FontSize="13"/>
                         </Border>
                     </Border>
                 </Grid>

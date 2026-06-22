@@ -242,10 +242,30 @@
                                 </StackPanel>
                             </Grid>
 
-                            <TextBlock Text="Producto:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <ComboBox x:Name="CmbProducto" IsEditable="True" StaysOpenOnEdit="True"
-                                      DisplayMemberPath="Descripcion" TextSearch.TextPath="Descripcion"
-                                      TextBoxBase.TextChanged="CmbProducto_TextChanged" SelectionChanged="CmbProducto_SelectionChanged"/>
+                            <StackPanel Margin="0,0,0,15">
+                                <TextBlock Text="Producto:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                <Grid>
+                                    <TextBox x:Name="TxtProducto" Height="38" VerticalContentAlignment="Center" Padding="10,0" BorderBrush="#CBD5E1"
+                                             TextChanged="TxtProducto_TextChanged"/>
+                                    <Popup x:Name="PopupProducto" PlacementTarget="{Binding ElementName=TxtProducto}" StaysOpen="False" AllowsTransparency="True">
+                                        <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Margin="0,2,0,0">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="5" ShadowDepth="2" Opacity="0.1"/>
+                                            </Border.Effect>
+                                            <ListBox x:Name="LstProducto" Width="{Binding ActualWidth, ElementName=TxtProducto}" MaxHeight="200" BorderThickness="0" 
+                                                     DisplayMemberPath="Descripcion" 
+                                                     SelectionChanged="LstProducto_SelectionChanged">
+                                                <ListBox.ItemContainerStyle>
+                                                    <Style TargetType="ListBoxItem">
+                                                        <Setter Property="Padding" Value="10,8"/>
+                                                        <Setter Property="Cursor" Value="Hand"/>
+                                                    </Style>
+                                                </ListBox.ItemContainerStyle>
+                                            </ListBox>
+                                        </Border>
+                                    </Popup>
+                                </Grid>
+                            </StackPanel>
                         </StackPanel>
 
                         <Border Grid.Column="1" Width="1" Background="#E5E7EB" Margin="19,0"/>
