@@ -84,9 +84,15 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (CboProductos.IsDropDownOpen || PopupRazonSocial.IsOpen || PopupUbicacion.IsOpen) return;
                 e.Handled = true;
+
                 BtnEjecutar_Click(BtnEjecutar, null);
+
+                
             }
         }
+
+
+
 
         // ====================================================================
         // BÚSQUEDA DE PRODUCTOS (Se mantiene en RAM)
