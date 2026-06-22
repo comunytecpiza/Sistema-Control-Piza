@@ -100,6 +100,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void RecalcularRangoAutomatico()
         {
+
             if (string.IsNullOrEmpty(_abreviaturaProducto)) return;
 
             string prefijo = _categoriaActualId == 1 ? "G-" : "V-";

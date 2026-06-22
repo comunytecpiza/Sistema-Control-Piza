@@ -73,7 +73,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 e.Handled = true;
                 // Llamamos a ejecutar pasando null, ya que nuestro BtnEjecutar_Click maneja el null con 'sender as Button'
-                BtnEjecutar_Click(BtnEjecutar, null);
+                BtnEjecutar_Click(BtnEjecutar_Click, null);
             }
         }
 

@@ -335,18 +335,19 @@ namespace AplicativoDeAlmacen.Views
                     MessageBox.Show("El movimiento de inventario y sus códigos se registraron correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
 
                     LimpiarFormulario();
-                    HabilitarCamposFormulario(false);
-                    GestionarBotonesPrincipales(enEdicion: false);
 
-                    // Siguiente correlativo automático
+                    // Aquí es donde habilitas el nuevo correlativo
                     Movimiento nuevoMovimiento = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(SERIE_POR_DEFECTO);
                     txtNumSerie.Text = nuevoMovimiento.SerieDocumento;
                     txtNumDocumento.Text = nuevoMovimiento.NumeroDocumento;
 
-                    dtpFechaRecepcion.SelectedDate = DateTime.Today;
+                    // C. Habilitar la edición para el nuevo documento
                     HabilitarCamposFormulario(true);
+                    btnGrabar.IsEnabled = true; 
                     GestionarBotonesPrincipales(enEdicion: true);
+
                     cboMotivo.Focus();
+
                 }
             }
             catch (Exception ex)
@@ -445,6 +446,12 @@ namespace AplicativoDeAlmacen.Views
         {
             _isUpdatingFromSelection = true;
 
+            // 1. Limpieza de datos en memoria (CRÍTICO)
+            _productosGridList.Clear();
+            _codigosGridList.Clear();
+            _rangosProcesadosGlobal.Clear();
+
+            // 2. Limpieza de controles visuales
             txtNumSerie.Clear();
             txtNumDocumento.Clear();
             dtpFechaRecepcion.SelectedDate = null;
@@ -452,16 +459,18 @@ namespace AplicativoDeAlmacen.Views
             txtRazonSocial.Clear();
             txtCodigoRazonSocial.Clear();
             txtDireccion.Clear();
+            txtUbicacion.Clear();
+            txtCodigoUbicacion.Clear();
+            txtDireccionUbicacion.Clear();
             txtObservacion.Clear();
+            txtSerieGuia.Clear();
+            txtNumeroGuia.Clear();
+
+            // 3. Limpieza de las tablas visuales
+            dgProductos.ItemsSource = null;
+            dgCodigos.ItemsSource = null;
 
             _personaComercialIdSeleccionada = null;
-            _productosGridList.Clear();
-            _codigosGridList.Clear();
-            _rangosProcesadosGlobal.Clear();
-
-            if (dgProductos != null) dgProductos.ItemsSource = null;
-            if (dgCodigos != null) dgCodigos.ItemsSource = null;
-
             _isUpdatingFromSelection = false;
         }
 

@@ -219,13 +219,13 @@
                         <TextBox x:Name="txtDireccionUbicacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
                         <TextBlock Text="Guía de Remisión" Grid.Row="6" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                        <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal">
-                            <TextBox x:Name="txtSerieGuia" Width="80" Height="32" Margin="0,0,8,12" FontSize="13"/>
-                            <TextBox x:Name="txtNumeroGuia" Width="456" Height="32" Margin="0,0,0,12" FontSize="13"/>
+                        <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBox x:Name="txtSerieGuia" Width="80" Height="32" Margin="0,0,8,0" FontSize="13"/>
+                            <TextBox x:Name="txtNumeroGuia" Width="456" Height="32" Margin="0,0,0,0" FontSize="13"/>
                         </StackPanel>
 
                         <TextBlock Text="Observación" Grid.Row="7" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
-                        <TextBox x:Name="txtObservacion" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Height="48" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13" />
+                        <TextBox x:Name="txtObservacion" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Height="48" Margin="0,0,0,12" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13" />
                     </Grid>
                 </Border>
             </StackPanel>
