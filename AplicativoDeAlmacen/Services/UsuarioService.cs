@@ -170,68 +170,141 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<RolPermiso>> ObtenerPermisosPorRolAsync(int rolUsuarioId)
         {
             var lista = new List<RolPermiso>();
+
             using (var conn = _database.GetConnection())
             {
-                var dbConn = (System.Data.Common.DbConnection)conn;
+                var dbConn = (DbConnection)conn;
+
                 await dbConn.OpenAsync();
 
                 string queryRaw = @"
-                SELECT 
-                    m.id AS modulo_id, m.codigo_modulo,m.nombre_modulo,c.id AS categoria_id,
-                    c.nombre AS categoria_nombre,c.icono,c.orden AS categoria_orden,m.orden,m.control_wpf, c.color AS categoria_color,
-                    COALESCE(p.id,0) AS permiso_id,
-                    COALESCE(p.puede_ver,1) AS puede_ver,
-                    COALESCE(p.puede_crear,1) AS puede_crear,
-                    COALESCE(p.puede_editar,1) AS puede_editar,
-                    COALESCE(p.puede_eliminar,1) AS puede_eliminar,
-                    COALESCE(p.puede_imprimir,1) AS puede_imprimir
-                FROM modulos_sistema m
-                INNER JOIN categorias_modulos c
-                ON c.id = m.categoria_id
-                LEFT JOIN rol_permisos p ON p.modulo_id = m.id AND p.rol_usuario_id = @RolId
-                ORDER BY c.orden, m.orden;";
+
+                    SELECT
+
+                    m.id,
+                    m.codigo_modulo,
+                    m.nombre_modulo,
+
+                    c.id,
+                    c.nombre,
+                    c.icono,
+                    c.orden,
+                    c.color,
+                    c.estado,
+
+                    m.orden,
+                    m.control_wpf,
+                    m.estado,
+
+                    COALESCE(p.id,0),
+
+                    COALESCE(p.puede_ver,1),
+                    COALESCE(p.puede_crear,1),
+                    COALESCE(p.puede_editar,1),
+                    COALESCE(p.puede_eliminar,1),
+                    COALESCE(p.puede_imprimir,1)
+
+                    FROM modulos_sistema m
+
+                    INNER JOIN categorias_modulos c
+                    ON c.id=m.categoria_id
+
+                    LEFT JOIN rol_permisos p
+                    ON p.modulo_id=m.id
+                    AND p.rol_usuario_id=@RolId
+
+                    ORDER BY c.orden,m.orden";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+                    cmd.CommandText =
+                        QueryAdapter.FormatearConsulta(queryRaw);
 
-                    var pRol = cmd.CreateParameter();
-                    pRol.ParameterName = "@RolId";
-                    pRol.Value = rolUsuarioId;
-                    cmd.Parameters.Add(pRol);
+                    AgregarParametro(
+                        cmd,
+                        "@RolId",
+                        rolUsuarioId);
 
-                    using (var reader = await cmd.ExecuteReaderAsync())
+                    using (var reader =
+                           await cmd.ExecuteReaderAsync())
                     {
                         while (await reader.ReadAsync())
                         {
                             lista.Add(new RolPermiso
                             {
-                                ModuloId = reader.GetInt32(0),
-                                CodigoModulo = reader.GetString(1),
-                                NombreModulo = reader.GetString(2),
+                                ModuloId =
+                                    reader.GetInt32(0),
 
-                                CategoriaId = reader.GetInt32(3),
-                                CategoriaNombre = reader.GetString(4),
-                                IconoCategoria = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                                OrdenCategoria = reader.GetInt32(6),
+                                CodigoModulo =
+                                    reader.GetString(1),
 
-                                Orden = reader.IsDBNull(7) ? 99 : reader.GetInt32(7),
-                                ControlWpf = reader.IsDBNull(8) ? "" : reader.GetString(8),
-                                ColorCategoria = reader.IsDBNull(9) ? "#2563EB" : reader.GetString(9),
+                                NombreModulo =
+                                    reader.GetString(2),
 
-                                Id = reader.GetInt32(10),
-                                RolUsuarioId = rolUsuarioId,
+                                CategoriaId =
+                                    reader.GetInt32(3),
 
-                                PuedeVer = Convert.ToBoolean(reader[11]),
-                                PuedeCrear = Convert.ToBoolean(reader[12]),
-                                PuedeEditar = Convert.ToBoolean(reader[13]),
-                                PuedeEliminar = Convert.ToBoolean(reader[14]),
-                                PuedeImprimir = Convert.ToBoolean(reader[15])
+                                CategoriaNombre =
+                                    reader.GetString(4),
+
+                                IconoCategoria =
+                                    reader.IsDBNull(5)
+                                    ? ""
+                                    : reader.GetString(5),
+
+                                OrdenCategoria =
+                                    reader.IsDBNull(6)
+                                    ? 99
+                                    : reader.GetInt32(6),
+
+                                ColorCategoria =
+                                    reader.IsDBNull(7)
+                                    ? "#2563EB"
+                                    : reader.GetString(7),
+
+                                EstadoCategoria =
+                                    Convert.ToBoolean(reader[8]),
+
+                                Orden =
+                                    reader.IsDBNull(9)
+                                    ? 99
+                                    : reader.GetInt32(9),
+
+                                ControlWpf =
+                                    reader.IsDBNull(10)
+                                    ? ""
+                                    : reader.GetString(10),
+
+                                EstadoModulo =
+                                    Convert.ToBoolean(reader[11]),
+
+                                Id =
+                                    Convert.ToInt32(reader[12]),
+
+                                RolUsuarioId =
+                                    rolUsuarioId,
+
+                                PuedeVer =
+                                    Convert.ToBoolean(reader[13]),
+
+                                PuedeCrear =
+                                    Convert.ToBoolean(reader[14]),
+
+                                PuedeEditar =
+                                    Convert.ToBoolean(reader[15]),
+
+                                PuedeEliminar =
+                                    Convert.ToBoolean(reader[16]),
+
+                                PuedeImprimir =
+                                    Convert.ToBoolean(reader[17])
+
                             });
                         }
                     }
                 }
             }
+
             return lista;
         }
 

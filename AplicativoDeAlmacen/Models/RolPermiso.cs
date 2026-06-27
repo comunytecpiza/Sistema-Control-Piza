@@ -33,6 +33,10 @@ namespace AplicativoDeAlmacen.Models.Models
         public string IconoCategoria { get; set; }
 
         public int OrdenCategoria { get; set; }
+
+        public bool EstadoModulo { get; set; }
+
+        public bool EstadoCategoria { get; set; }
         public string ColorCategoria { get; set; } = "#2563EB";
     }
 }

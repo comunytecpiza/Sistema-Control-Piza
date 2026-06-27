@@ -72,7 +72,7 @@ namespace AplicativoDeAlmacen.Views
             MenuPrincipal.Items.Clear();
 
             var permisos = SesionSistema.PermisosActuales?
-                .Where(p => p.PuedeVer)
+                .Where(p => p.PuedeVer && p.EstadoModulo && p.EstadoCategoria)
                 .ToList();
 
             if (permisos == null || permisos.Count == 0)

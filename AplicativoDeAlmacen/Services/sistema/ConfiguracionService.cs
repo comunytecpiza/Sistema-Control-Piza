@@ -179,5 +179,200 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
         }
+
+
+        // 1. Obtener todas las categorías para el TAB 1
+        public async Task<List<CategoriaModulo>> ObtenerCategoriasAsync()
+        {
+            var lista = new List<CategoriaModulo>();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT id, nombre, icono, color, orden, estado FROM categorias_modulos ORDER BY orden ASC";
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new CategoriaModulo
+                            {
+                                Id = reader.GetInt32(0),
+                                Nombre = reader.GetString(1),
+                                Icono = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                                Color = reader.IsDBNull(3) ? "#FFFFFF" : reader.GetString(3),
+                                Orden = reader.GetInt32(4),
+                                Estado = Convert.ToBoolean(reader["estado"]),
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
+
+        // 2. Obtener todos los módulos con su nombre de categoría para el TAB 2
+        public async Task<List<ModuloSistema>> ObtenerModulosCompletosAsync()
+        {
+            var lista = new List<ModuloSistema>();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+                SELECT m.id, m.nombre_modulo, m.codigo_modulo, m.orden, m.control_wpf, m.estado, c.nombre 
+                FROM modulos_sistema m
+                LEFT JOIN categorias_modulos c ON m.categoria_id = c.id
+                ORDER BY m.orden ASC";
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new ModuloSistema
+                            {
+                                Id = reader.GetInt32(0),
+                                NombreModulo = reader.GetString(1),
+                                CodigoModulo = reader.GetString(2),
+                                Orden = reader.GetInt32(3),
+                                ControlWpf = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                                Estado = reader.IsDBNull(5) ? false : Convert.ToBoolean(reader["estado"]),
+                                NombreCategoria = reader.IsDBNull(6) ? "Sin Categoría" : reader.GetString(6)
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
+
+        // Método para guardar una Categoría (Nuevo o Edición)
+        public async Task GuardarCategoriaAsync(CategoriaModulo cat, bool esNuevo)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    if (esNuevo)
+                        cmd.CommandText = "INSERT INTO categorias_modulos (nombre, icono, color, orden, estado) VALUES (@N, @I, @C, @O, @E)";
+                    else
+                        cmd.CommandText = "UPDATE categorias_modulos SET nombre=@N, icono=@I, color=@C, orden=@O, estado=@E WHERE id=@Id";
+
+                    AgregarParametro(cmd, "@N", cat.Nombre);
+                    AgregarParametro(cmd, "@I", cat.Icono);
+                    AgregarParametro(cmd, "@C", cat.Color);
+                    AgregarParametro(cmd, "@O", cat.Orden);
+                    AgregarParametro(cmd, "@E", cat.Estado ? 1 : 0);
+                    if (!esNuevo) AgregarParametro(cmd, "@Id", cat.Id);
+
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+
+        public async Task CambiarEstadoCategoriaAsync(int id,bool estado)
+        {
+            using (var conn =
+                _database.GetConnection())
+            {
+
+                var dbConn =
+                    (DbConnection)conn;
+
+                await dbConn.OpenAsync();
+
+                using (var cmd =
+                    dbConn.CreateCommand())
+                {
+
+                    cmd.CommandText =
+
+                    @"UPDATE categorias_modulos
+
+              SET estado=@Estado
+
+              WHERE id=@Id";
+
+                    AgregarParametro(
+
+                        cmd,
+
+                        "@Estado",
+
+                        estado ? 1 : 0);
+
+                    AgregarParametro(
+
+                        cmd,
+
+                        "@Id",
+
+                        id);
+
+                    await cmd.ExecuteNonQueryAsync();
+
+                }
+
+            }
+
+        }
+
+        public async Task CambiarEstadoModuloAsync(
+    int id,
+    bool estado)
+        {
+
+            using (var conn =
+                _database.GetConnection())
+            {
+
+                var dbConn =
+                    (DbConnection)conn;
+
+                await dbConn.OpenAsync();
+
+                using (var cmd =
+                    dbConn.CreateCommand())
+                {
+
+                    cmd.CommandText =
+
+                    @"UPDATE modulos_sistema
+
+              SET estado=@Estado
+
+              WHERE id=@Id";
+
+                    AgregarParametro(
+
+                        cmd,
+
+                        "@Estado",
+
+                        estado ? 1 : 0);
+
+                    AgregarParametro(
+
+                        cmd,
+
+                        "@Id",
+
+                        id);
+
+                    await cmd.ExecuteNonQueryAsync();
+
+                }
+
+            }
+
+        }
+
+
+
     }
 }

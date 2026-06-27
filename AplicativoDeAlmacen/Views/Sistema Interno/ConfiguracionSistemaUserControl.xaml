@@ -1,7 +1,11 @@
-﻿<UserControl x:Class="AplicativoDeAlmacen.Views.ConfiguracionSistemaUserControl"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="White" FontFamily="Segoe UI" Loaded="UserControl_Loaded">
+﻿<UserControl
+            x:Class="AplicativoDeAlmacen.Views.ConfiguracionSistemaUserControl"
+            xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            xmlns:hc="https://handyorg.github.io/handycontrol"
+            Background="White"
+            FontFamily="Segoe UI"
+            Loaded="UserControl_Loaded">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -43,7 +47,67 @@
             <TabItem Header="📁 Categorías">
                 <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="0,8,8,8" Padding="20">
                     <Grid>
-                        <TextBlock Text="Módulo de Categorías en construcción..." Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,15">
+                            <Button Content="✨ Nueva Categoría" Width="160" Height="35" Background="#10B981" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Click="BtnNuevaCategoria_Click">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <Button Content="✏️ Editar" Width="100" Height="35" Background="#F59E0B" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Margin="10,0,0,0" Click="BtnEditarCategoria_Click">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <Button Content="🔄 Cambiar Estado" Width="140" Height="35" Background="#64748B" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Margin="10,0,0,0" Click="BtnEstadoCategoria_Click">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                        </StackPanel>
+
+                        <DataGrid x:Name="DgCategorias" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Background="White" BorderBrush="#E2E8F0" HeadersVisibility="Column" RowHeight="40" SelectionMode="Single">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ORDEN" Binding="{Binding Orden}" Width="80"/>
+                                <DataGridTextColumn Header="ICONO" Binding="{Binding Icono}" Width="80"/>
+                                <DataGridTextColumn Header="NOMBRE DE CATEGORÍA" Binding="{Binding Nombre}" Width="*" FontWeight="Bold"/>
+                                <DataGridTemplateColumn Header="COLOR" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Background="{Binding Color}" Width="60" Height="20" CornerRadius="4" BorderBrush="#CBD5E1" BorderThickness="1"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="ACTIVO" Width="90">
+
+                                    <DataGridTemplateColumn.CellTemplate>
+
+                                        <DataTemplate>
+
+                                            <CheckBox
+                                            IsChecked="{Binding Estado}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Checked="ChkCategoriaEstado_Changed"
+                                            Unchecked="ChkCategoriaEstado_Changed"/>
+
+                                        </DataTemplate>
+
+                                    </DataGridTemplateColumn.CellTemplate>
+
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </Grid>
                 </Border>
             </TabItem>
@@ -51,7 +115,62 @@
             <TabItem Header="🧩 Módulos Activos">
                 <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="0,8,8,8" Padding="20">
                     <Grid>
-                        <TextBlock Text="Módulo de Gestión de Vistas en construcción..." Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,15">
+                            <Button Content="✨ Nuevo Módulo" Width="150" Height="35" Background="#10B981" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Click="BtnNuevoModulo_Click">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <Button Content="✏️ Editar" Width="100" Height="35" Background="#F59E0B" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Margin="10,0,0,0" Click="BtnEditarModulo_Click">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <Button Content="🔄 Cambiar Estado" Width="140" Height="35" Background="#64748B" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Margin="10,0,0,0" Click="BtnEstadoModulo_Click">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                        </StackPanel>
+
+                        <DataGrid x:Name="DgModulos" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Background="White" BorderBrush="#E2E8F0" HeadersVisibility="Column" RowHeight="40" SelectionMode="Single">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ORDEN" Binding="{Binding Orden}" Width="80"/>
+                                <DataGridTextColumn Header="CÓDIGO" Binding="{Binding CodigoModulo}" Width="180" FontWeight="Bold"/>
+                                <DataGridTextColumn Header="NOMBRE DEL MÓDULO" Binding="{Binding NombreModulo}" Width="250"/>
+                                <DataGridTextColumn Header="CATEGORÍA" Binding="{Binding NombreCategoria}" Width="200" Foreground="#64748B"/>
+                                <DataGridTextColumn Header="VISTA (XAML)" Binding="{Binding ControlWpf}" Width="*"/>
+                                <DataGridTemplateColumn Header="ACTIVO" Width="90">
+
+                                    <DataGridTemplateColumn.CellTemplate>
+
+                                        <DataTemplate>
+
+                                            <CheckBox
+                                            IsChecked="{Binding Estado}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Checked="ChkModuloEstado_Changed"
+                                            Unchecked="ChkModuloEstado_Changed"/>
+
+                                        </DataTemplate>
+
+                                    </DataGridTemplateColumn.CellTemplate>
+
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </Grid>
                 </Border>
             </TabItem>
@@ -100,4 +219,5 @@
             </TabItem>
         </TabControl>
     </Grid>
+
 </UserControl>
