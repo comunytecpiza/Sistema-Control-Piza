@@ -135,38 +135,18 @@ namespace AplicativoDeAlmacen
                 }
                 else
                 {
-                    // ================================================================
-                    // 🌟 ¡LA LÍNEA MÁGICA! Carga de la Matriz de Seguridad a la RAM
-                    // ================================================================
-                    UsuarioService usuarioService = new UsuarioService();
                     SesionSistema.UsuarioActual = usuarioLogueado;
-                    SesionSistema.PermisosActuales = await usuarioService.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
 
-                    // ================================================================
-                    // EL SEMÁFORO DE RUTEO POR ROLES
-                    // ================================================================
-                    int rolId = usuarioLogueado.RolUsuarioId;
+                    var service = new UsuarioService();
+
+                    SesionSistema.PermisosActuales =
+                        await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
+
                     string nombre = usuarioLogueado.Nombres;
+                    bool esAdmin = usuarioLogueado.RolUsuarioId == 1;
 
-                    if (rolId == 1) // Administrador (Acceso Total)
-                    {
-                        new Views.AdminPanel(nombre, true).Show();
-                    }
-                    else if (rolId == 2) // Contador / Auditor
-                    {
-                        new Views.ContabilidadPanel(nombre).Show();
-                    }
-                    else if (rolId == 3) // Almacén / Asistente
-                    {
-                        new Views.AlmacenPanel(nombre).Show();
-                    }
-                    else
-                    {
-                        MessageBox.Show("Su rol no tiene un panel de operaciones asignado.", "Error de Ruteo", MessageBoxButton.OK, MessageBoxImage.Error);
-                        return;
-                    }
+                    new Views.MainShell(nombre, esAdmin).Show();
 
-                    // Cerramos la ventana de Login
                     this.Close();
                 }
             }

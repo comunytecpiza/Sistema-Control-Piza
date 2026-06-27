@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
-using DocumentFormat.OpenXml.Office.Word;
+
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -175,26 +175,26 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (System.Data.Common.DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // Mantenemos la consulta con COALESCE que es el estándar SQL compatible con ambos motores
                 string queryRaw = @"
-            SELECT 
-                m.id AS modulo_id, m.codigo_modulo, m.nombre_modulo,
-                COALESCE(p.id, 0) AS permiso_id,
-                COALESCE(p.puede_ver, 0) AS puede_ver,
-                COALESCE(p.puede_crear, 0) AS puede_crear,
-                COALESCE(p.puede_editar, 0) AS puede_editar,
-                COALESCE(p.puede_eliminar, 0) AS puede_eliminar,
-                COALESCE(p.puede_imprimir, 0) AS puede_imprimir
-            FROM modulos_sistema m
-            LEFT JOIN rol_permisos p ON m.id = p.modulo_id AND p.rol_usuario_id = @RolId";
+                SELECT 
+                    m.id AS modulo_id, m.codigo_modulo,m.nombre_modulo,c.id AS categoria_id,
+                    c.nombre AS categoria_nombre,c.icono,c.orden AS categoria_orden,m.orden,m.control_wpf, c.color AS categoria_color,
+                    COALESCE(p.id,0) AS permiso_id,
+                    COALESCE(p.puede_ver,1) AS puede_ver,
+                    COALESCE(p.puede_crear,1) AS puede_crear,
+                    COALESCE(p.puede_editar,1) AS puede_editar,
+                    COALESCE(p.puede_eliminar,1) AS puede_eliminar,
+                    COALESCE(p.puede_imprimir,1) AS puede_imprimir
+                FROM modulos_sistema m
+                INNER JOIN categorias_modulos c
+                ON c.id = m.categoria_id
+                LEFT JOIN rol_permisos p ON p.modulo_id = m.id AND p.rol_usuario_id = @RolId
+                ORDER BY c.orden, m.orden;";
 
-                // Creamos el comando usando la abstracción
                 using (var cmd = dbConn.CreateCommand())
                 {
-                    // Pasamos la consulta por tu adaptador para que haga la magia hacia MySQL si es necesario
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
-                    // Reemplazo estricto de AddWithValue por CreateParameter() según tus reglas
                     var pRol = cmd.CreateParameter();
                     pRol.ParameterName = "@RolId";
                     pRol.Value = rolUsuarioId;
@@ -209,14 +209,24 @@ namespace AplicativoDeAlmacen.Services
                                 ModuloId = reader.GetInt32(0),
                                 CodigoModulo = reader.GetString(1),
                                 NombreModulo = reader.GetString(2),
-                                Id = reader.GetInt32(3),
+
+                                CategoriaId = reader.GetInt32(3),
+                                CategoriaNombre = reader.GetString(4),
+                                IconoCategoria = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                                OrdenCategoria = reader.GetInt32(6),
+
+                                Orden = reader.IsDBNull(7) ? 99 : reader.GetInt32(7),
+                                ControlWpf = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                                ColorCategoria = reader.IsDBNull(9) ? "#2563EB" : reader.GetString(9),
+
+                                Id = reader.GetInt32(10),
                                 RolUsuarioId = rolUsuarioId,
-                                // CORRECCIÓN: Convert.ToBoolean soporta Bits de SQL Server y TinyInts de MySQL sin crashear
-                                PuedeVer = Convert.ToBoolean(reader[4]),
-                                PuedeCrear = Convert.ToBoolean(reader[5]),
-                                PuedeEditar = Convert.ToBoolean(reader[6]),
-                                PuedeEliminar = Convert.ToBoolean(reader[7]),
-                                PuedeImprimir = Convert.ToBoolean(reader[8])
+
+                                PuedeVer = Convert.ToBoolean(reader[11]),
+                                PuedeCrear = Convert.ToBoolean(reader[12]),
+                                PuedeEditar = Convert.ToBoolean(reader[13]),
+                                PuedeEliminar = Convert.ToBoolean(reader[14]),
+                                PuedeImprimir = Convert.ToBoolean(reader[15])
                             });
                         }
                     }
