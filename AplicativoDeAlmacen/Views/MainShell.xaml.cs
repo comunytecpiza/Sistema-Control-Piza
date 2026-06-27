@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using System.Windows.Input;
 using System.Collections.Generic;
 using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Services;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -23,7 +24,7 @@ namespace AplicativoDeAlmacen.Views
         {
             InitializeComponent();
             this.isAdmin = isAdmin;
-
+            EventBus.OnRolesPermisosChanged += EventBus_OnRolesPermisosChanged;
             SetupWelcomeMessage(userNames);
             StartClock();
 
@@ -41,6 +42,26 @@ namespace AplicativoDeAlmacen.Views
             {
                 MessageBox.Show($"ERROR EN MENÚ:\n{ex.GetType().Name}\n{ex.Message}\n\nStackTrace:\n{ex.StackTrace}", "Debug Menú", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private async void EventBus_OnRolesPermisosChanged()
+        {
+            // Usamos Dispatcher para asegurar que tocamos la UI en el hilo correcto
+            await Application.Current.Dispatcher.InvokeAsync(async () =>
+            {
+                await RefrescarMenuDinamicoAsync();
+            });
+        }
+
+        public async Task RefrescarMenuDinamicoAsync()
+        {
+            var usuarioService = new AplicativoDeAlmacen.Services.UsuarioService();
+            if (SesionSistema.UsuarioActual != null)
+            {
+                SesionSistema.PermisosActuales = await usuarioService.ObtenerPermisosPorRolAsync(SesionSistema.UsuarioActual.RolUsuarioId);
+            }
+
+            ConstruirMenuDinamico();
         }
 
         // ==============================================================
@@ -181,8 +202,8 @@ namespace AplicativoDeAlmacen.Views
                 try
                 {
                     // 1. Buscamos la clase en el proyecto actual usando el nombre de la BD
-                    string nombreCompletoClase = $"AplicativoDeAlmacen.Views.{modulo.ControlWpf}";
-                    Type? tipoVista = Assembly.GetExecutingAssembly().GetType(nombreCompletoClase);
+                    Type? tipoVista = Assembly.GetExecutingAssembly().GetTypes()
+                     .FirstOrDefault(t => t.Name == modulo.ControlWpf && t.IsSubclassOf(typeof(UserControl)));
 
                     if (tipoVista != null)
                     {

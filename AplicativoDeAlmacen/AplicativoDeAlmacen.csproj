@@ -29,8 +29,8 @@
     <Folder Include="Helpers\" />
     <Folder Include="Icon\" />
     <Folder Include="Helpers\" />
+    <Folder Include="Models\NewFolder\" />
     <Folder Include="ViewModels\ViewModels\" />
-    <Folder Include="Views\Consultas y Reportes\Reporte\" />
     <Folder Include="Views\Elementos Visuales\" />
     <Folder Include="Views\Movimientos\Salida y Entrada\" />
     <Folder Include="Views\Procesos Internos\" />
