@@ -1,0 +1,107 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.Sistema_Interno.CategoriaWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:xctk="http://schemas.xceed.com/wpf/xaml/toolkit"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gestión de Categoría"
+        Height="470"
+        Width="350"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True">
+
+    <StackPanel Margin="20">
+
+        <TextBlock
+            Text="Nombre"
+            Margin="0,0,0,5"/>
+
+        <TextBox
+            x:Name="TxtNombre"
+            Height="32"
+            Margin="0,0,0,15"/>
+
+        <TextBlock
+            Text="Icono"
+            Margin="0,0,0,5"/>
+
+        <ComboBox
+            x:Name="CbIconos"
+            Height="32"
+            Margin="0,0,0,15">
+
+            <ComboBoxItem Content="📁"/>
+            <ComboBoxItem Content="📦"/>
+            <ComboBoxItem Content="📊"/>
+            <ComboBoxItem Content="📚"/>
+            <ComboBoxItem Content="⚙️"/>
+            <ComboBoxItem Content="👥"/>
+            <ComboBoxItem Content="🧾"/>
+            <ComboBoxItem Content="🏢"/>
+            <ComboBoxItem Content="🗂️"/>
+            <ComboBoxItem Content="🔧"/>
+            <ComboBoxItem Content="🛒"/>
+            <ComboBoxItem Content="📈"/>
+            <ComboBoxItem Content="💰"/>
+            <ComboBoxItem Content="📋"/>
+            <ComboBoxItem Content="🚚"/>
+            <ComboBoxItem Content="🧩"/>
+
+        </ComboBox>
+
+        <TextBlock
+            Text="Color"
+            Margin="0,0,0,5"/>
+
+        <xctk:ColorPicker
+            x:Name="ColorPicker"
+            UsingAlphaChannel="False"
+            Margin="0,0,0,15"/>
+
+        <TextBlock
+            Text="Orden"
+            Margin="0,0,0,5"/>
+
+        <TextBox
+            x:Name="TxtOrden"
+            Height="32"
+            Margin="0,0,0,20"/>
+
+        <TextBlock
+            Text="Vista previa"
+            FontWeight="Bold"/>
+
+        <Border
+            x:Name="PreviewBox"
+            Background="#2563EB"
+            CornerRadius="8"
+            Padding="10"
+            Margin="0,10,0,20">
+
+            <StackPanel Orientation="Horizontal">
+
+                <TextBlock
+                    x:Name="TxtPreviewIcon"
+                    FontSize="20"
+                    Margin="0,0,10,0"/>
+
+                <TextBlock
+                    x:Name="TxtPreviewTitulo"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    FontWeight="SemiBold"/>
+
+            </StackPanel>
+
+        </Border>
+
+        <Button
+            Content="Guardar"
+            Height="40"
+            Background="#10B981"
+            Foreground="White"
+            Click="BtnGuardar_Click"/>
+
+    </StackPanel>
+
+</Window>
