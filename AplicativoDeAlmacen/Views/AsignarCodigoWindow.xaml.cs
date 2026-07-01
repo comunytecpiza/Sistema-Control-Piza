@@ -29,7 +29,7 @@ namespace AplicativoDeAlmacen.Views
         // 1️⃣ CONSTRUCTOR ORIGINAL: Se usa para AGREGAR un rango nuevo
         // =======================================================================
 
-        public AsignarCodigoWindow(System.Collections.IEnumerable itemsEnGrilla, string abreviaturaProducto, int productoId, int cantidadFaltantePorAsignar)
+        public AsignarCodigoWindow(List<RangoCodigoItem> itemsEnGrilla, string abreviaturaProducto, int productoId, int cantidadFaltantePorAsignar)
         {
             InitializeComponent();
             this._itemsEnGrilla = itemsEnGrilla;
@@ -180,8 +180,8 @@ namespace AplicativoDeAlmacen.Views
                         SELECT COALESCE(MAX(hasta_num), 0) + 1 
                         FROM registro_rangos 
                         WHERE producto_id = @productoId
-                          AND abreviatura_base = @baseLimpia 
-                          AND categoria_producto_id = @categoriaId";
+                        AND abreviatura_base = @baseLimpia 
+                         AND categoria_producto_id = @categoriaId";
 
                     using (var cmd = dbConn.CreateCommand())
                     {
@@ -200,14 +200,14 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        public bool ValidarExistenciaRangoEnBD(int productoId, string abreviaturaOriginal, int categoriaId, int desde, int hasta, out int totalEncontrados)
+        public bool ValidarExistenciaRangoEnBD(int productoId, string abreviaturaBase, int categoriaId, int desde, int hasta, out int totalEncontrados)
         {
             totalEncontrados = 0;
-            string baseLimpia = abreviaturaOriginal.EndsWith("-V") || abreviaturaOriginal.EndsWith("-G")
-                ? abreviaturaOriginal.Substring(0, abreviaturaOriginal.Length - 2)
-                : abreviaturaOriginal;
 
-            string patronBusqueda = "%" + baseLimpia + "%";
+            // El sufijo depende de la categoría
+            string sufijo = categoriaId == 1 ? "-G-" : "-V-";
+            // Construimos el patrón base, ej: "LMA C26-V-%"
+            string patronBusqueda = abreviaturaBase + "%";
 
             try
             {
@@ -216,23 +216,13 @@ namespace AplicativoDeAlmacen.Views
                     var dbConn = (DbConnection)conn;
                     dbConn.Open();
 
-                    string query = @"
-                        SELECT COUNT(*) 
-                        FROM codigos_creados cc
-                        INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                        WHERE rc.producto_id = @productoId
-                          AND rc.categoria_producto_id = @categoriaId
-                          AND LTRIM(RTRIM(cc.codigo)) LIKE @patron
-                          AND cc.estado_id = 1
-                          AND TRY_CAST(
-                              REVERSE(
-                                  SUBSTRING(
-                                      REVERSE(LTRIM(RTRIM(cc.codigo))), 
-                                      1, 
-                                      CHARINDEX('-', REVERSE(LTRIM(RTRIM(cc.codigo)))) - 1
-                                  )
-                              ) AS INT
-                            ) BETWEEN @desde AND @hasta";
+                    // Usamos una lógica más limpia para extraer el número final.
+                    // Asumiendo que el número siempre está al final después del último guion.
+                    string query = @"SELECT COUNT(*) FROM codigos_creados
+                                    WHERE codigo LIKE @patron
+                                     AND estado_id = 1
+                                      AND TRY_CAST(RIGHT(codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+
 
                     using (var cmd = dbConn.CreateCommand())
                     {
@@ -245,19 +235,17 @@ namespace AplicativoDeAlmacen.Views
 
                         totalEncontrados = Convert.ToInt32(cmd.ExecuteScalar());
 
-                        int cantidadExpectedEnTramo = (hasta - desde) + 1;
-                        return totalEncontrados == cantidadExpectedEnTramo;
+                        // Si la cantidad encontrada es igual a la cantidad en el rango (hasta - desde + 1), es válido
+                        return totalEncontrados == (hasta - desde + 1);
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ocurrió un error al validar los códigos en la base de datos.\n\nDetalle técnico: {ex.Message}",
-                                "Error de Conexión", MessageBoxButton.OK, MessageBoxImage.Error);
+                // Log error (ex)
                 return false;
             }
         }
-
         private void BtnGrabarCodigo_Click(object sender, RoutedEventArgs e)
         {
             if (!int.TryParse(txtSubCantidad.Text, out int subCantidad) || subCantidad <= 0)
@@ -290,34 +278,34 @@ namespace AplicativoDeAlmacen.Views
             // 1. Control de solapamiento local
             foreach (var item in _itemsEnGrilla)
             {
-                // 🔥 CORRECCIÓN CRUCIAL: Si estamos editando un ítem, ignoramos la comparación contra sí mismo para evitar el falso error de concurrencia
                 if (item is RangoCodigoItem rangoExistente && rangoExistente != _itemEnEdicion && rangoExistente.CategoriaProductoId == categoriaId)
                 {
-                    if (intDesde <= rangoExistente.HastaNum && intHasta >= rangoExistente.OriginalDesdeNum())
+                    // Ajuste: Usa las propiedades numéricas directamente para evitar errores de formato
+                    if (intDesde <= rangoExistente.HastaNum && intHasta >= rangoExistente.DesdeNum)
                     {
-                        MessageBox.Show($"¡Error de Concurrencia! El rango [{intDesde} - {intHasta}] se cruza con un lote que ya listó en la grilla superior.", "Rango Duplicado ❌", MessageBoxButton.OK, MessageBoxImage.Error);
+                        MessageBox.Show($"¡Conflicto local! El rango [{intDesde} - {intHasta}] se cruza con un ítem ya agregado en esta misma sesión.",
+                                        "Rango Duplicado ❌", MessageBoxButton.OK, MessageBoxImage.Error);
                         return;
                     }
                 }
             }
-
             // Obtenemos los datos limpios de la abreviatura
-            string baseLimpia = _abreviaturaProducto;
+            string baseLimpia = _abreviaturaProducto.Trim();
 
             // =======================================================================
             // 🔥 NUEVA VALIDACIÓN: BLOQUEAR SI EL RANGO YA EXISTE EN EL HISTORIAL DE LA BD
             // =======================================================================
             if (VerificarSiRangoYaFueUsadoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta))
             {
-                MessageBox.Show($"❌ ¡ERROR DE VALIDACIÓN!\n\nEl rango digitado [{intDesde} - {intHasta}] contiene números que ya fueron registrados anteriormente en la base de datos.\n\nPor favor, respete el correlativo automático sugerido por el sistema.",
+                MessageBox.Show($"❌ ¡Error! El rango digitado contiene códigos que ya fueron registrados anteriormente en la base de datos.",
                                 "Rango Ya Registrado", MessageBoxButton.OK, MessageBoxImage.Stop);
                 return;
             }
 
             // 2. Control de existencia física
             int totalFisicosEncontrados = 0;
-            string abreviaturaConSufijoOriginal = baseLimpia + (categoriaId == 1 ? "-G" : "-V");
-            bool rangoEsValido = ValidarExistenciaRangoEnBD(this._productoId, abreviaturaConSufijoOriginal, categoriaId, intDesde, intHasta, out totalFisicosEncontrados);
+
+            bool rangoEsValido = ValidarExistenciaRangoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta, out totalFisicosEncontrados);
             int cantidadSolicitada = (intHasta - intDesde) + 1;
 
             if (!rangoEsValido)
@@ -329,13 +317,13 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            string sufijoVisual = categoriaId == 1 ? "-G" : "-V";
+        
 
             this.RangoProcesado = new RangoCodigoItem
             {
                 Cantidad = cantidadSolicitada.ToString(),
-                Desde = $"{baseLimpia}{sufijoVisual}-{intDesde.ToString("D7")}",
-                Hasta = $"{baseLimpia}{sufijoVisual}-{intHasta.ToString("D7")}",
+                Desde = $"{baseLimpia}-{intDesde.ToString("D7")}",
+                Hasta = $"{baseLimpia}-{intHasta.ToString("D7")}",
                 ColeccionTipo = $"C2026 / {tipoTexto}",
                 DesdeNum = intDesde,
                 HastaNum = intHasta,
@@ -346,7 +334,7 @@ namespace AplicativoDeAlmacen.Views
 
             this.FueConfirmado = true;
             this.DialogResult = true;
-        }
+            }
 
         private bool VerificarSiRangoYaFueUsadoEnBD(int productoId, string baseLimpia, int categoriaId, int desde, int hasta)
         {

@@ -8,6 +8,7 @@ namespace AplicativoDeAlmacen.Models.Models
 {
     public class RangoCodigoItem
     {
+      //  public int rangoId { get; set; }
         public int productoId { get; set; }
         public string Cantidad { get; set; }        // Columna visual 'Cantidad'
         public string Desde { get; set; }           // Código completo inicial (Ej: LMA3C26-V-0000100)

@@ -79,6 +79,9 @@ namespace AplicativoDeAlmacen.Views
             _idUbicacionSeleccionada = null;
             _productosLista.Clear();
             _codigosLista.Clear();
+
+            dgProductosSalida.ItemsSource = null; // Desvincula para asegurar refresco
+            dgCodigosSalida.ItemsSource = null;   // LIMPIEZA EXPLÍCITA DEL GRID DE CÓDIGOS
         }
 
         private async void BtnNuevo_Click(object sender, RoutedEventArgs e)
@@ -259,18 +262,12 @@ namespace AplicativoDeAlmacen.Views
         {
             if (dgProductosSalida.SelectedItem is VistaProductoGrid productoSeleccionado)
             {
-                // Filtramos los códigos que pertenecen SOLAMENTE a este producto
+                // El filtro aquí es crítico:
                 var codigosFiltrados = _codigosLista
                     .Where(c => c.ProductoId == productoSeleccionado.ProductoId)
                     .ToList();
 
-                // Actualizamos la vista del DataGrid de códigos
-                dgCodigosSalida.ItemsSource = codigosFiltrados;
-            }
-            else
-            {
-                // Si no hay selección, limpiamos la grilla de códigos
-                dgCodigosSalida.ItemsSource = null;
+                dgCodigosSalida.ItemsSource = codigosFiltrados; // <-- Esto reemplaza la fuente, está bien.
             }
         }
 
@@ -350,34 +347,37 @@ namespace AplicativoDeAlmacen.Views
 
                 if (resultado == true)
                 {
-                    // 1. Añadir el producto principal a la grilla izquierda
+                    // 1. Añadir el producto principal a la lista de la izquierda
                     if (modal.ProductoGridGenerado != null)
                     {
                         _productosLista.Add(modal.ProductoGridGenerado);
                     }
 
-                    // 2. Añadir el desglose de códigos individuales a la grilla derecha
+                    // 2. Añadir el desglose de códigos a la lista MAESTRA (no al grid directamente)
                     if (modal.ListaCodigosGenerados != null)
                     {
+                       
                         foreach (var cod in modal.ListaCodigosGenerados)
                         {
+                            // ¡ASEGÚRATE DE QUE EL CODIGO TENGA EL PRODUCTOID ASIGNADO AQUÍ!
+                   
+                            cod.ProductoId = modal.ProductoGridGenerado.ProductoId;
                             _codigosLista.Add(cod);
+
                         }
                     }
 
-                    // 3. Forzar refresco visual ligando las fuentes de datos del XAML
+                    // 3. Forzar refresco visual solo de la lista de productos
                     dgProductosSalida.ItemsSource = null;
                     dgProductosSalida.ItemsSource = _productosLista;
 
-                    dgCodigosSalida.ItemsSource = null;
-                    dgCodigosSalida.ItemsSource = _codigosLista;
-
-                    MessageBox.Show("Producto y desglose de códigos cargados con éxito en la orden actual.", "Operación Exitosa", MessageBoxButton.OK, MessageBoxImage.Information);
+                    // 4. Seleccionamos el producto recién agregado para disparar el filtro
+                    dgProductosSalida.SelectedItem = modal.ProductoGridGenerado;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al recibir los datos del modal de productos: {ex.Message}", "Error de Carga", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error al recibir los datos del modal: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -443,7 +443,13 @@ namespace AplicativoDeAlmacen.Views
                          estadoSalida
                      );
 
-                if (resultado)
+
+                if (_codigosLista.Any(c => c.MovCodigo == null))
+                {
+                    MessageBox.Show("Error: Hay códigos en la lista que no tienen el objeto 'MovCodigo' inicializado.");
+                    return;
+                }
+                    if (resultado)
                 {
                     MessageBox.Show("Salida registrada correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                     EstadoInicialFormulario(); // Limpia todo para una nueva operación

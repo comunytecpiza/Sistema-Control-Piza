@@ -194,143 +194,119 @@ namespace AplicativoDeAlmacen.Services
         // 5. REGISTRAR SALIDA COMPLETA TRANSACCIONAL (Usa tus clases Grid del Sistema)
         // =========================================================================
         public async Task<bool> RegistrarSalidaCompletaAsync(
-            Movimiento cabecera,
-            List<VistaProductoGrid> listaProductos,
-            List<VistaCodigoGrid> listaCodigos,
-            int usuarioId,
-            int estadoId)
+       Movimiento cabecera,
+       List<VistaProductoGrid> listaProductos,
+       List<VistaCodigoGrid> listaCodigos,
+       int usuarioId,
+       int estadoId)
         {
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // Iniciamos la transacción para proteger la integridad del inventario
                 using (var transaccion = await dbConn.BeginTransactionAsync())
                 {
                     try
                     {
-                        // ---- PASO 1: INSERTAR CABECERA (movimientos) ----
+                        // 1. INSERTAR CABECERA
                         string queryCabecera = @"
-                    INSERT INTO movimientos 
-                    (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, 
-                     ubicacion_id, usuario_id, persona_comercial_id, serie_guia, numero_guia, 
-                     observacion, estado_id, created_at)
-                    VALUES 
-                    (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, 
-                     @personaId, @serieGuia, @numeroGuia, @observacion, @estadoId, GETDATE());
-                    SELECT CAST(SCOPE_IDENTITY() as INT);";
+                    INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, 
+                           ubicacion_id, usuario_id, persona_comercial_id, serie_guia, numero_guia, 
+                           observacion, estado_id, created_at)
+                    VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, 
+                           @personaId, @serieGuia, @numeroGuia, @observacion, @estadoId, GETDATE());
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
-                        int idMovimientoGenerado = 0;
-
+                        int idMovimientoGenerado;
                         using (var cmd = dbConn.CreateCommand())
                         {
                             cmd.Transaction = transaccion;
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryCabecera);
-
-                            // Evaluamos campos de fecha y nulos
-                            AgregarParametro(cmd, "@fecha", cabecera.FechaMovimiento.HasValue ? cabecera.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue) : DateTime.Today);
+                            AgregarParametro(cmd, "@fecha", cabecera.FechaMovimiento.HasValue
+                                ? cabecera.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue)
+                                : DateTime.Now);
                             AgregarParametro(cmd, "@serie", cabecera.SerieDocumento);
                             AgregarParametro(cmd, "@numero", cabecera.NumeroDocumento);
                             AgregarParametro(cmd, "@motivoId", cabecera.MotivoProductoId);
                             AgregarParametro(cmd, "@ubicacionId", cabecera.UbicacionId > 0 ? (object)cabecera.UbicacionId : DBNull.Value);
                             AgregarParametro(cmd, "@usuarioId", usuarioId);
                             AgregarParametro(cmd, "@personaId", cabecera.PersonaComercialId > 0 ? (object)cabecera.PersonaComercialId : DBNull.Value);
-                            AgregarParametro(cmd, "@serieGuia", string.IsNullOrEmpty(cabecera.SerieGuia) ? DBNull.Value : (object)cabecera.SerieGuia);
-                            AgregarParametro(cmd, "@numeroGuia", string.IsNullOrEmpty(cabecera.NumeroGuia) ? DBNull.Value : (object)cabecera.NumeroGuia);
-                            AgregarParametro(cmd, "@observacion", string.IsNullOrEmpty(cabecera.Observacion) ? DBNull.Value : (object)cabecera.Observacion);
+                            AgregarParametro(cmd, "@serieGuia", (object)cabecera.SerieGuia ?? DBNull.Value);
+                            AgregarParametro(cmd, "@numeroGuia", (object)cabecera.NumeroGuia ?? DBNull.Value);
+                            AgregarParametro(cmd, "@observacion", (object)cabecera.Observacion ?? DBNull.Value);
                             AgregarParametro(cmd, "@estadoId", estadoId);
 
                             idMovimientoGenerado = (int)await cmd.ExecuteScalarAsync();
                         }
 
-                        // ---- PASO 2: INSERTAR DETALLES Y MAPEAR CÓDIGOS ÚNICOS ----
-                        string queryDetalle = @"
-                    INSERT INTO movimiento_detalles 
-                    (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
-                    VALUES 
-                    (@movimientoId, @productoId, 0, @cantidadSalida, @costo, GETDATE());
-                    SELECT CAST(SCOPE_IDENTITY() as INT);";
-
-                        string queryMovCodigo = @"
-                    INSERT INTO movimiento_codigos 
-                    (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at)
-                    VALUES 
-                    (@movimientoId, @detalleId, @codigoCreadoId, 0, 1, GETDATE());";
-
-                        // Opcional: Actualizar el estado en [codigos_creados] para que no figure "Disponible"
-                        string queryUpdateEstadoCodigo = @"
-                    UPDATE codigos_creados 
-                    SET estado_id = @nuevoEstadoId 
-                    WHERE id = @codigoCreadoId;";
-
+                        // 2. PROCESAR PRODUCTOS Y CÓDIGOS
                         foreach (var item in listaProductos)
                         {
-                            int idDetalleGenerado = 0;
+                            // Insertar Detalle
+                                string queryDetalle = @"
+                            INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
+                            VALUES (@movId, @prodId, 0, @cant, @costo, GETDATE());
+                            SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
-                            using (var cmd = dbConn.CreateCommand())
+                            int idDetalle;
+                            using (var cmdDet = dbConn.CreateCommand())
                             {
-                                cmd.Transaction = transaccion;
-                                cmd.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
-
-                                AgregarParametro(cmd, "@movimientoId", idMovimientoGenerado);
-                                AgregarParametro(cmd, "@productoId", item.ProductoId);
-                                AgregarParametro(cmd, "@cantidadSalida", item.Cantidad); // Lee directo tu propiedad calculada decimal
-                                AgregarParametro(cmd, "@costo", item.Detalle?.CostoUnitario ?? 0.00m);
-
-                                idDetalleGenerado = (int)await cmd.ExecuteScalarAsync();
+                                cmdDet.Transaction = transaccion;
+                                cmdDet.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
+                                AgregarParametro(cmdDet, "@movId", idMovimientoGenerado);
+                                AgregarParametro(cmdDet, "@prodId", item.ProductoId);
+                                AgregarParametro(cmdDet, "@cant", item.Cantidad);
+                                AgregarParametro(cmdDet, "@costo", item.Detalle?.CostoUnitario ?? 0);
+                                idDetalle = (int)await cmdDet.ExecuteScalarAsync();
                             }
 
-                            // Buscamos los códigos únicos que se escanearon y correspondan al ID del producto actual
-                            var codigosAsociados = listaCodigos.Where(c => c.ProductoId == item.ProductoId);
-
-                            foreach (var cod in codigosAsociados)
+                            // Insertar Códigos asociados a este producto
+                            var codigosProd = listaCodigos.Where(c => c.ProductoId == item.ProductoId);
+                            foreach (var cod in codigosProd)
                             {
-                                // Si guardaste el ID interno de la tabla [codigos_creados] en el objeto de EF
-                                int idCodigoCreado = cod.MovCodigo?.CodigoCreadoId ?? 0;
+                           
+                                // A. Insertar movimiento_codigos
+                                string queryMovCod = @"INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at)
+                                  VALUES (@movId, @detId, @codId, 0, 1, GETDATE());";
 
-                                if (idCodigoCreado > 0)
+                                using (var cmdCod = dbConn.CreateCommand())
                                 {
-                                    // 1. Insertamos relación en movimiento_codigos
-                                    using (var cmd = dbConn.CreateCommand())
-                                    {
-                                        cmd.Transaction = transaccion;
-                                        cmd.CommandText = QueryAdapter.FormatearConsulta(queryMovCodigo);
-
-                                        AgregarParametro(cmd, "@movimientoId", idMovimientoGenerado);
-                                        AgregarParametro(cmd, "@detalleId", idDetalleGenerado);
-                                        AgregarParametro(cmd, "@codigoCreadoId", idCodigoCreado);
-
-                                        await cmd.ExecuteNonQueryAsync();
-                                    }
-
-                                    // 2. Cambiamos el estado en la tabla maestra [codigos_creados] (Ej: estado 2 = Entregado/Vendido)
-                                    using (var cmd = dbConn.CreateCommand())
-                                    {
-                                        cmd.Transaction = transaccion;
-                                        cmd.CommandText = QueryAdapter.FormatearConsulta(queryUpdateEstadoCodigo);
-
-                                        AgregarParametro(cmd, "@nuevoEstadoId", 2);
-                                        AgregarParametro(cmd, "@codigoCreadoId", idCodigoCreado);
-
-                                        await cmd.ExecuteNonQueryAsync();
-                                    }
+                                    cmdCod.Transaction = transaccion;
+                                    cmdCod.CommandText = QueryAdapter.FormatearConsulta(queryMovCod);
+                                    AgregarParametro(cmdCod, "@movId", idMovimientoGenerado);
+                                    AgregarParametro(cmdCod, "@detId", idDetalle);
+                                    AgregarParametro(cmdCod, "@codId", cod.MovCodigo.CodigoCreadoId);
+                                    await cmdCod.ExecuteNonQueryAsync();
                                 }
+
+                                // B. Actualizar estado del código
+                                using (var cmdUpd = dbConn.CreateCommand())
+                                {
+                                    cmdUpd.Transaction = transaccion;
+                                    cmdUpd.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = 4 WHERE id = @id");
+                                    AgregarParametro(cmdUpd, "@id", cod.MovCodigo.CodigoCreadoId);
+                                    await cmdUpd.ExecuteNonQueryAsync();
+                                }
+
+
                             }
+
                         }
 
-                        // Consolidamos la transacción completa en SQL Server
                         await transaccion.CommitAsync();
                         return true;
                     }
                     catch (Exception)
                     {
-                        // Si algo revienta, limpia y deshace todo para no dejar salidas huérfanas
                         await transaccion.RollbackAsync();
-                        throw;
+                        throw; // Lanza el error para que sepas qué falló
                     }
                 }
             }
         }
+
+
+
     }
 }

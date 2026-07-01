@@ -132,5 +132,31 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
         }
+
+
+        public async Task<int> ObtenerIdCodigoPorTextoAsync(string codigo)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                if (dbConn.State != System.Data.ConnectionState.Open)
+                    await dbConn.OpenAsync();
+
+                string query = "SELECT id FROM codigos_creados WHERE codigo = @codigo";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                    // Asegúrate de pasar el valor correctamente
+                    AgregarParametro(cmd, "@codigo", codigo);
+
+                    // Usamos ExecuteScalarAsync para no bloquear el hilo de la UI
+                    object result = await cmd.ExecuteScalarAsync();
+
+                    return result != null ? Convert.ToInt32(result) : 0;
+                }
+            }
+        }
     }
 }

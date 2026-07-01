@@ -16,7 +16,9 @@ namespace AplicativoDeAlmacen.Models
         // 💡 AGREGA ESTA LÍNEA: Sirve de puente para que tu DataGrid XAML lea la propiedad "Codigo"
         public string Codigo => CodigoUnique;
 
-        public int ProductoId;
+        public int ProductoId { get; set; }
+        // 💡 AGREGA ESTA LÍNEA PARA SOLUCIONAR EL ERROR
+     
 
     }
 }

@@ -334,7 +334,8 @@ namespace AplicativoDeAlmacen.Views
                 {
                     MessageBox.Show("El movimiento de inventario y sus códigos se registraron correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                    LimpiarFormulario();
+                     LimpiarFormulario();
+
 
                     // Aquí es donde habilitas el nuevo correlativo
                     Movimiento nuevoMovimiento = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(SERIE_POR_DEFECTO);

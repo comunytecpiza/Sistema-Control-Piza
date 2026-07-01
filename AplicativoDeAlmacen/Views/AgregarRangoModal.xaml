@@ -14,7 +14,7 @@
 
         <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <RadioButton x:Name="rbLibroGuia" Content="📘 Libros Guía" Margin="0,0,25,0" VerticalAlignment="Center" FontWeight="SemiBold" Cursor="Hand"/>
+                <RadioButton x:Name="rbLibroGuia" Content="📘 Libros Guía" Margin="0,0,25,0" IsChecked="True" VerticalAlignment="Center" FontWeight="SemiBold" Cursor="Hand"/>
                 <RadioButton x:Name="rbLibroVenta" Content="📗 Libros Venta" IsChecked="True" VerticalAlignment="Center" FontWeight="SemiBold" Cursor="Hand"/>
             </StackPanel>
         </Border>

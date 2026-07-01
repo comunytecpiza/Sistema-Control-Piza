@@ -101,32 +101,31 @@ namespace AplicativoDeAlmacen.Services
             return resultado;
         }
 
+
         public async Task<bool> RegistrarMovimientoCompletoAsync(
-            Movimiento cabecera,
-            List<VistaProductoGrid> productos,
-            List<RangoCodigoItem> rangos,
-            int ubicacionId)
+     Movimiento cabecera,
+     List<VistaProductoGrid> productos,
+     List<RangoCodigoItem> rangos,
+     int ubicacionId)
         {
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
-
                 using (var transaccion = dbConn.BeginTransaction())
                 {
                     try
                     {
-                        // CAMBIO MULTI-MOTOR: Solución dinámica para obtener el ID sin usar OUTPUT
                         string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
 
                         // =======================================================
                         // PASO 1: Insertar Cabecera del Movimiento
                         // =======================================================
                         string queryCabecera = $@"
-                            INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, 
-                                                     motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id,serie_guia,numero_guia)
-                            VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, @estadoId,@serieGuia,@numeroGuia);
-                            {selectId}"; 
+                    INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, 
+                                            motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia)
+                    VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, @estadoId, @serieGuia, @numeroGuia);
+                    {selectId}";
 
                         int movimientoIdInserted = 0;
                         using (var cmdCab = dbConn.CreateCommand())
@@ -148,7 +147,7 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
                             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
                             AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
-                            AgregarParametro(cmdCab,"@numeroGuia",cabecera.NumeroGuia);
+                            AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia);
 
                             object resultCab = await cmdCab.ExecuteScalarAsync();
                             if (resultCab == null || resultCab == DBNull.Value) throw new Exception("No se pudo obtener el ID de la cabecera.");
@@ -156,58 +155,46 @@ namespace AplicativoDeAlmacen.Services
                         }
 
                         // =======================================================
-                        // PASO 2: Insertar el Detalle de Productos
+                        // PASO 2: Procesar Detalle y Rangos
                         // =======================================================
                         string queryDetalle = $@"
-                            INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, costo_unitario)
-                            VALUES (@movimientoId, @productoId, @cantidad, @costo);
-                            {selectId}";
+                    INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, costo_unitario)
+                    VALUES (@movimientoId, @productoId, @cantidad, @costo);
+                    {selectId}";
 
-                        string queryRangos = @"
-                            INSERT INTO registro_rangos (
-                                producto_id, categoria_producto_id, abreviatura_base, 
-                                desde_num, hasta_num, movimiento_detalle_id, usuario_id
-                            )
-                            VALUES (
-                                @productoId, @categoriaProductoId, @abreviaturaBase, 
-                                @desdeNum, @hastaNum, @movimientoDetalleId, @usuarioId
-                            );";
 
-                        // =======================================================
-                        // PASO 3: Vincular códigos físicos
-                        // =======================================================
-                        string queryMovCodigos = @"
-                            INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id) 
-                            VALUES (@movId, @detId, @codId);";
+
+
+                        string queryRangos = $@"
+                        INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, usuario_id)
+                        VALUES (@productoId, @categoriaProductoId, @abreviaturaBase, @desdeNum, @hastaNum, @movimientoDetalleId, @usuarioId);
+                        {selectId}";
 
                         foreach (var item in productos)
                         {
                             int detalleIdInserted = 0;
-
                             using (var cmdDet = dbConn.CreateCommand())
                             {
                                 cmdDet.Transaction = transaccion;
                                 cmdDet.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
-
                                 AgregarParametro(cmdDet, "@movimientoId", movimientoIdInserted);
                                 AgregarParametro(cmdDet, "@productoId", item.Detalle.ProductoId);
                                 AgregarParametro(cmdDet, "@cantidad", item.Detalle.CantidadIngreso);
                                 AgregarParametro(cmdDet, "@costo", item.Detalle.CostoUnitario);
 
                                 object resultDet = await cmdDet.ExecuteScalarAsync();
-                                if (resultDet == null || resultDet == DBNull.Value) throw new Exception("No se pudo obtener el ID del detalle.");
                                 detalleIdInserted = Convert.ToInt32(resultDet);
                             }
 
-                            var rangosDelProducto = rangos.Where(r => r.productoId == item.Detalle.ProductoId);
-
-                            foreach (var rango in rangosDelProducto)
+                            foreach (var rango in rangos.Where(r => r.productoId == item.Detalle.ProductoId))
                             {
+
+                                // Insertar rango y obtener su ID para la relación
+                                int idRangoGenerado = 0;
                                 using (var cmdRan = dbConn.CreateCommand())
                                 {
                                     cmdRan.Transaction = transaccion;
                                     cmdRan.CommandText = QueryAdapter.FormatearConsulta(queryRangos);
-
                                     AgregarParametro(cmdRan, "@productoId", rango.productoId);
                                     AgregarParametro(cmdRan, "@categoriaProductoId", rango.CategoriaProductoId);
                                     AgregarParametro(cmdRan, "@abreviaturaBase", rango.AbreviaturaBase);
@@ -216,41 +203,54 @@ namespace AplicativoDeAlmacen.Services
                                     AgregarParametro(cmdRan, "@movimientoDetalleId", detalleIdInserted);
                                     AgregarParametro(cmdRan, "@usuarioId", cabecera.UsuarioId);
 
-                                    await cmdRan.ExecuteNonQueryAsync();
+                                    idRangoGenerado = Convert.ToInt32(await cmdRan.ExecuteScalarAsync());
                                 }
+                                //aqui me que sale nulo
+                                var idsCodigosFisicos = await ObtenerIdsCodigosPorRangoAsync(rango.AbreviaturaBase, rango.CategoriaProductoId, rango.DesdeNum, rango.HastaNum, dbConn, transaccion);
 
-                                var idsCodigosFisicos = await ObtenerIdsCodigosPorRangoAsync(
-                                    rango.AbreviaturaBase,
-                                    rango.CategoriaProductoId,
-                                    rango.DesdeNum,
-                                    rango.HastaNum,
-                                    dbConn,
-                                    transaccion);
-
-                                using (var cmdMovCod = dbConn.CreateCommand())
+                                // Dentro del foreach (var idFisico in idsCodigosFisicos)
+                                foreach (var idFisico in idsCodigosFisicos)
                                 {
-                                    cmdMovCod.Transaction = transaccion;
-                                    cmdMovCod.CommandText = QueryAdapter.FormatearConsulta(queryMovCodigos);
-
-                                    var pMovId = cmdMovCod.CreateParameter();
-                                    pMovId.ParameterName = "@movId";
-                                    cmdMovCod.Parameters.Add(pMovId);
-
-                                    var pDetId = cmdMovCod.CreateParameter();
-                                    pDetId.ParameterName = "@detId";
-                                    cmdMovCod.Parameters.Add(pDetId);
-
-                                    var pCodId = cmdMovCod.CreateParameter();
-                                    pCodId.ParameterName = "@codId";
-                                    cmdMovCod.Parameters.Add(pCodId);
-
-                                    foreach (var idFisico in idsCodigosFisicos)
+                                    // 1. Validar si el ID existe en la tabla antes de insertar
+                                    using (var cmdVal = dbConn.CreateCommand())
                                     {
-                                        pMovId.Value = movimientoIdInserted;
-                                        pDetId.Value = detalleIdInserted;
-                                        pCodId.Value = idFisico;
+                                        cmdVal.Transaction = transaccion;
+                                        cmdVal.CommandText = "SELECT estado_id FROM codigos_creados WHERE id = @codigoId";
+                                        AgregarParametro(cmdVal, "@codigoId", idFisico.Id);
+
+                                        var estado = await cmdVal.ExecuteScalarAsync();
+
+                                        if (estado == null || Convert.ToInt32(estado) != 1)
+                                        {
+                                            throw new Exception($"El código ID {idFisico} no está disponible para salida (Estado actual: {estado}).");
+                                        }
+                                    }
+
+                                    // 2. Si existe, procedemos con el INSERT como lo corregimos antes
+                                    using (var cmdMovCod = dbConn.CreateCommand())
+                                    {
+                                        cmdMovCod.Transaction = transaccion;
+                                        cmdMovCod.CommandText = QueryAdapter.FormatearConsulta(@"
+                                        INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at) 
+                                        VALUES (@movId, @detId, @codId, 0, 1, GETDATE());");
+
+                                        AgregarParametro(cmdMovCod, "@movId", movimientoIdInserted);
+                                        AgregarParametro(cmdMovCod, "@detId", detalleIdInserted);
+                                        AgregarParametro(cmdMovCod, "@codId", idFisico.Id);
+
                                         await cmdMovCod.ExecuteNonQueryAsync();
                                     }
+                                    // ... resto del código ...
+
+                                    // B. Actualizar estado del código
+                                    using (var cmdUpd = dbConn.CreateCommand())
+                                    {
+                                        cmdUpd.Transaction = transaccion;
+                                        cmdUpd.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = 3 WHERE id = @id");
+                                        AgregarParametro(cmdUpd, "@id", idFisico.Id);
+                                        await cmdUpd.ExecuteNonQueryAsync();
+                                    }
+
                                 }
                             }
                         }
@@ -266,24 +266,27 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
         }
-
-        private async Task<List<int>> ObtenerIdsCodigosPorRangoAsync(string baseLimpia, int categoriaId, int desde, int hasta, DbConnection conn, DbTransaction trans)
+        private async Task<List<CodigoCreado>> ObtenerIdsCodigosPorRangoAsync(string baseLimpia, int categoriaId, int desde, int hasta, DbConnection conn, DbTransaction trans)
         {
-            List<int> ids = new List<int>();
+            List<CodigoCreado> resultados = new List<CodigoCreado>();
+
+            // El patrón lo pasamos tal cual, la BD se encarga del resto
+            string patron = baseLimpia;
+
             string query = @"
-                SELECT cc.id 
-                FROM codigos_creados cc
-                INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                WHERE cc.codigo LIKE @patron
-                  AND rc.categoria_producto_id = @categoriaId
-                  AND TRY_CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+        SELECT cc.Id, cc.registro_codigo_id, cc.Codigo, cc.es_manual, cc.estado_id
+        FROM codigos_creados cc
+        INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+        WHERE REPLACE(cc.codigo, ' ', '') LIKE REPLACE(@patron, ' ', '') + '%'
+          AND rc.categoria_producto_id = @categoriaId
+          AND TRY_CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
 
             using (var cmd = conn.CreateCommand())
             {
                 cmd.Transaction = trans;
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-                AgregarParametro(cmd, "@patron", baseLimpia + "%");
+                AgregarParametro(cmd, "@patron", patron);
                 AgregarParametro(cmd, "@categoriaId", categoriaId);
                 AgregarParametro(cmd, "@desde", desde);
                 AgregarParametro(cmd, "@hasta", hasta);
@@ -292,11 +295,18 @@ namespace AplicativoDeAlmacen.Services
                 {
                     while (await reader.ReadAsync())
                     {
-                        ids.Add(reader.GetInt32(0));
+                        resultados.Add(new CodigoCreado
+                        {
+                            Id = reader.GetInt32(0),
+                            RegistroCodigoId = reader.GetInt32(1),
+                            Codigo = reader.GetString(2),
+                            EsManual = reader.GetBoolean(3), // Asegúrate de que esto sea correcto para tu BD
+                            EstadoId = reader.GetInt32(4)
+                        });
                     }
                 }
             }
-            return ids;
+            return resultados;
         }
     }
 }

@@ -94,50 +94,57 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnAgregarRangoCodigo_Click(object sender, RoutedEventArgs e)
         {
-            // 1. Validar que tengamos el producto seleccionado desde el buscador
+            // 1. Validar producto seleccionado
             if (_productoSeleccionado == null)
             {
-                MessageBox.Show("Por favor, seleccione un producto del buscador antes de agregar códigos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, seleccione un producto antes de agregar códigos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 2. Validar la cantidad de unidades/códigos que se esperan acumular
+            // 2. Validar cantidad esperada
             if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
             {
-                MessageBox.Show("Por favor, ingrese una cantidad válida en el campo del producto.", "Aviso ⚠️", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Ingrese una cantidad válida de unidades.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 3. NUEVO CONTROL: Sumar las cantidades de los códigos ya agregados
-            int totalCodigosYaAgregados = 0;
+            // 3. EXTRAER los datos del DataGrid a una lista compatible
+            List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>();
             foreach (var item in dgDetalleCodigos.Items)
             {
                 if (item is RangoCodigoItem rango)
                 {
-                    if (int.TryParse(rango.Cantidad, out int cantRango))
-                    {
-                        totalCodigosYaAgregados += cantRango;
-                    }
+                    listaDeRangosActual.Add(rango);
                 }
             }
 
-            // Si ya completamos la cantidad requerida, bloqueamos el ingreso de más rangos
+            // 4. Calcular el total acumulado usando la lista extraída
+            int totalCodigosYaAgregados = 0;
+            foreach (var rango in listaDeRangosActual)
+            {
+                if (int.TryParse(rango.Cantidad, out int cantRango))
+                {
+                    totalCodigosYaAgregados += cantRango;
+                }
+            }
+
             if (totalCodigosYaAgregados >= cantidadCodigosEsperados)
             {
-                MessageBox.Show($"Ya ha registrado el total de {cantidadCodigosEsperados} códigos únicos indicados en la cantidad del producto.", "Lotes Completos", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Ya ha registrado el total de códigos indicado.", "Lotes Completos", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // Calculamos cuánto le falta asignar por si quiere meter los códigos en varios tramos
             int cantidadFaltantePorAsignar = cantidadCodigosEsperados - totalCodigosYaAgregados;
 
+            // 5. LLAMAR A LA VENTANA usando la lista en lugar del control DataGrid
             try
             {
-                string abreviatura = _productoSeleccionado.Abreviatura ?? "";
-                int productoId = _productoSeleccionado.Id;
-
-                // Pasamos los parámetros necesarios a la ventana secundaria
-                AsignarCodigoWindow ventanaCodigo = new AsignarCodigoWindow(dgDetalleCodigos.Items, abreviatura, productoId, cantidadFaltantePorAsignar);
+                AsignarCodigoWindow ventanaCodigo = new AsignarCodigoWindow(
+                    listaDeRangosActual, // <--- Aquí pasas la lista de tipo List<RangoCodigoItem>
+                    _productoSeleccionado.Abreviatura,
+                    _productoSeleccionado.Id,
+                    cantidadFaltantePorAsignar
+                );
                 ventanaCodigo.Owner = this;
 
                 if (ventanaCodigo.ShowDialog() == true && ventanaCodigo.FueConfirmado)
@@ -146,18 +153,14 @@ namespace AplicativoDeAlmacen.Views
                     if (nuevoRango != null)
                     {
                         dgDetalleCodigos.Items.Add(nuevoRango);
-
-                        // Bloqueamos controles principales para mantener la integridad de los datos
                         txtCantidad.IsReadOnly = true;
-
-                        // 🔥 NUEVO CONTROL: Bloquea tu buscador de productos si ya metiste códigos
                         if (txtProducto != null) txtProducto.IsEnabled = false;
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al abrir el administrador de rangos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

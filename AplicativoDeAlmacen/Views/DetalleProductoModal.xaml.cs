@@ -1,4 +1,5 @@
-﻿using AplicativoDeAlmacen.Models;
+﻿using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using System;
@@ -6,7 +7,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
+using System.Threading.Tasks; 
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,6 +17,7 @@ namespace AplicativoDeAlmacen.Views
     public partial class DetalleProductoModal : Window
     {
         private readonly ProductoService _productoService;
+        private readonly CodigoCreadoService _codigoService;
         private CancellationTokenSource _debounceTimer;
         private Producto _productoSeleccionado = null;
 
@@ -32,10 +34,9 @@ namespace AplicativoDeAlmacen.Views
         {
             InitializeComponent();
             _productoService = new ProductoService();
-
+            _codigoService = new CodigoCreadoService();
             ListaRangosLocales = new ObservableCollection<RangoCodigoItem>();
             dgvCodigos.ItemsSource = ListaRangosLocales;
-
             txtProducto.TextChanged += TxtProducto_TextChanged;
         }
 
@@ -106,9 +107,13 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+
         // =======================================================
         // GESTIÓN DE RANGOS / TRAMOS MASIVOS
         // =======================================================
+
+
+
         private void BtnOriginaRango_Click(object sender, RoutedEventArgs e)
         {
             // Nota: Cambiado a BtnOriginaRango_Click o BtnAgregarRango_Click según tu firma XAML
@@ -199,13 +204,16 @@ namespace AplicativoDeAlmacen.Views
                     txtCantidadTotal.IsReadOnly = true;
                     txtProducto.IsEnabled = false;
                 }
+
             }
         }
+
+
 
         // =======================================================
         // ÚNICO PUNTO DE SALIDA Y PROCESAMIENTO
         // =======================================================
-        private void BtnGrabar_Click(object sender, RoutedEventArgs e)
+        private async void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
             // 1. Validar que existan datos
             if (_productoSeleccionado == null || ListaRangosLocales.Count == 0)
@@ -234,17 +242,36 @@ namespace AplicativoDeAlmacen.Views
                 UnidadMedida = txtUMedida.Text
             };
 
+
             // 3. Generar Códigos (ListaCodigosGenerados)
             ListaCodigosGenerados.Clear();
             foreach (var rango in ListaRangosLocales)
             {
                 for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
                 {
+                    string codigoGenerado = $"{rango.AbreviaturaBase}-{i:D7}";
+
+                    // --- AQUÍ ESTÁ EL CAMBIO ---
+                    // Agregamos 'await' porque el método es asíncrono
+                    int idEnBaseDeDatos = await _codigoService.ObtenerIdCodigoPorTextoAsync(codigoGenerado);
+
+                    if (idEnBaseDeDatos == 0)
+                    {
+                        MessageBox.Show($"Error: El código {codigoGenerado} no existe en la base de datos.");
+                        continue;
+                    }
+
                     ListaCodigosGenerados.Add(new VistaCodigoGrid
                     {
-                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = 0, CantidadSalida = 1, CreatedAt = DateTime.Now },
-                        CodigoUnique = $"{rango.AbreviaturaBase}-{i.ToString("D7")}",
-                        ProductoId = _productoSeleccionado.Id
+                        MovCodigo = new MovimientoCodigo
+                        {
+                            CantidadSalida = 1,
+                            CreatedAt = DateTime.Now,
+                            CodigoCreadoId = idEnBaseDeDatos
+                        },
+                        CodigoUnique = codigoGenerado,
+                        ProductoId = _productoSeleccionado.Id,
+                        ColeccionTipo = rango.ColeccionTipo,
                     });
                 }
             }
@@ -253,6 +280,8 @@ namespace AplicativoDeAlmacen.Views
             this.DialogResult = true;
             this.Close();
         }
+
+       
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
