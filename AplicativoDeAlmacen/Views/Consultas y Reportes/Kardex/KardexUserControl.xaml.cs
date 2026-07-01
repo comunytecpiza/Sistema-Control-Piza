@@ -8,14 +8,17 @@ using System.Windows.Input;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Core; // Asegúrate de tener este using para el EventBus
+using AplicativoDeAlmacen.Services.Reportes;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class KardexUserControl : UserControl
     {
         private readonly KardexService _kardexService;
+        private readonly ReporteExcelService _reporteExcel;
         private readonly ProductoService _productoService;
         private int _productoSeleccionadoId;
+        private KardexFisicoReporte _ultimoReporte;
 
         // Bandera para evitar bucles cuando manipulamos la caja de texto por código
         private bool _estaSeleccionando = false;
@@ -29,6 +32,8 @@ namespace AplicativoDeAlmacen.Views
 
             _kardexService = new KardexService();
             _productoService = new ProductoService();
+            _reporteExcel =
+                   new ReporteExcelService();
 
             // Fechas por defecto (Primer día del mes y Hoy)
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
@@ -186,10 +191,21 @@ namespace AplicativoDeAlmacen.Views
                 Mouse.OverrideCursor = Cursors.Wait;
 
                 // Ejecutamos el servicio del Kardex multimotor con rango de fechas
-                var reporte = await _kardexService.GenerarKardexFisicoAsync(
-                        _productoSeleccionadoId,
-                        DpDesde.SelectedDate ?? DateTime.Today,
-                        DpHasta.SelectedDate ?? DateTime.Today);
+                    _ultimoReporte =
+                    await _kardexService.GenerarKardexFisicoAsync(
+
+                            _productoSeleccionadoId,
+
+                            DpDesde.SelectedDate
+                                ?? DateTime.Today,
+
+                            DpHasta.SelectedDate
+                                ?? DateTime.Today
+
+                    );
+
+                   var reporte =
+                    _ultimoReporte;
 
                 // Llenamos la tabla del DataGrid de forma directa
                 KardexDataGrid.ItemsSource = reporte.Detalles;
@@ -251,6 +267,23 @@ namespace AplicativoDeAlmacen.Views
                     _isFormattingDate = false;
                 };
             }
+        }
+
+        private void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        {
+            if (_ultimoReporte == null)
+            {
+                MessageBox.Show(
+                    "Primero genere el Kardex.",
+                    "Sistema",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information
+                );
+                return;
+            }
+
+            // SOLUCIÓN: Pasamos el objeto completo, no solo la lista de detalles
+            _reporteExcel.ExportarKardex(_ultimoReporte);
         }
     }
 }
