@@ -65,7 +65,7 @@
                                 <Setter TargetName="Border" Property="Background" Value="#DC2626"/>
                                 <Setter TargetName="Border" Property="BorderBrush" Value="#DC2626"/>
                                 <Setter Property="Foreground" Value="White"/>
-                                
+
                                 <Setter TargetName="Border" Property="Margin" Value="0,-2,4,0"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -102,10 +102,7 @@
                 </Menu>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
-                    <Button x:Name="BtnAgregarUsuario" Content="+ Agregar Usuario" Click="BtnAgregarUsuario_Click" 
-                            Style="{StaticResource RoundedButtonStyle}"
-                            Background="#10B981" Foreground="White" FontWeight="Bold" Padding="15,8" 
-                            BorderThickness="0" Cursor="Hand" Margin="0,0,20,0"/>
+                   
 
                     <TextBlock x:Name="WelcomeMessage" Text="Bienvenido(a) Administrador" Foreground="#111827" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
                     <Border Width="36" Height="36" CornerRadius="18" Background="#DC2626" Margin="15,0,0,0">
@@ -117,16 +114,100 @@
 
         <TabControl x:Name="MainTabControl" Grid.Row="1" Margin="20,10,20,20" Background="Transparent" BorderThickness="0">
             <TabItem Header="🏠 Panel Principal" x:Name="TabInicio">
-                <Border Background="White" CornerRadius="15" Padding="40" BorderBrush="#E5E7EB" BorderThickness="1" MaxWidth="800" VerticalAlignment="Top" Margin="0,30,0,0">
-                    <Border.Effect>
-                        <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270" Color="Black" Opacity="0.05"/>
-                    </Border.Effect>
-                    <StackPanel>
-                        <TextBlock Text="Panel Administrativo Central" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
-                        <TextBlock Text="Tiene acceso total al sistema. Seleccione una opción en el menú superior para abrir una nueva pestaña de trabajo." FontSize="16" Foreground="#6B7280" TextWrapping="Wrap"/>
-                        <Border Height="4" Width="60" Background="#DC2626" HorizontalAlignment="Left" Margin="0,20,0,0" CornerRadius="2"/>
-                    </StackPanel>
-                </Border>
+                <Grid Margin="0,20,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="320"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Background="White" CornerRadius="15" Padding="40" BorderBrush="#E5E7EB" BorderThickness="1" VerticalAlignment="Top" Margin="0,0,20,0">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270" Color="Black" Opacity="0.05"/>
+                        </Border.Effect>
+                        <StackPanel>
+                            <TextBlock Text="Panel Administrativo Central" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
+                            <TextBlock Text="Tiene acceso total al sistema. Seleccione una opción en el menú superior para abrir una nueva pestaña de trabajo." FontSize="16" Foreground="#6B7280" TextWrapping="Wrap"/>
+                            <Border Height="4" Width="60" Background="#DC2626" HorizontalAlignment="Left" Margin="0,20,0,0" CornerRadius="2"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="1" Background="White" CornerRadius="15" Padding="20" BorderBrush="#E5E7EB" BorderThickness="1">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270" Color="Black" Opacity="0.05"/>
+                        </Border.Effect>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Margin="0,0,0,15">
+                                <TextBlock Text="📝 Mis Notas" FontSize="18" FontWeight="Bold" Foreground="#111827"/>
+                                <TextBlock Text="Organiza tus pendientes diarios" FontSize="12" Foreground="#9CA3AF"/>
+                            </StackPanel>
+
+                            <Grid Grid.Row="1" Margin="0,0,0,15">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,0,8,0" Background="#F9FAFB">
+                                    <TextBox x:Name="TxtNuevaNota" Padding="8" BorderThickness="0" Background="Transparent" Foreground="#374151"/>
+                                </Border>
+
+                                <Border Grid.Column="1" CornerRadius="8" Background="#3B82F6">
+                                    <Button Content="+" Click="BtnAgregarNota_Click" Background="Transparent" Foreground="White" FontWeight="Bold" Width="40" Cursor="Hand" BorderThickness="0"/>
+                                </Border>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="Pendientes" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,8"/>
+                                    <ListBox x:Name="LbNotasPendientes" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#FFFFFF" CornerRadius="8" Padding="10" Margin="0,0,0,8" BorderBrush="#E5E7EB" BorderThickness="1">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox IsChecked="{Binding IsCompleted}" Click="CheckBox_CambioEstado" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Texto}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#374151" FontSize="13"/>
+                                                        <Button Grid.Column="2" Content="✕" Tag="{Binding}" Click="BtnEliminarNota_Click" Background="Transparent" Foreground="#D1D5DB" BorderThickness="0" Cursor="Hand" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+
+                                    <TextBlock Text="Completadas" FontWeight="Bold" Foreground="#9CA3AF" Margin="0,15,0,8"/>
+                                    <ListBox x:Name="LbNotasCompletadas" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#F9FAFB" CornerRadius="8" Padding="10" Margin="0,0,0,8" BorderBrush="#F3F4F6" BorderThickness="1">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox IsChecked="{Binding IsCompleted}" Click="CheckBox_CambioEstado" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Texto}" TextDecorations="Strikethrough" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#9CA3AF" FontSize="13"/>
+                                                        <Button Grid.Column="2" Content="✕" Tag="{Binding}" Click="BtnEliminarNota_Click" Background="Transparent" Foreground="#D1D5DB" BorderThickness="0" Cursor="Hand" Margin="8,0,0,0"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
             </TabItem>
         </TabControl>
 
@@ -142,5 +223,18 @@
                 </StackPanel>
             </DockPanel>
         </Border>
+
+        <!-- 
+            Growl global de la aplicación.
+            Se declara aquí, una sola vez, en la ventana raíz (MainShell).
+            Grid.RowSpan="3" hace que ocupe las 3 filas del Grid principal,
+            así puede posicionarse libremente sin quedar limitado por la
+            fila "Auto" del header. Panel.ZIndex alto asegura que flote
+            por encima del TabControl y de cualquier vista hija (incluyendo
+            ConfiguracionSistemaUserControl y cualquier otro UserControl
+            que se cargue dentro de las pestañas).
+            Todos los Growl.Success/Warning/Error/Info que se llamen desde
+            cualquier UserControl hijo de esta ventana se mostrarán aquí.
+        -->
     </Grid>
 </Window>

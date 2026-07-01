@@ -22,6 +22,23 @@ namespace AplicativoDeAlmacen.Views
         // Esto evita el bucle de recargas que ralentizaba toda la pantalla.
         private bool _cargandoDatos;
 
+        // Controla cuántas notificaciones Growl están "vivas" al mismo tiempo.
+        // Si el usuario hace clic muy rápido muchas veces, a partir de la
+        // cuarta notificación seguida simplemente no se muestran más hasta
+        // que las anteriores se cierren (cada Growl dura unos segundos).
+        private int _notificacionesActivas;
+        private const int MAX_NOTIFICACIONES_SIMULTANEAS = 3;
+
+        // "Fotografía" del último estado conocido y confirmado en BD para
+        // cada categoría/módulo, tomada justo después de cargar los datos.
+        // Cuando el DataGrid se re-dibuja (al cambiar de pestaña, volver a
+        // la vista, etc.), WPF vuelve a disparar Checked/Unchecked aunque
+        // el usuario no haya tocado nada. Comparando contra esta fotografía
+        // sabemos si el cambio es real (el usuario hizo clic) o es un eco
+        // del propio binding, y así evitamos UPDATEs y notificaciones falsas.
+        private readonly Dictionary<int, bool> _estadoConocidoCategorias = new();
+        private readonly Dictionary<int, bool> _estadoConocidoModulos = new();
+
         public ConfiguracionSistemaUserControl()
         {
             InitializeComponent();
@@ -40,7 +57,76 @@ namespace AplicativoDeAlmacen.Views
         private void MostrarNotificacion(
             string mensaje)
         {
-            Growl.Success(mensaje);
+            MostrarNotificacionControlada(mensaje, TipoNotificacion.Success);
+        }
+
+        private enum TipoNotificacion
+        {
+            Success,
+            Warning,
+            Error,
+            Info
+        }
+
+        // Guarda, por texto de mensaje, la última vez que se mostró.
+        // Si el mismo mensaje exacto se vuelve a pedir antes de que pase
+        // el tiempo de "enfriamiento", se descarta. Esto es lo que evita
+        // que 10 clics seguidos en el mismo botón (por ejemplo "Cambiar
+        // Estado" sin seleccionar fila) generen 10 notificaciones idénticas
+        // apiladas: solo se muestra la primera, las siguientes mientras
+        // dura el enfriamiento se ignoran.
+        private readonly Dictionary<string, DateTime> _ultimaVezMostrado = new();
+        private static readonly TimeSpan EnfriamientoPorMensaje = TimeSpan.FromSeconds(2);
+
+        // Punto único de salida para TODAS las notificaciones de esta pantalla.
+        // Combina dos protecciones:
+        // 1) Anti-rebote: el mismo mensaje no se repite antes de 2 segundos.
+        // 2) Tope simultáneo: nunca hay más de 3 notificaciones visibles
+        //    a la vez, sin importar de qué tipo o mensaje sean.
+        private void MostrarNotificacionControlada(
+            string mensaje,
+            TipoNotificacion tipo,
+            int duracionMs = 3000)
+        {
+            var ahora = DateTime.Now;
+
+            if (_ultimaVezMostrado.TryGetValue(mensaje, out var ultimaVez)
+                && (ahora - ultimaVez) < EnfriamientoPorMensaje)
+            {
+                return;
+            }
+
+            if (_notificacionesActivas >= MAX_NOTIFICACIONES_SIMULTANEAS)
+                return;
+
+            _ultimaVezMostrado[mensaje] = ahora;
+            _notificacionesActivas++;
+
+            switch (tipo)
+            {
+                case TipoNotificacion.Success:
+                    Growl.Success(mensaje);
+                    break;
+                case TipoNotificacion.Warning:
+                    Growl.Warning(mensaje);
+                    break;
+                case TipoNotificacion.Error:
+                    Growl.Error(mensaje);
+                    break;
+                case TipoNotificacion.Info:
+                    Growl.Info(mensaje);
+                    break;
+            }
+
+            _ = LiberarNotificacionDespuesDeAsync(duracionMs);
+        }
+
+        private async Task LiberarNotificacionDespuesDeAsync(int duracionMs)
+        {
+            await Task.Delay(duracionMs);
+
+            if (_notificacionesActivas > 0)
+                _notificacionesActivas--;
         }
 
         private void BtnNuevaCategoria_Click(
@@ -89,13 +175,29 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                DgCategorias.ItemsSource =
+                var categorias =
                     await _configService
                     .ObtenerCategoriasAsync();
 
-                DgModulos.ItemsSource =
+                var modulos =
                     await _configService
                     .ObtenerModulosCompletosAsync();
+
+                DgCategorias.ItemsSource = categorias;
+                DgModulos.ItemsSource = modulos;
+
+                // Tomamos la "fotografía": este es el estado real y
+                // confirmado de cada fila justo después de traerla de la
+                // base de datos. Cualquier evento Checked/Unchecked que
+                // coincida con esta fotografía es un eco del re-render,
+                // no un clic real del usuario.
+                _estadoConocidoCategorias.Clear();
+                foreach (var cat in categorias)
+                    _estadoConocidoCategorias[cat.Id] = cat.Estado;
+
+                _estadoConocidoModulos.Clear();
+                foreach (var mod in modulos)
+                    _estadoConocidoModulos[mod.Id] = mod.Estado;
             }
             catch (Exception ex)
             {
@@ -219,8 +321,9 @@ namespace AplicativoDeAlmacen.Views
 
                 if (!vistasNuevas.Any())
                 {
-                    Growl.Info(
-                        "Todas las vistas ya están registradas.");
+                    MostrarNotificacionControlada(
+                        "Todas las vistas ya están registradas.",
+                        TipoNotificacion.Info);
                 }
             }
             catch (Exception ex)
@@ -250,9 +353,9 @@ namespace AplicativoDeAlmacen.Views
 
             if (!seleccionadas.Any())
             {
-                Growl.Warning(
-
-                    "Seleccione una vista");
+                MostrarNotificacionControlada(
+                    "Seleccione una vista",
+                    TipoNotificacion.Warning);
 
                 return;
             }
@@ -296,9 +399,9 @@ namespace AplicativoDeAlmacen.Views
             if (DgCategorias.SelectedItem
                 is not CategoriaModulo cat)
             {
-                Growl.Warning(
-
-                    "Seleccione una categoría");
+                MostrarNotificacionControlada(
+                    "Seleccione una categoría",
+                    TipoNotificacion.Warning);
 
                 return;
             }
@@ -324,31 +427,30 @@ namespace AplicativoDeAlmacen.Views
                 "Estado actualizado");
         }
 
-        private void BtnNuevoModulo_Click(
-            object sender,
-            RoutedEventArgs e)
+        private void BtnNuevoModulo_Click(object sender, RoutedEventArgs e)
         {
-            Growl.Info(
+            // Pasamos un objeto vacío (null)
+            var modal = new ModuloWindow(null);
 
-                "Pendiente ModuloWindow");
+            if (modal.ShowDialog() == true)
+            {
+                _ = CargarDatosAsync();
+                EventBus.NotificarRolesPermisosChanged();
+                MostrarNotificacionControlada("Nuevo módulo registrado", TipoNotificacion.Success);
+            }
         }
 
-        private void BtnEditarModulo_Click(
-            object sender,
-            RoutedEventArgs e)
+        private void BtnEditarModulo_Click(object sender, RoutedEventArgs e)
         {
-            if (DgModulos.SelectedItem == null)
+            if (DgModulos.SelectedItem is ModuloSistema mod)
             {
-                Growl.Warning(
-
-                    "Seleccione un módulo");
-
-                return;
+                var modal = new ModuloWindow(mod);
+                if (modal.ShowDialog() == true)
+                {
+                    _ = CargarDatosAsync(); // Recarga la tabla
+                    EventBus.NotificarRolesPermisosChanged(); // Refresca el menú lateral
+                }
             }
-
-            Growl.Info(
-
-                "Pendiente ModuloWindow");
         }
 
         private async void BtnEstadoModulo_Click(
@@ -358,9 +460,9 @@ namespace AplicativoDeAlmacen.Views
             if (DgModulos.SelectedItem
                 is not ModuloSistema mod)
             {
-                Growl.Warning(
-
-                    "Seleccione un módulo");
+                MostrarNotificacionControlada(
+                    "Seleccione un módulo",
+                    TipoNotificacion.Warning);
 
                 return;
             }
@@ -387,7 +489,7 @@ namespace AplicativoDeAlmacen.Views
         }
 
 
-        private async void ChkCategoriaEstado_Changed( object sender,  RoutedEventArgs e)
+        private async void ChkCategoriaEstado_Changed(object sender, RoutedEventArgs e)
         {
             // Si el evento se disparó porque estamos poblando el grid
             // (no porque el usuario hizo clic), lo ignoramos.
@@ -405,25 +507,39 @@ namespace AplicativoDeAlmacen.Views
                 bool nuevoEstado =
                     chk.IsChecked == true;
 
+                // Si el valor que llega es igual al último estado conocido
+                // y confirmado en BD, este disparo es un eco del re-render
+                // del DataGrid (por ejemplo al cambiar de pestaña), no un
+                // clic real del usuario. Lo ignoramos por completo: nada
+                // de UPDATE, nada de EventBus, nada de notificación.
+                if (_estadoConocidoCategorias.TryGetValue(cat.Id, out bool estadoPrevio)
+                    && estadoPrevio == nuevoEstado)
+                {
+                    return;
+                }
+
                 await _configService
                     .CambiarEstadoCategoriaAsync(
                         cat.Id,
                         nuevoEstado);
 
-                // El binding ya actualizó cat.Estado en memoria,
-                // así que no es necesario volver a consultar toda la BD.
+                // Actualizamos la fotografía con el nuevo estado confirmado.
+                _estadoConocidoCategorias[cat.Id] = nuevoEstado;
+
                 EventBus
                     .NotificarRolesPermisosChanged();
 
                 if (nuevoEstado)
                 {
-                    Growl.Success(
-                        $"Categoría '{cat.Nombre}' habilitada");
+                    MostrarNotificacionControlada(
+                        $"Categoría '{cat.Nombre}' habilitada",
+                        TipoNotificacion.Success);
                 }
                 else
                 {
-                    Growl.Warning(
-                        $"Categoría '{cat.Nombre}' deshabilitada");
+                    MostrarNotificacionControlada(
+                        $"Categoría '{cat.Nombre}' deshabilitada",
+                        TipoNotificacion.Warning);
                 }
             }
             catch (Exception ex)
@@ -432,7 +548,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private async void ChkModuloEstado_Changed( object sender, RoutedEventArgs e)
+        private async void ChkModuloEstado_Changed(object sender, RoutedEventArgs e)
         {
             // Si el evento se disparó porque estamos poblando el grid
             // (no porque el usuario hizo clic), lo ignoramos.
@@ -450,25 +566,36 @@ namespace AplicativoDeAlmacen.Views
                 bool nuevoEstado =
                     chk.IsChecked == true;
 
+                // Mismo principio que en categorías: si coincide con el
+                // último estado confirmado, es un eco del re-render, no
+                // un clic real.
+                if (_estadoConocidoModulos.TryGetValue(mod.Id, out bool estadoPrevio)
+                    && estadoPrevio == nuevoEstado)
+                {
+                    return;
+                }
+
                 await _configService
                     .CambiarEstadoModuloAsync(
                         mod.Id,
                         nuevoEstado);
 
-                // El binding ya actualizó mod.Estado en memoria,
-                // así que no es necesario volver a consultar toda la BD.
+                _estadoConocidoModulos[mod.Id] = nuevoEstado;
+
                 EventBus
                     .NotificarRolesPermisosChanged();
 
                 if (nuevoEstado)
                 {
-                    Growl.Success(
-                        $"Módulo '{mod.NombreModulo}' habilitado");
+                    MostrarNotificacionControlada(
+                        $"Módulo '{mod.NombreModulo}' habilitado",
+                        TipoNotificacion.Success);
                 }
                 else
                 {
-                    Growl.Warning(
-                        $"Módulo '{mod.NombreModulo}' deshabilitado");
+                    MostrarNotificacionControlada(
+                        $"Módulo '{mod.NombreModulo}' deshabilitado",
+                        TipoNotificacion.Warning);
                 }
             }
             catch (Exception ex)

@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Reportes;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -14,7 +15,7 @@ namespace AplicativoDeAlmacen.Views
     {
         private readonly KardexService _kardexService;
         private List<SaldoProductoItem> _todosLosSaldos;
-
+        private readonly ReporteExcelService _reporteExcel;
         // 🌟 Candado de UX para evitar "Doble Clic"
         private bool _isCargando = false;
 
@@ -23,7 +24,7 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             _kardexService = new KardexService();
             _todosLosSaldos = new List<SaldoProductoItem>();
-
+            _reporteExcel = new ReporteExcelService();
             // Reactividad: Si alguien mueve inventario, esta pantalla se actualiza sola
             EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
                 if (this.IsVisible) BtnEjecutar_Click(null, null);
@@ -104,6 +105,47 @@ namespace AplicativoDeAlmacen.Views
 
                 Mouse.OverrideCursor = null;
                 _isCargando = false;
+            }
+        }
+
+
+        private async void BtnImprimir_Click(object sender,RoutedEventArgs e)
+        {
+            try
+            {
+                if (_todosLosSaldos == null
+                    || !_todosLosSaldos.Any())
+                {
+                    MessageBox.Show(
+
+                        "No existen registros para exportar.",
+
+                        "Aviso",
+
+                        MessageBoxButton.OK,
+
+                        MessageBoxImage.Information);
+
+                    return;
+                }
+
+                await _reporteExcel
+                    .ExportarSaldosProductosAsync(
+
+                        _todosLosSaldos);
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+
+                    ex.Message,
+
+                    "Error",
+
+                    MessageBoxButton.OK,
+
+                    MessageBoxImage.Error);
             }
         }
 

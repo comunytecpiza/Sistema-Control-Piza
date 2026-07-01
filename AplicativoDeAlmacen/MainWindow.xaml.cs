@@ -135,9 +135,11 @@ namespace AplicativoDeAlmacen
                 }
                 else
                 {
-                    SesionSistema.UsuarioActual = usuarioLogueado;
+                    
 
                     var service = new UsuarioService();
+
+                    SesionSistema.UsuarioActual = usuarioLogueado;
 
                     SesionSistema.PermisosActuales =
                         await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
