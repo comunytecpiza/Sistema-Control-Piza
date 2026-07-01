@@ -8,11 +8,14 @@ using System.Windows.Input;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Services.Importaciones;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class RegistroCodigosUserControl : UserControl
     {
+        private bool _isModoExcel = false;
+        private List<string> _codigosImportados = new List<string>();
         private readonly RegistroCodigoService _registroService;
         private List<RegistroCodigo> _registrosGrid = new List<RegistroCodigo>();
 
@@ -122,9 +125,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // ====================================================================
-        // 🌟 BÚSQUEDA TIPO AUTOCOMPLETADO (TEXTBOX + LISTBOX)
-        // ====================================================================
         private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (!TxtProducto.IsEnabled || _isUpdatingFromSelection) return;
@@ -133,10 +133,9 @@ namespace AplicativoDeAlmacen.Views
 
             if (!string.IsNullOrWhiteSpace(textoBusqueda))
             {
-                // Busca coincidencias en RAM al vuelo
                 var sugerencias = _todosLosProductos
                     .Where(p => p.Descripcion != null && p.Descripcion.Contains(textoBusqueda, StringComparison.OrdinalIgnoreCase))
-                    .Take(10) // Limitamos a 10 resultados para no colapsar la vista
+                    .Take(10)
                     .ToList();
 
                 if (sugerencias.Any())
@@ -159,7 +158,6 @@ namespace AplicativoDeAlmacen.Views
         {
             if (LstProducto.SelectedItem is Producto prod)
             {
-                // Bloqueamos el TextChanged para que no vuelva a buscar
                 _isUpdatingFromSelection = true;
 
                 _productoSeleccionadoId = prod.Id;
@@ -170,22 +168,41 @@ namespace AplicativoDeAlmacen.Views
 
                 productoAbreviaturaActual = prod.Abreviatura;
 
-                // Calculamos automáticamente el rango
                 if (CmbModalCategoria.SelectedValue is int catId)
                 {
                     try
                     {
-                        ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, prod.Abreviatura, catId);
-                        CalcularRangos();
+                        if (_isModoExcel)
+                        {
+                            // Códigos importados/alfa-numéricos
+                            ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(
+                                prod.Id,
+                                prod.Abreviatura,
+                                catId);
+
+                            TxtDesde.Text = "";
+                            TxtHasta.Text = "";
+                        }
+                        else
+                        {
+                            // Solo secuenciales
+                            ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoSecuencialAsync(
+                                prod.Id,
+                                prod.Abreviatura,
+                                catId);
+
+                            CalcularRangos();
+                        }
                     }
-                    catch (Exception ex) { MessageBox.Show("Error al obtener último código: " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Error al obtener último código: " + ex.Message);
+                    }
                 }
 
                 _isUpdatingFromSelection = false;
             }
         }
-
-        // ====================================================================
 
         private void TxtCantidad_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -212,7 +229,8 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_isGuardando) return;
 
-            if (CmbModalColeccion.SelectedValue == null || _productoSeleccionadoId == 0) return;
+            if (CmbModalColeccion.SelectedValue == null || _productoSeleccionadoId == 0)
+                return;
 
             _isGuardando = true;
 
@@ -228,16 +246,65 @@ namespace AplicativoDeAlmacen.Views
                 Mouse.OverrideCursor = Cursors.Wait;
 
                 await Task.Delay(1000);
+
                 btnGuardar.Content = "☁️ Subiendo códigos...";
 
                 int coleccionId = (int)CmbModalColeccion.SelectedValue;
                 int categoriaId = (int)CmbModalCategoria.SelectedValue;
                 int productoId = _productoSeleccionadoId;
-                int cantidad = int.Parse(TxtCantidad.Text);
 
-                await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, TxtDesde.Text, TxtHasta.Text, categoriaId);
+                if (_isModoExcel)
+                {
+                    if (!_codigosImportados.Any())
+                    {
+                        MessageBox.Show(
+                            "Debe importar códigos primero.",
+                            "Aviso",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+
+                        return;
+                    }
+
+                    var importService =
+                        new ImportacionExcelService();
+
+                    var duplicados =
+                        await importService.ObtenerCodigosDuplicadosAsync(
+                            _codigosImportados);
+
+                    if (duplicados.Any())
+                    {
+                        MessageBox.Show(
+                            $"Existen {duplicados.Count} códigos repetidos.\nRevise la vista previa.",
+                            "Duplicados",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+
+                        return;
+                    }
+
+                    await importService.GuardarCodigosImportadosTransactionAsync(
+                        coleccionId,
+                        productoId,
+                        categoriaId,
+                        _codigosImportados);
+                }
+                else
+                {
+                    int cantidad = int.Parse(TxtCantidad.Text);
+
+                    await _registroService.GuardarCodigosTransactionAsync(
+                        coleccionId,
+                        productoId,
+                        cantidad,
+                        TxtDesde.Text,
+                        TxtHasta.Text,
+                        categoriaId);
+                }
 
                 MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+
                 ModalAgregar.Visibility = Visibility.Collapsed;
                 await CargarGridAsync(coleccionId, categoriaId);
                 EventBus.NotificarRegistroCodigosChanged();
@@ -306,6 +373,11 @@ namespace AplicativoDeAlmacen.Views
             TxtHasta.Text = string.Empty;
             productoAbreviaturaActual = null;
             ultimoCodigoActual = 0;
+
+            _codigosImportados.Clear();
+            TxtCantidadExcel.Text = "Total detectados: 0";
+            TxtRutaArchivo.Text = "Ningún archivo seleccionado";
+            BtnVisualizarExcel.IsEnabled = false;
         }
 
         private void BtnVerDetalle_Click(object sender, RoutedEventArgs e)
@@ -330,6 +402,92 @@ namespace AplicativoDeAlmacen.Views
             {
                 string tituloPestana = $"Lote: {lote.Producto?.Abreviatura ?? "Cod"}";
                 mainWindow.AbrirPestaña(tituloPestana, new DetalleCodigosUserControl(lote));
+            }
+        }
+
+        private void ModoGeneracion_Changed(object sender, RoutedEventArgs e)
+        {
+            if (PanelSecuencial == null || PanelImportacion == null) return;
+
+            if (RbModoExcel.IsChecked == true)
+            {
+                _isModoExcel = true;
+                PanelSecuencial.Visibility = Visibility.Collapsed;
+                PanelImportacion.Visibility = Visibility.Visible;
+                btnGuardar.Content = "💾 Procesar Lote desde Excel";
+            }
+            else
+            {
+                _isModoExcel = false;
+                PanelSecuencial.Visibility = Visibility.Visible;
+                PanelImportacion.Visibility = Visibility.Collapsed;
+                btnGuardar.Content = "💾 Subir y Generar Lote";
+            }
+        }
+
+        private async void BtnCargarExcel_Click(object sender, RoutedEventArgs e)
+        {
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Archivos Excel (*.xlsx)|*.xlsx",
+                Title = "Seleccione el archivo de códigos"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                TxtRutaArchivo.Text = openFileDialog.FileName;
+                TxtRutaArchivo.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Black);
+                TxtRutaArchivo.FontStyle = FontStyles.Normal;
+
+                try
+                {
+                    Mouse.OverrideCursor = Cursors.Wait;
+                    var importService = new AplicativoDeAlmacen.Services.Importaciones.ImportacionExcelService();
+
+                    _codigosImportados = await importService.LeerCodigosDesdeExcelAsync(openFileDialog.FileName);
+
+                    TxtCantidadExcel.Text = $"Total detectados: {_codigosImportados.Count}";
+                    BtnVisualizarExcel.IsEnabled = _codigosImportados.Count > 0;
+                    BtnVisualizarExcel.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#3B82F6"));
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error al leer Excel: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    Mouse.OverrideCursor = null;
+                }
+            }
+        }
+
+        private async void BtnVisualizarExcel_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_codigosImportados.Any())
+                return;
+
+            var service =
+                new ImportacionExcelService();
+
+            var duplicados =
+                await service.ObtenerCodigosDuplicadosAsync(
+                        _codigosImportados);
+
+            var ventana =
+                new VistaPreviaExcelWindow(
+                        _codigosImportados,
+                        duplicados);
+
+            bool? resultado =
+                ventana.ShowDialog();
+
+            if (resultado == true)
+            {
+                _codigosImportados =
+                    ventana.CodigosAprobados;
+
+                TxtCantidadExcel.Text =
+                    $"Total seleccionados: {_codigosImportados.Count}";
             }
         }
     }

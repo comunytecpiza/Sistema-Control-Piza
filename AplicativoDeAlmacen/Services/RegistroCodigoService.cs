@@ -340,6 +340,65 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
+        public async Task<int> ObtenerUltimoCodigoSecuencialAsync(
+    int productoId,
+    string abreviatura,
+    int categoriaId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+
+                await dbConn.OpenAsync();
+
+                string query = @"
+
+SELECT ISNULL(MAX(
+CAST(
+RIGHT(cc.codigo,7)
+AS INT)),0)
+
+FROM codigos_creados cc
+
+INNER JOIN registro_codigos rc
+ON cc.registro_codigo_id=rc.id
+
+WHERE rc.producto_id=@producto
+AND rc.categoria_producto_id=@categoria
+AND cc.codigo LIKE @prefijo
+AND ISNUMERIC(RIGHT(cc.codigo,7))=1
+
+";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText =
+                        QueryAdapter.FormatearConsulta(query);
+
+                    AgregarParametro(
+                        cmd,
+                        "@producto",
+                        productoId);
+
+                    AgregarParametro(
+                        cmd,
+                        "@categoria",
+                        categoriaId);
+
+                    AgregarParametro(
+                        cmd,
+                        "@prefijo",
+                        abreviatura + "-%");
+
+                    object result =
+                        await cmd.ExecuteScalarAsync();
+
+                    return result == DBNull.Value
+                        ? 0
+                        : Convert.ToInt32(result);
+                }
+            }
+        }
 
     }
 }

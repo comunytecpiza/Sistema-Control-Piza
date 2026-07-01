@@ -93,7 +93,15 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
                     <Button Content="Generar Kardex" Width="150" Margin="0,0,10,0" Click="BtnEjecutarKardex_Click" Background="#2563EB" Foreground="White"/>
-                    <Button Content="Imprimir" Width="120" Background="#10B981" Foreground="White"/>
+                    <Button Content="Imprimir"
+
+                        Width="120"
+
+                        Background="#10B981"
+
+                        Foreground="White"
+
+                        Click="BtnImprimir_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -146,7 +154,7 @@
         </Border>
 
         <Border Grid.Row="3" Margin="0,15,0,0" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="15">
-            <UniformGrid Columns="5">
+            <UniformGrid Columns="5">                                                                       
                 <Border Background="#ECFDF5" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
                         <TextBlock Text="Ingresos" FontSize="13" Foreground="#065F46" FontWeight="SemiBold"/>

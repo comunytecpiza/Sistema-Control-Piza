@@ -271,26 +271,54 @@
                         <Border Grid.Column="1" Width="1" Background="#E5E7EB" Margin="19,0"/>
 
                         <StackPanel Grid.Column="2">
-                            <TextBlock Text="Rango de Generación" FontWeight="Bold" Foreground="#374151" Margin="0,0,0,15" FontSize="16"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+                                <RadioButton x:Name="RbModoSecuencial" Content="Secuencial" IsChecked="True" Checked="ModoGeneracion_Changed" 
+                                             Foreground="#374151" FontWeight="Bold" Margin="0,0,15,0" Cursor="Hand"/>
+                                <RadioButton x:Name="RbModoExcel" Content="Importar Excel" Checked="ModoGeneracion_Changed" 
+                                             Foreground="#374151" FontWeight="Bold" Cursor="Hand"/>
+                            </StackPanel>
 
-                            <TextBlock Text="Cantidad a generar:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                            <TextBox x:Name="TxtCantidad" TextChanged="TxtCantidad_TextChanged" Margin="0,0,0,15"/>
+                            <StackPanel x:Name="PanelSecuencial">
+                                <TextBlock Text="Rango de Generación" FontWeight="Bold" Foreground="#374151" Margin="0,0,0,10" FontSize="14"/>
+                                <TextBlock Text="Cantidad a generar:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                <TextBox x:Name="TxtCantidad" TextChanged="TxtCantidad_TextChanged" Margin="0,0,0,15"/>
 
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="15"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Código Inicial:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <TextBox x:Name="TxtDesde" IsReadOnly="True" Foreground="#111827" FontWeight="Medium"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Código Final:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <TextBox x:Name="TxtHasta" IsReadOnly="True" Foreground="#111827" FontWeight="Medium"/>
-                                </StackPanel>
-                            </Grid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="15"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Código Inicial:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                        <TextBox x:Name="TxtDesde" IsReadOnly="True" Foreground="#111827" FontWeight="Medium" Background="#F3F4F6"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Código Final:" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                        <TextBox x:Name="TxtHasta" IsReadOnly="True" Foreground="#111827" FontWeight="Medium" Background="#F3F4F6"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+
+                            <StackPanel x:Name="PanelImportacion" Visibility="Collapsed">
+                                <TextBlock Text="Carga de Códigos Aleatorios" FontWeight="Bold" Foreground="#374151" Margin="0,0,0,10" FontSize="14"/>
+
+                                <Button x:Name="BtnCargarExcel" Content="📄 Seleccionar Archivo Excel" Click="BtnCargarExcel_Click" Background="#4F46E5" MinWidth="150" Margin="0,0,0,10"/>
+
+                                <Border Background="#F9FAFB" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,10">
+                                    <TextBlock x:Name="TxtRutaArchivo" Text="Ningún archivo seleccionado" Foreground="#9CA3AF" FontStyle="Italic" TextWrapping="Wrap"/>
+                                </Border>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="TxtCantidadExcel" Text="Total detectados: 0" Foreground="#10B981" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    <Button x:Name="BtnVisualizarExcel" Grid.Column="1" Content="👁️ Visualizar" Click="BtnVisualizarExcel_Click" Background="#6B7280" IsEnabled="False"/>
+                                </Grid>
+                            </StackPanel>
+
                         </StackPanel>
                     </Grid>
 
