@@ -31,6 +31,7 @@ namespace AplicativoDeAlmacen.Views
 
         public AsignarCodigoWindow(List<RangoCodigoItem> itemsEnGrilla, string abreviaturaProducto, int productoId, int cantidadFaltantePorAsignar)
         {
+
             InitializeComponent();
             this._itemsEnGrilla = itemsEnGrilla;
             this._abreviaturaProducto = abreviaturaProducto;

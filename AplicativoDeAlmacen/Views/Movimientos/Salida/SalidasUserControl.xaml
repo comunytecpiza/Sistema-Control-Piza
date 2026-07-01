@@ -4,11 +4,9 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
-             mc:Ignorable="d" 
-             d:DesignHeight="720" d:DesignWidth="1150"
+             mc:Ignorable="d" d:DesignWidth="1150"
              Background="#F8FAFC"
-             FontFamily="Segoe UI">
-
+             FontFamily="Segoe UI" Height="826">
     <UserControl.Resources>
         <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="1" Color="#0F172A" Opacity="0.05"/>
 
@@ -108,8 +106,8 @@
             </Setter>
         </Style>
     </UserControl.Resources>
-
-    <Grid Margin="24">
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -264,7 +262,7 @@
                 </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="1">     
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="6*"/>
                     <ColumnDefinition Width="16"/>
@@ -322,4 +320,5 @@
             </Grid>
         </Grid>
     </Grid>
+  </ScrollViewer>
 </UserControl>
