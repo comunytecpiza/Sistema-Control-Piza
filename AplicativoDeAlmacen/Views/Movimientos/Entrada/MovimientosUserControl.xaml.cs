@@ -366,15 +366,35 @@ namespace AplicativoDeAlmacen.Views
         private void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             AgregarItemWindow modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
-
+            modal.ListaProductosExistentesEnPadre = _productosGridList;
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
                 var productoSelected = modal._productoSeleccionado;
                 var rangosDelModal = modal.ListaRangosAgregados;
-
                 int idProducto = productoSelected.Id;
 
-                // 1. Creamos el nuevo ítem para la grilla izquierda
+                // 🔥 VALIDACIÓN DE SOLAPAMIENTO DE RANGOS
+                foreach (var nuevoRango in rangosDelModal)
+                {
+                    // Buscamos si existe algún rango ya registrado que se solape con este
+                    // La lógica es: (NuevoInicio <= ExistenteFin) AND (NuevoFin >= ExistenteInicio)
+                    var solapamiento = _rangosProcesadosGlobal.FirstOrDefault(r =>
+                        r.productoId == idProducto &&
+                        (nuevoRango.DesdeNum <= r.HastaNum && nuevoRango.HastaNum >= r.DesdeNum)
+                    );
+
+                    if (solapamiento != null)
+                    {
+                        MessageBox.Show($"Conflicto de rangos para el producto: {productoSelected.Descripcion}.\n" +
+                                        $"El rango propuesto ({nuevoRango.DesdeNum}-{nuevoRango.HastaNum}) " +
+                                        $"se solapa con el rango ya registrado ({solapamiento.DesdeNum}-{solapamiento.HastaNum}).",
+                                        "Error de Rangos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return; // Detenemos la operación
+                    }
+                }
+
+                // --- SI PASA LA VALIDACIÓN, CONTINUAMOS ---
+
                 var nuevoProductoGrid = new VistaProductoGrid
                 {
                     Detalle = new MovimientoDetalle
@@ -386,11 +406,10 @@ namespace AplicativoDeAlmacen.Views
                     CodigoProducto = idProducto.ToString(),
                     Descripcion = productoSelected.Descripcion,
                     UnidadMedida = "UNIDAD",
-                    ProductoId = idProducto // 🔥 CORRECCIÓN: Asignamos el ID entero aquí para que no sea 0
+                    ProductoId = idProducto
                 };
                 _productosGridList.Add(nuevoProductoGrid);
 
-                // 2. Procesamos los códigos expansivos en la lista global en memoria
                 if (rangosDelModal != null)
                 {
                     int contadorFila = _codigosGridList.Count + 1;
@@ -406,17 +425,14 @@ namespace AplicativoDeAlmacen.Views
                                 MovCodigo = new MovimientoCodigo { MovimientoDetalleId = contadorFila++ },
                                 CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}",
                                 ColeccionTipo = rango.ColeccionTipo,
-                                ProductoId = idProducto // Vinculación clave en memoria
+                                ProductoId = idProducto
                             });
                         }
                     }
                 }
 
-                // 3. Forzamos el refresco completo de la grilla izquierda (Productos)
                 dgProductos.ItemsSource = null;
                 dgProductos.ItemsSource = _productosGridList;
-
-                // 4. Seleccionamos el producto recién agregado
                 dgProductos.SelectedItem = nuevoProductoGrid;
             }
         }

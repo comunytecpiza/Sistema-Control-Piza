@@ -16,6 +16,6 @@ namespace AplicativoDeAlmacen.Models
         public string UnidadMedida { get; set; }       // Para la columna "U. Medida"
         public decimal Cantidad => Detalle.CantidadIngreso > 0 ? Detalle.CantidadIngreso : Detalle.CantidadSalida;
 
-        public int ProductoId;
+        public int ProductoId { get; set; }
     }
 }

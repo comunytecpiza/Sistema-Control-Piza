@@ -1,7 +1,9 @@
-﻿using AplicativoDeAlmacen.Models.Models;
+﻿using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -16,14 +18,22 @@ namespace AplicativoDeAlmacen.Views
 
         private readonly ProductoService _productoService;
         public Producto _productoSeleccionado = null;
-        public List<RangoCodigoItem> ListaRangosAgregados { get; private set; }
+        public ObservableCollection<RangoCodigoItem> ListaRangosAgregados { get; private set; }
+        // Esta lista servirá de "espejo" para saber qué ya se registró en el padre
+        public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; }
 
         public AgregarItemWindow()
         {
             InitializeComponent();
 
             _productoService = new ProductoService();
-            ListaRangosAgregados = new List<RangoCodigoItem>();
+            ListaRangosAgregados = new ObservableCollection<RangoCodigoItem>();
+
+            // Vincular la colección al DataGrid para evitar operaciones sobre la vista
+            dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
+
+            // Permitir editar al hacer doble click en una fila
+            dgDetalleCodigos.MouseDoubleClick += DgDetalleCodigos_MouseDoubleClick;
 
             // =======================================================================
             // ENLACE DE EVENTOS PARA EL BUSCADOR PREDICTIVO EN CALIENTE
@@ -101,6 +111,7 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
+
             // 2. Validar cantidad esperada
             if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
             {
@@ -108,15 +119,8 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            // 3. EXTRAER los datos del DataGrid a una lista compatible
-            List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>();
-            foreach (var item in dgDetalleCodigos.Items)
-            {
-                if (item is RangoCodigoItem rango)
-                {
-                    listaDeRangosActual.Add(rango);
-                }
-            }
+            // 3. EXTRAER los datos de la colección enlazada a la grilla
+            List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>(ListaRangosAgregados);
 
             // 4. Calcular el total acumulado usando la lista extraída
             int totalCodigosYaAgregados = 0;
@@ -150,9 +154,32 @@ namespace AplicativoDeAlmacen.Views
                 if (ventanaCodigo.ShowDialog() == true && ventanaCodigo.FueConfirmado)
                 {
                     RangoCodigoItem nuevoRango = ventanaCodigo.RangoProcesado;
+
                     if (nuevoRango != null)
                     {
-                        dgDetalleCodigos.Items.Add(nuevoRango);
+                        // 🔥 AQUÍ ESTÁ LA SOLUCIÓN: Validar duplicidad antes de agregar
+                        bool yaExiste = false;
+                        foreach (var existente in ListaRangosAgregados)
+                        {
+                            if (existente.DesdeNum == nuevoRango.DesdeNum &&
+                                existente.HastaNum == nuevoRango.HastaNum &&
+                                existente.CategoriaProductoId == nuevoRango.CategoriaProductoId)
+                            {
+                                yaExiste = true;
+                                break;
+                            }
+                        }
+
+                        if (yaExiste)
+                        {
+                            MessageBox.Show("Este rango ya ha sido agregado a la lista.", "Rango Duplicado", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return; // No agregamos nada y salimos
+                        }
+
+                        // Si no existe, procedemos a agregar a la colección enlazada
+                        ListaRangosAgregados.Add(nuevoRango);
+
+                        // Bloqueo de controles
                         txtCantidad.IsReadOnly = true;
                         if (txtProducto != null) txtProducto.IsEnabled = false;
                     }
@@ -166,12 +193,19 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
+
             if (_productoSeleccionado == null || string.IsNullOrWhiteSpace(txtProducto.Text))
             {
                 MessageBox.Show("Por favor, seleccione un producto válido antes de grabar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
+            // En AgregarItemWindow.xaml.cs
+            if (ListaProductosExistentesEnPadre != null &&
+                ListaProductosExistentesEnPadre.Exists(p => p.ProductoId == _productoSeleccionado.Id))
+            {
+                MessageBox.Show("Este producto ya está en la lista.", "Aviso");
+                return; // No se cierra
+            }
             if (!decimal.TryParse(txtCantidad.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantidadPaquetesDeclarados))
             {
                 MessageBox.Show("Cantidad de paquetes inválida.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -180,16 +214,11 @@ namespace AplicativoDeAlmacen.Views
 
             // REGLA DE ORO: La cantidad de filas en la grilla debe ser idéntica a la cantidad de paquetes declarada
             int totalCodigosUnicosRegistrados = 0;
-
-            foreach (var item in dgDetalleCodigos.Items)
+            foreach (var rango in ListaRangosAgregados)
             {
-                if (item is RangoCodigoItem rango)
+                if (int.TryParse(rango.Cantidad, out int cantidadDelRango))
                 {
-                    // Sumamos la propiedad Cantidad que se calculó en la ventana AsignarCodigoWindow
-                    if (int.TryParse(rango.Cantidad, out int cantidadDelRango))
-                    {
-                        totalCodigosUnicosRegistrados += cantidadDelRango;
-                    }
+                    totalCodigosUnicosRegistrados += cantidadDelRango;
                 }
             }
 
@@ -214,20 +243,44 @@ namespace AplicativoDeAlmacen.Views
             CantidadProductoIngresada = cantidadPaquetesDeclarados;
             CostoUnitarioIngresado = costoValido;
 
-            // Mapeamos los datos de la grilla a la lista para el guardado final
-            ListaRangosAgregados.Clear();
-            foreach (var item in dgDetalleCodigos.Items)
-            {
-                if (item is RangoCodigoItem rango)
-                {
-                    ListaRangosAgregados.Add(rango);
-                }
-            }
+            // Los datos ya están en ListaRangosAgregados (colección enlazada)
 
             FueGrabado = true;
             this.DialogResult = true;
         }
 
+        private void BtnEliminarRango_Click(object sender, RoutedEventArgs e)
+        {
+            // 1. Verificamos si hay una fila seleccionada en el DataGrid
+            if (dgDetalleCodigos.SelectedItem is RangoCodigoItem rangoSeleccionado)
+            {
+                // 2. Pedimos confirmación al usuario
+                var confirmacion = MessageBox.Show("¿Está seguro de que desea eliminar este rango de códigos?",
+                                                   "Confirmar Eliminación",
+                                                   MessageBoxButton.YesNo,
+                                                   MessageBoxImage.Question);
+
+                if (confirmacion == MessageBoxResult.Yes)
+                {
+                    // 3. Eliminamos de la colección enlazada
+                    ListaRangosAgregados.Remove(rangoSeleccionado);
+
+                    // 4. Lógica extra: Si la grilla queda vacía, permitimos editar la cantidad de nuevo
+                    if (ListaRangosAgregados.Count == 0)
+                    {
+                        txtCantidad.IsReadOnly = false;
+                        txtProducto.IsEnabled = true;
+                    }
+                }
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione una fila de la grilla para eliminar.",
+                                "Selección necesaria",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+            }
+        }
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
             FueGrabado = false;
@@ -235,12 +288,78 @@ namespace AplicativoDeAlmacen.Views
             this.Close();
         }
 
-        private void BtnModificarRangoCodigo_Click(object sender, RoutedEventArgs e)
+    
+        private void BtnModificarRango_Click(object sender, RoutedEventArgs e)
         {
-            if (MessageBox.Show("¿Desea limpiar los rangos asignados para configurarlos de nuevo?", "Modificar Rangos", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            EditarRangoSeleccionado();
+        }
+
+        private void DgDetalleCodigos_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (dgDetalleCodigos.SelectedItem is RangoCodigoItem)
             {
-                dgDetalleCodigos.Items.Clear();
-                txtCantidad.IsReadOnly = false;
+                EditarRangoSeleccionado();
+            }
+        }
+
+        private void EditarRangoSeleccionado()
+        {
+            // 1. Validar que haya una fila seleccionada
+            if (dgDetalleCodigos.SelectedItem is not RangoCodigoItem rangoSeleccionado)
+            {
+                MessageBox.Show("Por favor, seleccione un rango de la tabla para modificar.",
+                                "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // 2. Extraer cantidad total declarada
+            if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
+            {
+                MessageBox.Show("Ingrese una cantidad válida de unidades antes de modificar un rango.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // 3. Obtener la lista actual de rangos desde la colección enlazada
+            List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>(ListaRangosAgregados);
+
+            // 4. Calcular el total ya registrado y la cantidad del ítem seleccionado
+            int totalCodigosYaAgregados = 0;
+            int cantidadDelItemSeleccionado = 0;
+            foreach (var rango in listaDeRangosActual)
+            {
+                if (int.TryParse(rango.Cantidad, out int cantRango))
+                {
+                    totalCodigosYaAgregados += cantRango;
+                }
+
+                if (ReferenceEquals(rango, rangoSeleccionado) && int.TryParse(rango.Cantidad, out int cantSel))
+                {
+                    cantidadDelItemSeleccionado = cantSel;
+                }
+            }
+
+            int cantidadFaltantePorAsignar = cantidadCodigosEsperados - (totalCodigosYaAgregados - cantidadDelItemSeleccionado);
+            if (cantidadFaltantePorAsignar < 0) cantidadFaltantePorAsignar = 0;
+
+            try
+            {
+                AsignarCodigoWindow ventanaEdicion = new AsignarCodigoWindow(listaDeRangosActual, rangoSeleccionado, cantidadFaltantePorAsignar);
+                ventanaEdicion.Owner = this;
+
+                if (ventanaEdicion.ShowDialog() == true && ventanaEdicion.FueConfirmado)
+                {
+                    RangoCodigoItem rangoModificado = ventanaEdicion.RangoProcesado;
+
+                    int index = ListaRangosAgregados.IndexOf(rangoSeleccionado);
+                    if (index >= 0)
+                    {
+                        ListaRangosAgregados[index] = rangoModificado;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al intentar editar el rango: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
