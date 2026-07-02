@@ -12,6 +12,9 @@ namespace AplicativoDeAlmacen.Views
     public partial class AsignarCodigoWindow : Window
     {
         public RangoCodigoItem RangoProcesado { get; set; }
+        public bool EsModoEdicion { get; set; } = false;
+        private RangoCodigoItem _itemEnEdicion = null; // Variable para la comparación
+
         public bool FueConfirmado { get; set; } = false;
 
         private string _abreviaturaProducto;
@@ -22,20 +25,55 @@ namespace AplicativoDeAlmacen.Views
         private readonly DatabaseConnection _database;
         private System.Collections.IEnumerable _itemsEnGrilla;
 
-        // 🛠️ VARIABLE NUEVA: Guarda una referencia al ítem que estamos editando (si aplica)
-        private RangoCodigoItem _itemEnEdicion = null;
+       
 
         // =======================================================================
         // 1️⃣ CONSTRUCTOR ORIGINAL: Se usa para AGREGAR un rango nuevo
         // =======================================================================
+        // Constructor para MODO EDICIÓN (simplificado). Inicializa el formulario
+        // con el rango existente para permitir edición y guardado.
+        public AsignarCodigoWindow(RangoCodigoItem rangoAEditar)
+        {
+            InitializeComponent();
+
+            // Inicializar dependencias y contexto mínimo
+            _database = new DatabaseConnection();
+            this._itemEnEdicion = rangoAEditar;
+            this.RangoProcesado = rangoAEditar;
+            this._abreviaturaProducto = rangoAEditar.AbreviaturaBase;
+            this._productoId = rangoAEditar.productoId;
+            this._categoriaActualId = rangoAEditar.CategoriaProductoId;
+
+            // Establecer la colección local como mínimo para las validaciones
+            var lista = new System.Collections.Generic.List<RangoCodigoItem> { rangoAEditar };
+            this._itemsEnGrilla = lista;
+
+            // El saldo máximo permitido en modo edición incluye la cantidad actual del ítem
+            int cantidadItemActual = int.TryParse(rangoAEditar.Cantidad, out int cant) ? cant : 0;
+            this._cantidadMaximaPermitida = cantidadItemActual;
+
+            // Configuramos controles y eventos tal como en el constructor de edición complejo
+            ConfigurarControlesEInicializar(rangoAEditar.Cantidad, false);
+
+            // Rellenamos los controles con los datos del rango pasado
+            txtDesde.Text = rangoAEditar.DesdeNum.ToString();
+            txtHasta.Text = rangoAEditar.HastaNum.ToString();
+            txtSubCantidad.Text = rangoAEditar.Cantidad;
+            if (_categoriaActualId == 1) rbLibroGuia.IsChecked = true; else rbLibroVenta.IsChecked = true;
+
+            this.EsModoEdicion = true;
+        }
 
         public AsignarCodigoWindow(List<RangoCodigoItem> itemsEnGrilla, string abreviaturaProducto, int productoId, int cantidadFaltantePorAsignar)
         {
+            this.EsModoEdicion = false;
             InitializeComponent();
+       
             this._itemsEnGrilla = itemsEnGrilla;
             this._abreviaturaProducto = abreviaturaProducto;
             this._productoId = productoId;
             this._cantidadMaximaPermitida = cantidadFaltantePorAsignar;
+          
 
             _database = new DatabaseConnection();
 
@@ -317,24 +355,39 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-        
 
-            this.RangoProcesado = new RangoCodigoItem
+            if (this.EsModoEdicion && this.RangoProcesado != null)
             {
-                Cantidad = cantidadSolicitada.ToString(),
-                Desde = $"{baseLimpia}-{intDesde.ToString("D7")}",
-                Hasta = $"{baseLimpia}-{intHasta.ToString("D7")}",
-                ColeccionTipo = $"C2026 / {tipoTexto}",
-                DesdeNum = intDesde,
-                HastaNum = intHasta,
-                CategoriaProductoId = categoriaId,
-                AbreviaturaBase = baseLimpia,
-                productoId = this._productoId
-            };
-
+                // Actualizamos el objeto que ya existe
+                this.RangoProcesado.Cantidad = cantidadSolicitada.ToString();
+                this.RangoProcesado.Desde = $"{baseLimpia}-{intDesde.ToString("D7")}";
+                this.RangoProcesado.Hasta = $"{baseLimpia}-{intHasta.ToString("D7")}";
+                this.RangoProcesado.ColeccionTipo = $"C2026 / {tipoTexto}";
+                this.RangoProcesado.DesdeNum = intDesde;
+                this.RangoProcesado.HastaNum = intHasta;
+                this.RangoProcesado.CategoriaProductoId = categoriaId;
+                this.RangoProcesado.AbreviaturaBase = baseLimpia;
+                // productoId ya debería estar correcto
+            }
+            else
+            {
+                // Creamos uno nuevo solo si no estamos editando
+                this.RangoProcesado = new RangoCodigoItem
+                {
+                    Cantidad = cantidadSolicitada.ToString(),
+                    Desde = $"{baseLimpia}-{intDesde.ToString("D7")}",
+                    Hasta = $"{baseLimpia}-{intHasta.ToString("D7")}",
+                    ColeccionTipo = $"C2026 / {tipoTexto}",
+                    DesdeNum = intDesde,
+                    HastaNum = intHasta,
+                    CategoriaProductoId = categoriaId,
+                    AbreviaturaBase = baseLimpia,
+                    productoId = this._productoId
+                };
+            }
             this.FueConfirmado = true;
             this.DialogResult = true;
-            }
+        }
 
         private bool VerificarSiRangoYaFueUsadoEnBD(int productoId, string baseLimpia, int categoriaId, int desde, int hasta)
         {

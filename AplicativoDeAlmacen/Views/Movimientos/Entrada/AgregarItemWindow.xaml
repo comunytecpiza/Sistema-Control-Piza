@@ -116,7 +116,21 @@
             FontWeight="Bold" FontSize="13"
             BorderThickness="0" Margin="0,0,10,0" 
             Cursor="Hand" Click="BtnAgregarRangoCodigo_Click"/>
-            <Button x:Name="btnModificar" Content="Modificar" Click="BtnModificarRangoCodigo_Click"/>
+            <Button x:Name="btnModificar"
+                    FontWeight="Bold" FontSize="13"
+                    BorderThickness="0" Margin="0,0,10,0" 
+                    Background="#E0840B" 
+                    Foreground="White" 
+                    Content="Modificar" 
+                    Cursor="Hand" Click=" BtnModificarRango_Click" Height="36" Width="110"/>
+            <Button Content="Eliminar" 
+                    Cursor="Hand" Click="BtnEliminarRango_Click" 
+                    Background="#DE1E0D" 
+                    Foreground="White" 
+                    Width="130" Height="36" 
+                     FontWeight="Bold" FontSize="13"
+                     BorderThickness="0" Margin="0,0,10,0" 
+                    Padding="10,0"/>        
             <Button x:Name="btnGrabar" 
                     Content="💾 Grabar Ítem" 
                     Width="130" Height="36" 

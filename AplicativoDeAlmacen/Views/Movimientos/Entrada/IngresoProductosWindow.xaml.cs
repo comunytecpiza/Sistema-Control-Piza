@@ -35,6 +35,7 @@ namespace AplicativoDeAlmacen.Views
             ConfigurarVentana();
             InitializeCollections();
             AgregarEventosControles();
+
         }
 
         #region Clases de Modelo
@@ -272,37 +273,6 @@ namespace AplicativoDeAlmacen.Views
 
 
 
-       /* private void SeleccionarRazonSocial(PersonaComercial selected)
-        {
-            try
-            {
-                txtRazonSocial.Text = selected.RazonSocial;
-                txtCodigoRazonSocial.Text = selected.CodigoMostrar; // Mostramos el ID
-                txtDireccion.Text = selected.Direccion;
-                personaComercialSeleccionadaId = selected.Id;
-                popupSugerencias.IsOpen = false;
-                lstSugerencias.ItemsSource = null;
-                // Mover el cursor al final del texto
-                txtRazonSocial.CaretIndex = txtRazonSocial.Text.Length;
-                // Enfocar el siguiente control
-                txtObservacion.Focus();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al seleccionar razón social: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }*/
-
-      /*  private void lstSugerencias_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            if (lstSugerencias.SelectedItem is PersonaComercial selected)
-            {
-                SeleccionarRazonSocial(selected);
-            }
-        }
-        #endregion
-      */
-
 
 
 
@@ -402,10 +372,7 @@ namespace AplicativoDeAlmacen.Views
             return true;
         }
 
-        private void AbrirVentanaSeleccionProducto()
-        {
-
-        }
+        
 
         private void GuardarMovimiento()
         {
@@ -461,66 +428,10 @@ namespace AplicativoDeAlmacen.Views
                 throw;
             }
         }
-        /*
-           private void btnImportar_Click(object sender, RoutedEventArgs e)
-           {
-               // 1. Instanciamos la ventana
-               ImportarCodigos ventanaImportar = new ImportarCodigos();
-
-               // 2. La mostramos como "Dialog" (esto bloquea la principal hasta que se cierre la otra)
-               if (ventanaImportar.ShowDialog() == true)
-               {
-                   // 3. Si el usuario aceptó, traemos los códigos de la otra ventana
-                   // Asumiendo que en 'ImportarCodigos' creaste una lista pública llamada 'CodigosImportados'
-                   foreach (var item in ventanaImportar.CodigosImportados)
-                   {
-                       codigosDetalle.Add(new CodigoDetalle
-                       {
-                           NumeroFila = codigosDetalle.Count + 1,
-                           Codigo = item,
-                           ColeccionTipo = DateTime.Now.Year.ToString()
-                       });
-                   }
-
-           }
-           }*/
-
-
+       
         #endregion
 
-        #region Gestión de Códigos
-
-        private void GenerarCodigosProducto(int productoId, int cantidad)
-        {
-            try
-            {
-                using var conn = new SqlConnection(connectionString);
-                conn.Open();
-                using var cmd = new SqlCommand(@"
-                    SELECT ISNULL(MAX(numero_secuencia), 0)
-                    FROM codigos_qr_productos 
-                    WHERE producto_id = @productoId", conn);
-                cmd.Parameters.AddWithValue("@productoId", productoId);
-
-                var ultimoNumero = cmd.ExecuteScalar();
-                int numeroInicial = (ultimoNumero == DBNull.Value ? 0 : Convert.ToInt32(ultimoNumero)) + 1;
-
-                for (int i = 0; i < cantidad; i++)
-                {
-                    var codigo = new CodigoDetalle
-                    {
-                        NumeroFila = numeroInicial + i,
-                        Codigo = $"PROD-{productoId}-{numeroInicial + i:D5}",
-                        ColeccionTipo = DateTime.Now.Year.ToString()
-                    };
-                    codigosDetalle.Add(codigo);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al generar códigos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
+      
 
         private void GuardarCodigos(int productoId, int movimientoId, SqlTransaction transaction, SqlConnection conn)
         {
@@ -569,4 +480,3 @@ namespace AplicativoDeAlmacen.Views
         #endregion
     }
 }
-#endregion
