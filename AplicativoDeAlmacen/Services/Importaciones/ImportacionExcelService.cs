@@ -5,6 +5,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using ClosedXML.Excel;
 using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Models;
+using System.Diagnostics;
+using System.IO;
+using System.Diagnostics;
 
 namespace AplicativoDeAlmacen.Services.Importaciones
 {
@@ -12,10 +16,16 @@ namespace AplicativoDeAlmacen.Services.Importaciones
     {
         private readonly DataConnection.DatabaseConnection _database;
 
+
+
+
         public ImportacionExcelService()
         {
             _database = new DataConnection.DatabaseConnection();
         }
+
+
+        
 
         public async Task<List<string>> LeerCodigosDesdeExcelAsync(string rutaArchivo)
         {
@@ -64,9 +74,9 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             using var cmd = dbConn.CreateCommand();
 
             cmd.CommandText = @"
-SELECT COUNT(*)
-FROM codigos_creados
-WHERE codigo=@codigo";
+                SELECT COUNT(*)
+                FROM codigos_creados
+                WHERE codigo=@codigo";
 
             var p = cmd.CreateParameter();
             p.ParameterName = "@codigo";
@@ -150,21 +160,21 @@ WHERE codigo=@codigo";
 
                     cmd.CommandText = @"
 
-INSERT INTO codigos_creados
-(
-registro_codigo_id,
-codigo,
-estado_id,
-es_manual
-)
+                        INSERT INTO codigos_creados
+                        (
+                        registro_codigo_id,
+                        codigo,
+                        estado_id,
+                        es_manual
+                        )
 
-VALUES
-(
-@registro,
-@codigo,
-1,
-0
-)";
+                        VALUES
+                        (
+                        @registro,
+                        @codigo,
+                        1,
+                        0
+                        )";
 
                     var pRegistro = cmd.CreateParameter();
                     pRegistro.ParameterName = "@registro";
@@ -202,5 +212,11 @@ VALUES
 
             cmd.Parameters.Add(p);
         }
+
+
+
+
+        
+
     }
 }

@@ -462,14 +462,13 @@ namespace AplicativoDeAlmacen.Services
         {
             List<Producto> resultados = new List<Producto>();
 
-            // 1. Quitamos el [dbo]. que rompe MySQL
+            // 1. Agregamos la columna 'cantidad' a la consulta
             string query = @"
-                SELECT id, descripcion, abreviatura, unidad_medida_id, precio_unitario 
+                SELECT id, descripcion, abreviatura, unidad_medida_id, precio_unitario, cantidad 
                 FROM productos 
                 WHERE (descripcion LIKE @Texto OR abreviatura LIKE @Texto)
                   AND estado_id = 1";
 
-            // 2. Usamos DbConnection en lugar de SqlConnection
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
@@ -480,10 +479,7 @@ namespace AplicativoDeAlmacen.Services
 
                     using (var cmd = dbConn.CreateCommand())
                     {
-                        // 3. Pasamos por el formateador de consultas
                         cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-
-                        // 4. Usamos nuestro helper para parámetros
                         AgregarParametro(cmd, "@Texto", "%" + texto + "%");
 
                         using (var reader = cmd.ExecuteReader())
@@ -499,6 +495,9 @@ namespace AplicativoDeAlmacen.Services
                                 prod.UnidadMedidaId = reader["unidad_medida_id"] != DBNull.Value ? Convert.ToInt32(reader["unidad_medida_id"]) : (int?)null;
                                 prod.PrecioUnitario = reader["precio_unitario"] != DBNull.Value ? Convert.ToDecimal(reader["precio_unitario"]) : (decimal?)null;
 
+                                // 2. Leemos la cantidad (Stock)
+                                prod.Cantidad = reader["cantidad"] != DBNull.Value ? Convert.ToInt32(reader["cantidad"]) : 0;
+
                                 resultados.Add(prod);
                             }
                         }
@@ -506,7 +505,7 @@ namespace AplicativoDeAlmacen.Services
                 }
                 catch (Exception ex)
                 {
-                    throw new Exception("Error al consultar productos con el modelo oficial: " + ex.Message);
+                    throw new Exception("Error al consultar productos: " + ex.Message);
                 }
             }
 

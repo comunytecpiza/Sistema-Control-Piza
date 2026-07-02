@@ -178,5 +178,228 @@ namespace AplicativoDeAlmacen.Services.Reportes
             });
         }
 
+        public void ExportarKardexUbicacion(ConsultaMovimientoReporte reporte, string nombreProducto, string nombreUbicacion, DateTime desde, DateTime hasta)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Kardex");
+
+            // 1. TÍTULO GENERAL
+            ws.Range("A1:F1").Merge().Value = "KARDEX DE PRODUCTOS X UBICACION";
+            ws.Range("A1:F1").Style.Font.Bold = true;
+            ws.Range("A1:F1").Style.Font.FontSize = 14;
+            ws.Range("A1:F1").Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+            // 2. CABECERA DE INFORMACION (Estilo moderno)
+            ws.Cell(3, 1).Value = "Producto:"; ws.Cell(3, 2).Value = nombreProducto;
+            ws.Cell(4, 1).Value = "U. Medida:"; ws.Cell(4, 2).Value = "PACKS";
+            ws.Cell(5, 1).Value = "Ubicación:"; ws.Cell(5, 2).Value = nombreUbicacion;
+            ws.Cell(6, 1).Value = "Periodo:"; ws.Cell(6, 2).Value = $"Del {desde:dd/MM/yyyy} Al {hasta:dd/MM/yyyy}";
+
+            ws.Range("A3:A6").Style.Fill.BackgroundColor = XLColor.FromHtml("#B3E5FC"); // Azul claro
+            ws.Range("A3:A6").Style.Font.Bold = true;
+
+            // 3. CABECERA DE TABLA
+            var cabeceras = new[] { "Fecha", "# Documento", "Procedencia / Razón Social", "Ingreso", "Salida", "Saldo" };
+            for (int i = 0; i < cabeceras.Length; i++)
+            {
+                ws.Cell(8, i + 1).Value = cabeceras[i];
+            }
+            ws.Range("A8:F8").Style.Fill.BackgroundColor = XLColor.FromHtml("#FFE699");
+            ws.Range("A8:F8").Style.Font.Bold = true;
+
+            // 4. DATOS Y CODIGOS INTEGRADOS
+            int fila = 9;
+            decimal saldoAcumulado = 0;
+
+            foreach (var mov in reporte.Movimientos)
+            {
+                ws.Cell(fila, 1).Value = mov.Fecha;
+                ws.Cell(fila, 2).Value = mov.NumeroRegistro;
+                ws.Cell(fila, 3).Value = mov.RazonSocialUbicacion;
+
+                // Formato condicional: Azul si es entrada
+                ws.Cell(fila, 4).Value = mov.Ingreso;
+                if (mov.Ingreso > 0) ws.Cell(fila, 4).Style.Font.FontColor = XLColor.Blue;
+
+                ws.Cell(fila, 5).Value = mov.Salida;
+
+                saldoAcumulado += (mov.Ingreso - mov.Salida);
+                ws.Cell(fila, 6).Value = saldoAcumulado;
+
+                fila++;
+
+                // Sub-detalle de códigos integrados
+                var codigos = reporte.Codigos.Where(c => c.NumeroRegistro == mov.NumeroRegistro);
+                foreach (var cod in codigos)
+                {
+                    ws.Cell(fila, 1).Value = $"CODIGO {cod.Codigo} - {cod.ColeccionTipo}";
+                    ws.Range(fila, 1, fila, 6).Merge().Style.Font.Italic = true;
+                    ws.Range(fila, 1, fila, 6).Style.Font.FontColor = XLColor.Gray;
+                    fila++;
+                }
+                // Espacio entre movimientos para estética
+                fila++;
+            }
+
+
+            // CABECERA DETALLE (A la derecha, columna 8)
+            ws.Cell(1, 8).Value = "DETALLE DE CÓDIGOS";
+            ws.Range("H1:I1").Merge().Style.Fill.BackgroundColor = XLColor.DarkRed;
+            ws.Range("H1:I1").Style.Font.FontColor = XLColor.White;
+
+            ws.Cell(2, 8).Value = "Código";
+            ws.Cell(2, 9).Value = "Colección/Tipo";
+            ws.Range("H2:I2").Style.Fill.BackgroundColor = XLColor.FromHtml("#FFE699");
+
+            int filaDet = 3;
+            foreach (var cod in reporte.Codigos)
+            {
+                ws.Cell(filaDet, 8).Value = cod.Codigo;
+                ws.Cell(filaDet, 9).Value = cod.ColeccionTipo;
+                filaDet++;
+            }
+
+            ws.Columns().AdjustToContents();
+
+            string ruta = Path.Combine(Path.GetTempPath(), $"KardexUbicacion_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            wb.SaveAs(ruta);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
+        }
+
+        // ======================================================================================
+        // EXPORTACIÓN: KARDEX VALORIZADO (FORMATO SUNAT 13.1)
+        // ======================================================================================
+        public void ExportarKardexValorizadoSunat(KardexValorizadoReporte reporte, string nombreProducto, DateTime desde, DateTime hasta)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Formato 13.1");
+
+            // 1. TÍTULO GENERAL
+            ws.Cell(1, 1).Value = $"KARDEX VALORIZADO ALMACEN CENTRAL - {nombreProducto} - DEL {desde:dd/MM/yyyy} AL {hasta:dd/MM/yyyy}";
+            ws.Range("A1:M1").Merge().Style.Font.SetBold().Font.SetFontSize(14).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+            // 2. CABECERAS COMPLEJAS (Estilo SUNAT)
+            ws.Cell(3, 1).Value = "Documento de Traslado, Comprobante de Pago, Documento Interno o Similar";
+            ws.Range("A3:D4").Merge().Style.Fill.BackgroundColor = XLColor.LightBlue;
+
+            ws.Cell(3, 5).Value = "Tipo de Operación";
+            ws.Range("E3:E4").Merge().Style.Fill.BackgroundColor = XLColor.LightBlue;
+
+            ws.Cell(3, 6).Value = "Entradas";
+            ws.Range("F3:H3").Merge().Style.Fill.BackgroundColor = XLColor.FromHtml("#D9D2E9"); // Morado claro
+
+            ws.Cell(3, 9).Value = "Salidas";
+            ws.Range("I3:K3").Merge().Style.Fill.BackgroundColor = XLColor.FromHtml("#FCE5CD"); // Naranja claro
+
+            ws.Cell(3, 12).Value = "Saldo Final";
+            ws.Range("L3:N3").Merge().Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAD3"); // Verde claro
+
+            // Sub Cabeceras (Entradas, Salidas, Saldos)
+            string[] subCabeceras = { "Cantidad", "C. Unitario", "C. Total" };
+
+            // Entradas
+            ws.Cell(4, 6).Value = subCabeceras[0]; ws.Cell(4, 7).Value = subCabeceras[1]; ws.Cell(4, 8).Value = subCabeceras[2];
+            ws.Range("F4:H4").Style.Fill.BackgroundColor = XLColor.FromHtml("#D9D2E9");
+
+            // Salidas
+            ws.Cell(4, 9).Value = subCabeceras[0]; ws.Cell(4, 10).Value = subCabeceras[1]; ws.Cell(4, 11).Value = subCabeceras[2];
+            ws.Range("I4:K4").Style.Fill.BackgroundColor = XLColor.FromHtml("#FCE5CD");
+
+            // Saldos
+            ws.Cell(4, 12).Value = subCabeceras[0]; ws.Cell(4, 13).Value = subCabeceras[1]; ws.Cell(4, 14).Value = subCabeceras[2];
+            ws.Range("L4:N4").Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAD3");
+
+            // Cabeceras de Documento
+            string[] docCabeceras = { "Fecha", "Tipo", "Serie", "Número", "Motivo / Razón Social" };
+            for (int i = 0; i < docCabeceras.Length; i++)
+            {
+                ws.Cell(5, i + 1).Value = docCabeceras[i];
+                ws.Cell(5, i + 1).Style.Fill.BackgroundColor = XLColor.LightBlue;
+            }
+
+            // Aplicar bordes
+            var rngCabecera = ws.Range("A3:N5");
+            rngCabecera.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            rngCabecera.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            rngCabecera.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            rngCabecera.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            rngCabecera.Style.Font.Bold = true;
+
+            // 3. VACIADO DE DATOS
+            int fila = 6;
+
+            // Fila de Saldo Inicial
+            ws.Cell(fila, 1).Value = desde.ToString("dd/MM/yyyy");
+            ws.Cell(fila, 3).Value = "SALDO INICIAL";
+            ws.Cell(fila, 5).Value = "16";
+            ws.Cell(fila, 12).Value = 0;
+            ws.Cell(fila, 13).Value = 0;
+            ws.Cell(fila, 14).Value = 0;
+            ws.Range(fila, 1, fila, 14).Style.Font.FontColor = XLColor.Red;
+            ws.Range(fila, 1, fila, 14).Style.Font.Bold = true;
+            fila++;
+
+            foreach (var item in reporte.Detalles)
+            {
+                ws.Cell(fila, 1).Value = item.Fecha?.ToString("dd/MM/yyyy");
+                ws.Cell(fila, 2).Value = item.Registro.Contains("G") ? "09" : "00";
+
+                var partesDoc = item.Registro.Split('-');
+                ws.Cell(fila, 3).Value = partesDoc.Length > 0 ? partesDoc[0] : "";
+                ws.Cell(fila, 4).Value = partesDoc.Length > 1 ? partesDoc[1] : item.Registro;
+                ws.Cell(fila, 5).Value = item.Tipo;
+
+                var formatoNumero = "#,##0.00";
+
+                if (item.IngresoFisico > 0)
+                {
+                    ws.Cell(fila, 6).Value = item.IngresoFisico;
+                    ws.Cell(fila, 7).Value = item.CostoUnitario;
+                    ws.Cell(fila, 8).Value = item.IngresoValorado;
+                }
+
+                if (item.SalidaFisico > 0)
+                {
+                    ws.Cell(fila, 9).Value = item.SalidaFisico;
+                    ws.Cell(fila, 10).Value = item.CostoUnitario;
+                    ws.Cell(fila, 11).Value = item.SalidaValorado;
+                }
+
+                ws.Cell(fila, 12).Value = item.SaldoFisico;
+                ws.Cell(fila, 13).Value = item.CostoPromedio;
+                ws.Cell(fila, 14).Value = item.SaldoValorado;
+
+                ws.Range(fila, 6, fila, 14).Style.NumberFormat.Format = formatoNumero;
+                fila++;
+            }
+
+            // 4. TOTALES FINALES
+            ws.Cell(fila, 5).Value = "TOTALES";
+            ws.Cell(fila, 5).Style.Font.Bold = true;
+            ws.Cell(fila, 5).Style.Font.FontColor = XLColor.Red;
+            ws.Cell(fila, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+            ws.Cell(fila, 6).Value = reporte.TotalIngresoFisico;
+            ws.Cell(fila, 8).Value = reporte.TotalIngresoValorado;
+            ws.Cell(fila, 9).Value = reporte.TotalSalidaFisico;
+            ws.Cell(fila, 11).Value = reporte.TotalSalidaValorado;
+            ws.Cell(fila, 12).Value = reporte.StockFinalFisico;
+            ws.Cell(fila, 13).Value = reporte.StockFinalFisico > 0 ? Math.Round(reporte.SaldoFinalValorado / reporte.StockFinalFisico, 2) : 0;
+            ws.Cell(fila, 14).Value = reporte.SaldoFinalValorado;
+
+            var rngTotales = ws.Range(fila, 6, fila, 14);
+            rngTotales.Style.Font.Bold = true;
+            rngTotales.Style.Font.FontColor = XLColor.Red;
+            rngTotales.Style.NumberFormat.Format = "#,##0.00";
+
+            ws.Range(6, 1, fila, 14).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            ws.Range(6, 1, fila, 14).Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+
+            ws.Columns().AdjustToContents();
+
+            string ruta = Path.Combine(Path.GetTempPath(), $"KardexValorizado_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            wb.SaveAs(ruta);
+            Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true });
+        }
     }
 }

@@ -458,5 +458,29 @@ namespace AplicativoDeAlmacen.Services
                 throw new Exception("Error al cargar estados: " + ex.Message);
             }
         }
+
+        public List<Ubicacion> BuscarUbicacionesPorNombre(string criterio)
+        {
+            var lista = new List<Ubicacion>();
+            // Buscamos por descripción
+            string query = "SELECT id, descripcion FROM ubicaciones WHERE descripcion LIKE @criterio ORDER BY descripcion";
+
+            using var conn = _database.GetConnection();
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+            AgregarParametro(cmd, "@criterio", "%" + criterio + "%");
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                lista.Add(new Ubicacion
+                {
+                    Id = Convert.ToInt32(reader["id"]),
+                    Descripcion = reader["descripcion"].ToString()
+                });
+            }
+            return lista;
+        }
     }
 }

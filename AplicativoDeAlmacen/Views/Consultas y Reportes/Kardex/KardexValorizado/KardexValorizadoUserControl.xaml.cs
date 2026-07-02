@@ -1,0 +1,147 @@
+﻿using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Reportes;
+
+namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
+{
+    public partial class KardexValorizadoUserControl : UserControl
+    {
+        private readonly KardexService _kardexService = new KardexService();
+        private readonly ProductoService _productoService = new ProductoService();
+        private readonly ReporteExcelService _reporteExcel = new ReporteExcelService();
+
+        private int _productoSeleccionadoId = 0;
+        private KardexValorizadoReporte _reporteActual;
+
+        public KardexValorizadoUserControl()
+        {
+            InitializeComponent();
+
+            // =======================================================
+            // FECHAS POR DEFECTO 
+            // =======================================================
+            // Desde: Primer día del mes actual (ej. 01/07/2026)
+            DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+            // Hasta: Siempre la fecha de hoy
+            DpHasta.SelectedDate = DateTime.Now;
+        }
+
+        // ==========================================
+        // AUTOCOMPLETADO DE PRODUCTO MULTICOLUMNA
+        // ==========================================
+        private void CboProducto_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Escape || e.Key == Key.Tab) return;
+
+            var textBox = (TextBox)e.OriginalSource;
+            string busqueda = textBox.Text;
+            int cursorPosition = textBox.SelectionStart;
+
+            if (busqueda.Length >= 2)
+            {
+                CboProducto.SelectionChanged -= CboProducto_SelectionChanged;
+
+                var resultados = _productoService.BuscarProductosPorTexto(busqueda);
+                CboProducto.ItemsSource = resultados;
+                CboProducto.IsDropDownOpen = resultados.Any();
+
+                CboProducto.SelectionChanged += CboProducto_SelectionChanged;
+
+                textBox.Text = busqueda;
+                textBox.SelectionStart = cursorPosition;
+            }
+            else
+            {
+                CboProducto.IsDropDownOpen = false;
+            }
+        }
+
+        private void CboProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CboProducto.SelectedItem is Producto prod)
+            {
+                TxtCodProducto.Text = prod.Id.ToString("D3");
+                _productoSeleccionadoId = prod.Id;
+            }
+            else
+            {
+                TxtCodProducto.Text = string.Empty;
+                _productoSeleccionadoId = 0;
+            }
+        }
+
+        // ==========================================
+        // ACCIONES
+        // ==========================================
+        private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
+        {
+            if (_productoSeleccionadoId == 0)
+            {
+                MessageBox.Show("Seleccione un producto válido.", "Faltan datos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!DpDesde.SelectedDate.HasValue || !DpHasta.SelectedDate.HasValue)
+            {
+                MessageBox.Show("Seleccione un rango de fechas válido.", "Faltan datos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                DgResumen.ItemsSource = null;
+
+                _reporteActual = await _kardexService.GenerarKardexValorizadoAsync(
+                    _productoSeleccionadoId,
+                    DpDesde.SelectedDate.Value,
+                    DpHasta.SelectedDate.Value);
+
+                DgResumen.ItemsSource = _reporteActual.Detalles;
+
+                // Actualizar Footer
+                TxtSaldoInicial.Text = "0.00";
+                TxtCostoInicial.Text = "0.00";
+                TxtTotalIngresos.Text = _reporteActual.TotalIngresoFisico.ToString("N2");
+                TxtTotalSalidas.Text = _reporteActual.TotalSalidaFisico.ToString("N2");
+                TxtSaldoFinal.Text = _reporteActual.StockFinalFisico.ToString("N2");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al generar Kardex Valorizado: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        {
+            if (_reporteActual == null || !_reporteActual.Detalles.Any())
+            {
+                MessageBox.Show("Por favor, ejecute el Kardex primero.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                string nombreProducto = CboProducto.Text;
+                DateTime desde = DpDesde.SelectedDate.Value;
+                DateTime hasta = DpHasta.SelectedDate.Value;
+
+                _reporteExcel.ExportarKardexValorizadoSunat(_reporteActual, nombreProducto, desde, hasta);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al exportar: {ex.Message}", "Error de Exportación", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnSalir_Click(object sender, RoutedEventArgs e)
+        {
+            var parentWindow = Window.GetWindow(this);
+            parentWindow?.Close();
+        }
+    }
+}

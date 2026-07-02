@@ -30,7 +30,13 @@ namespace AplicativoDeAlmacen.Views
             try
             {
                 // Obtenemos los datos de la base de datos
-                _matrizPermisos = await _usuarioService.ObtenerPermisosPorRolAsync(_rolId);
+                var listaPermisos = await _usuarioService.ObtenerPermisosPorRolAsync(_rolId);
+
+                // CORRECCIÓN: Usamos CategoriaNombre en lugar de CategoriaModulo
+                _matrizPermisos = listaPermisos
+                    .OrderBy(p => p.CategoriaNombre)
+                    .ThenBy(p => p.NombreModulo)
+                    .ToList();
 
                 // Conectamos la lista a la vista agrupada "PermisosAgrupados" que creamos en el XAML
                 var cvs = (CollectionViewSource)this.Resources["PermisosAgrupados"];
