@@ -1,0 +1,61 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos.WidgetVelasAlmacenUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
+             Background="White">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="350"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Margin="0,0,15,0">
+                <TextBlock Text="Buscar Producto:" FontWeight="Bold" Foreground="#475569" Margin="0,0,0,5"/>
+                <TextBox x:Name="TxtBuscarProducto" Height="28" TextChanged="TxtBuscarProducto_TextChanged"/>
+
+                <Popup x:Name="PopupResultados" PlacementTarget="{Binding ElementName=TxtBuscarProducto}" StaysOpen="False">
+                    <Border Background="White" BorderBrush="LightGray" BorderThickness="1">
+                        <ListBox x:Name="LbProducto" Width="{Binding ActualWidth, ElementName=TxtBuscarProducto}" 
+                                 MaxHeight="150" 
+                                 DisplayMemberPath="Descripcion"
+                                 SelectionChanged="LbProducto_SelectionChanged"
+                                 BorderThickness="0"/>
+                    </Border>
+                </Popup>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Margin="0,0,15,0">
+                <TextBlock Text="Desde:" FontWeight="Bold" Foreground="#475569" Margin="0,0,0,5"/>
+                <DatePicker x:Name="DpDesde" Width="120" Height="28"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Margin="0,0,15,0">
+                <TextBlock Text="Hasta:" FontWeight="Bold" Foreground="#475569" Margin="0,0,0,5"/>
+                <DatePicker x:Name="DpHasta" Width="120" Height="28"/>
+            </StackPanel>
+
+            <Button Grid.Column="3" Content="📊 Generar" Click="BtnEjecutar_Click" 
+                    Background="#10B981" Foreground="White" Width="90" Height="28" 
+                    VerticalAlignment="Bottom"/>
+        </Grid>
+
+        <Border Grid.Row="1" Background="#F8FAFC" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="10">
+            <lvc:CartesianChart 
+                Series="{Binding Series}" 
+                XAxes="{Binding XAxes}"
+                YAxes="{Binding YAxes}"
+                ZoomMode="X"
+                TooltipFindingStrategy="CompareAllTakeClosest">
+            </lvc:CartesianChart>
+        </Border>
+    </Grid>
+</UserControl>

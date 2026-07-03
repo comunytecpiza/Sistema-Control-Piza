@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using ClosedXML.Excel;
 using System.Threading.Tasks;
+using LiveChartsCore.Defaults;
 namespace AplicativoDeAlmacen.Services.Reportes
 {
     public class ReporteExcelService
@@ -400,6 +401,64 @@ namespace AplicativoDeAlmacen.Services.Reportes
             string ruta = Path.Combine(Path.GetTempPath(), $"KardexValorizado_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
             wb.SaveAs(ruta);
             Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true });
+        }
+
+        public void ExportarAnalisisVelas(List<FinancialPoint> velas, string nombreProducto, DateTime desde, DateTime hasta)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Trading Inventario");
+
+            // Cabecera Principal
+            ws.Cell(1, 1).Value = $"ANÁLISIS DE VOLATILIDAD DIARIA - {nombreProducto}";
+            ws.Range("A1:F1").Merge().Style.Font.SetBold().Font.SetFontSize(14).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            ws.Cell(2, 1).Value = $"Periodo: {desde:dd/MM/yyyy} al {hasta:dd/MM/yyyy}";
+            ws.Range("A2:F2").Merge().Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+            // Cabeceras de Tabla
+            string[] headers = { "Fecha", "Stock Apertura", "Máximo Diario (Ingresos)", "Mínimo Diario", "Stock Cierre", "Tendencia" };
+            for (int i = 0; i < headers.Length; i++)
+            {
+                ws.Cell(4, i + 1).Value = headers[i];
+                ws.Cell(4, i + 1).Style.Fill.BackgroundColor = XLColor.DarkSlateGray;
+                ws.Cell(4, i + 1).Style.Font.FontColor = XLColor.White;
+                ws.Cell(4, i + 1).Style.Font.Bold = true;
+            }
+
+            int fila = 5;
+            foreach (var vela in velas)
+            {
+                ws.Cell(fila, 1).Value = vela.Date.ToString("dd/MM/yyyy");
+                ws.Cell(fila, 2).Value = vela.Open;
+                ws.Cell(fila, 3).Value = vela.High;
+                ws.Cell(fila, 4).Value = vela.Low;
+                ws.Cell(fila, 5).Value = vela.Close;
+
+                // Indicador visual en texto
+                if (vela.Close > vela.Open)
+                {
+                    ws.Cell(fila, 6).Value = "🟢 ALZA (Ingresos)";
+                    ws.Cell(fila, 6).Style.Font.FontColor = XLColor.Green;
+                }
+                else if (vela.Close < vela.Open)
+                {
+                    ws.Cell(fila, 6).Value = "🔴 BAJA (Salidas)";
+                    ws.Cell(fila, 6).Style.Font.FontColor = XLColor.Red;
+                }
+                else
+                {
+                    ws.Cell(fila, 6).Value = "⚪ NEUTRO";
+                }
+
+                fila++;
+            }
+
+            ws.Range(4, 1, fila - 1, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            ws.Range(4, 1, fila - 1, 6).Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            ws.Columns().AdjustToContents();
+
+            string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AnalisisVelas_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            wb.SaveAs(ruta);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
         }
     }
 }
