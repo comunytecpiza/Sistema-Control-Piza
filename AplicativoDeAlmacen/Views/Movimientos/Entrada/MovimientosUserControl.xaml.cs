@@ -2,12 +2,16 @@
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Text.RegularExpressions;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -43,6 +47,27 @@ namespace AplicativoDeAlmacen.Views
             ConfigurarEventosIniciales();
             EstablecerEstadoInicial();
         }
+        private void NumericOnly_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            // Permitir solo dígitos
+            e.Handled = !Regex.IsMatch(e.Text, "^[0-9]+$");
+        }
+
+        private void OnPasteNumeric(object sender, DataObjectPastingEventArgs e)
+        {
+            if (e.DataObject.GetDataPresent(typeof(string)))
+            {
+                var text = (string)e.DataObject.GetData(typeof(string));
+                if (!Regex.IsMatch(text, "^\\d+$"))
+                {
+                    e.CancelCommand();
+                }
+            }
+            else
+            {
+                e.CancelCommand();
+            }
+        }
 
         public void ConfigurarEventosIniciales()
         {
@@ -66,16 +91,124 @@ namespace AplicativoDeAlmacen.Views
             Loaded += MovimientosUserControl_Loaded;
             btnAgregar.Click += BtnAgregar_Click;
             btnAgregarProducto.Click += BtnAgregarItem_Click;
+            btnModificar.Click -= BtnModificar_Click;
+            btnEliminar.Click -= BtnEliminar_Click;
+            btnModificar.Click += BtnModificar_Click;
+            btnEliminar.Click += BtnEliminar_Click;
             btnCancelar.Click += BtnCancelar_Click;
             btnGrabar.Click += RegistrarMovimientoCompleto;
             // 🔥 COLÓCALO AQUÍ ABAJO (Para registrar el evento):
             dgProductos.SelectionChanged += DgProductos_SelectionChanged;
+            dgProductos.MouseDoubleClick -= DgProductos_MouseDoubleClick;
+            dgProductos.MouseDoubleClick += DgProductos_MouseDoubleClick;
 
+            // Manejar rueda del ratón para que el DataGrid interno haga scroll cuando hay un ScrollViewer padre
+            if (dgProductos != null)
+            {
+                dgProductos.PreviewMouseWheel -= DataGrid_PreviewMouseWheel;
+                dgProductos.PreviewMouseWheel += DataGrid_PreviewMouseWheel;
+            }
 
-            txtRazonSocial.IsEnabled = false;
-            txtUbicacion.IsEnabled = false;
-            cboMotivo.SelectionChanged -= CboMotivo_SelectionChanged;
-            cboMotivo.SelectionChanged += CboMotivo_SelectionChanged;
+            if (dgCodigos != null)
+            {
+                dgCodigos.PreviewMouseWheel -= DataGrid_PreviewMouseWheel;
+                dgCodigos.PreviewMouseWheel += DataGrid_PreviewMouseWheel;
+            }
+
+        }
+
+        private void RebuildCodigosGridList()
+        {
+            _codigosGridList.Clear();
+            int contadorFila = 1;
+
+            foreach (var producto in _productosGridList)
+            {
+                var rangosProducto = _rangosProcesadosGlobal.Where(r => r.productoId == producto.ProductoId).ToList();
+                foreach (var rango in rangosProducto)
+                {
+                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                    {
+                        _codigosGridList.Add(new VistaCodigoGrid
+                        {
+                            MovCodigo = new MovimientoCodigo { MovimientoDetalleId = contadorFila++ },
+                            CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}",
+                            ColeccionTipo = rango.ColeccionTipo,
+                            ProductoId = producto.ProductoId
+                        });
+                    }
+                }
+            }
+        }
+
+        private void BtnModificar_Click(object sender, RoutedEventArgs e)
+        {
+            EditSelectedProduct();
+        }
+
+        private void DgProductos_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            // Ignorar si doble click se produce fuera de una fila
+            if (dgProductos.SelectedItem is VistaProductoGrid)
+            {
+                EditSelectedProduct();
+            }
+        }
+
+        private void EditSelectedProduct()
+        {
+            if (dgProductos.SelectedItem is not VistaProductoGrid seleccionado) return;
+
+            var rangosExistentes = _rangosProcesadosGlobal.Where(r => r.productoId == seleccionado.ProductoId).ToList();
+
+            var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
+            modal.ListaProductosExistentesEnPadre = _productosGridList;
+            modal.InitializeForEdit(seleccionado, rangosExistentes);
+
+            if (modal.ShowDialog() == true && modal.FueGrabado)
+            {
+                // Actualizar detalle del producto
+                seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
+                seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
+
+                // Reemplazar rangos globales para este producto
+                _rangosProcesadosGlobal.RemoveAll(r => r.productoId == seleccionado.ProductoId);
+                foreach (var r in modal.ListaRangosAgregados)
+                {
+                    r.productoId = seleccionado.ProductoId;
+                    _rangosProcesadosGlobal.Add(r);
+                }
+
+                // Reconstruir la lista de códigos y refrescar UI
+                RebuildCodigosGridList();
+                dgProductos.ItemsSource = null;
+                dgProductos.ItemsSource = _productosGridList;
+                dgProductos.SelectedItem = seleccionado;
+                DgProductos_SelectionChanged(dgProductos, new SelectionChangedEventArgs(DataGrid.SelectionChangedEvent, new List<object>(), new List<object>()));
+            }
+        }
+
+        private void BtnEliminar_Click(object sender, RoutedEventArgs e)
+        {
+            if (dgProductos.SelectedItem is not VistaProductoGrid seleccionado) return;
+
+            var resp = MessageBox.Show($"¿Eliminar el producto '{seleccionado.Descripcion}' y sus códigos asociados?", "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (resp != MessageBoxResult.Yes) return;
+
+            // Eliminar de productos
+            _productosGridList.RemoveAll(p => p.ProductoId == seleccionado.ProductoId);
+
+            // Eliminar rangos y códigos asociados
+            _rangosProcesadosGlobal.RemoveAll(r => r.productoId == seleccionado.ProductoId);
+            _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
+
+            // Reconstruir índices de códigos
+            RebuildCodigosGridList();
+
+            // Refrescar UI
+            dgProductos.ItemsSource = null;
+            dgProductos.ItemsSource = _productosGridList;
+            dgCodigos.ItemsSource = null;
         }
 
         private void CboMotivo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -233,7 +366,72 @@ namespace AplicativoDeAlmacen.Views
 
         private async void MovimientosUserControl_Loaded(object sender, RoutedEventArgs e)
         {
+            // Configurar virtualización y columnas adaptables antes de cargar datos
+            ConfigurarDataGridsParaVirtualizacion();
+
             await CargarMotivosAsync();
+        }
+
+        private void ConfigurarDataGridsParaVirtualizacion()
+        {
+            // Habilitar virtualización y reciclaje para evitar instanciar todos los elementos visuales
+            if (dgCodigos != null)
+            {
+                VirtualizingPanel.SetIsVirtualizing(dgCodigos, true);
+                VirtualizingPanel.SetVirtualizationMode(dgCodigos, VirtualizationMode.Recycling);
+                dgCodigos.EnableRowVirtualization = true;
+                dgCodigos.EnableColumnVirtualization = false;
+                ScrollViewer.SetCanContentScroll(dgCodigos, true);
+            }
+
+            if (dgProductos != null)
+            {
+                VirtualizingPanel.SetIsVirtualizing(dgProductos, true);
+                VirtualizingPanel.SetVirtualizationMode(dgProductos, VirtualizationMode.Recycling);
+                dgProductos.EnableRowVirtualization = true;
+                dgProductos.EnableColumnVirtualization = false;
+                ScrollViewer.SetCanContentScroll(dgProductos, true);
+                // Si no existen columnas definidas en XAML, crear columnas por código.
+                if (dgProductos.Columns == null || dgProductos.Columns.Count == 0)
+                {
+                    dgProductos.AutoGenerateColumns = false;
+
+                    dgProductos.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = "N°",
+                        Binding = new System.Windows.Data.Binding("ProductoId"),
+                        Width = new DataGridLength(60)
+                    });
+
+                    dgProductos.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = "CÓDIGO",
+                        Binding = new System.Windows.Data.Binding("CodigoProducto"),
+                        Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+                    });
+
+                    dgProductos.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = "DESCRIPCIÓN",
+                        Binding = new System.Windows.Data.Binding("Descripcion"),
+                        Width = new DataGridLength(2, DataGridLengthUnitType.Star)
+                    });
+
+                    dgProductos.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = "CANT.",
+                        Binding = new System.Windows.Data.Binding("Detalle.CantidadIngreso") { StringFormat = "N2" },
+                        Width = new DataGridLength(0.7, DataGridLengthUnitType.Star)
+                    });
+
+                    dgProductos.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = "COSTO UNIT.",
+                        Binding = new System.Windows.Data.Binding("Detalle.CostoUnitario") { StringFormat = "N2" },
+                        Width = new DataGridLength(0.9, DataGridLengthUnitType.Star)
+                    });
+                }
+            }
         }
 
         private async Task CargarMotivosAsync()
@@ -260,9 +458,12 @@ namespace AplicativoDeAlmacen.Views
                 this.Cursor = Cursors.Wait;
                 LimpiarFormulario();
 
-                Movimiento nuevoMovimiento = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(SERIE_POR_DEFECTO);
-                txtNumSerie.Text = nuevoMovimiento.SerieDocumento;
-                txtNumDocumento.Text = nuevoMovimiento.NumeroDocumento;
+                // No generamos correlativo en este punto para evitar condiciones de carrera.
+                // Ocultamos los campos al usuario hasta que se confirme el registro.
+                txtNumSerie.Text = string.Empty;
+                txtNumDocumento.Text = string.Empty;
+                txtNumSerie.Visibility = Visibility.Hidden;
+                txtNumDocumento.Visibility = Visibility.Hidden;
 
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
                 HabilitarCamposFormulario(true);
@@ -332,23 +533,81 @@ namespace AplicativoDeAlmacen.Views
 
                 if (exito)
                 {
-                    MessageBox.Show("El movimiento de inventario y sus códigos se registraron correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    // El servicio ya asignó el correlativo definitivo en 'nuevaCabecera'
+                    string correlativoFinal = $"{nuevaCabecera.SerieDocumento}-{nuevaCabecera.NumeroDocumento}";
 
-                     LimpiarFormulario();
+                    // Limpiar formulario interno
+                    LimpiarFormulario();
 
+                    // Mostrar modal de confirmación con correlativo y botón para confirmar
+                    var confirmWin = new Window
+                    {
+                        Owner = Window.GetWindow(this),
+                        Title = "Registro creado",
+                        Width = 420,
+                        Height = 240,
+                        WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                        ResizeMode = ResizeMode.NoResize,
+                        Content = new System.Windows.Controls.Border
+                        {
+                            Padding = new Thickness(16),
+                            Child = new System.Windows.Controls.StackPanel
+                            {
+                                Orientation = System.Windows.Controls.Orientation.Vertical,
+                                Children =
+                                {
+                                    new System.Windows.Controls.TextBlock
+                                    {
+                                        Text = "Se ha registrado correctamente",
+                                        FontSize = 18,
+                                        FontWeight = FontWeights.SemiBold,
+                                        Margin = new Thickness(0,0,0,8),
+                                        HorizontalAlignment = HorizontalAlignment.Center,
+                                        TextAlignment = TextAlignment.Center
+                                    },
+                                    new System.Windows.Controls.TextBlock
+                                    {
+                                        Text = correlativoFinal,
+                                        FontSize = 28,
+                                        FontWeight = FontWeights.Bold,
+                                        Margin = new Thickness(0,0,0,12),
+                                        HorizontalAlignment = HorizontalAlignment.Center,
+                                        TextAlignment = TextAlignment.Center
+                                    },
+                                    new System.Windows.Controls.Button
+                                    {
+                                        Content = "Confirmar",
+                                        Width = 120,
+                                        Height = 36,
+                                        HorizontalAlignment = HorizontalAlignment.Center,
+                                        IsDefault = true
+                                    }
+                                }
+                            }
+                        }
+                    };
 
-                    // Aquí es donde habilitas el nuevo correlativo
-                    Movimiento nuevoMovimiento = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(SERIE_POR_DEFECTO);
-                    txtNumSerie.Text = nuevoMovimiento.SerieDocumento;
-                    txtNumDocumento.Text = nuevoMovimiento.NumeroDocumento;
+                    // Asociar cierre del diálogo al botón
+                    if (confirmWin.Content is System.Windows.Controls.Border b && b.Child is System.Windows.Controls.StackPanel sp && sp.Children[2] is System.Windows.Controls.Button btn)
+                    {
+                        btn.Click += (s, ev) => { confirmWin.DialogResult = true; };
+                    }
 
-                    // C. Habilitar la edición para el nuevo documento
+                    // Mostrar modal (el usuario confirma)
+                    confirmWin.ShowDialog();
+
+                    // Guardar correlativo en memoria pero mantener los campos ocultos por seguridad
+                    txtNumSerie.Text = nuevaCabecera.SerieDocumento;
+                    txtNumDocumento.Text = nuevaCabecera.NumeroDocumento;
+                    txtNumSerie.Visibility = Visibility.Hidden;
+                    txtNumDocumento.Visibility = Visibility.Hidden;
+
+                    // Preparar UI para ingresar otro registro (campos editables, correlativos ocultos)
                     HabilitarCamposFormulario(true);
-                    btnGrabar.IsEnabled = true; 
+                    btnGrabar.IsEnabled = true;
                     GestionarBotonesPrincipales(enEdicion: true);
 
                     cboMotivo.Focus();
-
                 }
             }
             catch (Exception ex)
@@ -524,6 +783,39 @@ namespace AplicativoDeAlmacen.Views
             LimpiarFormulario();
             HabilitarCamposFormulario(false);
             GestionarBotonesPrincipales(enEdicion: false);
+        }
+
+        private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            // Cuando el control está dentro de un ScrollViewer padre, el evento rueda lo captura el padre.
+            // Aquí forzamos que la grilla interna se desplace verticalmente.
+            if (sender is DependencyObject dep)
+            {
+                var sv = FindVisualChild<ScrollViewer>(dep);
+                if (sv != null)
+                {
+                    // Delta positivo -> hacia arriba
+                    double newOffset = sv.VerticalOffset - e.Delta / 3.0; // ajuste de sensibilidad
+                    if (newOffset < 0) newOffset = 0;
+                    if (newOffset > sv.ScrollableHeight) newOffset = sv.ScrollableHeight;
+                    sv.ScrollToVerticalOffset(newOffset);
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null) return null;
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T t) return t;
+                var result = FindVisualChild<T>(child);
+                if (result != null) return result;
+            }
+            return null;
         }
 
     }

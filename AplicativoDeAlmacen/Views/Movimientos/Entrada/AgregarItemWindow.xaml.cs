@@ -12,6 +12,10 @@ namespace AplicativoDeAlmacen.Views
     public partial class AgregarItemWindow : Window
     {
 
+        // Cuando se abre la ventana en modo edición, permitimos saltar la validación de duplicados
+        public bool IsEdit { get; set; } = false;
+        public int? OriginalProductoId { get; set; } = null;
+
         public decimal CantidadProductoIngresada { get; set; }
         public decimal CostoUnitarioIngresado { get; set; }
         public bool FueGrabado { get; private set; } = false;
@@ -40,6 +44,44 @@ namespace AplicativoDeAlmacen.Views
             // =======================================================================
             txtProducto.TextChanged += TxtProducto_TextChanged;
             lstSugerenciasProductos.SelectionChanged += LstSugerenciasProductos_SelectionChanged;
+        }
+
+        /// <summary>
+        /// Inicializa la ventana para edición de un producto ya agregado.
+        /// </summary>
+        public void InitializeForEdit(VistaProductoGrid item, List<RangoCodigoItem> rangos)
+        {
+            if (item == null) return;
+
+            IsEdit = true;
+            OriginalProductoId = item.ProductoId;
+
+            // Crear un objeto Producto mínimo para uso interno
+            _productoSeleccionado = new Producto
+            {
+                Id = item.ProductoId,
+                Descripcion = item.Descripcion,
+                PrecioUnitario = item.Detalle?.CostoUnitario
+            };
+
+            txtProducto.Text = _productoSeleccionado.Descripcion;
+            txtUMedida.Text = "UNIDAD"; // mantener como antes o derivar si dispone
+            txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
+            txtCantidad.Text = (item.Detalle?.CantidadIngreso ?? 0m).ToString("0");
+
+            // Cargar rangos existentes
+            ListaRangosAgregados.Clear();
+            if (rangos != null)
+            {
+                foreach (var r in rangos)
+                {
+                    ListaRangosAgregados.Add(r);
+                }
+            }
+
+            // Bloquear edición del selector de producto
+            txtProducto.IsEnabled = false;
+            txtCantidad.IsReadOnly = true;
         }
 
 
@@ -199,12 +241,15 @@ namespace AplicativoDeAlmacen.Views
                 MessageBox.Show("Por favor, seleccione un producto válido antes de grabar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            // En AgregarItemWindow.xaml.cs
-            if (ListaProductosExistentesEnPadre != null &&
-                ListaProductosExistentesEnPadre.Exists(p => p.ProductoId == _productoSeleccionado.Id))
+            // En AgregarItemWindow.xaml.cs: validar duplicados excepto si estamos editando el mismo producto
+            if (ListaProductosExistentesEnPadre != null)
             {
-                MessageBox.Show("Este producto ya está en la lista.", "Aviso");
-                return; // No se cierra
+                bool existe = ListaProductosExistentesEnPadre.Exists(p => p.ProductoId == _productoSeleccionado.Id);
+                if (existe && !(IsEdit && OriginalProductoId == _productoSeleccionado.Id))
+                {
+                    MessageBox.Show("Este producto ya está en la lista.", "Aviso");
+                    return; // No se cierra
+                }
             }
             if (!decimal.TryParse(txtCantidad.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantidadPaquetesDeclarados))
             {

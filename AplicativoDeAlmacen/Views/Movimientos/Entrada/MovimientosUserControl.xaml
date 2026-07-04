@@ -88,7 +88,7 @@
         <Style x:Key="ModernDataGrid" TargetType="DataGrid">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="RowHeight" Value="38"/>
+            <Setter Property="RowHeight" Value="48"/>
             <Setter Property="HeadersVisibility" Value="Column"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
             <Setter Property="HorizontalGridLinesBrush" Value="#F1F5F9"/>
@@ -111,8 +111,25 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="WrapTextBlock" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="NoWrapTextBlock" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="NoWrap"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="DarkDataGridHeader" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#1E293B" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
     </UserControl.Resources>
 
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -140,7 +157,7 @@
                     <Button x:Name="btnImprimir" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
                     <Button x:Name="btnAnular" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#EF4444" MinWidth="105"/>
                 </StackPanel>
-                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}" Height="396">
+                <Border CornerRadius="8" Background="White" Padding="20" Effect="{StaticResource CardShadow}" Height="Auto" MinHeight="300">
                     <Grid x:Name="grdFormulario">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="130"/>
@@ -220,8 +237,8 @@
 
                         <TextBlock Text="Guía de Remisión" Grid.Row="6" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                         <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,12">
-                            <TextBox x:Name="txtSerieGuia" Width="80" Height="32" Margin="0,0,8,0" FontSize="13"/>
-                            <TextBox x:Name="txtNumeroGuia" Width="456" Height="32" Margin="0,0,0,0" FontSize="13"/>
+                            <TextBox x:Name="txtSerieGuia" Width="80" Height="32" Margin="0,0,8,0" FontSize="13" MaxLength="4"/>
+                            <TextBox x:Name="txtNumeroGuia" Width="456" Height="32" Margin="0,0,0,0" FontSize="13" MaxLength="7"/>
                         </StackPanel>
 
                         <TextBlock Text="Observación" Grid.Row="7" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
@@ -280,7 +297,12 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgProductos" IsReadOnly="True" Style="{StaticResource ModernDataGrid}">
+                        <DataGrid x:Name="dgProductos" IsReadOnly="True" Style="{StaticResource ModernDataGrid}"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                  FontSize="14" MinHeight="180" MaxHeight="360" CanUserResizeColumns="True"
+                                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  EnableRowVirtualization="True" EnableColumnVirtualization="False" ScrollViewer.CanContentScroll="True"
+                                  RowHeaderWidth="0" AutoGenerateColumns="False">
                             <DataGrid.Resources>
                                 <Style TargetType="DataGridColumnHeader">
                                     <Setter Property="Background" Value="#F8FAFC"/>
@@ -291,6 +313,14 @@
                                     <Setter Property="BorderBrush" Value="#E2E8F0"/>
                                 </Style>
                             </DataGrid.Resources>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="N°" Binding="{Binding ProductoId}" Width="60" MinWidth="40" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                <!-- Usar SizeToCells para que la columna inicialmente se ajuste al contenido y permita redimensionar manualmente -->
+                                <DataGridTextColumn Header="CÓDIGO" Binding="{Binding CodigoProducto}" Width="SizeToCells" MinWidth="120" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                <DataGridTextColumn Header="DESCRIPCIÓN" Binding="{Binding Descripcion}" Width="SizeToCells" MinWidth="350" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                <DataGridTextColumn Header="CANT." Binding="{Binding Detalle.CantidadIngreso, StringFormat=N2}" Width="SizeToCells" MinWidth="80" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                <DataGridTextColumn Header="COSTO UNIT." Binding="{Binding Detalle.CostoUnitario, StringFormat=N2}" Width="SizeToCells" MinWidth="100" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                            </DataGrid.Columns>
                         </DataGrid>
                     </Border>
                 </Grid>
@@ -310,11 +340,16 @@
                         </DockPanel>
                     </Border>
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                        <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" CanUserResizeColumns="True" MinHeight="160" MaxHeight="420"
+                                  ColumnHeaderStyle="{StaticResource DarkDataGridHeader}" RowHeaderWidth="0"
+                                  VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                  EnableRowVirtualization="True" EnableColumnVirtualization="False" ScrollViewer.CanContentScroll="True">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60"/>
-                                <DataGridTextColumn Header="Código Único" Binding="{Binding CodigoUnique}" Width="*"/>
-                                <DataGridTextColumn Header="Tipo de Colección" Binding="{Binding ColeccionTipo}" Width="150"/>
+                                <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60" MinWidth="40" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                <!-- Auto-ajustar al contenido y permitir redimension manual -->
+                                <DataGridTextColumn Header="Código Único" Binding="{Binding CodigoUnique}" Width="SizeToCells" MinWidth="220" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                <DataGridTextColumn Header="Tipo de Colección" Binding="{Binding ColeccionTipo}" Width="SizeToCells" MinWidth="140" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>
@@ -322,4 +357,5 @@
             </Grid>
         </Grid>
     </Grid>
+    </ScrollViewer>
 </UserControl>

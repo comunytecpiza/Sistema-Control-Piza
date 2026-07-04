@@ -118,6 +118,19 @@ namespace AplicativoDeAlmacen.Services
                     {
                         string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
 
+                        // Generar siguiente correlativo DENTRO de la transacción para reducir condiciones de carrera
+                        string serieParaGenerar = string.IsNullOrWhiteSpace(cabecera.SerieDocumento) ? "0001" : cabecera.SerieDocumento;
+                        using (var cmdGen = dbConn.CreateCommand())
+                        {
+                            cmdGen.Transaction = transaccion;
+                            cmdGen.CommandText = QueryAdapter.FormatearConsulta(@"SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 FROM movimientos WHERE serie_documento = @serie");
+                            AgregarParametro(cmdGen, "@serie", serieParaGenerar);
+                            object genRes = await cmdGen.ExecuteScalarAsync();
+                            int siguienteNumero = genRes != null && genRes != DBNull.Value ? Convert.ToInt32(genRes) : 1;
+                            cabecera.NumeroDocumento = siguienteNumero.ToString("D7");
+                            cabecera.SerieDocumento = serieParaGenerar;
+                        }
+
                         // =======================================================
                         // PASO 1: Insertar Cabecera del Movimiento
                         // =======================================================
