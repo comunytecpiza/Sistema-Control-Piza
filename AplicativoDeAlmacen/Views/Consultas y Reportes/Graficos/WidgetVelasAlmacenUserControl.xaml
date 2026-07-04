@@ -16,6 +16,7 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Margin="0,0,15,0">
@@ -43,7 +44,16 @@
                 <DatePicker x:Name="DpHasta" Width="120" Height="28"/>
             </StackPanel>
 
-            <Button Grid.Column="3" Content="📊 Generar" Click="BtnEjecutar_Click" 
+            <StackPanel Grid.Column="3" Margin="0,0,15,0">
+                <TextBlock Text="Visualizar por:" FontWeight="Bold" Foreground="#475569" Margin="0,0,0,5"/>
+                <ComboBox x:Name="CboPeriodo" Width="130" Height="28" SelectedIndex="0">
+                    <ComboBoxItem Content="Día / Movimiento"/>
+                    <ComboBoxItem Content="Por Semana"/>
+                    <ComboBoxItem Content="Por Mes"/>
+                </ComboBox>
+            </StackPanel>
+
+            <Button Grid.Column="4" Content="📊 Generar" Click="BtnEjecutar_Click" 
                     Background="#10B981" Foreground="White" Width="90" Height="28" 
                     VerticalAlignment="Bottom"/>
         </Grid>

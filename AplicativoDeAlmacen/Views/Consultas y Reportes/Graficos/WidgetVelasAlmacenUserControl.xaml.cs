@@ -9,6 +9,8 @@ using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+using System.Linq;
+using System.Globalization;
 using LiveChartsCore.Kernel.Sketches;
 
 namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
@@ -17,7 +19,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
     {
         private readonly ProductoService _productoService = new ProductoService();
         private readonly KardexService _kardexService = new KardexService();
-
         private int _productoSeleccionadoId;
 
         public ObservableCollection<ISeries> Series { get; set; } = new ObservableCollection<ISeries>();
@@ -39,7 +40,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
         private async void TxtBuscarProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             string busqueda = TxtBuscarProducto.Text;
-
             if (busqueda.Length >= 2)
             {
                 var resultados = await _productoService.BuscarProductos(busqueda);
@@ -48,10 +48,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                     LbProducto.ItemsSource = resultados;
                     PopupResultados.IsOpen = true;
                 }
-                else
-                {
-                    PopupResultados.IsOpen = false;
-                }
+                else { PopupResultados.IsOpen = false; }
             }
             else
             {
@@ -78,6 +75,87 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
 
             var kardex = await _kardexService.GenerarKardexFisicoAsync(_productoSeleccionadoId, DpDesde.SelectedDate.Value, DpHasta.SelectedDate.Value);
 
+            // 1. Estructura intermedia para homogeneizar la agrupación seleccionada
+            var movimientosProcesados = new List<MovimientoAgrupado>();
+
+            if (CboPeriodo.SelectedIndex == 0) // VISTA: DÍA / MOVIMIENTO (Cada uno independiente como antes)
+            {
+                foreach (var m in kardex.Detalles)
+                {
+                    double ingreso = (double)(m.IngresoNormal + m.IngresoDevolucion);
+                    double salida = (double)(m.SalidaNormal + m.SalidaDevolucion);
+                    if (ingreso == 0 && salida == 0) continue;
+
+                    movimientosProcesados.Add(new MovimientoAgrupado
+                    {
+                        Ingreso = ingreso,
+                        Salida = salida,
+                        Label = m.Fecha?.ToString("dd/MM/yyyy") ?? "Mov"
+                    });
+                }
+            }
+            else if (CboPeriodo.SelectedIndex == 1) // VISTA: POR SEMANA
+            {
+                var gruposSemana = kardex.Detalles
+                    .Where(m => (m.IngresoNormal + m.IngresoDevolucion > 0) || (m.SalidaNormal + m.SalidaDevolucion > 0))
+                    .GroupBy(m => {
+                        DateTime date = m.Fecha ?? DateTime.Today;
+                        int numeroSemana = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(date, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+                        return new { date.Year, Semana = numeroSemana };
+                    })
+                    .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Semana);
+
+                foreach (var g in gruposSemana)
+                {
+                    double totIngreso = g.Sum(m => (double)(m.IngresoNormal + m.IngresoDevolucion));
+                    double totSalida = g.Sum(m => (double)(m.SalidaNormal + m.SalidaDevolucion));
+                    double neto = totIngreso - totSalida;
+
+                    movimientosProcesados.Add(new MovimientoAgrupado
+                    {
+                        Ingreso = neto > 0 ? neto : 0,
+                        Salida = neto < 0 ? Math.Abs(neto) : 0,
+                        Label = $"Sem {g.Key.Semana} - {g.Key.Year}"
+                    });
+                }
+            }
+            else if (CboPeriodo.SelectedIndex == 2) // VISTA: POR MES
+            {
+                var gruposMes = kardex.Detalles
+                    .Where(m => (m.IngresoNormal + m.IngresoDevolucion > 0) || (m.SalidaNormal + m.SalidaDevolucion > 0))
+                    .GroupBy(m => {
+                        DateTime date = m.Fecha ?? DateTime.Today;
+                        return new { date.Year, date.Month };
+                    })
+                    .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Month);
+
+                foreach (var g in gruposMes)
+                {
+                    double totIngreso = g.Sum(m => (double)(m.IngresoNormal + m.IngresoDevolucion));
+                    double totSalida = g.Sum(m => (double)(m.SalidaNormal + m.SalidaDevolucion));
+                    double neto = totIngreso - totSalida;
+
+                    string nombreMes = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(g.Key.Month);
+                    nombreMes = char.ToUpper(nombreMes[0]) + nombreMes.Substring(1);
+
+                    movimientosProcesados.Add(new MovimientoAgrupado
+                    {
+                        Ingreso = neto > 0 ? neto : 0,
+                        Salida = neto < 0 ? Math.Abs(neto) : 0,
+                        Label = $"{nombreMes} {g.Key.Year}"
+                    });
+                }
+            }
+
+            // 2. Validación de rango vacío (ej: 03 al 03 sin registros) -> Limpia el gráfico de inmediato
+            if (movimientosProcesados.Count == 0)
+            {
+                Series.Clear();
+                XAxes.Clear();
+                return;
+            }
+
+            // 3. Procesamiento físico del flujo acumulativo escalonado
             var espaciadores = new List<double>();
             var entradas = new List<double>();
             var salidas = new List<double>();
@@ -86,45 +164,31 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
 
             double stockActual = 0;
 
-            foreach (var m in kardex.Detalles)
+            foreach (var item in movimientosProcesados)
             {
-                double ingreso = (double)(m.IngresoNormal + m.IngresoDevolucion);
-                double salida = (double)(m.SalidaNormal + m.SalidaDevolucion);
-
-                // Si no hay movimientos reales, los ignoramos
-                if (ingreso == 0 && salida == 0) continue;
-
                 double stockAnterior = stockActual;
-                stockActual += (ingreso - salida);
+                stockActual += (item.Ingreso - item.Salida);
 
-                if (ingreso > 0)
+                if (item.Ingreso > 0)
                 {
                     espaciadores.Add(stockAnterior);
-                    entradas.Add(ingreso);
+                    entradas.Add(item.Ingreso);
                     salidas.Add(0);
                 }
-                else if (salida > 0)
+                else
                 {
                     espaciadores.Add(stockActual);
                     entradas.Add(0);
-                    salidas.Add(salida);
+                    salidas.Add(item.Salida);
                 }
 
                 totales.Add(stockActual);
-                labelsFechas.Add(m.Fecha?.ToString("dd/MM/yyyy") ?? "Mov");
-            }
-
-            // 🌟 LIMPIEZA AUTOMÁTICA: Si el rango de fechas no tiene nada, vaciamos el gráfico 🌟
-            if (labelsFechas.Count == 0)
-            {
-                Series.Clear();
-                XAxes.Clear();
-                return;
+                labelsFechas.Add(item.Label);
             }
 
             Series.Clear();
 
-            // 1. Serie Invisible 
+            // Bloques Base Invisibles
             Series.Add(new StackedColumnSeries<double>
             {
                 Values = espaciadores,
@@ -134,7 +198,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 YToolTipLabelFormatter = point => ""
             });
 
-            // 2. Serie Entradas (Verdes)
+            // Bloques de Entradas (Verdes)
             Series.Add(new StackedColumnSeries<double>
             {
                 Values = entradas,
@@ -143,8 +207,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 MaxBarWidth = 40,
                 YToolTipLabelFormatter = point =>
                 {
-                    // SOLUCIÓN: En tu versión, el valor está en "Model" 
-                    // y el índice está en la coordenada X ("Coordinate.SecondaryValue")
                     if (point.Model > 0)
                     {
                         int index = (int)point.Coordinate.SecondaryValue;
@@ -154,7 +216,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 }
             });
 
-            // 3. Serie Salidas (Rojas)
+            // Bloques de Salidas (Rojas)
             Series.Add(new StackedColumnSeries<double>
             {
                 Values = salidas,
@@ -180,5 +242,13 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 MinStep = 1
             });
         }
+    }
+
+    // Clase auxiliar para mapear las agrupaciones de tiempo de forma homogénea
+    public class MovimientoAgrupado
+    {
+        public double Ingreso { get; set; }
+        public double Salida { get; set; }
+        public string Label { get; set; }
     }
 }
