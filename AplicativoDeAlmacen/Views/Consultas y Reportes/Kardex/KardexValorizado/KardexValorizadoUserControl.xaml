@@ -20,10 +20,17 @@
                 <StackPanel Margin="0,0,20,10">
                     <TextBlock Text="Producto:" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5"/>
                     <StackPanel Orientation="Horizontal">
-                        <ComboBox x:Name="CboProducto" Width="380" Height="30" VerticalContentAlignment="Center"
-                                  IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True"
-                                  SelectedValuePath="Id" TextSearch.TextPath="Descripcion"
-                                  KeyUp="CboProducto_KeyUp" SelectionChanged="CboProducto_SelectionChanged">
+                        <ComboBox x:Name="CboProducto"
+      Width="380"
+      Height="30"
+      VerticalContentAlignment="Center"
+      IsEditable="True"
+      IsTextSearchEnabled="False"
+      StaysOpenOnEdit="True"
+      SelectedValuePath="Id"
+      TextSearch.TextPath="Descripcion" 
+      KeyUp="CboProducto_KeyUp"
+      SelectionChanged="CboProducto_SelectionChanged">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Width="350" Margin="0,2">
@@ -34,7 +41,6 @@
                                         </Grid.ColumnDefinitions>
 
                                         <TextBlock Grid.Column="0" Text="{Binding Descripcion}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-
                                         <TextBlock Grid.Column="1" Text="{Binding Abreviatura}" Foreground="#666" HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
                                         <Border Grid.Column="2" Background="#EEE8AA" CornerRadius="2" Padding="5,0">

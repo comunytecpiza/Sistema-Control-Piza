@@ -1,5 +1,6 @@
 <Window x:Class="AplicativoDeAlmacen.Views.MainShell"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:dash="clr-namespace:AplicativoDeAlmacen.Views.Dashboards"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:hc="https://handyorg.github.io/handycontrol"
         Title="Panel de Administrador - Ediciones Piza" Height="700" Width="1100"
@@ -120,15 +121,13 @@
                         <ColumnDefinition Width="320"/>
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Column="0" Background="White" CornerRadius="15" Padding="40" BorderBrush="#E5E7EB" BorderThickness="1" VerticalAlignment="Top" Margin="0,0,20,0">
+                    <Border Grid.Column="0" Background="White" CornerRadius="15" Padding="15" BorderBrush="#E5E7EB" BorderThickness="1" Margin="0,0,20,0">
                         <Border.Effect>
                             <DropShadowEffect BlurRadius="20" ShadowDepth="5" Direction="270" Color="Black" Opacity="0.05"/>
                         </Border.Effect>
-                        <StackPanel>
-                            <TextBlock Text="Panel Administrativo Central" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,10"/>
-                            <TextBlock Text="Tiene acceso total al sistema. Seleccione una opción en el menú superior para abrir una nueva pestaña de trabajo." FontSize="16" Foreground="#6B7280" TextWrapping="Wrap"/>
-                            <Border Height="4" Width="60" Background="#DC2626" HorizontalAlignment="Left" Margin="0,20,0,0" CornerRadius="2"/>
-                        </StackPanel>
+
+                        <dash:DashboardPrincipalUserControl />
+
                     </Border>
 
                     <Border Grid.Column="1" Background="White" CornerRadius="15" Padding="20" BorderBrush="#E5E7EB" BorderThickness="1">
