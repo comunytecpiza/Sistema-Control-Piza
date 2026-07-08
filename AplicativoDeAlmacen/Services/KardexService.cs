@@ -529,5 +529,74 @@ namespace AplicativoDeAlmacen.Services
 
             return reporte;
         }
+
+
+
+        public async Task<List<KardexFisicoItem>> ObtenerHistorialCompletoPorCodigoAsync(int productoId, string codigoEscaneado, int categoriaProductoId)
+        {
+            var lista = new List<KardexFisicoItem>();
+
+            using (var conn = _database.GetConnection())
+            {
+                await ((System.Data.Common.DbConnection)conn).OpenAsync();
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    // 🌟 CORRECCIÓN: Usamos LIKE para comparar cadenas de texto, NO convertimos a INT 🌟
+                    string sql = @"
+                        SELECT DISTINCT
+                            m.fecha_movimiento,
+                            m.created_at,
+                            mp.descripcion,
+                            ISNULL(m.serie_documento, '') + '-' + ISNULL(m.numero_documento, ''),
+                            COALESCE(pc.razon_social, u.descripcion, 'ALMACEN'),
+                            ISNULL(m.serie_guia, '') + '-' + ISNULL(m.numero_guia, ''),
+                            md.cantidad_ingreso,
+                            md.cantidad_salida
+                        FROM movimiento_codigos mc
+                        INNER JOIN movimiento_detalles md ON mc.movimiento_detalle_id = md.id
+                        INNER JOIN movimientos m ON md.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+                        LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+                        INNER JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id
+                        INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                        WHERE md.producto_id = @ProductoId
+                          AND rc.categoria_producto_id = @CategoriaProductoId
+                          -- 🌟 CAMBIO AQUÍ: Comparamos convirtiendo a string y limpiando ceros 🌟
+                          AND CAST(cc.codigo AS VARCHAR) LIKE @CodigoExacto
+                        ORDER BY m.created_at ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
+
+                    AgregarParametro(cmd, "@ProductoId", productoId);
+                    AgregarParametro(cmd, "@CategoriaProductoId", categoriaProductoId);
+
+                    // 🌟 CAMBIO: Quitamos los '%' del inicio y fin para que no busque "contiene",
+                    // sino que busque "el código que termina en..." o "el código exacto".
+                    // Si el código en tu base es "00000705" y el usuario escribe "705":
+                    AgregarParametro(cmd, "@CodigoExacto", "%" + codigoEscaneado.TrimStart('0'));
+
+                    using (var reader = await ((System.Data.Common.DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new KardexFisicoItem
+                            {
+                                Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
+                                // m.created_at es ahora el índice 1, así que mp.descripcion pasa a ser 2
+                                Tipo = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                                Registro = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                                RazonSocialUbicacion = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                                Guia = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                                IngresoNormal = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
+                                SalidaNormal = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7)
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
     }
 }

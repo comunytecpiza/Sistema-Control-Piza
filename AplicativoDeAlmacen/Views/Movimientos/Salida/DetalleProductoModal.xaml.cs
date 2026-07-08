@@ -47,6 +47,7 @@ namespace AplicativoDeAlmacen.Views
         {
             string filtro = txtProducto.Text.Trim();
 
+            // Cancelamos la búsqueda anterior si el usuario sigue escribiendo
             _debounceTimer?.Cancel();
             _debounceTimer = new CancellationTokenSource();
             var token = _debounceTimer.Token;
@@ -55,13 +56,17 @@ namespace AplicativoDeAlmacen.Views
             {
                 try
                 {
+                    // Esperamos 300ms para ver si el usuario dejó de escribir
                     await Task.Delay(300, token);
-                    List<Producto> productos = await BuscarProductosOficialesAsync(filtro);
+
+                    // 🌟 Llamada directa a la nueva función asincrónica
+                    List<Producto> productos = await _productoService.BuscarProductosPorTextoAsync(filtro);
 
                     if (!token.IsCancellationRequested)
                     {
                         if (productos != null && productos.Count > 0)
                         {
+                            // 🌟 AQUÍ ESTÁ LA CORRECCIÓN: Usamos 'lstProductos'
                             lstProductos.ItemsSource = productos;
                             popupProductos.IsOpen = true;
                         }
@@ -71,7 +76,7 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
                 }
-                catch (TaskCanceledException) { }
+                catch (TaskCanceledException) { /* Ignoramos si se canceló por seguir escribiendo */ }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Error al buscar productos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -85,7 +90,8 @@ namespace AplicativoDeAlmacen.Views
 
         private async Task<List<Producto>> BuscarProductosOficialesAsync(string filtro)
         {
-            return await Task.Run(() => _productoService.BuscarProductosPorTexto(filtro));
+            // 🌟 CORRECCIÓN: Llamada directa limpia y asincrónica
+            return await _productoService.BuscarProductosPorTextoAsync(filtro);
         }
 
         private void LstProductos_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)

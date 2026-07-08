@@ -6,7 +6,7 @@ using System.Data.Common;
 using System.Threading.Tasks;
 using static AplicativoDeAlmacen.Data.DataConnection;
 
-namespace AplicativoDeAlmacen.Services
+namespace AplicativoDeAlmacen.Services.Ubicaciones
 {
     public class LocalidadService
     {
@@ -119,7 +119,7 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(
                 cmd,
                 "@estadoId",
-                localidad.Estado != null? (object)localidad.Estado.Id : DBNull.Value
+                localidad.Estado != null ? localidad.Estado.Id : DBNull.Value
             );
 
             if (esEdicion)

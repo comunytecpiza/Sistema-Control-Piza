@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Ubicaciones;
 
 namespace AplicativoDeAlmacen.Views
 {

@@ -1,0 +1,106 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.SeriesUbicacionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Series Punto de Venta" Height="500" Width="650"
+        WindowStartupLocation="CenterOwner" Background="#F4F6F9" ResizeMode="NoResize">
+
+    <Grid>
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="TxtTituloSede" Text="Series Punto de Venta : Sede" FontSize="18" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,15"/>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,15">
+                <Button Content="📄 Nuevo" Click="BtnNuevo_Click" Width="90" Height="35" Margin="0,0,10,0" Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="✏️ Modificar" Click="BtnModificar_Click" Width="100" Height="35" Margin="0,0,10,0" Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="❌ Eliminar" Click="BtnEliminar_Click" Width="90" Height="35" Margin="0,0,10,0" Background="#EF4444" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="🚪 Salir" Click="BtnSalir_Click" Width="90" Height="35" Background="#64748B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+            </StackPanel>
+
+            <Border Grid.Row="2" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="5">
+                <DataGrid x:Name="DgSeries" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" RowHeight="35" Background="Transparent" BorderThickness="0">
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background" Value="#FDE68A"/>
+                            <Setter Property="Foreground" Value="Black"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Padding" Value="10,8"/>
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Serie" Binding="{Binding NumeroSerie}" Width="*" FontWeight="Bold"/>
+                        <DataGridTextColumn Header="Tipo" Binding="{Binding TipoSerie}" Width="*"/>
+                        <DataGridTextColumn Header="# Factura" Binding="{Binding CorrelativoFactura}" Width="*"/>
+                        <DataGridTextColumn Header="# Boleta" Binding="{Binding CorrelativoBoleta}" Width="*"/>
+                        <DataGridTextColumn Header="# Recibo" Binding="{Binding CorrelativoRecibo}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="ModalFormulario" Visibility="Collapsed" Background="#66000000">
+            <Border Background="White" Width="350" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="8" Padding="20">
+                <StackPanel>
+                    <TextBlock x:Name="TxtTituloModal" Text="Agregar Nueva Serie" FontSize="16" FontWeight="Bold" Margin="0,0,0,20" Foreground="#1E293B"/>
+
+                    <Grid Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Serie :" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtSerie" Grid.Column="1" Height="28" Padding="5,0" CharacterCasing="Upper"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Tipo :" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <RadioButton x:Name="RbManual" Content="Manual" Foreground="#059669" Margin="0,0,15,0"/>
+                            <RadioButton x:Name="RbElectronica" Content="Electrónica" Foreground="#059669" IsChecked="True"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="# Factura :" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtFactura" Grid.Column="1" Height="28" Padding="5,0" Text="0" HorizontalContentAlignment="Right"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="# Boleta :" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtBoleta" Grid.Column="1" Height="28" Padding="5,0" Text="0" HorizontalContentAlignment="Right"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="# Recibo :" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <TextBox x:Name="TxtRecibo" Grid.Column="1" Height="28" Padding="5,0" Text="0" HorizontalContentAlignment="Right"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button Content="💾 Grabar" Click="BtnGrabarSerie_Click" Width="100" Height="35" Margin="0,0,15,0" Background="#2563EB" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
+                        <Button Content="🚪 Salir" Click="BtnCerrarModal_Click" Width="100" Height="35" Background="White" BorderBrush="#CBD5E0" BorderThickness="1" FontWeight="Bold" Cursor="Hand"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using AplicativoDeAlmacen.Models.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
 
-namespace AplicativoDeAlmacen.Services
+namespace AplicativoDeAlmacen.Services.Ubicaciones
 {
     public class UbicacionService
     {

@@ -73,6 +73,9 @@ namespace AplicativoDeAlmacen.Views
                     CursoId = (CmbCurso.IsEnabled && CmbCurso.SelectedValue is int cId && cId > 0) ? cId : null,
                     TituloCursoId = ChkTitulo.IsChecked == true && CmbTitulo.IsEnabled ? (int?)CmbTitulo.SelectedValue : null,
 
+                    // 🌟 NUEVA LÓGICA: Guardar Stock Mínimo
+                    StockMinimo = string.IsNullOrWhiteSpace(TxtStockMinimo.Text) ? 0 : int.Parse(TxtStockMinimo.Text),
+
                     AfectacionIgvId = (int?)CmbAfectacionIgv.SelectedValue,
                     EstadoId = 1
                 };
@@ -159,13 +162,15 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // 1. Limpiamos suscripciones para evitar que se disparen eventos mientras configuramos
                 CmbNivel.SelectionChanged -= CmbNivel_SelectionChanged;
 
                 TxtDescripcion.Text = producto.Descripcion ?? "";
                 TxtAbreviatura.Text = producto.Abreviatura ?? "";
                 TxtPrecioUnitario.Text = Convert.ToDecimal(producto.PrecioUnitario).ToString("N2");
                 TxtPorcentaje.Text = Convert.ToDecimal(producto.Porcentaje).ToString("N2");
+
+                // 🌟 NUEVO: Llenar el campo Stock Mínimo
+                TxtStockMinimo.Text = producto.StockMinimo.ToString();
 
                 CmbUnidadMedida.SelectedValue = producto.UnidadMedidaId;
                 CmbTipoProducto.SelectedValue = producto.TipoProductoId;
@@ -175,11 +180,8 @@ namespace AplicativoDeAlmacen.Views
                 if (producto.NivelId.HasValue)
                 {
                     CmbNivel.SelectedValue = producto.NivelId.Value;
-
-                    // ¡IMPORTANTE! Forzamos la carga de grados y cursos AHORA, no por evento
                     await CargarGradosAsync(producto.NivelId.Value);
                     await CargarCursosAsync(producto.NivelId.Value);
-
                     CmbGrado.SelectedValue = producto.GradoId;
                     CmbCurso.SelectedValue = producto.CursoId;
                 }
@@ -188,10 +190,8 @@ namespace AplicativoDeAlmacen.Views
                     CmbNivel.SelectedIndex = -1;
                 }
 
-                // Volvemos a suscribir el evento después de configurar todo
                 CmbNivel.SelectionChanged += CmbNivel_SelectionChanged;
 
-                // Lógica de Títulos
                 ChkTitulo.IsChecked = producto.TituloCursoId.HasValue;
                 if (producto.TituloCursoId.HasValue)
                 {
@@ -212,9 +212,10 @@ namespace AplicativoDeAlmacen.Views
             TxtPrecioUnitario.Text = string.Empty;
             TxtPorcentaje.Text = string.Empty;
 
-            CmbUnidadMedida.SelectedIndex = -1;
+            // 🌟 NUEVO: Reestablecer el stock a 0 por defecto
+            TxtStockMinimo.Text = "0";
 
-            // Esto reestablecerá los combos de Curso al estado "prendido" por defecto
+            CmbUnidadMedida.SelectedIndex = -1;
             CmbTipoProducto.SelectedIndex = -1;
 
             CmbNivel.SelectionChanged -= CmbNivel_SelectionChanged;
@@ -267,30 +268,25 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // 1. Unidades de Medida
                 var unidades = await _productoService.ObtenerUnidadesMedidaAsync();
                 CmbUnidadMedida.ItemsSource = unidades;
-                CmbUnidadMedida.DisplayMemberPath = "Descripcion"; // Asegúrate que tu clase UnidadMedida tenga esta propiedad
+                CmbUnidadMedida.DisplayMemberPath = "Descripcion";
                 CmbUnidadMedida.SelectedValuePath = "Id";
 
-                // 2. Tipos de Producto
                 var tipos = await _productoService.ObtenerTiposProductoAsync();
                 CmbTipoProducto.ItemsSource = tipos;
-                CmbTipoProducto.DisplayMemberPath = "Nombre";      // Asegúrate que TipoProducto tenga "Nombre"
+                CmbTipoProducto.DisplayMemberPath = "Nombre";
                 CmbTipoProducto.SelectedValuePath = "Id";
 
-                // 3. Niveles
                 var niveles = await _productoService.ObtenerNivelesAsync();
                 CmbNivel.ItemsSource = niveles;
-                CmbNivel.DisplayMemberPath = "Nombre";             // Asegúrate que Nivel tenga "Nombre"
+                CmbNivel.DisplayMemberPath = "Nombre";
                 CmbNivel.SelectedValuePath = "Id";
 
-                // 4. Afectación IGV
                 CmbAfectacionIgv.ItemsSource = await _productoService.ObtenerAfectacionesIgvAsync();
                 CmbAfectacionIgv.DisplayMemberPath = "Nombre";
                 CmbAfectacionIgv.SelectedValuePath = "Id";
 
-                // 5. Estado
                 CmbEstado.ItemsSource = await _productoService.ObtenerEstadosAsync();
                 CmbEstado.DisplayMemberPath = "Nombre";
                 CmbEstado.SelectedValuePath = "Id";
@@ -301,19 +297,15 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // ⚠️ NUEVO EVENTO: Control de Tipo de Producto ⚠️
         private void CmbTipoProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (CmbTipoProducto.SelectedItem is TipoProducto tipo)
             {
-                // Si la palabra clave "Otros" está en el nombre del Tipo (Ignora mayúsculas/minúsculas)
                 if (tipo.Nombre.ToLower().Contains("otros"))
                 {
-                    // Limpiamos y apagamos Curso
                     CmbCurso.SelectedIndex = -1;
                     CmbCurso.IsEnabled = false;
 
-                    // Limpiamos y apagamos Títulos
                     ChkTitulo.IsChecked = false;
                     ChkTitulo.IsEnabled = false;
                     CmbTitulo.SelectedIndex = -1;
@@ -321,14 +313,12 @@ namespace AplicativoDeAlmacen.Views
                 }
                 else
                 {
-                    // Si es Texto Escolar o Plan Lector, volvemos a encender
                     CmbCurso.IsEnabled = true;
                     ChkTitulo.IsEnabled = true;
                 }
             }
             else
             {
-                // Estado por defecto cuando se limpian los campos
                 CmbCurso.IsEnabled = true;
                 ChkTitulo.IsEnabled = true;
             }
@@ -352,7 +342,6 @@ namespace AplicativoDeAlmacen.Views
 
         private void CmbCurso_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // Sin uso
         }
 
         private async void ChkTitulo_Checked(object sender, RoutedEventArgs e)
@@ -401,7 +390,6 @@ namespace AplicativoDeAlmacen.Views
 
         private bool ValidarCampos()
         {
-            // 1. Textos Obligatorios
             if (string.IsNullOrWhiteSpace(TxtDescripcion.Text))
             {
                 MessageBox.Show("La descripción del producto es obligatoria.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -416,7 +404,6 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
-            // 2. Combos Maestros Obligatorios
             if (CmbUnidadMedida.SelectedValue == null)
             {
                 MessageBox.Show("Debe seleccionar una Unidad de Medida (Ej. Unidad, Docena, Paquete).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -431,7 +418,6 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
-            // 3. Contabilidad
             if (CmbAfectacionIgv.SelectedValue == null)
             {
                 MessageBox.Show("Debe seleccionar el tipo de Afectación IGV para la facturación.", "Validación Contable", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -439,7 +425,6 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
-            // 4. Validaciones Numéricas Seguras (Precios y Porcentajes)
             if (!string.IsNullOrWhiteSpace(TxtPrecioUnitario.Text) && !decimal.TryParse(TxtPrecioUnitario.Text, out _))
             {
                 MessageBox.Show("El Precio Unitario ingresado no tiene un formato numérico válido.", "Validación Numérica", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -454,7 +439,14 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
-            // 5. Validación Lógica Condicional Académica
+            // 🌟 NUEVA VALIDACIÓN: Verifica que el Stock Mínimo sea un número válido 🌟
+            if (!string.IsNullOrWhiteSpace(TxtStockMinimo.Text) && !int.TryParse(TxtStockMinimo.Text, out _))
+            {
+                MessageBox.Show("El Stock Mínimo debe ser un número entero válido (Ej. 100).", "Validación Numérica", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtStockMinimo.Focus();
+                return false;
+            }
+
             if (CmbNivel.SelectedValue != null && CmbNivel.SelectedValue is int nivelId && nivelId > 0)
             {
                 if (CmbGrado.SelectedValue == null || (CmbGrado.SelectedValue is int gradoId && gradoId == 0))

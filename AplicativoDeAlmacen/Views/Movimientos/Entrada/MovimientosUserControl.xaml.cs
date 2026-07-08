@@ -12,6 +12,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Text.RegularExpressions;
+using AplicativoDeAlmacen.Services.Ubicaciones;
 
 namespace AplicativoDeAlmacen.Views
 {

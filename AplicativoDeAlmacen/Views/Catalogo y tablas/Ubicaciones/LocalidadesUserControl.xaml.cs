@@ -1,11 +1,11 @@
 ﻿using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Threading.Tasks;
+using AplicativoDeAlmacen.Services.Ubicaciones;
 
 namespace AplicativoDeAlmacen.Views
 {

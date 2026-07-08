@@ -10,13 +10,14 @@ namespace AplicativoDeAlmacen.Models
 {
     public class ProductoStock
     {
+        public int Id { get; set; }
         public string Descripcion { get; set; }
         public int StockActual { get; set; }
-
-        // 🌟 Añadimos esto para poder filtrar por "Plan Lector" o "Texto Escolar"
+        public int StockMinimo { get; set; }
         public int TipoProductoId { get; set; }
-
-        // 🌟 Añadimos esto para poder agrupar visualmente en la pantalla
         public string GradoNombre { get; set; }
+
+        // Propiedad calculada útil para saber cuántos faltan para llegar al mínimo
+        public int Faltante => StockMinimo - StockActual > 0 ? StockMinimo - StockActual : 0;
     }
 }

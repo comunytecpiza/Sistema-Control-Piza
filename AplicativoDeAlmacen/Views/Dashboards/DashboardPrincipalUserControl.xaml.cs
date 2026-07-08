@@ -34,6 +34,22 @@ namespace AplicativoDeAlmacen.Views.Dashboards
                         FontWeight = FontWeights.SemiBold,
                         Content = new WidgetVelasAlmacenUserControl()
                     });
+
+                TabDashboard.Items.Add(
+                    new TabItem
+                    {
+                        Header = "🚨 Stock Crítico",
+                        FontWeight = FontWeights.SemiBold,
+                        Content = new ReporteStockCriticoUserControl() // Instanciamos la nueva vista
+                    });
+
+                TabDashboard.Items.Add(
+                    new TabItem
+                    {
+                        Header = "📊 Distribución Stock",
+                        FontWeight = FontWeights.SemiBold,
+                        Content = new WidgetDistribucionAlmacenUserControl() // <--- Tu nuevo widget
+                    });
             }
 
             if (TabDashboard.Items.Count > 0)

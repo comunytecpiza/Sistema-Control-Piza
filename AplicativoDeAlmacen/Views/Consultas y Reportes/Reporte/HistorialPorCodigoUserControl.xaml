@@ -1,0 +1,273 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte.HistorialPorCodigoUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="White"
+             FontFamily="Segoe UI">
+
+    <Grid Margin="15">
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Titulo -->
+
+        <TextBlock
+            Grid.Row="0"
+            Text="📄 Historial x Código - ALMACÉN CENTRAL"
+            FontSize="16"
+            FontWeight="SemiBold"
+            Foreground="#374151"
+            Margin="0,0,0,10"/>
+
+
+        <!-- PANEL SUPERIOR -->
+
+        <Grid Grid.Row="1"
+              Margin="0,10,0,15">
+
+            <Grid.ColumnDefinitions>
+
+                <ColumnDefinition Width="650"/>
+
+                <ColumnDefinition Width="*"/>
+
+            </Grid.ColumnDefinitions>
+
+
+            <Border Grid.Column="0"
+                    BorderBrush="#2DD4BF"
+                    BorderThickness="1.5"
+                    Padding="15"
+                    Background="#FAFAFA">
+
+                <Grid>
+
+                    <Grid.RowDefinitions>
+
+                        <RowDefinition Height="Auto"/>
+
+                        <RowDefinition Height="Auto"/>
+
+                        <RowDefinition Height="Auto"/>
+
+                        <RowDefinition Height="Auto"/>
+
+                    </Grid.RowDefinitions>
+
+                    <Grid.ColumnDefinitions>
+
+                        <ColumnDefinition Width="100"/>
+
+                        <ColumnDefinition Width="*"/>
+
+                        <ColumnDefinition Width="90"/>
+
+                    </Grid.ColumnDefinitions>
+
+
+                    <!-- Producto (ahora editable: se escribe para buscar) -->
+
+                    <TextBlock Grid.Row="0"
+                               Text="Producto :"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Right"/>
+
+                    <TextBox x:Name="TxtProducto"
+                             Grid.Row="0"
+                             Grid.Column="1"
+                             Margin="10,0"
+                             TextChanged="TxtProducto_TextChanged"
+                             ToolTip="Escriba para buscar el producto"/>
+
+                    <Popup x:Name="PopupResultados"
+                           PlacementTarget="{Binding ElementName=TxtProducto}"
+                           Placement="Bottom"
+                           StaysOpen="False"
+                           Width="400">
+
+                        <Border Background="White"
+                                BorderBrush="#9CA3AF"
+                                BorderThickness="1">
+
+                            <ListBox x:Name="LbProducto"
+                                     MaxHeight="180"
+                                     SelectionChanged="LbProducto_SelectionChanged"
+                                     DisplayMemberPath="Descripcion"/>
+
+                        </Border>
+
+                    </Popup>
+
+                    <TextBox x:Name="TxtIdProducto"
+                             Grid.Row="0"
+                             Grid.Column="2"
+                             IsReadOnly="True"/>
+
+
+                    <!-- Tipo -->
+
+                    <TextBlock Grid.Row="1"
+                               Text="Tipo :"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Right"/>
+
+                    <StackPanel Grid.Row="1"
+                                Grid.Column="1"
+                                Orientation="Horizontal"
+                                Margin="10,0">
+
+                        <RadioButton x:Name="RbLibroGuia"
+                                     Content="Libro Guía"
+                                     IsEnabled="False"
+                                     Checked="RbLibroGuia_Checked"
+                                     Margin="0,0,20,0"/>
+
+                        <RadioButton x:Name="RbLibroVenta"
+                                     Content="Libro Venta"
+                                     IsEnabled="False"
+                                     Checked="RbLibroVenta_Checked"/>
+
+                    </StackPanel>
+
+
+                    <!-- Codigo: bloqueado hasta elegir producto -->
+
+                    <TextBlock Grid.Row="2"
+                               Text="Código :"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Right"/>
+
+                    <TextBox x:Name="TxtCodigoEscaneado"
+                             Grid.Row="2"
+                             Grid.Column="1"
+                             Margin="10,0"
+                             FontWeight="Bold"
+                             IsEnabled="False"
+                             KeyDown="TxtCodigoEscaneado_KeyDown"/>
+
+                    <TextBox x:Name="TxtAbreviatura"
+                             Grid.Row="2"
+                             Grid.Column="2"
+                             IsReadOnly="True"/>
+
+
+                    <!-- Coleccion -->
+
+                    <TextBlock Grid.Row="3"
+                               Text="Colección :"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Right"/>
+
+                    <TextBox x:Name="TxtColeccion"
+                             Grid.Row="3"
+                             Grid.Column="1"
+                             Margin="10,0"
+                             IsReadOnly="True"/>
+
+                </Grid>
+
+            </Border>
+
+
+            <!-- BOTONES -->
+
+            <StackPanel Grid.Column="1"
+                        Margin="20,0,0,0">
+
+                <Button Content="🔍 Lector"
+                        Width="100"
+                        Height="45"
+                        Margin="0,0,0,10"
+                        Click="BtnEjecutar_Click"/>
+
+                <Button Content="⚙ Ejecutar"
+                        Width="100"
+                        Height="45"
+                        Margin="0,0,0,10"
+                        Click="BtnEjecutar_Click"/>
+
+                <Button Content="🖨 Imprimir"
+                        Width="100"
+                        Height="45"
+                        Margin="0,0,0,10"
+                        Click="BtnImprimir_Click"/>
+
+                <Button Content="🚪 Salir"
+                        Width="100"
+                        Height="45"
+                        Click="BtnSalir_Click"/>
+
+            </StackPanel>
+
+        </Grid>
+
+
+
+        <!-- HISTORIAL -->
+
+        <DataGrid x:Name="DgHistorial"
+                  Grid.Row="2"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="All"
+                  RowHeight="26">
+
+            <DataGrid.Resources>
+
+                <Style TargetType="DataGridColumnHeader">
+
+                    <Setter Property="Background"
+                            Value="#EED47C"/>
+
+                    <Setter Property="FontWeight"
+                            Value="SemiBold"/>
+
+                    <Setter Property="HorizontalContentAlignment"
+                            Value="Center"/>
+
+                </Style>
+
+            </DataGrid.Resources>
+
+
+            <DataGrid.Columns>
+
+                <DataGridTextColumn Header="Fecha" 
+                    Binding="{Binding Fecha, StringFormat='dd/MM/yyyy HH:mm:ss'}" 
+                    Width="140"/>
+
+                <DataGridTextColumn Header="# Registro"
+                                    Binding="{Binding Registro}"
+                                    Width="130"/>
+
+                <DataGridTextColumn Header="Razón Social / Ubicación"
+                                    Binding="{Binding RazonSocialUbicacion}"
+                                    Width="250"/>
+
+                <DataGridTextColumn Header="# Guía"
+                                    Binding="{Binding Guia}"
+                                    Width="120"/>
+
+                <DataGridTextColumn Header="Movimiento"
+                                    Binding="{Binding Tipo}"
+                                    Width="180"/>
+
+                <DataGridTextColumn Header="Ingreso"
+                                    Binding="{Binding IngresoNormal,StringFormat=N2}"
+                                    Width="90"/>
+
+                <DataGridTextColumn Header="Salida"
+                                    Binding="{Binding SalidaNormal,StringFormat=N2}"
+                                    Width="90"/>
+
+            </DataGrid.Columns>
+
+        </DataGrid>
+
+    </Grid>
+
+</UserControl>

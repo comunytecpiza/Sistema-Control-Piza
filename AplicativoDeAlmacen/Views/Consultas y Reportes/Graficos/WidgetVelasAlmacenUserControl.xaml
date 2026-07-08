@@ -64,8 +64,8 @@
                 XAxes="{Binding XAxes}"
                 YAxes="{Binding YAxes}"
                 ZoomMode="X"
-                TooltipFindingStrategy="CompareAllTakeClosest">
-            </lvc:CartesianChart>
+                TooltipFindingStrategy="CompareAllTakeClosest"
+                TooltipPosition="Right"></lvc:CartesianChart>
         </Border>
     </Grid>
 </UserControl>
