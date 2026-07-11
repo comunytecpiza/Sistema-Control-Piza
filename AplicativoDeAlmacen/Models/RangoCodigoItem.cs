@@ -8,6 +8,8 @@ namespace AplicativoDeAlmacen.Models.Models
 {
     public class RangoCodigoItem
     {
+        // Relación opcional al detalle del movimiento (se usa al cargar movimiento desde BD)
+        public int MovimientoDetalleId { get; set; }
       //  public int rangoId { get; set; }
         public int productoId { get; set; }
         public string Cantidad { get; set; }        // Columna visual 'Cantidad'

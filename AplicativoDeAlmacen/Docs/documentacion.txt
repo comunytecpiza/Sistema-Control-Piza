@@ -1,0 +1,154 @@
+Resumen general:
+Este documento describe los casos de uso principales del sistema de control de almacén "Sistema-Control-Piza". Incluye actores, flujo principal, reglas de negocio y validaciones críticas para garantizar la integridad de inventarios y códigos físicos.
+
+Actores:
+- Usuario del almacén (operativo)
+- Usuario administrativo / Contabilidad
+- Operador de registro de códigos
+- Sistema (servicios transaccionales)
+- Base de datos
+
+Entidades clave:
+- Producto
+- Movimiento (cabecera)
+- MovimientoDetalle
+- MovimientoCodigo
+- CodigoCreado (código físico)
+- RegistroRangos (lote/rango registrado)
+- MotivoProducto (motivos con tipo_movimiento = entrada/salida)
+- Ubicación
+- PersonaComercial (cliente/proveedor)
+- Estado (estados de códigos: 1=Disponible / 3=En almacén / 4=Salida u otro según BD)
+
+1) CU-ALM-001: Registrar Movimiento de Entrada (Ingreso de Productos)
+Actor: Usuario del almacén
+Precondiciones:
+- El usuario tiene permiso para registrar entradas.
+- Se seleccionó motivo de entrada (motivo_productos.tipo_movimiento = 'entrada').
+- Productos y cantidades han sido agregados en la UI.
+- Rangos o códigos para cada producto han sido asignados (si aplica).
+Flujo principal:
+1. Usuario crea cabecera (fecha, motivo, proveedor, observación, etc.).
+2. Usuario agrega productos al detalle (producto, cantidad, costo).
+3. Para cada producto, usuario asigna rangos de códigos físicos (o códigos individuales).
+4. El sistema determina estadoPermitido según motivo:
+   - Motivo ID = 1 (COMPRA) ? estadoPermitido = 1 (Disponible)
+   - Motivos de retorno/transferencia/promoción/otros ? estadoPermitido = 4
+5. Validación previa:
+   - Buscar en `codigos_creados` los códigos que correspondan al rango (por secuencia) y categoría.
+   - Recolectar:
+     a) codigosInvalidos: códigos encontrados pero con estado != estadoPermitido
+     b) codigosFaltantes: códigos esperados en rango pero no existentes en BD
+   - Si existen problemas, bloquear la operación y mostrar listado.
+6. Si la validación pasa, iniciar transacción DB:
+   - Insertar cabecera `movimientos`.
+   - Para cada detalle: insertar `movimiento_detalles` y `registro_rangos`.
+   - Insertar relaciones `movimiento_codigos` por cada código físico asociado.
+   - Actualizar `codigos_creados.estado_id = 3` (En almacén) para todos los códigos utilizados.
+7. Commit de transacción y notificar UI.
+Postcondiciones:
+- Stock del producto incrementado.
+- Códigos físicos pasan a estado 3.
+- Registro de rangos asociado al movimiento.
+Reglas de negocio relevantes:
+- Sólo COMPRA puede introducir códigos nuevos (estado 1 en BD).
+- Otros motivos (devolución, promoción, transferencia, otros) sólo permiten códigos existentes en estado 4.
+- Al finalizar, todos los códigos pasan a estado 3 (En almacén).
+
+2) CU-ALM-002: Registrar Movimiento de Salida
+Actor: Usuario del almacén
+Precondiciones:
+- Usuario con permisos de salida.
+- Productos y códigos/cantidades presentes y seleccionados.
+Flujo principal:
+1. Usuario crea cabecera (motivo de salida, ubicacion destino, cliente si requiere, fecha, observación).
+2. Agrega productos y/o códigos al detalle.
+3. El sistema valida disponibilidad de códigos:
+   - Verifica en `codigos_creados` que los códigos a salir estén en estado 3 (En almacén) o en estado permitido por regla de negocio.
+4. Inserta `movimientos`, `movimiento_detalles`, `movimiento_codigos` y actualiza `codigos_creados.estado_id` a estado de salida (ej. 4) según definición.
+5. Commit.
+Postcondiciones:
+- Stock decrementado.
+- Códigos actualizados a estado de salida.
+Reglas:
+- No permitir salida de códigos con estado distinto al permitido.
+- Transacción atómica para evitar inconsistencias.
+
+3) CU-ALM-003: Asignar Rango de Códigos (ventana modal)
+Actor: Operador de registro de códigos / Usuario de ingreso
+Precondiciones:
+- Producto seleccionado y cantidad a asignar.
+- EstadoPermitido propagado desde el contexto de movimiento.
+
+Flujo principal:
+1. El modal calcula rango sugerido consultando `registro_rangos` (MAX(hasta_num) + 1) teniendo en cuenta categoría (G / V).
+2. Usuario ingresa `desde`, `hasta` o define cantidad y sistema calcula el otro extremo.
+3. Validaciones:
+   - No solapamiento con rangos locales ya agregados en la sesión.
+   - Si estadoPermitido == 1 (COMPRA): bloquear si el rango ya existe en `registro_rangos` (no permitir reusar rangos ya registrados).
+   - Buscar en `codigos_creados` los códigos del rango con `estado_id == estadoPermitido` (usando RIGHT(codigo,7) para secuencia). Si faltan o estados no coinciden, informar.
+4. Si pasa, agregar rango a la colección del producto.
+Reglas:
+- Para COMPRA no permitir reutilizar rangos ya registrados.
+- Para otros motivos permitir reutilizar rangos, pero exigir que los códigos estén en el estado apropiado.
+
+4) CU-ALM-004: Registro masivo de códigos (Importar desde Excel/TXT)
+Actor: Operador de registro de códigos
+Precondiciones:
+- Archivo Excel/TXT con códigos en el formato esperado.
+Flujo:
+1. Importar archivo, mostrar vista previa con posibles duplicados.
+2. Validar duplicados internos y en BD (no permitir importar códigos duplicados existentes).
+3. Guardar transaccionalmente en `codigos_creados` y asociar a `registro_codigos`/lote.
+Reglas:
+- Rechazar duplicados.
+- Mantener trazabilidad (registro_codigo_id, usuario_id, created_at).
+
+5) CU-ALM-005: Consultas y Reportes (Saldos, Kardex, Valorizado)
+Actor: Usuario (consulta)
+Flujo:
+1. Seleccionar filtros (producto, ubicación, rango de fechas, ubicación, serie, etc.).
+2. Ejecutar consulta en servicio `KardexService` / `ConsultaMovimientosUserControl`.
+3. Mostrar resultados, permitir exportar a Excel (ReporteExcelService).
+Reglas:
+- Consultas deben respetar permisos de usuario.
+- Kardex valora movimientos por costo unitario y maneja entradas/salidas cronológicas.
+
+6) CU-ALM-006: Gestión de Usuarios y Permisos
+Actor: Administrador
+Flujo:
+1. CRUD de usuarios y roles.
+2. Asignar permisos por módulo.
+Reglas:
+- Acciones críticas (anular movimientos, configurar sistema) requieren permiso específico.
+
+7) CU-ALM-007: Configuración de conexión/motor DB
+Actor: Administrador
+Flujo:
+1. Guardar configuración (Motor DB, Server, DB, Usuario, Password) en archivo de configuración en AppData.
+2. `ConfigManager` arma la cadena de conexión según motor (MySQL vs SQL Server).
+Reglas:
+- Si Motor contiene "MySQL" se usa conexión MySql, si no SqlConnection.
+
+Validaciones transversales y reglas de integridad
+- Todas las operaciones de movimiento que afectan códigos y stock deben ejecutarse en una transacción ACID.
+- No deben quedar operaciones parciales: si falla un paso, hacer rollback.
+- Validar nulos y valores por defecto en parámetros SQL (usar DBNull.Value cuando correspondan).
+- Tratar formatos de número en generación de correlativos: parse seguro y uso de TRY_CAST/TRY_CONVERT según motor para evitar errores por datos no numéricos.
+- Usar IDs para motivos en reglas (no descripciones) para evitar problemas por cambios de texto.
+
+Mensajes y experiencia de usuario
+- Validaciones que puedan listar múltiples códigos deben mostrarse en un modal paginado o en un archivo descargable si la lista es muy larga.
+- Mensajes deben ser claros: indicar código, ID y estado actual cuando hay errores por estado.
+
+Operaciones de auditoría y logging
+- Registrar eventos críticos (errores en transacciones, rollback) en log para diagnóstico.
+- Guardar usuario que ejecutó el movimiento, fecha y hostname/terminal si es posible.
+
+Consideraciones de despliegue
+- Antes de cambios masivos en producción, hacer backup de la BD.
+- Probar migraciones y adaptaciones de SQL entre motores (SQL Server vs MySQL) en entorno de staging.
+
+Notas finales
+- El comportamiento de estados de códigos implementado actualmente sigue la regla: COMPRA -> entrada desde estado 1; otros motivos -> códigos deben venir en estado 4. Independientemente del motivo, al terminar la entrada los códigos pasan a estado 3 (En almacén).
+- Revisar y documentar en BD el significado numérico de cada `estado_id` para evitar ambigüedad.

@@ -11,10 +11,20 @@ namespace AplicativoDeAlmacen.Views
 {
     public partial class AgregarItemWindow : Window
     {
+        // Indica que la ventana fue abierta desde la acción "Agregar Ítem" (nuevo producto)
+        // Cuando es true, no permitimos hacer "merge" con un producto ya existente — eso debe hacerse desde Modificar.
+        public bool IsAddAction { get; set; } = false;
+
+        // Estado permitido para los códigos cuando se asignan rangos desde este formulario.
+        // Debe ser establecido por el flujo que abre esta ventana según el motivo seleccionado
+        // (1 = COMPRA, otro => 4). Por defecto 1 para compatibilidad.
+        public int EstadoPermitido { get; set; } = 1;
 
         // Cuando se abre la ventana en modo edición, permitimos saltar la validación de duplicados
         public bool IsEdit { get; set; } = false;
         public int? OriginalProductoId { get; set; } = null;
+        // Si verdadero, indica que el usuario quiere añadir los códigos al producto ya existente
+        public bool MergeWithExisting { get; private set; } = false;
 
         public decimal CantidadProductoIngresada { get; set; }
         public decimal CostoUnitarioIngresado { get; set; }
@@ -64,24 +74,46 @@ namespace AplicativoDeAlmacen.Views
                 PrecioUnitario = item.Detalle?.CostoUnitario
             };
 
+            // Intentar rellenar la abreviatura desde los rangos pasados (si están disponibles)
+            if (rangos != null)
+            {
+                var primera = rangos.FirstOrDefault();
+                if (primera != null && !string.IsNullOrWhiteSpace(primera.AbreviaturaBase))
+                {
+                    _productoSeleccionado.Abreviatura = primera.AbreviaturaBase;
+                }
+            }
+
             txtProducto.Text = _productoSeleccionado.Descripcion;
             txtUMedida.Text = "UNIDAD"; // mantener como antes o derivar si dispone
             txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
             txtCantidad.Text = (item.Detalle?.CantidadIngreso ?? 0m).ToString("0");
 
-            // Cargar rangos existentes
+            // Cargar rangos existentes (añadir copias para evitar problemas de referencia y asegurar binding)
             ListaRangosAgregados.Clear();
             if (rangos != null)
             {
                 foreach (var r in rangos)
                 {
-                    ListaRangosAgregados.Add(r);
+                    ListaRangosAgregados.Add(new RangoCodigoItem
+                    {
+                        Cantidad = r.Cantidad,
+                        Desde = r.Desde,
+                        Hasta = r.Hasta,
+                        ColeccionTipo = r.ColeccionTipo,
+                        DesdeNum = r.DesdeNum,
+                        HastaNum = r.HastaNum,
+                        CategoriaProductoId = r.CategoriaProductoId,
+                        AbreviaturaBase = r.AbreviaturaBase,
+                        productoId = r.productoId
+                    });
                 }
             }
 
-            // Bloquear edición del selector de producto
+            // Bloquear edición del selector de producto pero permitir ajustar la cantidad
+            // cuando se abre en modo edición para poder agregar nuevos rangos.
             txtProducto.IsEnabled = false;
-            txtCantidad.IsReadOnly = true;
+            txtCantidad.IsReadOnly = false;
         }
 
 
@@ -191,6 +223,8 @@ namespace AplicativoDeAlmacen.Views
                     _productoSeleccionado.Id,
                     cantidadFaltantePorAsignar
                 );
+                // Propagamos el estado permitido para que la ventana de asignación valide correctamente
+                ventanaCodigo.EstadoPermitido = this.EstadoPermitido;
                 ventanaCodigo.Owner = this;
 
                 if (ventanaCodigo.ShowDialog() == true && ventanaCodigo.FueConfirmado)
@@ -247,8 +281,25 @@ namespace AplicativoDeAlmacen.Views
                 bool existe = ListaProductosExistentesEnPadre.Exists(p => p.ProductoId == _productoSeleccionado.Id);
                 if (existe && !(IsEdit && OriginalProductoId == _productoSeleccionado.Id))
                 {
-                    MessageBox.Show("Este producto ya está en la lista.", "Aviso");
-                    return; // No se cierra
+                    // Si la ventana fue invocada desde la acción 'Agregar Ítem' no permitimos hacer merge
+                    if (IsAddAction)
+                    {
+                        MessageBox.Show("Este producto ya existe en la lista. Use 'Modificar' para agregar códigos a un producto ya registrado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    // Si el usuario ha agregado rangos/códigos en esta ventana, permitimos
+                    // que se añadan esos códigos al producto ya existente (modo merge).
+                    if (ListaRangosAgregados.Count > 0)
+                    {
+                        MergeWithExisting = true;
+                        // continuar y cerrar normalmente; el padre deberá integrar los rangos al producto existente
+                    }
+                    else
+                    {
+                        MessageBox.Show("Este producto ya existe.", "Aviso");
+                        return; // No se cierra
+                    }
                 }
             }
             if (!decimal.TryParse(txtCantidad.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantidadPaquetesDeclarados))
@@ -313,6 +364,7 @@ namespace AplicativoDeAlmacen.Views
                     // 4. Lógica extra: Si la grilla queda vacía, permitimos editar la cantidad de nuevo
                     if (ListaRangosAgregados.Count == 0)
                     {
+                        // Permitimos que el usuario modifique la cantidad para poder agregar nuevos rangos
                         txtCantidad.IsReadOnly = false;
                         txtProducto.IsEnabled = true;
                     }
@@ -389,6 +441,8 @@ namespace AplicativoDeAlmacen.Views
             try
             {
                 AsignarCodigoWindow ventanaEdicion = new AsignarCodigoWindow(listaDeRangosActual, rangoSeleccionado, cantidadFaltantePorAsignar);
+                // Propagamos el estado permitido para edición
+                ventanaEdicion.EstadoPermitido = this.EstadoPermitido;
                 ventanaEdicion.Owner = this;
 
                 if (ventanaEdicion.ShowDialog() == true && ventanaEdicion.FueConfirmado)

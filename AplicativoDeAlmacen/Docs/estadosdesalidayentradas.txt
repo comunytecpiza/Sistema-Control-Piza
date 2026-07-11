@@ -1,0 +1,74 @@
+﻿INSTRUCCIONES PARA MODIFICAR LA LÓGICA DE LIBERAR CÓDIGOS
+
+Archivo objetivo:
+- AplicativoDeAlmacen\Services\IngresoMovimientoService.cs
+- Método: `LiberarCodigosAsync(int movimientoId, int usuarioId)`
+
+Objetivo general:
+- No eliminar registros.
+- Liberar (marcar `estado_id = 1`) únicamente cuando el movimiento especificado sea el último movimiento registrado para ese código (considerando entradas y salidas), usando `created_at` para decidir el último por hora.
+- No crear salidas por ahora; la liberación debe permitir que luego se genere una salida válida.
+
+Pasos a realizar (ordenados):
+
+1) Cambiar la consulta que obtiene el "último movimiento" del código
+   - Actualmente filtra por `mp.tipo_movimiento = 'entrada'`.
+   - Debe quitar ese filtro y devolver la fila más reciente para el código sea cual sea el tipo (entrada, salida, devolución, etc.).
+   - Ordenar por `COALESCE(m.created_at, m.fecha_movimiento) DESC` y tomar TOP 1 / LIMIT 1.
+
+   SQL sugerida:
+   SELECT TOP 1
+     mc.movimiento_id,
+     mc.movimiento_detalle_id,
+     m.created_at,
+     m.fecha_movimiento,
+     mp.tipo_movimiento
+   FROM movimiento_codigos mc
+   JOIN movimientos m ON mc.movimiento_id = m.id
+   JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+   WHERE mc.codigo_creado_id = @codId
+   ORDER BY COALESCE(m.created_at, m.fecha_movimiento) DESC;
+
+   (Si el motor es MySQL, reemplazar TOP 1 por LIMIT 1 al final.)
+
+2) Comparar el `movimiento_id` obtenido con el `movimientoId` pasado al método
+   - Si coinciden -> es el último movimiento para ese código y se puede liberar.
+   - Si no coinciden -> omitir el código (no actualizar `estado_id`) y registrar en logs/resultado que fue omitido porque tuvo un movimiento posterior.
+
+3) Actualizar `codigos_creados` en transacción
+   - Ejecutar: UPDATE codigos_creados SET estado_id = 1 WHERE id = @codId
+   - Hacerlo dentro de la misma transacción que lee para mantener consistencia.
+   - Opcional: añadir `updated_at = GETDATE()` si la tabla tiene ese campo.
+
+4) Registro/log/auditoría
+   - Mantener Debug.WriteLine con listas de `liberados` y `omitidos` (ya existe).
+   - Mejor: si existe tabla de auditoría o campos de usuario, insertar registro indicando `usuarioId` y `timestamp`.
+
+5) Casos límite y validaciones
+   - Si no hay códigos asociados al `movimientoId`: devolver `false` o lanzar excepción según policy.
+   - Si un código no tiene movimientos previos en la tabla `movimiento_codigos` -> omitir y anotar.
+   - Evitar actualizar códigos que ya tengan `estado_id = 1` (se puede chequear antes o hacer UPDATE incondicionalmente).
+
+6) Pruebas recomendadas
+   - Código con solo entrada (sin posteriores): debe liberarse.
+   - Código con entrada y luego salida: no debe liberarse si el último movimiento es la salida.
+   - Código con devolución (entrada → salida → entrada): solo liberar si el movimientoId corresponde a esa última entrada.
+   - Movimiento editado/regrabado: comprobar que no se liberan códigos por error.
+
+7) Pasos posteriores (futuro)
+   - Cuando se implemente la creación de salidas automáticas, cambiar la estrategia para agrupar por último ingreso y generar salidas usando `SalidaMovimientoService` o insert directo.
+   - Posible mejora: devolver del método un objeto con listas de `liberados` y `omitidos` para mostrar al usuario.
+
+Notas técnicas
+- Archivo modificado ya: `IngresoMovimientoService.cs` con método `LiberarCodigosAsync` (implementación inicial que filtraba por tipo 'entrada').
+- Esta nota indica que hay que quitar ese filtro y usar la consulta genérica por último movimiento.
+
+Ejemplo de flujo de ejecución en código:
+1. Obtener lista DISTINCT de `codigo_creado_id` desde `movimiento_codigos` para `movimientoId`.
+2. Para cada `codId` ejecutar la consulta de "último movimiento" (ver paso 1).
+3. Si `ultimoMovId == movimientoId` -> UPDATE estado_id = 1; else -> omitir.
+4. Commit.
+
+Guardar esta nota como recordatorio antes de aplicar cambios de lógica adicionales.
+
+FIN.

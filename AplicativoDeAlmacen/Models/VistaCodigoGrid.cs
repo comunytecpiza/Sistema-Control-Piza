@@ -17,8 +17,9 @@ namespace AplicativoDeAlmacen.Models
         public string Codigo => CodigoUnique;
 
         public int ProductoId { get; set; }
-        // 💡 AGREGA ESTA LÍNEA PARA SOLUCIONAR EL ERROR
-     
+        // Exponer MovimientoDetalleId para binding directo
+        public int MovimientoDetalleId => MovCodigo?.MovimientoDetalleId ?? 0;
+
 
     }
 }

@@ -12,11 +12,15 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Text.RegularExpressions;
+using System.Data.Common;
+using AplicativoDeAlmacen.Data;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class MovimientosUserControl : UserControl
     {
+        private int? _currentMovimientoId = null;
         private List<MovimientoDetalle> ListaProductosAgregados = new List<MovimientoDetalle>();
         private List<RangoCodigoItem> ListaTodosLosCodigosDelMovimiento = new List<RangoCodigoItem>();
         private readonly PersonaComercialService _service;
@@ -31,6 +35,8 @@ namespace AplicativoDeAlmacen.Views
         private const string SERIE_POR_DEFECTO = "0001";
         private int? _personaComercialIdSeleccionada = null;
         private const int UBICACION_ID_SELECCIONADA = 1; // ID Fijo de Almacén
+        private bool _printMode = false;
+        private Button _btnPrintNearSave = null;
 
         public MovimientosUserControl()
         {
@@ -47,6 +53,1033 @@ namespace AplicativoDeAlmacen.Views
             ConfigurarEventosIniciales();
             EstablecerEstadoInicial();
         }
+
+        // Fusiona entradas duplicadas en _productosGridList que tienen el mismo ProductoId.
+        // Mantiene la descripción/um/costo de la primera entrada y suma las cantidades.
+        private void MergeDuplicateProducts()
+        {
+            try
+            {
+                var grouped = _productosGridList
+                    .GroupBy(p => p.ProductoId)
+                    .Select(g => new VistaProductoGrid
+                    {
+                        ProductoId = g.Key,
+                        CodigoProducto = g.First().CodigoProducto,
+                        Descripcion = g.First().Descripcion,
+                        UnidadMedida = g.First().UnidadMedida,
+                        Detalle = new MovimientoDetalle
+                        {
+                            Id = g.Select(x => x.Detalle?.Id ?? 0).FirstOrDefault(id => id > 0),
+                            ProductoId = g.Key,
+                            CantidadIngreso = g.Sum(x => x.Detalle?.CantidadIngreso ?? 0),
+                            CostoUnitario = g.First().Detalle?.CostoUnitario ?? 0
+                        }
+                    })
+                    .ToList();
+
+                // Reemplazar lista y reconstruir códigos basados en rangos
+                _productosGridList = grouped;
+
+                // Reconstruir códigos desde rangos globales para asegurar consistencia
+                RebuildCodigosGridList();
+            }
+            catch { }
+        }
+
+        // Completa la información de ColeccionTipo y CodigoCreadoId para las filas de _codigosGridList
+        private async Task FillColeccionInfoAsync()
+        {
+            try
+            {
+                var codesToCheck = _codigosGridList
+                    .Where(c => string.IsNullOrWhiteSpace(c.ColeccionTipo) || c.MovCodigo == null || c.MovCodigo.CodigoCreadoId == 0)
+                    .Select(c => c.CodigoUnique)
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (!codesToCheck.Any()) return;
+
+                // Normalizar claves
+                var normMap = codesToCheck.ToDictionary(k => _serviceMovimiento.NormalizarCodigo(k), v => v, StringComparer.OrdinalIgnoreCase);
+
+                using var conn = _dbConnHelper.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                const int batchSize = 500;
+                var found = new Dictionary<string, (int Id, string Codigo, int? Categoria, string Ano)>(StringComparer.OrdinalIgnoreCase);
+
+                var allNorms = normMap.Keys.ToList();
+                for (int i = 0; i < allNorms.Count; i += batchSize)
+                {
+                    var batch = allNorms.Skip(i).Take(batchSize).ToList();
+                    var paramNames = new List<string>();
+                    for (int j = 0; j < batch.Count; j++) paramNames.Add("@p" + j);
+
+                    string q = $@"
+                        SELECT cc.id, cc.codigo, rc.categoria_producto_id, c.ano,
+                               UPPER(REPLACE(REPLACE(REPLACE(cc.codigo,' ',''),'-',''),CHAR(39),'')) AS norm
+                        FROM codigos_creados cc
+                        LEFT JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
+                        LEFT JOIN colecciones c ON c.id = rc.coleccion_id
+                        WHERE UPPER(REPLACE(REPLACE(REPLACE(cc.codigo,' ',''),'-',''),CHAR(39),'')) IN ({string.Join(',', paramNames)})";
+
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(q);
+                    for (int j = 0; j < batch.Count; j++)
+                    {
+                        var p = cmd.CreateParameter(); p.ParameterName = "@p" + j; p.Value = batch[j]; cmd.Parameters.Add(p);
+                    }
+
+                    using var rdr = await cmd.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
+                    {
+                        int id = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
+                        string codigo = rdr.IsDBNull(1) ? string.Empty : rdr.GetString(1);
+                        int? categoria = rdr.IsDBNull(2) ? (int?)null : rdr.GetInt32(2);
+                        string ano = rdr.IsDBNull(3) ? string.Empty : rdr.GetValue(3)?.ToString();
+                        string norm = rdr.IsDBNull(4) ? string.Empty : rdr.GetString(4);
+                        if (!string.IsNullOrWhiteSpace(norm) && !found.ContainsKey(norm)) found[norm] = (id, codigo, categoria, ano);
+                    }
+                }
+
+                // Aplicar resultados a la lista en memoria
+                foreach (var item in _codigosGridList)
+                {
+                    try
+                    {
+                        var norm = _serviceMovimiento.NormalizarCodigo(item.CodigoUnique);
+                        if (string.IsNullOrWhiteSpace(norm)) continue;
+                        if (found.TryGetValue(norm, out var info))
+                        {
+                            if (item.MovCodigo == null) item.MovCodigo = new MovimientoCodigo();
+                            if (item.MovCodigo.CodigoCreadoId == 0) item.MovCodigo.CodigoCreadoId = info.Id;
+                            if (string.IsNullOrWhiteSpace(item.ColeccionTipo))
+                            {
+                                if (!string.IsNullOrWhiteSpace(info.Ano))
+                                {
+                                    string tipoTexto = (info.Categoria.HasValue && info.Categoria.Value == 1) ? "LIBRO GUÍA" : "LIBRO VENTA";
+                                    item.ColeccionTipo = $"C{info.Ano} / {tipoTexto}";
+                                }
+                                else
+                                {
+                                    item.ColeccionTipo = info.Codigo;
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // Refrescar UI en hilo de Dispatcher
+                System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    dgCodigos.ItemsSource = null;
+                    dgCodigos.ItemsSource = _codigosGridList;
+                }));
+            }
+            catch { }
+        }
+
+        private async void BtnImportar_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
+                // Propagar estado permitido al diálogo de importación para que marque los inválidos
+                try { win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4; } catch { win.EstadoPermitido = 0; }
+                if (win.ShowDialog() != true) return;
+
+                var lista = win.CodigosImportados ?? new List<string>();
+                if (!lista.Any()) return;
+
+                // Normalizar y buscar en la base los códigos importados
+                var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(lista);
+
+                // Detectar duplicados en archivo
+                var normCounts = lista.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Replace(" ", "").Replace("'", "").Replace("\"", "").ToUpperInvariant())
+                    .GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+
+                // Conjunto para evitar procesar el mismo código (normalizado) más de una vez desde el archivo
+                var processedNorms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var duplicatesInFile = new List<string>();
+                var codigosInvalidosPorEstado = new List<string>();
+
+                // Obtener ids ya en movimientos para evitar reusar códigos
+                var codigoIdsEnBD = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.Id).ToList();
+                var enMovimiento = await _serviceMovimiento.ObtenerCodigosEnMovimientoAsync(codigoIdsEnBD);
+
+                // Agrupar por productoId (null -> sin asignar)
+                var porProducto = new Dictionary<int, List<(CodigoCreado CodigoObj, string CodigoText)>>();
+                var sinAsignar = new List<string>();
+                var omitidosPorMovimiento = new List<string>();
+                var alreadyPresentInUI = new List<string>();
+
+                foreach (var raw in lista)
+                {
+                    if (string.IsNullOrWhiteSpace(raw)) continue;
+                    var key = raw.Replace(" ", "").Replace("'", "").Replace("\"", "").ToUpperInvariant();
+                    // Evitar duplicados en el archivo
+                    if (processedNorms.Contains(key))
+                    {
+                        duplicatesInFile.Add(raw);
+                        continue;
+                    }
+                    processedNorms.Add(key);
+                    if (!lookup.TryGetValue(key, out var tup))
+                    {
+                        sinAsignar.Add(raw);
+                        continue;
+                    }
+                    if (tup.CodigoObj == null)
+                    {
+                        sinAsignar.Add(raw);
+                        continue;
+                    }
+
+                    // Validar estado del codigo según el motivo seleccionado (consistencia con la validacion en el servicio)
+                    int estadoPermitidoLocal = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4;
+                    if (tup.CodigoObj.EstadoId != estadoPermitidoLocal)
+                    {
+                        // Si el código ya pertenece al movimiento actual (en edición) podría permitirse;
+                        // en este flujo de importación consideramos inválido para la transferencia
+                        codigosInvalidosPorEstado.Add($"{raw} (estado:{tup.CodigoObj.EstadoId})");
+                        continue;
+                    }
+                    if (enMovimiento.Contains(tup.CodigoObj.Id))
+                    {
+                        omitidosPorMovimiento.Add(raw);
+                        continue;
+                    }
+
+                    // Evitar códigos ya añadidos anteriormente en la UI
+                    if (_codigosGridList.Any(cg => _serviceMovimiento.NormalizarCodigo(cg.CodigoUnique) == key))
+                    {
+                        alreadyPresentInUI.Add(raw);
+                        continue;
+                    }
+
+                    int prodId = tup.ProductoId ?? 0;
+                    if (!porProducto.ContainsKey(prodId)) porProducto[prodId] = new List<(CodigoCreado, string)>();
+                    porProducto[prodId].Add((tup.CodigoObj, raw));
+                }
+
+                // Antes de transferir preguntamos al usuario si desea añadir solo los encontrados en BD
+                int foundProductsCount = porProducto.Keys.Count(k => k > 0);
+                int foundCodesCount = porProducto.Where(kv => kv.Key > 0).Sum(kv => kv.Value.Count);
+                int sinAsignarCount = sinAsignar.Count;
+                int omitidosCount = omitidosPorMovimiento.Count;
+
+                // Si existen códigos con estado inválido para el motivo, informamos y bloqueamos
+                if (codigosInvalidosPorEstado.Any())
+                {
+                    var sbinv = new System.Text.StringBuilder();
+                    sbinv.AppendLine("Se detectaron códigos con estado no permitido para el motivo seleccionado:");
+                    foreach (var s in codigosInvalidosPorEstado.Take(200)) sbinv.AppendLine(" - " + s);
+                    if (codigosInvalidosPorEstado.Count > 200) sbinv.AppendLine($"... y {codigosInvalidosPorEstado.Count - 200} más");
+                    sbinv.AppendLine();
+                    sbinv.AppendLine("Para registrar una compra (motivo COMPRA) los códigos deben estar en estado 1.\nRegistre o corrija los estados en 'Registro de Códigos' antes de importar.");
+                    MessageBox.Show(sbinv.ToString(), "Códigos en estado inválido", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                // Si existen códigos sin asignar (no hallados en la tabla `codigos_creados`)
+                // bloqueamos la transferencia y solicitamos al usuario registrar esos códigos
+                // previamente en el maestro de códigos. Esto evita inconsistencias al guardar.
+                if (sinAsignarCount > 0)
+                {
+                    try
+                    {
+                        var ejemplo = string.Join(", ", sinAsignar.Take(50));
+                        var sb = new System.Text.StringBuilder();
+                        sb.AppendLine($"Se detectaron {sinAsignarCount} códigos que NO están registrados en la base de datos.");
+                        sb.AppendLine("Debe registrar esos códigos en 'Registro de Códigos' antes de transferir/guardar el movimiento.");
+                        sb.AppendLine("");
+                        sb.AppendLine("Ejemplos:");
+                        sb.AppendLine(ejemplo);
+                        MessageBox.Show(sb.ToString(), "Códigos no registrados", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    catch
+                    {
+                        MessageBox.Show($"Se detectaron {sinAsignarCount} códigos no registrados. Regístrelos en 'Registro de Códigos' antes de continuar.", "Códigos no registrados", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    return; // bloqueamos la importación hasta que el usuario registre los códigos
+                }
+
+                var prompt = $"Productos encontrados: {foundProductsCount}\nCódigos encontrados: {foundCodesCount}\nSin asignar (no en BD): {sinAsignarCount}\nOmitidos (ya en movimientos): {omitidosCount}\n\n¿Transferir SOLO los códigos encontrados en la base de datos?";
+                var respTransfer = MessageBox.Show(prompt, "Confirmar transferencia", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+                if (respTransfer == MessageBoxResult.Cancel) return; // cancelar import
+
+                bool transferOnlyFound = respTransfer == MessageBoxResult.Yes;
+
+                // Agregar productos y códigos detectados a las listas internas
+                foreach (var kv in porProducto)
+                {
+                    int productoId = kv.Key;
+                    var cods = kv.Value;
+                    // Si el usuario pidió transferir solo encontrados, saltar productos sin productoId
+                    if (transferOnlyFound && productoId <= 0) continue;
+
+                    // Buscar si producto ya está en la lista
+                    var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == productoId);
+                    if (existente == null)
+                    {
+                        string descripcion = productoId > 0 ? productoId.ToString() : "SIN PRODUCTO";
+                        // intentar obtener descripcion y precio_unitario desde BD
+                        decimal precioUnit = 0;
+                        try
+                        {
+                            using var cmd = _dbConnHelper.GetConnection().CreateCommand();
+                            var dbCmd = (DbCommand)cmd;
+                            dbCmd.CommandText = QueryAdapter.FormatearConsulta("SELECT descripcion, precio_unitario FROM productos WHERE id = @id");
+                            var p = dbCmd.CreateParameter(); p.ParameterName = "@id"; p.Value = productoId; dbCmd.Parameters.Add(p);
+                            dbCmd.Connection.Open();
+                            using var rdr = dbCmd.ExecuteReader();
+                            if (rdr.Read())
+                            {
+                                if (!rdr.IsDBNull(0)) descripcion = rdr.GetString(0);
+                                if (!rdr.IsDBNull(1)) precioUnit = rdr.GetDecimal(1);
+                            }
+                            dbCmd.Connection.Close();
+                        }
+                        catch { }
+
+                        var nuevo = new VistaProductoGrid
+                        {
+                            ProductoId = productoId,
+                            CodigoProducto = productoId.ToString(),
+                            Descripcion = descripcion,
+                            UnidadMedida = "UNIDAD",
+                            // inicializamos en 0 y agregamos la cantidad real después de procesar secuencias/rangos
+                            Detalle = new MovimientoDetalle { ProductoId = productoId, CantidadIngreso = 0, CostoUnitario = precioUnit }
+                        };
+                        _productosGridList.Add(nuevo);
+                        // mantener referencia para las siguientes operaciones en este bucle
+                        existente = nuevo;
+                    }
+                    // NO incrementar aquí: contabilizaremos la cantidad una vez se procesen las secuencias/rangos
+
+                    // Intentar reconstruir rangos a partir de las secuencias encontradas (ej: prefijo + 7 dígitos)
+                    var seqList = new List<(int Seq, CodigoCreado Obj)>();
+                        foreach (var c in cods)
+                    {
+                        var norm = _serviceMovimiento.NormalizarCodigo(c.CodigoText);
+                        if (norm.Length >= 7 && int.TryParse(norm.Substring(norm.Length - 7), out int seq))
+                        {
+                            seqList.Add((seq, c.CodigoObj));
+                        }
+                        else
+                        {
+                            // si no cumple formato, lo dejamos como código suelto en la lista de códigos finales
+                            var v = new VistaCodigoGrid();
+                            // Preferir el valor canónico almacenado en la BD si existe
+                            v.CodigoUnique = c.CodigoObj?.Codigo ?? c.CodigoText;
+                            // intentar obtener tipo de colección desde registro_codigos
+                            string coleccionTipo = string.Empty;
+                            try
+                            {
+                                if (c.CodigoObj != null && c.CodigoObj.RegistroCodigoId > 0)
+                                {
+                                    using var cmdCol = _dbConnHelper.GetConnection().CreateCommand();
+                                    var dcmd = (DbCommand)cmdCol;
+                                    // Obtener código del registro y año de la colección usando join con codigos_creados y colecciones
+                                    dcmd.CommandText = QueryAdapter.FormatearConsulta(@"SELECT cc.codigo AS codigo_creado, c.ano AS coleccion_desc
+                                                                                       FROM registro_codigos rc
+                                                                                       LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                                                                                       LEFT JOIN codigos_creados cc ON cc.registro_codigo_id = rc.id
+                                                                                       WHERE rc.id = @id");
+                                    var pp = dcmd.CreateParameter(); pp.ParameterName = "@id"; pp.Value = c.CodigoObj.RegistroCodigoId; dcmd.Parameters.Add(pp);
+                                    dcmd.Connection.Open();
+                                    using var rdrCol = dcmd.ExecuteReader();
+                                    if (rdrCol.Read())
+                                    {
+                                        string codigoCreado = !rdrCol.IsDBNull(0) ? rdrCol.GetString(0) : string.Empty;
+                                        string coleccionDesc = !rdrCol.IsDBNull(1) ? rdrCol.GetValue(1)?.ToString() ?? string.Empty : string.Empty;
+                                        // Preferimos mostrar la descripción/año de la colección; si no existe, mostramos el código creado
+                                        if (!string.IsNullOrWhiteSpace(coleccionDesc)) coleccionTipo = coleccionDesc;
+                                        else if (!string.IsNullOrWhiteSpace(codigoCreado)) coleccionTipo = codigoCreado;
+                                    }
+                                    dcmd.Connection.Close();
+                                }
+                            }
+                            catch { coleccionTipo = string.Empty; }
+                            v.ColeccionTipo = coleccionTipo;
+                            v.ProductoId = productoId;
+                            v.MovCodigo = new MovimientoCodigo();
+                            v.MovCodigo.MovimientoDetalleId = _codigosGridList.Count + 1;
+                            v.MovCodigo.CodigoCreadoId = c.CodigoObj?.Id ?? 0;
+                            _codigosGridList.Add(v);
+                        }
+                    }
+
+                    if (seqList.Any())
+                    {
+                        // ordenar por secuencia
+                        seqList = seqList.OrderBy(s => s.Seq).ToList();
+                        // agrupar en rangos contiguos
+                        int start = seqList[0].Seq;
+                        int end = start;
+                        var ranges = new List<(int Desde, int Hasta, string Base, int Categoria)>();
+                        // intentar obtener categoria desde registro_codigo si está disponible
+                        int categoriaDefault = 1;
+                        for (int i = 1; i < seqList.Count; i++)
+                        {
+                            int current = seqList[i].Seq;
+                            if (current == end + 1)
+                            {
+                                end = current;
+                            }
+                            else
+                            {
+                                // crear rango para start..end
+                                var sampleOriginal = seqList[i - 1].Obj?.Codigo ?? string.Empty;
+                                string baseOriginal = string.Empty;
+                                if (!string.IsNullOrWhiteSpace(sampleOriginal))
+                                {
+                                    int dash = sampleOriginal.LastIndexOf('-');
+                                    if (dash > 0) baseOriginal = sampleOriginal.Substring(0, dash);
+                                    else
+                                    {
+                                        // fallback: derive from normalized form
+                                        var bnorm = _serviceMovimiento.NormalizarCodigo(sampleOriginal);
+                                        baseOriginal = bnorm.Length > 7 ? bnorm.Substring(0, bnorm.Length - 7) : bnorm;
+                                    }
+                                }
+                                ranges.Add((start, end, baseOriginal, categoriaDefault));
+                                start = current;
+                                end = current;
+                            }
+                        }
+                        // add last
+                        var lastSample = seqList.Last().Obj?.Codigo ?? string.Empty;
+                        string lastBase = string.Empty;
+                        if (!string.IsNullOrWhiteSpace(lastSample))
+                        {
+                            int dash = lastSample.LastIndexOf('-');
+                            if (dash > 0) lastBase = lastSample.Substring(0, dash);
+                            else { var lnorm = _serviceMovimiento.NormalizarCodigo(lastSample); lastBase = lnorm.Length > 7 ? lnorm.Substring(0, lnorm.Length - 7) : lnorm; }
+                        }
+                        ranges.Add((start, end, lastBase, categoriaDefault));
+
+                        // Añadir rango(s) al _rangosProcesadosGlobal y actualizar la cantidad del producto
+                        // La fila de producto ya fue creada anteriormente (CantidadIngreso inicializada a 0),
+                        // así que sumamos la cantidad total de códigos detectados para este producto.
+                        existente.Detalle.CantidadIngreso += cods.Count;
+
+                        // Añadir rangos procesados y generar códigos en _codigosGridList
+                        foreach (var r in ranges)
+                        {
+                            var rangoItem = new RangoCodigoItem
+                            {
+                                productoId = productoId,
+                                CategoriaProductoId = r.Categoria,
+                                AbreviaturaBase = r.Base,
+                                DesdeNum = r.Desde,
+                                HastaNum = r.Hasta,
+                                Cantidad = (r.Hasta - r.Desde + 1).ToString(),
+                                ColeccionTipo = string.Empty
+                            };
+                            _rangosProcesadosGlobal.Add(rangoItem);
+                            for (int seq = r.Desde; seq <= r.Hasta; seq++)
+                            {
+                                _codigosGridList.Add(new VistaCodigoGrid { MovCodigo = new MovimientoCodigo { MovimientoDetalleId = _codigosGridList.Count + 1, CodigoCreadoId = 0 }, CodigoUnique = $"{r.Base}-{seq:D7}", ColeccionTipo = string.Empty, ProductoId = productoId });
+                            }
+                        }
+                    }
+                }
+                // Si el usuario no pidió transferir solo encontrados, añadimos también los sin asignar
+                if (!transferOnlyFound && sinAsignar.Any())
+                {
+                    int productoId = 0;
+                    var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == productoId);
+                    if (existente == null)
+                    {
+                        var nuevo = new VistaProductoGrid
+                        {
+                            ProductoId = productoId,
+                            CodigoProducto = "0",
+                            Descripcion = "SIN ASIGNAR",
+                            UnidadMedida = "UNIDAD",
+                            Detalle = new MovimientoDetalle { ProductoId = productoId, CantidadIngreso = sinAsignar.Count, CostoUnitario = 0 }
+                        };
+                        _productosGridList.Add(nuevo);
+                    }
+                    else
+                    {
+                        existente.Detalle.CantidadIngreso += sinAsignar.Count;
+                    }
+
+                    foreach (var raw in sinAsignar)
+                    {
+                        var v = new VistaCodigoGrid();
+                        v.CodigoUnique = raw;
+                        v.ColeccionTipo = string.Empty;
+                        v.ProductoId = 0;
+                        v.MovCodigo = new MovimientoCodigo();
+                        v.MovCodigo.MovimientoDetalleId = _codigosGridList.Count + 1;
+                        v.MovCodigo.CodigoCreadoId = 0; // no existe aún
+                        _codigosGridList.Add(v);
+                    }
+                }
+
+                // Eliminar posibles duplicados en _productosGridList (agrupar por ProductoId)
+                _productosGridList = _productosGridList
+                    .GroupBy(p => p.ProductoId)
+                    .Select(g => new VistaProductoGrid
+                    {
+                        ProductoId = g.Key,
+                        CodigoProducto = g.First().CodigoProducto,
+                        Descripcion = g.First().Descripcion,
+                        UnidadMedida = g.First().UnidadMedida,
+                        Detalle = new MovimientoDetalle
+                        {
+                            ProductoId = g.Key,
+                            CantidadIngreso = g.Sum(x => x.Detalle?.CantidadIngreso ?? 0),
+                            CostoUnitario = g.First().Detalle?.CostoUnitario ?? 0
+                        }
+                    })
+                    .ToList();
+
+                // Recalcular cantidades por producto basadas en la lista final de códigos
+                foreach (var p in _productosGridList)
+                {
+                    // contar códigos asignados a este producto en la lista final de códigos
+                    int count = _codigosGridList.Count(c => c.ProductoId == p.ProductoId);
+                    // si no hay códigos en la lista, mantener la cantidad existente (por si el usuario la editó manualmente)
+                    // pero si hay códigos, ajustar la cantidad para reflejar exactamente los ítems mostrados
+                    if (count > 0)
+                    {
+                        p.Detalle.CantidadIngreso = Convert.ToDecimal(count);
+                    }
+                }
+
+                // Refrescar UI
+                dgProductos.ItemsSource = null;
+                dgProductos.ItemsSource = _productosGridList;
+                dgCodigos.ItemsSource = null;
+                dgCodigos.ItemsSource = _codigosGridList;
+                // Intentar completar información de colección para códigos que carezcan de ella
+                try { _ = FillColeccionInfoAsync(); } catch { }
+
+                // Informar al usuario de resultados
+                var mensaje = new System.Text.StringBuilder();
+                mensaje.AppendLine($"Códigos importados: {lista.Count}");
+                mensaje.AppendLine($"Encontrados y añadidos: {_codigosGridList.Count}");
+                if (sinAsignar.Any()) mensaje.AppendLine($"Sin asignar (no encontrados en BD): {sinAsignar.Count}");
+                if (omitidosPorMovimiento.Any()) mensaje.AppendLine($"Omitidos (ya en movimientos): {omitidosPorMovimiento.Count}");
+                if (duplicatesInFile.Any()) mensaje.AppendLine($"Duplicados en el archivo (omitidos): {duplicatesInFile.Count}");
+                if (alreadyPresentInUI.Any()) mensaje.AppendLine($"Omitidos (ya presentes en la lista): {alreadyPresentInUI.Count}");
+
+                // Añadir listas cortas para diagnóstico
+                if (omitidosPorMovimiento.Any()) mensaje.AppendLine("Ejemplo omitidos: " + string.Join(", ", omitidosPorMovimiento.Take(10)));
+                if (duplicatesInFile.Any()) mensaje.AppendLine("Ejemplo duplicados: " + string.Join(", ", duplicatesInFile.Take(10)));
+                if (alreadyPresentInUI.Any()) mensaje.AppendLine("Ejemplo ya presentes: " + string.Join(", ", alreadyPresentInUI.Take(10)));
+
+                MessageBox.Show(mensaje.ToString(), "Importación finalizada", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al importar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+
+
+        private void BtnEditar_Click(object sender, RoutedEventArgs e)
+        {
+            // Habilitar formulario para edición y permitir que el usuario escriba el número de documento
+            // Mantener campos del formulario deshabilitados hasta que se cargue el movimiento
+            HabilitarCamposFormulario(false);
+            grdFormulario.IsEnabled = true;
+            // Solo permitimos editar el número de documento (txtNumDocumento). NO habilitar la serie.
+            if (txtNumDocumento != null) { txtNumDocumento.IsReadOnly = false; txtNumDocumento.IsEnabled = true; }
+            if (txtNumSerie != null) { txtNumSerie.IsReadOnly = true; txtNumSerie.IsEnabled = false; }
+            txtNumDocumento.Focus();
+
+            // Suscribir evento Enter para cargar registro
+            txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
+            txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
+
+            // Aseguramos que los botones y grillas estén listos para edición
+            // Bloquear los botones principales (Nuevo/Editar/Imprimir/Anular) hasta que se confirme con Enter
+            GestionarBotonesPrincipales(enEdicion: true);
+
+            // Mantener las acciones de producto y grabado deshabilitadas hasta cargar el registro
+            if (dgProductos != null) dgProductos.IsEnabled = false;
+            if (dgCodigos != null) dgCodigos.IsEnabled = false;
+            if (btnGrabar != null) btnGrabar.IsEnabled = false;
+            if (btnCancelar != null) btnCancelar.IsEnabled = true; // permitir cancelar la operación
+        }
+
+        private async void TxtNumDocumento_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                string serie = txtNumSerie?.Text?.Trim();
+                string numero = txtNumDocumento?.Text?.Trim();
+                if (string.IsNullOrEmpty(numero))
+                {
+                    MessageBox.Show("Ingrese el número de documento para cargar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                try
+                {
+                    await LoadMovimientoBySerieNumeroAsync(serie, numero);
+                    // Si estamos en modo imprimir, bloquear todo excepto los botones superiores Imprimir y Cancelar
+                    if (_printMode)
+                    {
+                        // Mostrar el botón persistente de imprimir al lado de Guardar (si no existe)
+                        ShowPrintButtonNearSave();
+
+                        // Bloquear edición de grillas y controles
+                        if (dgProductos != null) dgProductos.IsReadOnly = true;
+                        if (dgCodigos != null) dgCodigos.IsReadOnly = true;
+
+                        // Deshabilitar la mayoría de botones
+                        if (btnAgregar != null) btnAgregar.IsEnabled = false;
+                        if (btnModificar != null) btnModificar.IsEnabled = false;
+                        if (btnEliminar != null) btnEliminar.IsEnabled = false;
+                        if (btnImportar != null) btnImportar.IsEnabled = false;
+                        if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = false;
+
+                        // Mantener habilados sólo los botones superiores Cancelar.
+                        // Bloqueamos el botón superior Imprimir para evitar reentradas desde la barra superior.
+                        if (btnImprimir != null) btnImprimir.IsEnabled = false;
+                        if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+                        // Deshabilitar el botón Guardar mientras estamos en modo imprimir
+                        if (btnGrabar != null) btnGrabar.IsEnabled = false;
+
+                    // Asegurar que los campos del formulario permanezcan deshabilitados en modo impresión
+                    if (dtpFechaRecepcion != null) dtpFechaRecepcion.IsEnabled = false;
+                    if (cboMotivo != null) cboMotivo.IsEnabled = false;
+                    if (txtRazonSocial != null) txtRazonSocial.IsEnabled = false;
+                    if (txtUbicacion != null) txtUbicacion.IsEnabled = false;
+                    if (txtSerieGuia != null) txtSerieGuia.IsEnabled = false;
+                    if (txtNumeroGuia != null) txtNumeroGuia.IsEnabled = false;
+                    if (txtObservacion != null) txtObservacion.IsEnabled = false;
+
+                    // Cerrar popups de búsqueda si están abiertos
+                    try { popupSugerencias.IsOpen = false; } catch { }
+                    try { popupUbicacion.IsOpen = false; } catch { }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error al cargar movimiento: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        private async Task LoadMovimientoBySerieNumeroAsync(string serie, string numero)
+        {
+            // Limpieza previa
+            LimpiarFormulario();
+            // Use IngresoMovimientoService to fetch movement data instead of embedding SQL in the UI
+            var movimientoComp = await _serviceMovimiento.GetMovimientoCompletoAsync(serie, numero);
+            if (movimientoComp == null)
+            {
+                MessageBox.Show("No se encontró el movimiento especificado.", "No encontrado", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var movimiento = movimientoComp.Movimiento;
+            _currentMovimientoId = movimiento.Id;
+            if (movimiento.FechaMovimiento.HasValue) dtpFechaRecepcion.SelectedDate = movimiento.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue);
+            txtNumSerie.Text = movimiento.SerieDocumento;
+            txtNumDocumento.Text = movimiento.NumeroDocumento;
+            cboMotivo.SelectedValue = movimiento.MotivoProductoId;
+            try { CboMotivo_SelectionChanged(cboMotivo, null); } catch { }
+
+            // Configurar UI para edición del movimiento cargado (solo si no estamos en modo impresión)
+            if (!_printMode)
+            {
+                // Habilitar campos generales editables
+                if (dtpFechaRecepcion != null) dtpFechaRecepcion.IsEnabled = true;
+                if (txtSerieGuia != null) txtSerieGuia.IsEnabled = true;
+                if (txtNumeroGuia != null) txtNumeroGuia.IsEnabled = true;
+                if (txtObservacion != null) txtObservacion.IsEnabled = true;
+
+                // Habilitar grillas para interacción/edición de productos
+                if (dgProductos != null) { dgProductos.IsEnabled = true; dgProductos.IsReadOnly = false; }
+                if (dgCodigos != null) { dgCodigos.IsEnabled = true; dgCodigos.IsReadOnly = true; }
+
+                // Habilitar botones de acción pertinentes
+                if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = true;
+                if (btnModificar != null) btnModificar.IsEnabled = (_productosGridList != null && _productosGridList.Count > 0);
+                if (btnEliminar != null) btnEliminar.IsEnabled = (_productosGridList != null && _productosGridList.Count > 0);
+                if (btnImportar != null) btnImportar.IsEnabled = true;
+                if (btnGrabar != null) btnGrabar.IsEnabled = true;
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+                // Bloquear los botones principales mientras editamos
+                GestionarBotonesPrincipales(enEdicion: true);
+            }
+            // Razon social y descripcion ubicacion vienen en el objeto compuesto
+            txtRazonSocial.Text = movimientoComp.Movimiento.PersonaComercialId.HasValue ? movimientoComp.Movimiento.PersonaComercialId.ToString() : string.Empty;
+            txtCodigoRazonSocial.Text = movimientoComp.Movimiento.PersonaComercialId?.ToString() ?? string.Empty;
+            txtUbicacion.Text = movimientoComp.Rangos != null ? movimientoComp.Rangos.FirstOrDefault()?.ColeccionTipo ?? string.Empty : string.Empty; // fallback
+            txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
+            txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
+            txtObservacion.Text = movimiento.Observacion ?? string.Empty;
+
+            _productosGridList.Clear();
+            _codigosGridList.Clear();
+            _rangosProcesadosGlobal.Clear();
+
+            // Map detalles
+            foreach (var det in movimientoComp.Detalles)
+            {
+                string descripcionProducto = string.Empty;
+                try
+                {
+                    using var cmdProd = _dbConnHelper.GetConnection().CreateCommand();
+                    var dbCmd = (DbCommand)cmdProd;
+                    dbCmd.CommandText = QueryAdapter.FormatearConsulta("SELECT descripcion FROM productos WHERE id = @id");
+                    var pprod = dbCmd.CreateParameter(); pprod.ParameterName = "@id"; pprod.Value = det.ProductoId; dbCmd.Parameters.Add(pprod);
+                    dbCmd.Connection.Open();
+                    var res = dbCmd.ExecuteScalar();
+                    dbCmd.Connection.Close();
+                    if (res != null && res != DBNull.Value) descripcionProducto = res.ToString();
+                }
+                catch
+                {
+                    descripcionProducto = string.Empty;
+                }
+
+                var vp = new VistaProductoGrid
+                {
+                    ProductoId = det.ProductoId,
+                    CodigoProducto = det.ProductoId.ToString(),
+                    Descripcion = descripcionProducto,
+                    UnidadMedida = "UNIDAD",
+                    Detalle = new MovimientoDetalle { Id = det.Id, ProductoId = det.ProductoId, CantidadIngreso = det.CantidadIngreso, CostoUnitario = det.CostoUnitario }
+                };
+
+                // Rangos asociados
+                var rangosForDet = movimientoComp.Rangos.Where(r => r.MovimientoDetalleId == det.Id).ToList();
+                foreach (var r in rangosForDet)
+                {
+                    // r ya es RangoCodigoItem, lo podemos usar directamente
+                    var rango = new RangoCodigoItem
+                    {
+                        MovimientoDetalleId = r.MovimientoDetalleId,
+                        productoId = r.productoId,
+                        CategoriaProductoId = r.CategoriaProductoId,
+                        AbreviaturaBase = r.AbreviaturaBase ?? string.Empty,
+                        DesdeNum = r.DesdeNum,
+                        HastaNum = r.HastaNum,
+                        Cantidad = (r.HastaNum - r.DesdeNum + 1).ToString()
+                    };
+
+                    _rangosProcesadosGlobal.Add(rango);
+                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                    {
+                        _codigosGridList.Add(new VistaCodigoGrid { MovCodigo = new MovimientoCodigo { MovimientoDetalleId = det.Id }, CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}", ColeccionTipo = rango.ColeccionTipo ?? string.Empty, ProductoId = rango.productoId });
+                    }
+                }
+
+                _productosGridList.Add(vp);
+            }
+
+            // Unificar productos duplicados (mismo ProductoId) antes de mostrar
+            MergeDuplicateProducts();
+
+            // Asignar a grillas
+            dgProductos.ItemsSource = null;
+            dgProductos.ItemsSource = _productosGridList;
+            dgCodigos.ItemsSource = null;
+            dgCodigos.ItemsSource = _codigosGridList;
+            // Asegurar que los campos de ColeccionTipo estén completos consultando la BD
+            try { _ = FillColeccionInfoAsync(); } catch { }
+        }
+
+        private async void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        {
+            // Si ya estamos en modo imprimir no hacemos nada (la impresión real se realiza
+            // con el botón 'Imprimir Registro' que aparece junto a Guardar).
+            if (_printMode) return;
+
+            // Entrar en modo impresión: habilitar solo el campo número, esperar Enter para cargar
+            _printMode = true;
+            // Bloquear formulario inicialmente
+            HabilitarCamposFormulario(false);
+            grdFormulario.IsEnabled = true;
+            // Solo permitir escribir el número de documento
+            if (txtNumDocumento != null) { txtNumDocumento.IsReadOnly = false; txtNumDocumento.IsEnabled = true; txtNumDocumento.Focus(); }
+            if (txtNumSerie != null) { txtNumSerie.IsReadOnly = true; txtNumSerie.IsEnabled = false; }
+
+            // Deshabilitar la mayoría de botones hasta que se confirme el registro
+            if (btnAgregar != null) btnAgregar.IsEnabled = false;
+            if (btnModificar != null) btnModificar.IsEnabled = false;
+            if (btnEliminar != null) btnEliminar.IsEnabled = false;
+            if (btnImportar != null) btnImportar.IsEnabled = false;
+            if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = false;
+
+            // Mantener habilitados los botones superiores Imprimir y Cancelar para permitir la operación
+            if (btnImprimir != null) btnImprimir.IsEnabled = true;
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+            // Aseguramos que la tecla Enter al cargar dispare la carga (ya conectado en editar)
+            txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
+            txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
+
+            // Informar brevemente al usuario
+            MessageBox.Show("Modo Imprimir: ingrese el número de documento y presione Enter. Se bloqueará la UI excepto Imprimir y Cancelar.", "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void GenerateExcelFromCurrentLoadedMovement()
+        {
+            try
+            {
+                // Usar ClosedXML para generar reporte con estilo similar al ejemplo
+                using var wb = new ClosedXML.Excel.XLWorkbook();
+                var ws = wb.Worksheets.Add("Ingreso de Productos");
+
+                // Título
+                ws.Range("A1:E1").Merge();
+                ws.Cell(1, 1).Value = "INGRESO DE PRODUCTOS - ALMACEN CENTRAL";
+                ws.Cell(1, 1).Style.Font.Bold = true;
+                ws.Cell(1, 1).Style.Font.FontSize = 14;
+                ws.Cell(1, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+
+                // Cabecera de datos (key/value) con bordes
+                int r = 3;
+                void PutKV(string key, string val)
+                {
+                    ws.Cell(r, 1).Value = key;
+                    ws.Cell(r, 2).Value = val;
+                    var rng = ws.Range(r, 1, r, 5);
+                    rng.Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                    rng.Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+                    r++;
+                }
+
+                PutKV("# Registro", $"{txtNumSerie.Text}-{txtNumDocumento.Text}");
+                PutKV("Fecha", dtpFechaRecepcion.SelectedDate?.ToString("dd/MM/yyyy") ?? "");
+                PutKV("Motivo", (cboMotivo.SelectedItem as dynamic)?.Descripcion ?? "");
+                PutKV("Razón Social", txtRazonSocial.Text);
+                PutKV("Dirección", txtDireccion.Text);
+                PutKV("Ubicación", txtUbicacion.Text);
+                PutKV("# Guía", $"{txtSerieGuia.Text}-{txtNumeroGuia.Text}");
+                PutKV("Observación", txtObservacion.Text);
+
+                // Encabezado tabla productos
+                int headerRow = r + 1;
+                ws.Cell(headerRow, 1).Value = "Producto";
+                ws.Cell(headerRow, 2).Value = "U. Medida";
+                ws.Cell(headerRow, 3).Value = "Cantidad";
+                ws.Cell(headerRow, 4).Value = "C. Unitario";
+                ws.Range(headerRow, 1, headerRow, 4).Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#FFE699");
+                ws.Range(headerRow, 1, headerRow, 4).Style.Font.Bold = true;
+                ws.Range(headerRow, 1, headerRow, 4).Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                ws.Range(headerRow, 1, headerRow, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Left;
+
+                int fila = headerRow + 1;
+
+                foreach (var p in _productosGridList)
+                {
+                    // Producto principal en una fila
+                    ws.Cell(fila, 1).Value = p.Descripcion ?? p.CodigoProducto;
+                    ws.Cell(fila, 2).Value = p.UnidadMedida;
+                    ws.Cell(fila, 3).Value = p.Detalle?.CantidadIngreso ?? 0;
+                    ws.Cell(fila, 4).Value = p.Detalle?.CostoUnitario ?? 0;
+                    ws.Range(fila, 1, fila, 4).Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                    fila++;
+
+                    // Listado de códigos individuales para este producto
+                    var codigos = _codigosGridList.Where(c => c.ProductoId == p.ProductoId).ToList();
+                    // Si no se llenó _codigosGridList por alguna razón, intentar generar desde rangos
+                    if ((codigos == null || codigos.Count == 0) && _rangosProcesadosGlobal != null)
+                    {
+                        var rangosFallback = _rangosProcesadosGlobal.Where(rg => rg.productoId == p.ProductoId).ToList();
+                        foreach (var rg in rangosFallback)
+                        {
+                            for (int seq = rg.DesdeNum; seq <= rg.HastaNum; seq++)
+                            {
+                                codigos.Add(new VistaCodigoGrid { CodigoUnique = $"{rg.AbreviaturaBase}-{seq:D7}", ColeccionTipo = rg.ColeccionTipo, ProductoId = rg.productoId });
+                            }
+                        }
+                    }
+
+                    foreach (var code in codigos)
+                    {
+                        ws.Cell(fila, 1).Value = ""; // dejar primera columna vacía para códigos (alinear debajo del producto)
+                        ws.Cell(fila, 2).Value = code.CodigoUnique;
+                        ws.Cell(fila, 3).Value = code.ColeccionTipo ?? string.Empty;
+                        // estilo para códigos
+                        ws.Range(fila, 2, fila, 3).Style.Font.FontColor = ClosedXML.Excel.XLColor.FromHtml("#333333");
+                        fila++;
+                    }
+
+                    // Espacio entre productos
+                    fila++;
+                }
+
+                // Ajustes finales
+                ws.Columns(1, 4).AdjustToContents();
+                ws.Rows().AdjustToContents();
+
+                // Establecer anchos y alturas similares a ejemplo
+                ws.Column(1).Width = 70; // Producto
+                ws.Column(2).Width = 15; // U. Medida
+                ws.Column(3).Width = 12; // Cantidad
+                ws.Column(4).Width = 14; // C. Unitario
+
+                // Guardar archivo temporal
+                string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"IngresoProductos_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+                wb.SaveAs(ruta);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error generando Excel: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowPrintButtonNearSave()
+        {
+            try
+            {
+                if (_btnPrintNearSave != null) return; // ya creado
+
+                // Encontrar el panel que contiene btnGrabar (asumimos StackPanel)
+                if (btnGrabar?.Parent is Panel parentPanel)
+                {
+                    _btnPrintNearSave = new Button
+                    {
+                        Content = "🖨️ Imprimir Registro",
+                        Background = btnGrabar.Background,
+                        Foreground = btnGrabar.Foreground,
+                        Style = btnGrabar.Style,
+                        Margin = btnGrabar.Margin,
+                        Padding = btnGrabar.Padding,
+                        MinWidth = btnGrabar.MinWidth,
+                        Height = btnGrabar.Height,
+                        FontSize = btnGrabar.FontSize
+                    };
+                    // CLICK: abrir el Excel, pero NO salir del modo impresión ni borrar la información.
+                    _btnPrintNearSave.Click += (s, e) =>
+                    {
+                        try
+                        {
+                            // Evitar múltiples clicks que puedan cambiar estados o generar trabajo duplicado
+                            _btnPrintNearSave.IsEnabled = false;
+                            GenerateExcelFromCurrentLoadedMovement();
+                        }
+                        catch
+                        {
+                            // ignorar excepciones aquí para no romper el modo impresión
+                        }
+                        // no llamamos a CleanupPrintMode() aquí; el modo impresión permanece hasta Cancelar
+                    };
+
+                    parentPanel.Children.Insert(parentPanel.Children.IndexOf(btnGrabar) + 1, _btnPrintNearSave);
+                    // Aseguramos que el botón Guardar quede deshabilitado mientras el botón persistente exista
+                    if (btnGrabar != null) btnGrabar.IsEnabled = false;
+                }
+            }
+            catch
+            {
+                // no crítico
+            }
+        }
+
+        private void CleanupPrintMode()
+        {
+            _printMode = false;
+            if (_btnPrintNearSave != null)
+            {
+                if (_btnPrintNearSave.Parent is Panel p) p.Children.Remove(_btnPrintNearSave);
+                _btnPrintNearSave = null;
+            }
+
+            // Restablecer estado de campos
+            HabilitarCamposFormulario(false);
+            // Restaurar botones al estado inicial
+            ApplyPrintModeButtonStates(enable: false);
+            EstablecerEstadoInicial();
+
+            // Restaurar cursor si fue modificado
+            if (Mouse.OverrideCursor != null) Mouse.OverrideCursor = null;
+        }
+
+        private void ApplyPrintModeButtonStates(bool enable)
+        {
+            // Cuando enable = true significa que estamos en modo imprimir y queremos "desbloquear"
+            // la mayoría de botones para visualizar/editar, excepto el botón Imprimir superior
+            // y el botón Cancelar (según la solicitud). Cuando enable = false revertimos.
+
+            try
+            {
+                if (enable)
+                {
+                    // Habilitar acciones en el formulario
+                    if (btnAgregar != null) btnAgregar.IsEnabled = true;
+                    if (btnModificar != null) btnModificar.IsEnabled = true;
+                    if (btnEliminar != null) btnEliminar.IsEnabled = true;
+                    if (btnImportar != null) btnImportar.IsEnabled = true;
+                    if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = true;
+                    if (btnModificar != null) btnModificar.IsEnabled = true;
+
+                    // Deshabilitar el botón superior Imprimir (no queremos que se vuelva a pulsar)
+                    if (btnImprimir != null) btnImprimir.IsEnabled = false;
+
+                    // Deshabilitar Cancelar según request
+                    if (btnCancelar != null) btnCancelar.IsEnabled = false;
+                }
+                else
+                {
+                    // Revertir a estado por defecto (usar EstablecerEstadoInicial para consistencia)
+                    // Aquí solo intentamos dejar botones en estado no-imprimir
+                    if (btnAgregar != null) btnAgregar.IsEnabled = true;
+                    if (btnModificar != null) btnModificar.IsEnabled = true;
+                    if (btnEliminar != null) btnEliminar.IsEnabled = true;
+                    if (btnImportar != null) btnImportar.IsEnabled = true;
+                    if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = false;
+                    if (btnImprimir != null) btnImprimir.IsEnabled = true;
+                    if (btnCancelar != null) btnCancelar.IsEnabled = true;
+                }
+            }
+            catch
+            {
+                // No crítico
+            }
+        }
+
+        private string ShowInputDialog(string text, string caption)
+        {
+            var win = new Window
+            {
+                Title = caption,
+                Width = 480,
+                Height = 140,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.NoResize,
+                Owner = Window.GetWindow(this)
+            };
+
+            var panel = new StackPanel { Margin = new Thickness(10) };
+            panel.Children.Add(new TextBlock { Text = text, Margin = new Thickness(0, 0, 0, 8) });
+            var txt = new TextBox { Height = 28 };
+            panel.Children.Add(txt);
+            var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+            var ok = new Button { Content = "OK", Width = 80, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+            var cancel = new Button { Content = "Cancelar", Width = 80, IsCancel = true };
+            btns.Children.Add(ok);
+            btns.Children.Add(cancel);
+            panel.Children.Add(btns);
+
+            string result = null;
+            ok.Click += (s, e) => { result = txt.Text; win.DialogResult = true; };
+            win.Content = panel;
+            if (win.ShowDialog() == true) return result;
+            return null;
+        }
+
+        // Helper para acceso a BD
+        private readonly DatabaseConnection _dbConnHelper = new DatabaseConnection();
         private void NumericOnly_PreviewTextInput(object sender, TextCompositionEventArgs e)
         {
             // Permitir solo dígitos
@@ -74,6 +1107,7 @@ namespace AplicativoDeAlmacen.Views
             // Primero limpiamos cualquier asignación previa por seguridad
             txtRazonSocial.TextChanged -= TxtRazonSocial_TextChanged;
             lstSugerencias.SelectionChanged -= LstSugerencias_SelectionChanged;
+            cboMotivo.SelectionChanged -= CboMotivo_SelectionChanged;
             this.PreviewMouseDown -= MovimientosUserControl_PreviewMouseDown;
             Loaded -= MovimientosUserControl_Loaded;
             btnAgregar.Click -= BtnAgregar_Click;
@@ -86,10 +1120,17 @@ namespace AplicativoDeAlmacen.Views
             // Ahora los asignamos con la certeza de que serán únicos
             txtRazonSocial.TextChanged += TxtRazonSocial_TextChanged;
             lstSugerencias.SelectionChanged += LstSugerencias_SelectionChanged;
+            cboMotivo.SelectionChanged += CboMotivo_SelectionChanged;
             lstSugerenciasUbicacion.SelectionChanged += LstSugerenciasUbicacion_SelectionChanged;
             this.PreviewMouseDown += MovimientosUserControl_PreviewMouseDown;
+            this.PreviewMouseMove -= MovimientosUserControl_PreviewMouseMove;
+            this.PreviewMouseMove += MovimientosUserControl_PreviewMouseMove;
             Loaded += MovimientosUserControl_Loaded;
+            // Intercept mouse to block actions en modo impresión
+            this.PreviewMouseDown -= MovimientosUserControl_PreviewMouseDown;
+            this.PreviewMouseDown += MovimientosUserControl_PreviewMouseDown;
             btnAgregar.Click += BtnAgregar_Click;
+            btnEditar.Click += BtnEditar_Click;
             btnAgregarProducto.Click += BtnAgregarItem_Click;
             btnModificar.Click -= BtnModificar_Click;
             btnEliminar.Click -= BtnEliminar_Click;
@@ -97,6 +1138,8 @@ namespace AplicativoDeAlmacen.Views
             btnEliminar.Click += BtnEliminar_Click;
             btnCancelar.Click += BtnCancelar_Click;
             btnGrabar.Click += RegistrarMovimientoCompleto;
+            btnImprimir.Click += BtnImprimir_Click;
+            btnImportar.Click += BtnImportar_Click;
             // 🔥 COLÓCALO AQUÍ ABAJO (Para registrar el evento):
             dgProductos.SelectionChanged += DgProductos_SelectionChanged;
             dgProductos.MouseDoubleClick -= DgProductos_MouseDoubleClick;
@@ -139,29 +1182,68 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }
             }
+            // Actualizar cantidades de productos basadas en los códigos reconstruidos
+            try
+            {
+                var counts = _codigosGridList.GroupBy(c => c.ProductoId).ToDictionary(g => g.Key, g => g.Count());
+                foreach (var p in _productosGridList)
+                {
+                    if (counts.TryGetValue(p.ProductoId, out int cnt))
+                    {
+                        p.Detalle = p.Detalle ?? new MovimientoDetalle { ProductoId = p.ProductoId };
+                        p.Detalle.CantidadIngreso = Convert.ToDecimal(cnt);
+                    }
+                }
+
+                // NOTE: do not call MergeDuplicateProducts() here to avoid recursion
+                // MergeDuplicateProducts is invoked explicitly where needed (e.g. on load or after edits).
+            }
+            catch { }
         }
 
-        private void BtnModificar_Click(object sender, RoutedEventArgs e)
+        private async void BtnModificar_Click(object sender, RoutedEventArgs e)
         {
-            EditSelectedProduct();
+            await EditSelectedProductAsync();
         }
 
-        private void DgProductos_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        private async void DgProductos_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             // Ignorar si doble click se produce fuera de una fila
             if (dgProductos.SelectedItem is VistaProductoGrid)
             {
-                EditSelectedProduct();
+                await EditSelectedProductAsync();
             }
         }
 
-        private void EditSelectedProduct()
+        private async Task EditSelectedProductAsync()
         {
             if (dgProductos.SelectedItem is not VistaProductoGrid seleccionado) return;
 
-            var rangosExistentes = _rangosProcesadosGlobal.Where(r => r.productoId == seleccionado.ProductoId).ToList();
+            List<RangoCodigoItem> rangosExistentes = null;
+
+            // Si el movimiento está guardado en BD, obtener rangos desde la BD usando movimiento_detalle_id
+            try
+            {
+                if (_currentMovimientoId.HasValue && seleccionado.Detalle != null && seleccionado.Detalle.Id > 0)
+                {
+                    rangosExistentes = await _serviceMovimiento.GetRangosByMovimientoDetalleIdAsync(seleccionado.Detalle.Id);
+                }
+            }
+            catch
+            {
+                // ignore DB fetch errors y fallback
+                rangosExistentes = null;
+            }
+
+            // Si no obtuvimos nada desde BD, usamos los rangos procesados en memoria (nuevos movimientos)
+            if (rangosExistentes == null || rangosExistentes.Count == 0)
+            {
+                rangosExistentes = _rangosProcesadosGlobal.Where(r => r.productoId == seleccionado.ProductoId).ToList();
+            }
 
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
+            // Propagar estado permitido según el motivo seleccionado (1 = COMPRA, otro = 4)
+            modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
             modal.ListaProductosExistentesEnPadre = _productosGridList;
             modal.InitializeForEdit(seleccionado, rangosExistentes);
 
@@ -249,7 +1331,8 @@ namespace AplicativoDeAlmacen.Views
                     break;
 
                 case "PROMOCION/PROMOTORIA":
-                    txtRazonSocial.IsEnabled = true;
+                    // En PROMOCION/PROMOTORIA solo se habilita la ubicación (no razón social)
+                    txtRazonSocial.IsEnabled = false;
                     txtUbicacion.IsEnabled = true;
                     break;
 
@@ -358,9 +1441,72 @@ namespace AplicativoDeAlmacen.Views
 
         private void MovimientosUserControl_PreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
+            // Si estamos en modo imprimir, interceptamos clicks en botones y bloqueamos todo excepto Imprimir y Cancelar
+            if (_printMode)
+            {
+                var dep = e.OriginalSource as DependencyObject;
+                while (dep != null)
+                {
+                    if (dep is Button btn)
+                    {
+                        // permitir acciones en botones: superior Imprimir, Cancelar y el botón persistente junto a Guardar
+                        if (btn == btnImprimir || btn == btnCancelar || btn == _btnPrintNearSave)
+                        {
+                            // permitir estas acciones
+                            break;
+                        }
+
+                        // Bloquear cualquier otro botón silenciosamente
+                        e.Handled = true;
+                        return;
+                    }
+                    dep = VisualTreeHelper.GetParent(dep);
+                }
+            }
+
+            // Comportamiento original: cerrar popup de sugerencias si se clickea fuera
             if (!txtRazonSocial.IsMouseOver && !popupSugerencias.IsMouseOver)
             {
                 popupSugerencias.IsOpen = false;
+            }
+        }
+
+        private void MovimientosUserControl_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            // Durante modo imprimir, cuando el cursor está sobre botones no permitidos
+            // queremos mostrar cursor por defecto (no mano) para indicar que no se puede clicar.
+            if (!_printMode)
+            {
+                if (Mouse.OverrideCursor != null) Mouse.OverrideCursor = null;
+                return;
+            }
+
+            var dep = e.OriginalSource as DependencyObject;
+            bool overBlockedButton = false;
+
+            while (dep != null)
+            {
+                if (dep is Button btn)
+                {
+                    // Allow pointer for top Imprimir, Cancelar and the side persistent print button
+                    if (btn == btnImprimir || btn == btnCancelar || btn == _btnPrintNearSave)
+                    {
+                        overBlockedButton = false;
+                        break;
+                    }
+                    overBlockedButton = true;
+                    break;
+                }
+                dep = VisualTreeHelper.GetParent(dep);
+            }
+
+            if (overBlockedButton)
+            {
+                Mouse.OverrideCursor = Cursors.Arrow; // cursor normal
+            }
+            else
+            {
+                Mouse.OverrideCursor = null; // restaurar
             }
         }
 
@@ -459,15 +1605,45 @@ namespace AplicativoDeAlmacen.Views
                 LimpiarFormulario();
 
                 // No generamos correlativo en este punto para evitar condiciones de carrera.
-                // Ocultamos los campos al usuario hasta que se confirme el registro.
+                // Mostramos el número de registro (visible) en modo lectura para que el usuario lo vea,
+                // pero no le permitimos editarlo hasta que el correlativo se genere.
                 txtNumSerie.Text = string.Empty;
                 txtNumDocumento.Text = string.Empty;
-                txtNumSerie.Visibility = Visibility.Hidden;
-                txtNumDocumento.Visibility = Visibility.Hidden;
+                txtNumSerie.Visibility = Visibility.Visible;
+                txtNumDocumento.Visibility = Visibility.Visible;
+                if (txtNumSerie != null) { txtNumSerie.IsReadOnly = true; txtNumSerie.IsEnabled = false; }
+                if (txtNumDocumento != null) { txtNumDocumento.IsReadOnly = true; txtNumDocumento.IsEnabled = false; }
 
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
-                HabilitarCamposFormulario(true);
+
+                // NO habilitamos campos dependientes del motivo (razón social / ubicación) aquí.
+                // Mantenerlos deshabilitados hasta que el usuario seleccione un motivo y
+                // CboMotivo_SelectionChanged aplique las reglas específicas.
+                HabilitarCamposFormulario(false);
+
+                // Habilitar elementos imprescindibles para iniciar el ingreso:
+                if (dtpFechaRecepcion != null) dtpFechaRecepcion.IsEnabled = true;
+                if (cboMotivo != null) cboMotivo.IsEnabled = true;
+                if (txtObservacion != null) txtObservacion.IsEnabled = true;
+                if (txtSerieGuia != null) txtSerieGuia.IsEnabled = true;
+                if (txtNumeroGuia != null) txtNumeroGuia.IsEnabled = true;
+
+                // Habilitar acciones relacionadas a agregar productos/importar y control de guardado
+                if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = true;
+                if (btnImportar != null) btnImportar.IsEnabled = true;
+                if (btnGrabar != null) btnGrabar.IsEnabled = true;
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+                // Permitir editar/seleccionar filas en la grilla de productos mientras se registra un movimiento
+                if (dgProductos != null) { dgProductos.IsEnabled = true; dgProductos.IsReadOnly = false; }
+                // Permitir seleccionar códigos en la grilla derecha
+                if (dgCodigos != null) { dgCodigos.IsEnabled = true; dgCodigos.IsReadOnly = true; }
+
+                // Bloquear botones principales (Nuevo/Editar/Imprimir/Anular)
                 GestionarBotonesPrincipales(enEdicion: true);
+
+                // Intentar preseleccionar COMPRA por defecto y dejar el foco en el combo motivo
+                try { cboMotivo.SelectedValue = 1; } catch { }
                 cboMotivo.Focus();
             }
             catch (Exception ex)
@@ -487,9 +1663,26 @@ namespace AplicativoDeAlmacen.Views
 
             if (resultado == MessageBoxResult.Yes)
             {
+                // Si estábamos en modo impresión, limpiamos ese modo primero
+                if (_printMode)
+                {
+                    try { CleanupPrintMode(); }
+                    catch { _printMode = false; }
+                }
+
+                // Limpiar y restaurar estado por defecto
                 LimpiarFormulario();
                 HabilitarCamposFormulario(false);
                 GestionarBotonesPrincipales(enEdicion: false);
+
+                // Aseguramos explícitamente que los botones superiores queden habilitados
+                if (btnAgregar != null) btnAgregar.IsEnabled = true;
+                if (btnEditar != null) btnEditar.IsEnabled = true;
+                if (btnImprimir != null) btnImprimir.IsEnabled = true;
+                if (btnAnular != null) btnAnular.IsEnabled = true;
+
+                // El botón cancelar puede quedar deshabilitado hasta que se entre en un flujo
+                if (btnCancelar != null) btnCancelar.IsEnabled = false;
             }
         }
 
@@ -528,86 +1721,285 @@ namespace AplicativoDeAlmacen.Views
                     Observacion = txtObservacion.Text.Trim()
                 };
 
+                // PRE-VALIDACIÓN DE CÓDIGOS (consistente con la validación en el servicio)
+                // Recolectar códigos tal como aparecen en la grilla final y desde los rangos procesados
+                var allCodesSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // códigos explícitos en la lista de códigos
+                foreach (var c in _codigosGridList)
+                {
+                    if (!string.IsNullOrWhiteSpace(c.CodigoUnique)) allCodesSet.Add(_serviceMovimiento.NormalizarCodigo(c.CodigoUnique));
+                }
+                // expandir rangos procesados (por si hay rangos que no están representados en _codigosGridList)
+                foreach (var rg in _rangosProcesadosGlobal)
+                {
+                    try
+                    {
+                        if (string.IsNullOrWhiteSpace(rg.AbreviaturaBase)) continue;
+                        for (int seq = rg.DesdeNum; seq <= rg.HastaNum; seq++)
+                        {
+                            var code = $"{rg.AbreviaturaBase}-{seq:D7}";
+                            allCodesSet.Add(_serviceMovimiento.NormalizarCodigo(code));
+                        }
+                    }
+                    catch { }
+                }
+
+                var allCodes = allCodesSet.ToList();
+
+                // Mapear contra la BD
+                var lookupMap = await _serviceMovimiento.ObtenerCodigosPorListaAsync(allCodes);
+
+                int estadoPermitido = (cboMotivo.SelectedValue is int mvv && mvv == 1) ? 1 : 4;
+
+                var codigosFaltantes = new List<string>();
+                var codigosInvalidos = new List<string>();
+
+                // Si estamos editando, obtener ids ya asociados al movimiento para permitirlos aun si estado difiere
+                var existingCodigoIds = new System.Collections.Generic.HashSet<int>();
+                if (_currentMovimientoId.HasValue)
+                {
+                    try
+                    {
+                        using var connExist = _dbConnHelper.GetConnection();
+                        var dbConnExist = (System.Data.Common.DbConnection)connExist;
+                        await dbConnExist.OpenAsync();
+                        using var cmdExist = dbConnExist.CreateCommand();
+                        cmdExist.CommandText = QueryAdapter.FormatearConsulta(@"SELECT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId");
+                        var p = cmdExist.CreateParameter(); p.ParameterName = "@movId"; p.Value = _currentMovimientoId.Value; cmdExist.Parameters.Add(p);
+                        using var rdrExist = await cmdExist.ExecuteReaderAsync();
+                        while (await rdrExist.ReadAsync())
+                        {
+                            if (!rdrExist.IsDBNull(0)) existingCodigoIds.Add(rdrExist.GetInt32(0));
+                        }
+                    }
+                    catch
+                    {
+                        // si falla la consulta, continuamos sin excepcionar; no permitiremos excepciones de validación aquí
+                        existingCodigoIds.Clear();
+                    }
+                }
+
+                foreach (var code in allCodes)
+                {
+                    var key = _serviceMovimiento.NormalizarCodigo(code);
+                    if (!lookupMap.TryGetValue(key, out var tup) || tup.CodigoObj == null)
+                    {
+                        codigosFaltantes.Add(code);
+                        continue;
+                    }
+
+                    var codigoObj = tup.CodigoObj;
+                    if (existingCodigoIds.Contains(codigoObj.Id))
+                    {
+                        // permitir código ya asociado
+                        continue;
+                    }
+
+                    if (codigoObj.EstadoId != estadoPermitido)
+                    {
+                        codigosInvalidos.Add(code + $" (estado:{codigoObj.EstadoId})");
+                    }
+                }
+
+                // Si hay problemas, preguntar al usuario cómo proceder
+                if (codigosFaltantes.Any() || codigosInvalidos.Any())
+                {
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine("Validación previa de códigos:");
+                    if (codigosInvalidos.Any())
+                    {
+                        sb.AppendLine($"Códigos con estado inválido (se requiere estado {estadoPermitido}): {codigosInvalidos.Count}");
+                        foreach (var s in codigosInvalidos.Take(200)) sb.AppendLine(" - " + s);
+                        if (codigosInvalidos.Count > 200) sb.AppendLine($"... y {codigosInvalidos.Count - 200} más");
+                    }
+                    if (codigosFaltantes.Any())
+                    {
+                        sb.AppendLine($"Códigos no encontrados en la base: {codigosFaltantes.Count}");
+                        foreach (var s in codigosFaltantes.Take(200)) sb.AppendLine(" - " + s);
+                        if (codigosFaltantes.Count > 200) sb.AppendLine($"... y {codigosFaltantes.Count - 200} más");
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine("Seleccione 'Sí' para continuar y omitir estos códigos (se eliminarán de la lista antes de guardar).\nSeleccione 'No' para cancelar y corregir los códigos.");
+
+                    var resp = MessageBox.Show(sb.ToString(), "Validación de códigos", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (resp != MessageBoxResult.Yes)
+                    {
+                        btnGrabar.IsEnabled = true;
+                        return; // cancelar guardado para que el usuario corrija
+                    }
+
+                    // El usuario eligió continuar: eliminar códigos inválidos/faltantes de _codigosGridList
+                    _codigosGridList.RemoveAll(c => codigosFaltantes.Contains(c.CodigoUnique) || codigosInvalidos.Any(inv => inv.StartsWith(c.CodigoUnique)));
+
+                    // Reconstruir rangos a partir de códigos restantes
+                    _rangosProcesadosGlobal.Clear();
+                    // Agrupar por producto para reconstruir rangos
+                    var byProduct = _codigosGridList.GroupBy(c => c.ProductoId);
+                    foreach (var grp in byProduct)
+                    {
+                        int prodId = grp.Key;
+                        // extraer secuencias válidas por base
+                        var seqsByBase = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>();
+                        foreach (var item in grp)
+                        {
+                            var norm = _serviceMovimiento.NormalizarCodigo(item.CodigoUnique);
+                            if (norm.Length >= 7 && int.TryParse(norm.Substring(norm.Length - 7), out int seq))
+                            {
+                                string baseStr = norm.Length > 7 ? norm.Substring(0, norm.Length - 7) : "";
+                                if (!seqsByBase.ContainsKey(baseStr)) seqsByBase[baseStr] = new System.Collections.Generic.List<int>();
+                                seqsByBase[baseStr].Add(seq);
+                            }
+                            else
+                            {
+                                // no tiene secuencia; lo tratamos como rango unitario usando el texto como base y seq 0
+                                string baseStr = norm;
+                                if (!seqsByBase.ContainsKey(baseStr)) seqsByBase[baseStr] = new System.Collections.Generic.List<int>();
+                                seqsByBase[baseStr].Add(0);
+                            }
+                        }
+
+                        // convertir listas de secuencias en rangos
+                        foreach (var kv in seqsByBase)
+                        {
+                            var listSeq = kv.Value.Distinct().OrderBy(x => x).ToList();
+                            if (!listSeq.Any()) continue;
+                            int start = listSeq[0];
+                            int end = start;
+                            for (int i = 1; i < listSeq.Count; i++)
+                            {
+                                int cur = listSeq[i];
+                                if (cur == end + 1)
+                                {
+                                    end = cur;
+                                }
+                                else
+                                {
+                                    _rangosProcesadosGlobal.Add(new RangoCodigoItem { productoId = prodId, AbreviaturaBase = kv.Key, DesdeNum = start, HastaNum = end, CategoriaProductoId = 1, Cantidad = (end - start + 1).ToString() });
+                                    start = cur; end = cur;
+                                }
+                            }
+                            _rangosProcesadosGlobal.Add(new RangoCodigoItem { productoId = prodId, AbreviaturaBase = kv.Key, DesdeNum = start, HastaNum = end, CategoriaProductoId = 1, Cantidad = (end - start + 1).ToString() });
+                        }
+                    }
+
+                    // Recalcular cantidades por producto desde la lista de códigos restante
+                    foreach (var p in _productosGridList)
+                    {
+                        int cnt = _codigosGridList.Count(c => c.ProductoId == p.ProductoId);
+                        if (cnt > 0) p.Detalle.CantidadIngreso = Convert.ToDecimal(cnt);
+                    }
+
+                    // Refrescar UI
+                    dgProductos.ItemsSource = null; dgProductos.ItemsSource = _productosGridList;
+                    dgCodigos.ItemsSource = null; dgCodigos.ItemsSource = _codigosGridList;
+                }
+
                 // Ejecutar transacción
-                bool exito = await _serviceMovimiento.RegistrarMovimientoCompletoAsync(nuevaCabecera, _productosGridList, _rangosProcesadosGlobal, UBICACION_ID_SELECCIONADA);
+                bool isEditSave = _currentMovimientoId.HasValue;
+                bool exito = await _serviceMovimiento.RegistrarMovimientoCompletoAsync(nuevaCabecera, _productosGridList, _rangosProcesadosGlobal, UBICACION_ID_SELECCIONADA, _currentMovimientoId);
 
                 if (exito)
                 {
-                    // El servicio ya asignó el correlativo definitivo en 'nuevaCabecera'
-                    string correlativoFinal = $"{nuevaCabecera.SerieDocumento}-{nuevaCabecera.NumeroDocumento}";
-
-                    // Limpiar formulario interno
-                    LimpiarFormulario();
-
-                    // Mostrar modal de confirmación con correlativo y botón para confirmar
-                    var confirmWin = new Window
+                    if (isEditSave)
                     {
-                        Owner = Window.GetWindow(this),
-                        Title = "Registro creado",
-                        Width = 420,
-                        Height = 240,
-                        WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                        ResizeMode = ResizeMode.NoResize,
-                        Content = new System.Windows.Controls.Border
+                        MessageBox.Show("Registro actualizado correctamente.", "Actualizado", MessageBoxButton.OK, MessageBoxImage.Information);
+                        // limpiar estado de edición
+                        _currentMovimientoId = null;
+                        LimpiarFormulario();
+                        HabilitarCamposFormulario(false);
+                        GestionarBotonesPrincipales(enEdicion: false);
+                    }
+                    else
+                    {
+                        // El servicio ya asignó el correlativo definitivo en 'nuevaCabecera'
+                        string correlativoFinal = $"{nuevaCabecera.SerieDocumento}-{nuevaCabecera.NumeroDocumento}";
+
+                        // Limpiar formulario interno
+                        LimpiarFormulario();
+
+                        // Mostrar modal de confirmación con correlativo y botón para confirmar
+                        var confirmWin = new Window
                         {
-                            Padding = new Thickness(16),
-                            Child = new System.Windows.Controls.StackPanel
+                            Owner = Window.GetWindow(this),
+                            Title = "Registro creado",
+                            Width = 420,
+                            Height = 240,
+                            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                            ResizeMode = ResizeMode.NoResize,
+                            Content = new System.Windows.Controls.Border
                             {
-                                Orientation = System.Windows.Controls.Orientation.Vertical,
-                                Children =
+                                Padding = new Thickness(16),
+                                Child = new System.Windows.Controls.StackPanel
                                 {
-                                    new System.Windows.Controls.TextBlock
+                                    Orientation = System.Windows.Controls.Orientation.Vertical,
+                                    Children =
                                     {
-                                        Text = "Se ha registrado correctamente",
-                                        FontSize = 18,
-                                        FontWeight = FontWeights.SemiBold,
-                                        Margin = new Thickness(0,0,0,8),
-                                        HorizontalAlignment = HorizontalAlignment.Center,
-                                        TextAlignment = TextAlignment.Center
-                                    },
-                                    new System.Windows.Controls.TextBlock
-                                    {
-                                        Text = correlativoFinal,
-                                        FontSize = 28,
-                                        FontWeight = FontWeights.Bold,
-                                        Margin = new Thickness(0,0,0,12),
-                                        HorizontalAlignment = HorizontalAlignment.Center,
-                                        TextAlignment = TextAlignment.Center
-                                    },
-                                    new System.Windows.Controls.Button
-                                    {
-                                        Content = "Confirmar",
-                                        Width = 120,
-                                        Height = 36,
-                                        HorizontalAlignment = HorizontalAlignment.Center,
-                                        IsDefault = true
+                                        new System.Windows.Controls.TextBlock
+                                        {
+                                            Text = "Se ha registrado correctamente",
+                                            FontSize = 18,
+                                            FontWeight = FontWeights.SemiBold,
+                                            Margin = new Thickness(0,0,0,8),
+                                            HorizontalAlignment = HorizontalAlignment.Center,
+                                            TextAlignment = TextAlignment.Center
+                                        },
+                                        new System.Windows.Controls.TextBlock
+                                        {
+                                            Text = correlativoFinal,
+                                            FontSize = 28,
+                                            FontWeight = FontWeights.Bold,
+                                            Margin = new Thickness(0,0,0,12),
+                                            HorizontalAlignment = HorizontalAlignment.Center,
+                                            TextAlignment = TextAlignment.Center
+                                        },
+                                        new System.Windows.Controls.Button
+                                        {
+                                            Content = "Confirmar",
+                                            Width = 120,
+                                            Height = 36,
+                                            HorizontalAlignment = HorizontalAlignment.Center,
+                                            IsDefault = true
+                                        }
                                     }
                                 }
                             }
+                        };
+
+                        // Asociar cierre del diálogo al botón
+                        if (confirmWin.Content is System.Windows.Controls.Border b && b.Child is System.Windows.Controls.StackPanel sp && sp.Children[2] is System.Windows.Controls.Button btn)
+                        {
+                            btn.Click += (s, ev) => { confirmWin.DialogResult = true; };
                         }
-                    };
 
-                    // Asociar cierre del diálogo al botón
-                    if (confirmWin.Content is System.Windows.Controls.Border b && b.Child is System.Windows.Controls.StackPanel sp && sp.Children[2] is System.Windows.Controls.Button btn)
-                    {
-                        btn.Click += (s, ev) => { confirmWin.DialogResult = true; };
+                        // Mostrar modal (el usuario confirma)
+                        confirmWin.ShowDialog();
+
+                        // Guardar correlativo en memoria pero mantener los campos ocultos por seguridad
+                        txtNumSerie.Text = nuevaCabecera.SerieDocumento;
+                        txtNumDocumento.Text = nuevaCabecera.NumeroDocumento;
+                        txtNumSerie.Visibility = Visibility.Hidden;
+                        txtNumDocumento.Visibility = Visibility.Hidden;
+
+                        // Preparar UI para ingresar otro registro (campos editables, correlativos ocultos)
+                        HabilitarCamposFormulario(true);
+                        btnGrabar.IsEnabled = true;
+                        GestionarBotonesPrincipales(enEdicion: true);
+
+                        cboMotivo.Focus();
                     }
-
-                    // Mostrar modal (el usuario confirma)
-                    confirmWin.ShowDialog();
-
-                    // Guardar correlativo en memoria pero mantener los campos ocultos por seguridad
-                    txtNumSerie.Text = nuevaCabecera.SerieDocumento;
-                    txtNumDocumento.Text = nuevaCabecera.NumeroDocumento;
-                    txtNumSerie.Visibility = Visibility.Hidden;
-                    txtNumDocumento.Visibility = Visibility.Hidden;
-
-                    // Preparar UI para ingresar otro registro (campos editables, correlativos ocultos)
-                    HabilitarCamposFormulario(true);
-                    btnGrabar.IsEnabled = true;
-                    GestionarBotonesPrincipales(enEdicion: true);
-
-                    cboMotivo.Focus();
+                    // Si estábamos en modo imprimir, generar el Excel después de guardar
+                    if (_printMode)
+                    {
+                        try
+                        {
+                            GenerateExcelFromCurrentLoadedMovement();
+                        }
+                        catch { }
+                        finally
+                        {
+                            CleanupPrintMode();
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -625,18 +2017,26 @@ namespace AplicativoDeAlmacen.Views
         private void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             AgregarItemWindow modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
+            // Indicar al modal que fue abierto desde la acción "Agregar Ítem" (nuevo producto)
+            modal.IsAddAction = true;
+            // Propagar estado permitido según el motivo seleccionado (1 = COMPRA, otro = 4)
+            modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
             modal.ListaProductosExistentesEnPadre = _productosGridList;
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
                 var productoSelected = modal._productoSeleccionado;
-                var rangosDelModal = modal.ListaRangosAgregados;
+                var rangosDelModal = modal.ListaRangosAgregados ?? new System.Collections.ObjectModel.ObservableCollection<RangoCodigoItem>();
+                if (productoSelected == null)
+                {
+                    MessageBox.Show("No se seleccionó un producto válido.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
                 int idProducto = productoSelected.Id;
 
-                // 🔥 VALIDACIÓN DE SOLAPAMIENTO DE RANGOS
+                // VALIDACIÓN DE SOLAPAMIENTO DE RANGOS: se aplica siempre sobre los rangos propuestos
                 foreach (var nuevoRango in rangosDelModal)
                 {
-                    // Buscamos si existe algún rango ya registrado que se solape con este
-                    // La lógica es: (NuevoInicio <= ExistenteFin) AND (NuevoFin >= ExistenteInicio)
                     var solapamiento = _rangosProcesadosGlobal.FirstOrDefault(r =>
                         r.productoId == idProducto &&
                         (nuevoRango.DesdeNum <= r.HastaNum && nuevoRango.HastaNum >= r.DesdeNum)
@@ -648,12 +2048,60 @@ namespace AplicativoDeAlmacen.Views
                                         $"El rango propuesto ({nuevoRango.DesdeNum}-{nuevoRango.HastaNum}) " +
                                         $"se solapa con el rango ya registrado ({solapamiento.DesdeNum}-{solapamiento.HastaNum}).",
                                         "Error de Rangos", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return; // Detenemos la operación
+                        return;
                     }
                 }
 
-                // --- SI PASA LA VALIDACIÓN, CONTINUAMOS ---
+                // Si el modal indica que se debe MERGEAR con un producto ya existente, hacemos la fusión
+                if (modal.MergeWithExisting)
+                {
+                    var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == idProducto);
+                    if (existente != null)
+                    {
+                        // Actualizar cantidad y costo (sumar cantidades de los rangos añadidos)
+                        decimal sumaNuevos = modal.CantidadProductoIngresada;
+                        existente.Detalle = existente.Detalle ?? new MovimientoDetalle { ProductoId = existente.ProductoId };
+                        existente.Detalle.CantidadIngreso += sumaNuevos;
+                        existente.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
 
+                        // Agregar rangos y códigos
+                        int contadorFila = _codigosGridList.Count + 1;
+                        foreach (var rango in rangosDelModal)
+                        {
+                            rango.productoId = idProducto;
+                            _rangosProcesadosGlobal.Add(rango);
+                            for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                            {
+                                _codigosGridList.Add(new VistaCodigoGrid
+                                {
+                                    MovCodigo = new MovimientoCodigo { MovimientoDetalleId = contadorFila++ },
+                                    CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}",
+                                    ColeccionTipo = rango.ColeccionTipo,
+                                    ProductoId = idProducto
+                                });
+                            }
+                        }
+
+                        // Refrescar UI
+                        dgProductos.ItemsSource = null;
+                        dgProductos.ItemsSource = _productosGridList;
+                        dgProductos.SelectedItem = existente;
+                        dgCodigos.ItemsSource = null;
+                        dgCodigos.ItemsSource = _codigosGridList;
+                        return;
+                    }
+                    // si no existe ya, proceder como nuevo (caída elegida)
+                }
+
+                // Si no se indica merge y el producto ya existe -> rechazar la creación aquí
+                bool yaExiste = _productosGridList.Any(p => p.ProductoId == idProducto);
+                if (yaExiste)
+                {
+                    MessageBox.Show("Este producto ya existe.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // --- Agregar como nuevo producto ---
                 var nuevoProductoGrid = new VistaProductoGrid
                 {
                     Detalle = new MovimientoDetalle
@@ -711,11 +2159,20 @@ namespace AplicativoDeAlmacen.Views
 
                 // 4. CARGA: Asignamos la lista filtrada directamente al ItemsSource
                 dgCodigos.ItemsSource = codigosDelProducto;
+                // Habilitar acciones contextuales cuando hay un producto seleccionado
+                if (btnModificar != null) btnModificar.IsEnabled = true;
+                if (btnEliminar != null) btnEliminar.IsEnabled = true;
+                if (btnImportar != null) btnImportar.IsEnabled = true; // permitir importar cuando hay selección
             }
             else
             {
                 // Si no hay ningún producto seleccionado, la tabla de la derecha se queda vacía
                 dgCodigos.ItemsSource = null;
+                // Deshabilitar acciones contextuales
+                if (btnModificar != null) btnModificar.IsEnabled = false;
+                if (btnEliminar != null) btnEliminar.IsEnabled = false;
+                // Importar queda habilitado si hay productos en la lista global (permitir import masivo)
+                if (btnImportar != null) btnImportar.IsEnabled = (_productosGridList != null && _productosGridList.Count > 0);
             }
         }
         private void LimpiarFormulario()
@@ -768,6 +2225,21 @@ namespace AplicativoDeAlmacen.Views
             if (btnEliminar != null) btnEliminar.IsEnabled = habilitar;
             if (btnImportar != null) btnImportar.IsEnabled = habilitar;
             if (btnAgregarProducto != null) btnAgregarProducto.IsEnabled = habilitar;
+            // Control de acciones de guardado/cancelación y grillas
+            if (btnGrabar != null) btnGrabar.IsEnabled = habilitar;
+            if (btnCancelar != null) btnCancelar.IsEnabled = habilitar;
+            if (dgProductos != null)
+            {
+                dgProductos.IsEnabled = habilitar;
+                // Cuando el formulario está habilitado permitimos editar la grilla de productos
+                dgProductos.IsReadOnly = !habilitar;
+            }
+            if (dgCodigos != null)
+            {
+                dgCodigos.IsEnabled = habilitar;
+                // Mantener la grilla de códigos en lectura (selección) incluso cuando el formulario está habilitado
+                dgCodigos.IsReadOnly = true;
+            }
         }
 
         private void GestionarBotonesPrincipales(bool enEdicion)

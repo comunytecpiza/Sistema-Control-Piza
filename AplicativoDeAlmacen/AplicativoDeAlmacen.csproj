@@ -35,6 +35,11 @@
     <Folder Include="Views\Procesos Internos\" />
   </ItemGroup>
 
+  <!-- Excluir archivo de XAML duplicado que causa conflictos tras movimiento de ventana -->
+  <ItemGroup>
+    <Page Remove="Views\Movimientos\Entrada\ImportarCodigos.xaml" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="Extended.Wpf.Toolkit" Version="5.1.2" />

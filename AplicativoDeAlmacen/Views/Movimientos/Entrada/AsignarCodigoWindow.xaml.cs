@@ -11,6 +11,8 @@ namespace AplicativoDeAlmacen.Views
 {
     public partial class AsignarCodigoWindow : Window
     {
+        // Permite indicar desde el flujo superior cuál es el estado permitido (1 = COMPRA, 4 = otros)
+        public int EstadoPermitido { get; set; } = 1;
         public RangoCodigoItem RangoProcesado { get; set; }
         public bool EsModoEdicion { get; set; } = false;
         private RangoCodigoItem _itemEnEdicion = null; // Variable para la comparación
@@ -26,7 +28,7 @@ namespace AplicativoDeAlmacen.Views
         private System.Collections.IEnumerable _itemsEnGrilla;
 
        
-
+        
         // =======================================================================
         // 1️⃣ CONSTRUCTOR ORIGINAL: Se usa para AGREGAR un rango nuevo
         // =======================================================================
@@ -88,6 +90,10 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             this._itemsEnGrilla = itemsEnGrilla;
             this._itemEnEdicion = itemAEditar; // Guardamos el ítem que se está modificando
+            // Marcar modo edición y trabajar sobre el mismo objeto para que los cambios
+            // se reflejen correctamente en la colección enlazada del padre.
+            this.RangoProcesado = itemAEditar;
+            this.EsModoEdicion = true;
             this._abreviaturaProducto = itemAEditar.AbreviaturaBase;
             this._productoId = itemAEditar.productoId;
             this._categoriaActualId = itemAEditar.CategoriaProductoId;
@@ -203,6 +209,12 @@ namespace AplicativoDeAlmacen.Views
 
         private int ObtenerSiguienteNumeroDesdeBD(string abreviaturaOriginal, int categoriaId)
         {
+            if (string.IsNullOrWhiteSpace(abreviaturaOriginal))
+            {
+                // Si no disponemos de abreviatura válida, devolvemos 1 como valor seguro
+                return 1;
+            }
+
             string baseLimpia = abreviaturaOriginal.EndsWith("-V") || abreviaturaOriginal.EndsWith("-G")
                 ? abreviaturaOriginal.Substring(0, abreviaturaOriginal.Length - 2)
                 : abreviaturaOriginal;
@@ -238,7 +250,9 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        public bool ValidarExistenciaRangoEnBD(int productoId, string abreviaturaBase, int categoriaId, int desde, int hasta, out int totalEncontrados)
+        // Ahora acepta un parámetro opcional `estadoPermitido` (por defecto = 1) para permitir
+        // reutilizar este método cuando el estado esperado cambie según el motivo del movimiento.
+        public bool ValidarExistenciaRangoEnBD(int productoId, string abreviaturaBase, int categoriaId, int desde, int hasta, out int totalEncontrados, int estadoPermitido = 1)
         {
             totalEncontrados = 0;
 
@@ -258,7 +272,7 @@ namespace AplicativoDeAlmacen.Views
                     // Asumiendo que el número siempre está al final después del último guion.
                     string query = @"SELECT COUNT(*) FROM codigos_creados
                                     WHERE codigo LIKE @patron
-                                     AND estado_id = 1
+                                     AND estado_id = @estadoPermitido
                                       AND TRY_CAST(RIGHT(codigo, 7) AS INT) BETWEEN @desde AND @hasta";
 
 
@@ -268,6 +282,7 @@ namespace AplicativoDeAlmacen.Views
                         AgregarParametro(cmd, "@productoId", productoId);
                         AgregarParametro(cmd, "@patron", patronBusqueda);
                         AgregarParametro(cmd, "@categoriaId", categoriaId);
+                        AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
                         AgregarParametro(cmd, "@desde", desde);
                         AgregarParametro(cmd, "@hasta", hasta);
 
@@ -278,9 +293,8 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                // Log error (ex)
                 return false;
             }
         }
@@ -332,8 +346,12 @@ namespace AplicativoDeAlmacen.Views
 
             // =======================================================================
             // 🔥 NUEVA VALIDACIÓN: BLOQUEAR SI EL RANGO YA EXISTE EN EL HISTORIAL DE LA BD
+            // Nota: Si el flujo indicó que el estado permitido NO es 1 (COMPRA), entonces
+            // permitimos rangos que existan en el historial porque pueden corresponder a
+            // códigos que están siendo retornados (estado 4). En ese caso la validación
+            // de existencia física se realiza más abajo contra la tabla `codigos_creados`.
             // =======================================================================
-            if (VerificarSiRangoYaFueUsadoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta))
+            if (VerificarSiRangoYaFueUsadoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta, this.EstadoPermitido))
             {
                 MessageBox.Show($"❌ ¡Error! El rango digitado contiene códigos que ya fueron registrados anteriormente en la base de datos.",
                                 "Rango Ya Registrado", MessageBoxButton.OK, MessageBoxImage.Stop);
@@ -343,7 +361,7 @@ namespace AplicativoDeAlmacen.Views
             // 2. Control de existencia física
             int totalFisicosEncontrados = 0;
 
-            bool rangoEsValido = ValidarExistenciaRangoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta, out totalFisicosEncontrados);
+            bool rangoEsValido = ValidarExistenciaRangoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta, out totalFisicosEncontrados, this.EstadoPermitido);
             int cantidadSolicitada = (intHasta - intDesde) + 1;
 
             if (!rangoEsValido)
@@ -389,10 +407,19 @@ namespace AplicativoDeAlmacen.Views
             this.DialogResult = true;
         }
 
-        private bool VerificarSiRangoYaFueUsadoEnBD(int productoId, string baseLimpia, int categoriaId, int desde, int hasta)
+        // Ahora acepta estadoPermitido para decidir el comportamiento.
+        // Si estadoPermitido != 1 asumimos que se trata de un ingreso distinto a COMPRA y
+        // permitimos reutilizar rangos ya registrados (la comprobación de existencia
+        // física se realiza por separado). Esto evita bloquear DEVOLUCIÓN/PROMOCIÓN/TRANSFER.
+        private bool VerificarSiRangoYaFueUsadoEnBD(int productoId, string baseLimpia, int categoriaId, int desde, int hasta, int estadoPermitido = 1)
         {
             try
             {
+                // Si no estamos en el caso COMPRA (estadoPermitido != 1), no bloqueamos por historial
+                if (estadoPermitido != 1)
+                {
+                    return false;
+                }
                 using (var conn = _database.GetConnection())
                 {
                     var dbConn = (DbConnection)conn;
