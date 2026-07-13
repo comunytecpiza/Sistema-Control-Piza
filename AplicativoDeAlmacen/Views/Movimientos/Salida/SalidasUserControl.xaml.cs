@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Users;
 using AplicativoDeAlmacen.Services;
 
 namespace AplicativoDeAlmacen.Views

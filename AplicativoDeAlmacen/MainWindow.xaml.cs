@@ -50,8 +50,9 @@ namespace AplicativoDeAlmacen
 
         private async Task ValidateUserAndRedirectAsync()
         {
-            string username = UsernameTextBox.Text.Trim();
-            string password = PasswordBox.Password;
+            // 🌟 1. LIMPIEZA DE ENTRADAS
+            string username = UsernameTextBox.Text.Trim(); // El usuario sí se limpia
+            string password = PasswordBox.Password;        // ⚠️ NUNCA le hagas .Trim() a la contraseña
 
             if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
             {
@@ -59,7 +60,6 @@ namespace AplicativoDeAlmacen
                 return;
             }
 
-            // 1. Validación Discreta
             if (!ConfigManager.ExisteConfiguracion())
             {
                 MessageBox.Show("Error de red. Consulte con el administrador del sistema.", "Error Crítico", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -75,22 +75,23 @@ namespace AplicativoDeAlmacen
             {
                 Usuario? usuarioLogueado = null;
 
-                // 2. Extraemos la información del usuario en un hilo secundario para no congelar la pantalla
+                // 🌟 2. CONSULTA BLINDADA (HILO SECUNDARIO)
                 await Task.Run(() =>
                 {
-                    // Usamos la abstracción genérica: funciona con SQL Server y MySQL/MariaDB
                     using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
                     {
                         conn.Open();
 
                         using (IDbCommand cmd = conn.CreateCommand())
                         {
+                            // Consulta exacta, solo traemos lo necesario
                             cmd.CommandText = "SELECT id, username, nombres, password, rol_usuario_id, estado FROM usuarios WHERE username = @username";
 
-                            var p = cmd.CreateParameter();
-                            p.ParameterName = "@username";
-                            p.Value = username;
-                            cmd.Parameters.Add(p);
+                            // Creación del parámetro Anti-Inyección SQL
+                            var pUsername = cmd.CreateParameter();
+                            pUsername.ParameterName = "@username";
+                            pUsername.Value = username;
+                            cmd.Parameters.Add(pUsername);
 
                             using (IDataReader reader = cmd.ExecuteReader())
                             {
@@ -98,6 +99,7 @@ namespace AplicativoDeAlmacen
                                 {
                                     string? storedPassword = reader["password"]?.ToString();
 
+                                    // 🌟 3. VERIFICACIÓN ESTRICTA DE CONTRASEÑA
                                     if (storedPassword == password)
                                     {
                                         usuarioLogueado = new Usuario
@@ -111,7 +113,7 @@ namespace AplicativoDeAlmacen
                                     }
                                     else
                                     {
-                                        // Usamos Id -1 como bandera de contraseña incorrecta
+                                        // Bandera de contraseña incorrecta
                                         usuarioLogueado = new Usuario { Id = -1 };
                                     }
                                 }
@@ -120,7 +122,7 @@ namespace AplicativoDeAlmacen
                     }
                 });
 
-                // 3. Validaciones finales en el hilo principal
+                // 🌟 4. VALIDACIONES FINALES EN LA UI
                 if (usuarioLogueado == null)
                 {
                     MessageBox.Show("El usuario ingresado no existe en la base de datos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -135,20 +137,17 @@ namespace AplicativoDeAlmacen
                 }
                 else
                 {
-                    
-
+                    // Login Exitoso
                     var service = new UsuarioService();
-
                     SesionSistema.UsuarioActual = usuarioLogueado;
-
-                    SesionSistema.PermisosActuales =
-                        await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
+                    SesionSistema.PermisosActuales = await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
 
                     string nombre = usuarioLogueado.Nombres;
                     bool esAdmin = usuarioLogueado.RolUsuarioId == 1;
 
                     new Views.MainShell(nombre, esAdmin).Show();
 
+                    // Usamos Close() para destruir la ventana de Login completamente y liberar memoria
                     this.Close();
                 }
             }
@@ -170,39 +169,45 @@ namespace AplicativoDeAlmacen
         {
             if (ConfigManager.ExisteConfiguracion() && !string.IsNullOrWhiteSpace(UsernameTextBox.Text))
             {
-                string user = UsernameTextBox.Text;
+                string user = UsernameTextBox.Text.Trim(); // Limpiamos espacios extra al buscar
 
                 try
                 {
                     await Task.Run(() =>
                     {
-                        // Usamos IDbConnection para evitar el error "Keyword not supported: 'port'"
-                        // que ocurría al pasar la cadena de MySQL a SqlConnection directamente.
                         using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
                         {
                             conn.Open();
 
                             using (IDbCommand cmd = conn.CreateCommand())
                             {
+                                // Consulta blindada anti-inyección
                                 cmd.CommandText = "SELECT nombres FROM usuarios WHERE username = @username";
 
-                                var p = cmd.CreateParameter();
-                                p.ParameterName = "@username";
-                                p.Value = user;
-                                cmd.Parameters.Add(p);
+                                var pUsername = cmd.CreateParameter();
+                                pUsername.ParameterName = "@username";
+                                pUsername.Value = user;
+                                cmd.Parameters.Add(pUsername);
 
                                 var result = cmd.ExecuteScalar();
+
+                                // Actualizamos la UI de forma segura
                                 Application.Current.Dispatcher.Invoke(() =>
-                                    NameTextBox.Text = result?.ToString() ?? "");
+                                {
+                                    NameTextBox.Text = result?.ToString() ?? "";
+                                });
                             }
                         }
                     });
                 }
-                catch { /* Falla silenciosa mientras tipea */ }
+                catch
+                {
+                    // Falla silenciosa: Si se cae la red mientras tipea, no queremos molestar al usuario con errores
+                }
             }
             else
             {
-                NameTextBox.Text = "";
+                NameTextBox.Text = string.Empty;
             }
         }
 

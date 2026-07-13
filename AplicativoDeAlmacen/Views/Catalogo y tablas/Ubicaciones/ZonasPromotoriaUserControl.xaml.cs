@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Ubicaciones;
 
 namespace AplicativoDeAlmacen.Views
 {

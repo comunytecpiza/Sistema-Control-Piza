@@ -14,6 +14,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using AplicativoDeAlmacen.Services.Reportes;
+using AplicativoDeAlmacen.Services.Ubicaciones;
 
 namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
 {
@@ -119,17 +120,21 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
         }
 
         // 1. Lógica para PRODUCTO
-        private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
+        private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e) // 🌟 1. AGREGADO 'async' AQUÍ
         {
             string busqueda = TxtProducto.Text.Trim();
             if (busqueda.Length >= 2)
             {
-                // Asumiendo que tienes un ProductoService, cámbialo por tu servicio real
-                var resultados = _productoService.BuscarProductosPorTexto(busqueda); 
+                // 🌟 2. CAMBIO DE MÉTODO Y AGREGADO DE 'await'
+                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
+
                 LstProducto.ItemsSource = resultados;
                 PopupProducto.IsOpen = resultados.Any();
             }
-            else { PopupProducto.IsOpen = false; }
+            else
+            {
+                PopupProducto.IsOpen = false;
+            }
         }
 
         private void LstProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)

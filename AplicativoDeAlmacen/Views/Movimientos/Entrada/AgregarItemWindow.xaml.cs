@@ -119,7 +119,8 @@ namespace AplicativoDeAlmacen.Views
 
         #region MOTOR DE BÚSQUEDA PREDICTIVA
 
-        private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
+        // 🌟 1. Se agrega 'async' a la declaración del evento
+        private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             string textoBusqueda = txtProducto.Text.Trim();
 
@@ -135,7 +136,8 @@ namespace AplicativoDeAlmacen.Views
                 // Solo busca si no se ha seleccionado ya ese producto exacto
                 if (_productoSeleccionado == null || _productoSeleccionado.Descripcion != txtProducto.Text)
                 {
-                    List<Producto> listaFiltrada = _productoService.BuscarProductosPorTexto(textoBusqueda);
+                    // 🌟 2. Se cambia el nombre del método y se usa 'await'
+                    List<Producto> listaFiltrada = await _productoService.BuscarProductosPorTextoAsync(textoBusqueda);
 
                     if (listaFiltrada.Count > 0)
                     {

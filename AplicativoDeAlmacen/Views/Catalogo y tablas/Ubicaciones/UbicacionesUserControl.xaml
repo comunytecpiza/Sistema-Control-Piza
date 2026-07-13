@@ -72,15 +72,25 @@
 
                 <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center">
                     <Button Content="+ Agregar Ubicación" Click="AgregarUbicacionButton_Click" Width="160" Height="38" Margin="0,0,10,0" 
-                            Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+            Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="6"/>
                             </Style>
                         </Button.Resources>
                     </Button>
-                    <Button Content="✏️ Editar" Click="EditarUbicacionButton_Click" Width="120" Height="38" 
-                            Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+
+                    <Button Content="✏️ Editar" Click="EditarUbicacionButton_Click" Width="120" Height="38" Margin="0,0,10,0"
+            Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+
+                    <Button Content="📑 Series" Click="BtnSeries_Click" Width="120" Height="38" 
+            Background="#3B82F6" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
                         <Button.Resources>
                             <Style TargetType="Border">
                                 <Setter Property="CornerRadius" Value="6"/>

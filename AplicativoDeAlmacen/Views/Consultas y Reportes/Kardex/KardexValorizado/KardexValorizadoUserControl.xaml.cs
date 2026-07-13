@@ -34,7 +34,8 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
         // ==========================================
         // AUTOCOMPLETADO DE PRODUCTO MULTICOLUMNA
         // ==========================================
-        private void CboProducto_KeyUp(object sender, KeyEventArgs e)
+        
+        private async void CboProducto_KeyUp(object sender, KeyEventArgs e) // 🌟 AGREGADO 'async' AQUÍ
         {
             if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Escape || e.Key == Key.Tab) return;
 
@@ -46,7 +47,9 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
             {
                 CboProducto.SelectionChanged -= CboProducto_SelectionChanged;
 
-                var resultados = _productoService.BuscarProductosPorTexto(busqueda);
+                // 🌟 CORRECCIÓN: Llamamos al método Async con await
+                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
+
                 CboProducto.ItemsSource = resultados;
                 CboProducto.IsDropDownOpen = resultados.Any();
 

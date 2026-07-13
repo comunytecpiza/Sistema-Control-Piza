@@ -90,6 +90,9 @@
                     <DataGridTextColumn Header="P. Unitario" Binding="{Binding PrecioUnitario, StringFormat=S/ {0:N2}}" Width="100"/>
                     <DataGridTextColumn Header="%" Binding="{Binding Porcentaje, StringFormat={}{0:N2} %}" Width="80"/>
                     <DataGridTextColumn Header="IGV" Binding="{Binding afectacion.Nombre}" Width="120"/>
+
+                    <DataGridTextColumn Header="Stock Mín." Binding="{Binding StockMinimo}" Width="90"/>
+
                     <DataGridTextColumn Header="Estado" Binding="{Binding Estado.Nombre}" Width="90"/>
                 </DataGrid.Columns>
             </DataGrid>
@@ -130,10 +133,8 @@
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
                                     <TextBlock Text="Tipo de Producto" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                                    <ComboBox x:Name="CmbTipoProducto" 
-                                                                      SelectionChanged="CmbTipoProducto_SelectionChanged"
-                                                                      DisplayMemberPath="Nombre" 
-                                                                      SelectedValuePath="Id" />
+                                    <ComboBox x:Name="CmbTipoProducto" SelectionChanged="CmbTipoProducto_SelectionChanged"
+                                              DisplayMemberPath="Nombre" SelectedValuePath="Id" />
                                 </StackPanel>
                             </Grid>
 
@@ -199,12 +200,24 @@
 
                             <TextBlock Text="⚙️ Configuración" Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,10"/>
 
-                            <TextBlock Text="Estado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="15"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
 
-                            <TextBox Text="Activo" Width="180" HorizontalAlignment="Left" IsReadOnly="True" 
-                                     Background="#E5E7EB" Foreground="#6B7280" FontWeight="Bold" Cursor="No"/>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Stock Mínimo" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="TxtStockMinimo" Text="0" ToolTip="Límite para generar alertas en el sistema"/>
+                                </StackPanel>
 
-                            <ComboBox x:Name="CmbEstado" Visibility="Collapsed"/>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Estado" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                    <TextBox Text="Activo" IsReadOnly="True" Background="#E5E7EB" Foreground="#6B7280" FontWeight="Bold" Cursor="No"/>
+                                    <ComboBox x:Name="CmbEstado" Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Grid>
                     <Border Height="1" Background="#E5E7EB" Margin="0,20,0,20"/>

@@ -15,6 +15,8 @@ public partial class Producto
 
     public int? Cantidad { get; set; }
 
+    public int CantidadCodigos { get; set; }
+
     public int? UnidadMedidaId { get; set; }
 
     public int? TipoProductoId { get; set; }
@@ -34,6 +36,7 @@ public partial class Producto
     public int? AfectacionIgvId { get; set; }
 
     public int? EstadoId { get; set; }
+    public int StockMinimo { get; set; }
 
     public DateTime? CreatedAt { get; set; }
 

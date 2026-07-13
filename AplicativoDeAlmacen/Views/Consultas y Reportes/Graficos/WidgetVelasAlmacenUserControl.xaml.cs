@@ -20,7 +20,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
         private readonly ProductoService _productoService = new ProductoService();
         private readonly KardexService _kardexService = new KardexService();
         private int _productoSeleccionadoId;
-
+        private double _stockMinimoSeleccionado = 0;
         public ObservableCollection<ISeries> Series { get; set; } = new ObservableCollection<ISeries>();
         public ObservableCollection<ICartesianAxis> XAxes { get; set; } = new ObservableCollection<ICartesianAxis>();
         public ObservableCollection<ICartesianAxis> YAxes { get; set; } = new ObservableCollection<ICartesianAxis>();
@@ -42,7 +42,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
             string busqueda = TxtBuscarProducto.Text;
             if (busqueda.Length >= 2)
             {
-                var resultados = await _productoService.BuscarProductos(busqueda);
+                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
                 if (resultados != null && resultados.Count > 0)
                 {
                     LbProducto.ItemsSource = resultados;
@@ -62,6 +62,8 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
             if (LbProducto.SelectedItem is Producto p)
             {
                 _productoSeleccionadoId = p.Id;
+                _stockMinimoSeleccionado = p.StockMinimo; // ¡ATRAPAMOS EL MÍNIMO AQUÍ!
+
                 TxtBuscarProducto.TextChanged -= TxtBuscarProducto_TextChanged;
                 TxtBuscarProducto.Text = p.Descripcion;
                 TxtBuscarProducto.TextChanged += TxtBuscarProducto_TextChanged;
@@ -78,7 +80,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
             // 1. Estructura intermedia para homogeneizar la agrupación seleccionada
             var movimientosProcesados = new List<MovimientoAgrupado>();
 
-            if (CboPeriodo.SelectedIndex == 0) // VISTA: DÍA / MOVIMIENTO (Cada uno independiente como antes)
+            if (CboPeriodo.SelectedIndex == 0) // VISTA: DÍA / MOVIMIENTO
             {
                 foreach (var m in kardex.Detalles)
                 {
@@ -147,7 +149,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 }
             }
 
-            // 2. Validación de rango vacío (ej: 03 al 03 sin registros) -> Limpia el gráfico de inmediato
             if (movimientosProcesados.Count == 0)
             {
                 Series.Clear();
@@ -155,7 +156,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 return;
             }
 
-            // 3. Procesamiento físico del flujo acumulativo escalonado
             var espaciadores = new List<double>();
             var entradas = new List<double>();
             var salidas = new List<double>();
@@ -233,6 +233,26 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                     return "";
                 }
             });
+
+            if (_stockMinimoSeleccionado > 0)
+            {
+                // Le agregamos "LiveChartsCore.Defaults." para que Visual Studio no se pierda
+                var puntosLinea = new List<LiveChartsCore.Defaults.ObservablePoint>
+        {
+            new LiveChartsCore.Defaults.ObservablePoint(-0.5, _stockMinimoSeleccionado),
+            new LiveChartsCore.Defaults.ObservablePoint(movimientosProcesados.Count - 0.5, _stockMinimoSeleccionado)
+        };
+
+                Series.Add(new LineSeries<LiveChartsCore.Defaults.ObservablePoint>
+                {
+                    Values = puntosLinea,
+                    Name = "Stock Mínimo",
+                    Stroke = new SolidColorPaint(SKColors.Orange, 2),
+                    Fill = null,
+                    GeometrySize = 0,
+                    YToolTipLabelFormatter = point => $"Mínimo Permitido: {_stockMinimoSeleccionado}"
+                });
+            }
 
             XAxes.Clear();
             XAxes.Add(new Axis

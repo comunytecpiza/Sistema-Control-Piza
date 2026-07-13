@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Ubicaciones;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -202,6 +203,31 @@ namespace AplicativoDeAlmacen.Views
                     (x.Descripcion != null && x.Descripcion.ToLower().Contains(b)) ||
                     (x.Localidad?.Nombre != null && x.Localidad.Nombre.ToLower().Contains(b))
                 ).ToList();
+            }
+        }
+
+        private void BtnSeries_Click(object sender, RoutedEventArgs e)
+        {
+            if (UbicacionesDataGrid.SelectedItem is Ubicacion ubicacionSeleccionada)
+            {
+                // 🌟 VALIDACIÓN EXACTA A TU SISTEMA ANTERIOR 🌟
+                if (ubicacionSeleccionada.TipoUbicacion == null ||
+                   !ubicacionSeleccionada.TipoUbicacion.Nombre.ToUpper().Contains("PUNTO DE VENTA"))
+                {
+                    MessageBox.Show("Solamente manejan series las ubicaciones que son PUNTOS DE VENTA, verifique...!",
+                                    "Mensaje al usuario", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Si pasa la validación, abrimos la ventana de series
+                SeriesUbicacionWindow modalSeries = new SeriesUbicacionWindow(ubicacionSeleccionada);
+                modalSeries.Owner = Window.GetWindow(this);
+                modalSeries.ShowDialog();
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione una ubicación de la lista para configurar sus series.",
+                                "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
     }
