@@ -907,6 +907,141 @@ namespace AplicativoDeAlmacen.Services
 
         // Registra códigos importados como un movimiento de ingreso (similar a RegistrarMovimientoCompletoAsync)
         // codigosImportados: lista de tuplas (CodigoCreadoId, ProductoId)
+        // ------------------------------------------------------------------
+        // MÉTODO OPCIONAL: Registrar ingreso básico SIN cambiar estados de códigos
+        // Inserta cabecera, detalles, rangos y movimiento_codigos pero no actualiza
+        // la columna estado_id en codigos_creados. Útil cuando quieres posponer
+        // la actualización de estado hasta otro proceso (por ejemplo salida).
+        public async Task<bool> RegistrarIngresoBasicoAsync(
+            Movimiento cabecera,
+            List<VistaProductoGrid> productos,
+            List<RangoCodigoItem> rangos,
+            int usuarioId,
+            int? existingMovimientoId = null)
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            using var transaccion = dbConn.BeginTransaction();
+            try
+            {
+                string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
+                int movimientoIdInserted = 0;
+
+                if (existingMovimientoId.HasValue)
+                {
+                    // Actualizar cabecera mínima
+                    string updateCab = @"UPDATE movimientos SET fecha_movimiento = @fecha, motivo_producto_id = @motivoId, ubicacion_id = @ubicacionId, usuario_id = @usuarioId, persona_comercial_id = @personaId, observacion = @observacion, serie_guia = @serieGuia, numero_guia = @numeroGuia WHERE id = @id";
+                    using var cmdUpd = dbConn.CreateCommand();
+                    cmdUpd.Transaction = transaccion;
+                    cmdUpd.CommandText = QueryAdapter.FormatearConsulta(updateCab);
+                    DateTime fechaConvertida = cabecera.FechaMovimiento.HasValue ? cabecera.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue) : DateTime.Now;
+                    AgregarParametro(cmdUpd, "@fecha", fechaConvertida);
+                    AgregarParametro(cmdUpd, "@motivoId", cabecera.MotivoProductoId);
+                    AgregarParametro(cmdUpd, "@ubicacionId", cabecera.UbicacionId);
+                    AgregarParametro(cmdUpd, "@usuarioId", usuarioId);
+                    AgregarParametro(cmdUpd, "@personaId", cabecera.PersonaComercialId ?? (object)DBNull.Value);
+                    AgregarParametro(cmdUpd, "@observacion", cabecera.Observacion ?? (object)DBNull.Value);
+                    AgregarParametro(cmdUpd, "@serieGuia", cabecera.SerieGuia ?? (object)DBNull.Value);
+                    AgregarParametro(cmdUpd, "@numeroGuia", cabecera.NumeroGuia ?? (object)DBNull.Value);
+                    AgregarParametro(cmdUpd, "@id", existingMovimientoId.Value);
+                    await cmdUpd.ExecuteNonQueryAsync();
+
+                    movimientoIdInserted = existingMovimientoId.Value;
+
+                    // Limpiar datos antiguos para reinsertar
+                    using var cmdDel = dbConn.CreateCommand();
+                    cmdDel.Transaction = transaccion;
+                    cmdDel.CommandText = QueryAdapter.FormatearConsulta(@"DELETE FROM movimiento_codigos WHERE movimiento_id = @movId; DELETE FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId); DELETE FROM movimiento_detalles WHERE movimiento_id = @movId;");
+                    AgregarParametro(cmdDel, "@movId", movimientoIdInserted);
+                    await cmdDel.ExecuteNonQueryAsync();
+                }
+                else
+                {
+                    string queryCabecera = $@"
+                    INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia, created_at)
+                    VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, @estadoId, @serieGuia, @numeroGuia, GETDATE());
+                    {selectId}";
+
+                    using var cmdCab = dbConn.CreateCommand();
+                    cmdCab.Transaction = transaccion;
+                    cmdCab.CommandText = QueryAdapter.FormatearConsulta(queryCabecera);
+                    DateTime fechaConvertida = cabecera.FechaMovimiento.HasValue ? cabecera.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue) : DateTime.Now;
+                    AgregarParametro(cmdCab, "@estadoId", 1);
+                    AgregarParametro(cmdCab, "@fecha", fechaConvertida);
+                    AgregarParametro(cmdCab, "@serie", cabecera.SerieDocumento);
+                    AgregarParametro(cmdCab, "@numero", cabecera.NumeroDocumento);
+                    AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
+                    AgregarParametro(cmdCab, "@ubicacionId", cabecera.UbicacionId);
+                    AgregarParametro(cmdCab, "@usuarioId", usuarioId);
+                    AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId ?? (object)DBNull.Value);
+                    AgregarParametro(cmdCab, "@observacion", cabecera.Observacion ?? (object)DBNull.Value);
+                    AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia ?? (object)DBNull.Value);
+                    AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia ?? (object)DBNull.Value);
+
+                    object res = await cmdCab.ExecuteScalarAsync();
+                    movimientoIdInserted = Convert.ToInt32(res);
+                }
+
+                // Insertar detalles y rangos y relaciones (sin actualizar estado de codigos)
+                string qDet = $@"INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at) VALUES (@movId, @prodId, @cantIngreso, 0, @costo, GETDATE()); {selectId}";
+                string qRango = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, usuario_id) VALUES (@prodId, @catId, @abrev, @desde, @hasta, @detId, @usr); {selectId}";
+
+                foreach (var item in productos)
+                {
+                    int detalleId = 0;
+                    using var cmdDet = dbConn.CreateCommand();
+                    cmdDet.Transaction = transaccion;
+                    cmdDet.CommandText = QueryAdapter.FormatearConsulta(qDet);
+                    AgregarParametro(cmdDet, "@movId", movimientoIdInserted);
+                    AgregarParametro(cmdDet, "@prodId", item.ProductoId);
+                    AgregarParametro(cmdDet, "@cantIngreso", item.Detalle?.CantidadIngreso ?? 0);
+                    AgregarParametro(cmdDet, "@costo", item.Detalle?.CostoUnitario ?? 0);
+                    detalleId = Convert.ToInt32(await cmdDet.ExecuteScalarAsync());
+
+                    var rangosPorProd = rangos?.Where(r => r.productoId == item.ProductoId).ToList() ?? new List<RangoCodigoItem>();
+                    foreach (var r in rangosPorProd)
+                    {
+                        int rangoId = 0;
+                        using var cmdR = dbConn.CreateCommand();
+                        cmdR.Transaction = transaccion;
+                        cmdR.CommandText = QueryAdapter.FormatearConsulta(qRango);
+                        AgregarParametro(cmdR, "@prodId", r.productoId);
+                        AgregarParametro(cmdR, "@catId", r.CategoriaProductoId);
+                        AgregarParametro(cmdR, "@abrev", r.AbreviaturaBase);
+                        AgregarParametro(cmdR, "@desde", r.DesdeNum);
+                        AgregarParametro(cmdR, "@hasta", r.HastaNum);
+                        AgregarParametro(cmdR, "@detId", detalleId);
+                        AgregarParametro(cmdR, "@usr", usuarioId);
+                        rangoId = Convert.ToInt32(await cmdR.ExecuteScalarAsync());
+
+                        // Asociar códigos encontrados al detalle
+                        var ids = await ObtenerIdsCodigosPorRangoAsync(r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
+                        foreach (var t in ids)
+                        {
+                            if (t.CodigoObj == null) continue;
+                            using var cmdMovCod = dbConn.CreateCommand();
+                            cmdMovCod.Transaction = transaccion;
+                            cmdMovCod.CommandText = QueryAdapter.FormatearConsulta(@"INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at) VALUES (@movId, @detId, @codId, 1, 0, GETDATE());");
+                            AgregarParametro(cmdMovCod, "@movId", movimientoIdInserted);
+                            AgregarParametro(cmdMovCod, "@detId", detalleId);
+                            AgregarParametro(cmdMovCod, "@codId", t.CodigoObj.Id);
+                            await cmdMovCod.ExecuteNonQueryAsync();
+                        }
+                    }
+                }
+
+                await transaccion.CommitAsync();
+                return true;
+            }
+            catch
+            {
+                await transaccion.RollbackAsync();
+                throw;
+            }
+        }
+
         public async Task<bool> RegistrarCodigosImportadosAsync(
             Movimiento cabecera,
             List<(int CodigoCreadoId, int ProductoId)> codigosImportados,

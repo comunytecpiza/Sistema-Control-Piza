@@ -254,7 +254,7 @@
                     <Button x:Name="btnAgregarItem" Style="{StaticResource ModernButton}" Content="+ Agregar" Background="#007bff" Margin="0,0,8,0" MinWidth="90" Click="btnAgregarItem_Click" />
                     <Button x:Name="btnModificarItem" Style="{StaticResource ModernButton}" Content="✏️ Modificar" Background="#F59E0B" Margin="0,0,8,0" MinWidth="100"/>
                     <Button x:Name="btnEliminarItem" Style="{StaticResource ModernButton}" Content="🗑️ Eliminar" Background="#EF4444" Margin="0,0,8,0" MinWidth="100"/>
-                    <Button x:Name="btnImportarExcel" Style="{StaticResource ModernButton}" Content="📊 Importar Excel" Background="#10B981" Margin="0,0,8,0" MinWidth="120"/>
+                    <Button x:Name="btnImportarExcel" Style="{StaticResource ModernButton}" Content="📊 Importar Excel" Background="#10B981" Margin="0,0,8,0" MinWidth="120" Click="BtnImportarExcel_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Grid.Column="1">
                     <Button x:Name="btnGrabarSalida" Style="{StaticResource ModernButton}" Content="💾 Procesar Salida" Background="#1E293B" Margin="0,0,8,0" MinWidth="160" Click="btnGrabarSalida_Click" />
@@ -281,7 +281,14 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgProductosSalida" IsReadOnly="True" Style="{StaticResource ModernDataGrid}" SelectionChanged="DgProductosSalida_SelectionChanged">
+                        <DataGrid x:Name="dgProductosSalida" IsReadOnly="True" Style="{StaticResource ModernDataGrid}" SelectionChanged="DgProductosSalida_SelectionChanged"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  EnableRowVirtualization="True"
+                                  CanUserAddRows="False"
+                                  ScrollViewer.CanContentScroll="True"
+                                  MinHeight="120"
+                                  MaxHeight="520">
                             <DataGrid.Resources>
                                 <Style TargetType="DataGridColumnHeader">
                                     <Setter Property="Background" Value="#F8FAFC"/>
@@ -308,7 +315,12 @@
                         </StackPanel>
                     </Border>
                     <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
-                        <DataGrid x:Name="dgCodigosSalida" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                        <DataGrid x:Name="dgCodigosSalida" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  EnableRowVirtualization="True"
+                                  ScrollViewer.CanContentScroll="True"
+                                  MaxHeight="520">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60"/>
                                 <DataGridTextColumn Header="Código Asignado" Binding="{Binding CodigoUnique}" Width="*"/>

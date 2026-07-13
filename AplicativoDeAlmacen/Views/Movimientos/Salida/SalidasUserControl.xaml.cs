@@ -40,6 +40,138 @@ namespace AplicativoDeAlmacen.Views
             CargarComboMotivosSalida();
         }
 
+        private async void BtnImportarExcel_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
+                // Para salidas, únicamente aceptamos códigos con estado 3 (ingresados en almacén)
+                win.EstadoPermitido = 3;
+
+                bool? result = win.ShowDialog();
+                if (result != true) return;
+
+                var lista = win.CodigosImportados ?? new List<string>();
+                if (!lista.Any())
+                {
+                    MessageBox.Show("No se seleccionaron códigos para importar.", "Importar", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // Mapear códigos a objetos en BD para obtener ids y producto
+                var ingService = new IngresoMovimientoService();
+                var lookup = await ingService.ObtenerCodigosPorListaAsync(lista.Select(s => s).ToList());
+
+                // Agrupar por producto y preparar listado de productIds a consultar
+                var added = 0;
+                var productosAgrupados = new Dictionary<int, int>(); // productoId -> cantidad añadida
+
+                foreach (var raw in lista)
+                {
+                    string norm = ingService.NormalizarCodigo(raw);
+                    if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue)
+                    {
+                        // no encontrado o no válido (aunque deberían haber sido filtrados en la previsualización)
+                        continue;
+                    }
+
+                    int codigoId = tup.CodigoObj.Id;
+                    int productoId = tup.ProductoId.Value;
+
+                    // Evitar duplicados en la lista actual
+                    if (_codigosLista.Any(c => string.Equals(c.CodigoUnique, tup.CodigoObj.Codigo, System.StringComparison.OrdinalIgnoreCase))) continue;
+
+                    var nuevo = new VistaCodigoGrid
+                    {
+                        MovCodigo = new MovimientoCodigo
+                        {
+                            CodigoCreadoId = codigoId,
+                            CantidadSalida = 1,
+                            CreatedAt = System.DateTime.Now
+                        },
+                        CodigoUnique = tup.CodigoObj.Codigo,
+                        ProductoId = productoId,
+                        ColeccionTipo = string.Empty
+                    };
+
+                    _codigosLista.Add(nuevo);
+                    added++;
+
+                    if (!productosAgrupados.ContainsKey(productoId)) productosAgrupados[productoId] = 0;
+                    productosAgrupados[productoId]++;
+                }
+
+                if (added == 0)
+                {
+                    MessageBox.Show("No se importaron códigos válidos para salida (verifique estados).", "Importar", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+
+                // Consultar descripciones/abreviaturas de productos implicados
+                var prodMap = new System.Collections.Generic.Dictionary<int, (string Desc, string Abrev)>();
+                var prodIds = productosAgrupados.Keys.ToList();
+                if (prodIds.Any())
+                {
+                    using var conn = new AplicativoDeAlmacen.Data.DataConnection.DatabaseConnection().GetConnection();
+                    var dbConn = (System.Data.Common.DbConnection)conn;
+                    await dbConn.OpenAsync();
+                    var paramNames = new List<string>();
+                    for (int i = 0; i < prodIds.Count; i++) paramNames.Add("@p" + i);
+                    string q = $"SELECT id, descripcion, abreviatura FROM productos WHERE id IN ({string.Join(',', paramNames)})";
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(q);
+                    for (int i = 0; i < prodIds.Count; i++) { var p = cmd.CreateParameter(); p.ParameterName = "@p" + i; p.Value = prodIds[i]; cmd.Parameters.Add(p); }
+                    using var rdr = await cmd.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
+                    {
+                        int id = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
+                        string desc = rdr.IsDBNull(1) ? string.Empty : rdr.GetString(1);
+                        string ab = rdr.IsDBNull(2) ? string.Empty : rdr.GetString(2);
+                        if (id > 0) prodMap[id] = (desc, ab);
+                    }
+                }
+
+                // Agregar/actualizar filas de productos a despachar basadas en los códigos importados
+                foreach (var kv in productosAgrupados)
+                {
+                    int pid = kv.Key;
+                    int cantidad = kv.Value;
+
+                    var existente = _productosLista.FirstOrDefault(p => p.ProductoId == pid);
+                    if (existente != null)
+                    {
+                        existente.Detalle = existente.Detalle ?? new MovimientoDetalle { ProductoId = pid };
+                        existente.Detalle.CantidadSalida += cantidad;
+                    }
+                    else
+                    {
+                        string desc = prodMap.ContainsKey(pid) ? prodMap[pid].Desc : pid.ToString();
+                        string abrev = prodMap.ContainsKey(pid) ? prodMap[pid].Abrev : pid.ToString();
+                        var nuevoProd = new VistaProductoGrid
+                        {
+                            Detalle = new MovimientoDetalle { ProductoId = pid, CantidadSalida = cantidad },
+                            ProductoId = pid,
+                            CodigoProducto = abrev ?? pid.ToString(),
+                            Descripcion = desc ?? string.Empty,
+                            UnidadMedida = "UNIDAD"
+                        };
+                        _productosLista.Add(nuevoProd);
+                    }
+                }
+
+                // Refrescar grillas
+                dgProductosSalida.ItemsSource = null;
+                dgProductosSalida.ItemsSource = _productosLista;
+
+                dgCodigosSalida.ItemsSource = null;
+                dgCodigosSalida.ItemsSource = _codigosLista;
+
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show($"Error al importar códigos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         // Configura el estado inicial bloqueado: El usuario debe presionar "Nuevo"
         private void EstadoInicialFormulario()
         {
