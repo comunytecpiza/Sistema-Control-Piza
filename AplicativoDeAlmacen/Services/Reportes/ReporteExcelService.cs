@@ -6,6 +6,7 @@ using System.IO;
 using ClosedXML.Excel;
 using System.Threading.Tasks;
 using LiveChartsCore.Defaults;
+using AplicativoDeAlmacen.Models.Facturación;
 namespace AplicativoDeAlmacen.Services.Reportes
 {
     public class ReporteExcelService
@@ -457,6 +458,120 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Columns().AdjustToContents();
 
             string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AnalisisVelas_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            wb.SaveAs(ruta);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
+        }
+
+
+        public void ExportarComprobanteImpresion(
+    string tipoDoc, string serieNumero, string fecha, string cliente,
+    string dIdentidad, string institucion, string localidadZona,
+    string observacion, string usuario, List<ItemGridDTO> items,
+    decimal opGravadas, decimal opExoneradas, decimal igv, decimal totalVenta)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Comprobante");
+
+            // ==========================================
+            // 1. CABECERA GENERAL (Igual a tu imagen)
+            // ==========================================
+            ws.Cell("A1").Value = "REGISTRO DE DOCUMENTOS";
+            ws.Range("A1:E1").Merge().Style.Font.SetBold().Font.SetFontSize(14).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+            string[] labels = { "Documento", "Fecha", "Cliente", "D. Identidad", "Institución", "Localidad / Zona", "Observación", "Usuario" };
+            string[] values = { $"{tipoDoc} N° {serieNumero}", fecha, cliente, dIdentidad, institucion, localidadZona, observacion, usuario };
+
+            for (int i = 0; i < labels.Length; i++)
+            {
+                ws.Cell(i + 2, 1).Value = labels[i];
+                ws.Cell(i + 2, 2).Value = values[i];
+                ws.Range(i + 2, 2, i + 2, 5).Merge(); // Combinamos para que el texto largo quepa
+
+                // Bordes a la cabecera
+                ws.Range(i + 2, 1, i + 2, 5).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            }
+
+            // Negrita a los labels
+            ws.Range("A2:A9").Style.Font.Bold = true;
+
+            // ==========================================
+            // 2. CABECERA DE LA GRILLA (Fila 11)
+            // ==========================================
+            int fila = 11;
+            ws.Cell(fila, 1).Value = "Producto";
+            ws.Cell(fila, 2).Value = "U. Medida";
+            ws.Cell(fila, 3).Value = "Cantidad";
+            ws.Cell(fila, 4).Value = "P. Unitario";
+            ws.Cell(fila, 5).Value = "Importe";
+
+            var rngHeaders = ws.Range(fila, 1, fila, 5);
+            rngHeaders.Style.Fill.BackgroundColor = XLColor.FromHtml("#FFE699"); // Amarillo
+            rngHeaders.Style.Font.Bold = true;
+            rngHeaders.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            rngHeaders.Style.Border.TopBorder = XLBorderStyleValues.Medium;
+            rngHeaders.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+            fila++;
+
+            // ==========================================
+            // 3. VACIADO DE ITEMS Y CÓDIGOS AGRUPADOS
+            // ==========================================
+            foreach (var item in items)
+            {
+                // Fila principal del producto
+                ws.Cell(fila, 1).Value = item.DescripcionProducto;
+                ws.Cell(fila, 2).Value = item.UnidadMedida;
+                ws.Cell(fila, 3).Value = item.CanProd;
+                ws.Cell(fila, 4).Value = item.PreUnit;
+                ws.Cell(fila, 5).Value = item.ImpTota;
+
+                ws.Range(fila, 3, fila, 5).Style.NumberFormat.Format = "#,##0.00";
+                fila++;
+
+                // Fila agrupada de códigos ( { COD1 } ; { COD2 } )
+                if (item.Codigos != null && item.Codigos.Any())
+                {
+                    // Unimos todos los códigos con formato { CODIGO } separados por ;
+                    string textoCodigos = string.Join(" ; ", item.Codigos.Select(c => $"{{ {c.CodigoString} }}"));
+
+                    ws.Cell(fila, 1).Value = textoCodigos;
+                    var rngCodigos = ws.Range(fila, 1, fila, 5).Merge();
+                    rngCodigos.Style.Alignment.WrapText = true; // Permite salto de línea si son muchos códigos
+                    rngCodigos.Style.Font.Italic = true;
+                    rngCodigos.Style.Font.FontSize = 9;
+                    rngCodigos.Style.Border.BottomBorder = XLBorderStyleValues.Thin; // Separador sutil
+                    fila++;
+                }
+                else
+                {
+                    // Si no tiene códigos, solo ponemos la línea divisoria
+                    ws.Range(fila - 1, 1, fila - 1, 5).Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+                }
+            }
+
+            // ==========================================
+            // 4. TOTALES FINALES
+            // ==========================================
+            fila++;
+            ws.Cell(fila, 4).Value = "Op. Gravadas"; ws.Cell(fila, 5).Value = opGravadas; fila++;
+            ws.Cell(fila, 4).Value = "Op. Exoneradas"; ws.Cell(fila, 5).Value = opExoneradas; fila++;
+            ws.Cell(fila, 4).Value = "I.G.V."; ws.Cell(fila, 5).Value = igv; fila++;
+
+            ws.Cell(fila, 4).Value = "Total Venta";
+            ws.Cell(fila, 5).Value = totalVenta;
+            ws.Range(fila, 4, fila, 5).Style.Font.Bold = true;
+
+            ws.Range(fila - 3, 5, fila, 5).Style.NumberFormat.Format = "#,##0.00";
+
+            // ==========================================
+            // 5. AUTOAJUSTE Y EXPORTACIÓN
+            // ==========================================
+            ws.Column(1).Width = 50; // Columna Producto ancha
+            ws.Column(2).Width = 15;
+            ws.Column(3).Width = 12;
+            ws.Column(4).Width = 12;
+            ws.Column(5).Width = 12;
+
+            string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"Comprobante_{serieNumero}_{DateTime.Now:HHmmss}.xlsx");
             wb.SaveAs(ruta);
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
         }

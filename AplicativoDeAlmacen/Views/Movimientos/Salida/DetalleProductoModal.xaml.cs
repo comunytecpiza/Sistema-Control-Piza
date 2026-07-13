@@ -219,9 +219,10 @@ namespace AplicativoDeAlmacen.Views
         // =======================================================
         // ÚNICO PUNTO DE SALIDA Y PROCESAMIENTO
         // =======================================================
+        // 🌟 NOTA EL "async" AQUÍ
         private async void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
-            // 1. Validar que existan datos
+            // 1. Validaciones
             if (_productoSeleccionado == null || ListaRangosLocales.Count == 0)
             {
                 MessageBox.Show("Debe configurar al menos un rango antes de aceptar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -241,53 +242,71 @@ namespace AplicativoDeAlmacen.Views
             // 2. Generar ProductoGridGenerado
             ProductoGridGenerado = new VistaProductoGrid
             {
-                Detalle = new MovimientoDetalle { ProductoId = _productoSeleccionado.Id, CantidadSalida = totalAsignado, CreatedAt = DateTime.Now },
+                Detalle = new MovimientoDetalle
+                {
+                    ProductoId = _productoSeleccionado.Id,
+                    CantidadSalida = totalAsignado,
+                    CreatedAt = DateTime.Now
+                },
                 ProductoId = _productoSeleccionado.Id,
                 CodigoProducto = _productoSeleccionado.Abreviatura ?? "COD",
                 Descripcion = _productoSeleccionado.Descripcion,
                 UnidadMedida = txtUMedida.Text
             };
 
-
-            // 3. Generar Códigos (ListaCodigosGenerados)
+            // 3. Generar Códigos
             ListaCodigosGenerados.Clear();
-            foreach (var rango in ListaRangosLocales)
+
+            // 🌟 MOSTRAR UN CARGANDO (Opcional pero recomendado)
+            this.IsEnabled = false;
+
+            try
             {
-                for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                foreach (var rango in ListaRangosLocales)
                 {
-                    string codigoGenerado = $"{rango.AbreviaturaBase}-{i:D7}";
-
-                    // --- AQUÍ ESTÁ EL CAMBIO ---
-                    // Agregamos 'await' porque el método es asíncrono
-                    int idEnBaseDeDatos = await _codigoService.ObtenerIdCodigoPorTextoAsync(codigoGenerado);
-
-                    if (idEnBaseDeDatos == 0)
+                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
                     {
-                        MessageBox.Show($"Error: El código {codigoGenerado} no existe en la base de datos.");
-                        continue;
-                    }
+                        string codigoGenerado = $"{rango.AbreviaturaBase}-{i:D7}";
 
-                    ListaCodigosGenerados.Add(new VistaCodigoGrid
-                    {
-                        MovCodigo = new MovimientoCodigo
+                        // 🌟 AQUÍ ESTÁ EL await: Esto pausa el método hasta que la BD responda
+                        int idEnBaseDeDatos = await _codigoService.ObtenerIdCodigoPorTextoAsync(codigoGenerado);
+
+                        if (idEnBaseDeDatos == 0)
                         {
-                            CantidadSalida = 1,
-                            CreatedAt = DateTime.Now,
-                            CodigoCreadoId = idEnBaseDeDatos
-                        },
-                        CodigoUnique = codigoGenerado,
-                        ProductoId = _productoSeleccionado.Id,
-                        ColeccionTipo = rango.ColeccionTipo,
-                    });
-                }
-            }
+                            MessageBox.Show($"Error: El código {codigoGenerado} no existe en la base de datos.");
+                            continue; // O haz 'return' si prefieres abortar todo
+                        }
 
-            // 4. Cerrar ventana con éxito
-            this.DialogResult = true;
-            this.Close();
+                        ListaCodigosGenerados.Add(new VistaCodigoGrid
+                        {
+                            MovCodigo = new MovimientoCodigo
+                            {
+                                CantidadSalida = 1,
+                                CreatedAt = DateTime.Now,
+                                CodigoCreadoId = idEnBaseDeDatos
+                            },
+                            CodigoUnique = codigoGenerado,
+                            ProductoId = _productoSeleccionado.Id,
+                            ColeccionTipo = rango.ColeccionTipo,
+                        });
+                    }
+                }
+
+                // 4. Cerrar ventana con éxito
+                this.DialogResult = true;
+                this.Close();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Ocurrió un error al procesar los códigos: {ex.Message}");
+            }
+            finally
+            {
+                this.IsEnabled = true; // Reactivamos la ventana
+            }
         }
 
-       
+
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {

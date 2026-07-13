@@ -31,7 +31,6 @@
     <Folder Include="Helpers\" />
     <Folder Include="ViewModels\ViewModels\" />
     <Folder Include="Views\Elementos Visuales\" />
-    <Folder Include="Views\Procesos Internos\" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,6 +1,7 @@
 ﻿using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Users;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
