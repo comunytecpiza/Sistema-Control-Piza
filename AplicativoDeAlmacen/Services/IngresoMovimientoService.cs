@@ -1241,5 +1241,108 @@ namespace AplicativoDeAlmacen.Services
                     item.ColeccionTipo = "Importado - N/A";
             }
         }
+
+        // =======================================================
+        // LÓGICA DE BASE DE DATOS EXTRAÍDA DE LA VISTA
+        // =======================================================
+
+        // EN EL MÉTODO ObtenerCategoriaDesdeBDAsync:
+        public async Task<int> ObtenerCategoriaDesdeBDAsync(int codigoId)
+        {
+            try
+            {
+                // 🌟 SOLUCIÓN: Usar solo DatabaseConnection y QueryAdapter
+                using var conn = new DatabaseConnection().GetConnection();
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+                SELECT rc.categoria_producto_id 
+                FROM registro_codigos rc 
+                JOIN codigos_creados cc ON cc.registro_codigo_id = rc.id 
+                WHERE cc.id = @id");
+
+                var p = cmd.CreateParameter(); p.ParameterName = "@id"; p.Value = codigoId; cmd.Parameters.Add(p);
+                var res = await cmd.ExecuteScalarAsync();
+                return res != null ? Convert.ToInt32(res) : 1;
+            }
+            catch { return 1; }
+        }
+
+        // EN EL MÉTODO ObtenerColeccionTipoBDAsync:
+        public async Task<string> ObtenerColeccionTipoBDAsync(int codigoCreadoId)
+        {
+            try
+            {
+                // 🌟 SOLUCIÓN: Usar solo DatabaseConnection y QueryAdapter
+                using var conn = new DatabaseConnection().GetConnection();
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+                SELECT c.ano, rc.categoria_producto_id 
+                FROM codigos_creados cc
+                JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                WHERE cc.id = @id");
+
+                var p = cmd.CreateParameter(); p.ParameterName = "@id"; p.Value = codigoCreadoId; cmd.Parameters.Add(p);
+                using var rdr = await cmd.ExecuteReaderAsync();
+
+                if (await rdr.ReadAsync())
+                {
+                    string ano = rdr.IsDBNull(0) ? "" : rdr.GetValue(0).ToString();
+                    int cat = rdr.IsDBNull(1) ? 1 : rdr.GetInt32(1);
+                    string tipo = cat == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+                    if (!string.IsNullOrEmpty(ano)) return $"C{ano} / {tipo}";
+                    return tipo;
+                }
+            }
+            catch { }
+            return "LIBRO VENTA";
+        }
+
+        // Este algoritmo genera los rangos matemáticos automáticamente
+        public async Task<List<RangoCodigoItem>> GenerarRangosDesdeCodigosAsync(List<VistaCodigoGrid> codigosGridList)
+        {
+            var rangosGenerados = new List<RangoCodigoItem>();
+            foreach (var grupo in codigosGridList.GroupBy(x => x.ProductoId))
+            {
+                int productoId = grupo.Key;
+                var gruposBase = grupo.Select(x => {
+                    string codigo = x.CodigoUnique;
+                    int pos = codigo.LastIndexOf('-');
+                    return new
+                    {
+                        Base = pos >= 0 ? codigo.Substring(0, pos) : codigo,
+                        Seq = pos >= 0 && int.TryParse(codigo.Substring(pos + 1), out int s) ? s : 0
+                    };
+                }).GroupBy(x => x.Base);
+
+                foreach (var g in gruposBase)
+                {
+                    var lista = g.Select(x => x.Seq).Distinct().OrderBy(x => x).ToList();
+                    if (!lista.Any()) continue;
+
+                    int inicio = lista[0];
+                    int fin = inicio;
+
+                    int catReal = await ObtenerCategoriaDesdeBDAsync(grupo.First().MovCodigo?.CodigoCreadoId ?? 0);
+
+                    for (int i = 1; i < lista.Count; i++)
+                    {
+                        if (lista[i] == fin + 1) fin = lista[i];
+                        else
+                        {
+                            rangosGenerados.Add(new RangoCodigoItem { productoId = productoId, AbreviaturaBase = g.Key, DesdeNum = inicio, HastaNum = fin, CategoriaProductoId = catReal, Cantidad = (fin - inicio + 1).ToString() });
+                            inicio = fin = lista[i];
+                        }
+                    }
+                    rangosGenerados.Add(new RangoCodigoItem { productoId = productoId, AbreviaturaBase = g.Key, DesdeNum = inicio, HastaNum = fin, CategoriaProductoId = catReal, Cantidad = (fin - inicio + 1).ToString() });
+                }
+            }
+            return rangosGenerados;
+        }
     }
 }

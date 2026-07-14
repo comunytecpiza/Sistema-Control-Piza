@@ -298,8 +298,6 @@
                                     <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
                                     <DataGridTextColumn Header="U. Medida" Binding="{Binding UnidadMedida}" Width="80"/>
                                     <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="80"/>
-
-                                    <!-- 🌟 COLUMNA NUEVA -->
                                     <DataGridTextColumn Header="C. Unitario" Width="100">
                                         <DataGridTextColumn.Binding>
                                             <Binding Path="Detalle.CostoUnitario" StringFormat="N2" TargetNullValue="0.00" FallbackValue="0.00"/>
@@ -310,24 +308,48 @@
                         </Border>
                     </Grid>
 
-                    <Grid Grid.Column="2">
+                    <Grid Grid.Column="2" VerticalAlignment="Stretch">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                        <Border Background="#1E293B" CornerRadius="6,6,0,0" Padding="12,5">
+
+                        <Border Grid.Row="0" Background="#1E293B" CornerRadius="6,6,0,0" Padding="12,6">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="🔑" Margin="0,0,6,0" VerticalAlignment="Center"/>
                                 <TextBlock Text="Códigos Únicos Escaneados" Foreground="White" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Border>
-                        <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
+
+                        <Border Grid.Row="1" Background="#F1F5F9" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" Padding="8,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Grid Grid.Column="0" Margin="0,0,10,0">
+                                    <TextBox x:Name="txtBuscarCodigo" Height="28" FontSize="12" Padding="26,0,8,0" Background="White" BorderBrush="#CBD5E1" TextChanged="TxtBuscarCodigo_TextChanged"/>
+                                    <TextBlock Text="🔍" IsHitTestVisible="False" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="#64748B" FontSize="12"/>
+                                </Grid>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Mostrando:" Foreground="#64748B" FontSize="12" Margin="0,0,4,0"/>
+                                    <TextBlock x:Name="lblResumenCodigos" Text="0 / 0" Foreground="#334155" FontSize="12" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Row="2" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,0" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
                             <DataGrid x:Name="dgCodigosSalida" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                      Style="{StaticResource ModernDataGrid}"
                                       VirtualizingPanel.IsVirtualizing="True"
                                       VirtualizingPanel.VirtualizationMode="Recycling"
                                       EnableRowVirtualization="True"
                                       ScrollViewer.CanContentScroll="True"
-                                      MaxHeight="520">
+                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                      MinHeight="120" MaxHeight="380">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60"/>
                                     <DataGridTextColumn Header="Código Asignado" Binding="{Binding CodigoUnique}" Width="*"/>

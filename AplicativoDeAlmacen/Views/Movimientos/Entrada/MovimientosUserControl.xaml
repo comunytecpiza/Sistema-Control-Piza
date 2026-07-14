@@ -4,10 +4,9 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
-             mc:Ignorable="d" 
-             d:DesignHeight="720" d:DesignWidth="1150"
+             mc:Ignorable="d" d:DesignWidth="1150"
              Background="#F8FAFC"
-             FontFamily="Segoe UI">
+             FontFamily="Segoe UI" Height="963">
 
     <UserControl.Resources>
         <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="1" Color="#0F172A" Opacity="0.05"/>
@@ -317,7 +316,6 @@
                                 </DataGrid.Resources>
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="N°" Binding="{Binding ProductoId}" Width="60" MinWidth="40" ElementStyle="{StaticResource NoWrapTextBlock}"/>
-                                    <!-- Usar SizeToCells para que la columna inicialmente se ajuste al contenido y permita redimensionar manualmente -->
                                     <DataGridTextColumn Header="CÓDIGO" Binding="{Binding CodigoProducto}" Width="SizeToCells" MinWidth="120" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                     <DataGridTextColumn Header="DESCRIPCIÓN" Binding="{Binding Descripcion}" Width="SizeToCells" MinWidth="350" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                     <DataGridTextColumn Header="CANT." Binding="{Binding Detalle.CantidadIngreso, StringFormat=N2}" Width="SizeToCells" MinWidth="80" ElementStyle="{StaticResource NoWrapTextBlock}"/>
@@ -330,8 +328,10 @@
                     <Grid Grid.Column="2">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
+
                         <Border Background="#1E293B" CornerRadius="6,6,0,0" Padding="12,5">
                             <DockPanel LastChildFill="True">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -341,7 +341,27 @@
                                 <Button x:Name="btnDescargarExcel" Content="📊 Exportar Excel" Foreground="#93C5FD" Background="Transparent" BorderThickness="0" HorizontalAlignment="Right" Padding="4" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
                             </DockPanel>
                         </Border>
-                        <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
+
+                        <Border Grid.Row="1" Background="#F1F5F9" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" Padding="8,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Grid Grid.Column="0" Margin="0,0,10,0">
+                                    <TextBox x:Name="txtBuscarCodigo" Height="28" FontSize="12" Padding="26,0,8,0" Background="White" BorderBrush="#CBD5E1" TextChanged="TxtBuscarCodigo_TextChanged"/>
+                                    <TextBlock Text="🔍" IsHitTestVisible="False" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="#64748B" FontSize="12"/>
+                                </Grid>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Mostrando:" Foreground="#64748B" FontSize="12" Margin="0,0,4,0"/>
+                                    <TextBlock x:Name="lblResumenCodigos" Text="0 / 0" Foreground="#334155" FontSize="12" FontWeight="Bold"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Row="2" Background="White" BorderBrush="#E2E8F0" BorderThickness="1,0,1,1" CornerRadius="0,0,6,6" Padding="2" Effect="{StaticResource CardShadow}">
                             <DataGrid x:Name="dgCodigos" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" CanUserResizeColumns="True" MinHeight="160" MaxHeight="420"
                                   ColumnHeaderStyle="{StaticResource DarkDataGridHeader}" RowHeaderWidth="0"
@@ -349,7 +369,6 @@
                                   EnableRowVirtualization="True" EnableColumnVirtualization="False" ScrollViewer.CanContentScroll="True">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="N° Fila" Binding="{Binding NumeroFila}" Width="60" MinWidth="40" ElementStyle="{StaticResource NoWrapTextBlock}"/>
-                                    <!-- Auto-ajustar al contenido y permitir redimension manual -->
                                     <DataGridTextColumn Header="Código Único" Binding="{Binding CodigoUnique}" Width="SizeToCells" MinWidth="220" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                     <DataGridTextColumn Header="Tipo de Colección" Binding="{Binding ColeccionTipo}" Width="SizeToCells" MinWidth="140" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                 </DataGrid.Columns>

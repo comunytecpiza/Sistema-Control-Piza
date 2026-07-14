@@ -7,6 +7,8 @@ using ClosedXML.Excel;
 using System.Threading.Tasks;
 using LiveChartsCore.Defaults;
 using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models;
+using System.Windows;
 namespace AplicativoDeAlmacen.Services.Reportes
 {
     public class ReporteExcelService
@@ -574,6 +576,109 @@ namespace AplicativoDeAlmacen.Services.Reportes
             string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"Comprobante_{serieNumero}_{DateTime.Now:HHmmss}.xlsx");
             wb.SaveAs(ruta);
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
+        }
+
+
+        public void GenerarReporteIngreso(
+            string numeroRegistro, string fecha, string motivo, string razonSocial,
+            string direccion, string ubicacion, string guia, string observacion,
+            List<VistaProductoGrid> productosGridList,
+            List<VistaCodigoGrid> codigosGridList,
+            List<RangoCodigoItem> rangosProcesadosGlobal)
+        {
+            try
+            {
+                using var wb = new XLWorkbook();
+                var ws = wb.Worksheets.Add("Ingreso de Productos");
+
+                // Título
+                ws.Range("A1:E1").Merge();
+                ws.Cell(1, 1).Value = "INGRESO DE PRODUCTOS - ALMACEN CENTRAL";
+                ws.Cell(1, 1).Style.Font.Bold = true;
+                ws.Cell(1, 1).Style.Font.FontSize = 14;
+                ws.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                // Cabecera de datos
+                int r = 3;
+                void PutKV(string key, string val)
+                {
+                    ws.Cell(r, 1).Value = key;
+                    ws.Cell(r, 2).Value = val;
+                    var rng = ws.Range(r, 1, r, 5);
+                    rng.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                    rng.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+                    r++;
+                }
+
+                PutKV("# Registro", numeroRegistro);
+                PutKV("Fecha", fecha);
+                PutKV("Motivo", motivo);
+                PutKV("Razón Social", razonSocial);
+                PutKV("Dirección", direccion);
+                PutKV("Ubicación", ubicacion);
+                PutKV("# Guía", guia);
+                PutKV("Observación", observacion);
+
+                // Encabezado tabla productos
+                int headerRow = r + 1;
+                ws.Cell(headerRow, 1).Value = "Producto";
+                ws.Cell(headerRow, 2).Value = "U. Medida";
+                ws.Cell(headerRow, 3).Value = "Cantidad";
+                ws.Cell(headerRow, 4).Value = "C. Unitario";
+                ws.Range(headerRow, 1, headerRow, 4).Style.Fill.BackgroundColor = XLColor.FromHtml("#FFE699");
+                ws.Range(headerRow, 1, headerRow, 4).Style.Font.Bold = true;
+                ws.Range(headerRow, 1, headerRow, 4).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+                int fila = headerRow + 1;
+
+                foreach (var p in productosGridList)
+                {
+                    ws.Cell(fila, 1).Value = p.Descripcion ?? p.CodigoProducto;
+                    ws.Cell(fila, 2).Value = p.UnidadMedida;
+                    ws.Cell(fila, 3).Value = p.Detalle?.CantidadIngreso ?? 0;
+                    ws.Cell(fila, 4).Value = p.Detalle?.CostoUnitario ?? 0;
+                    ws.Range(fila, 1, fila, 4).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                    fila++;
+
+                    var codigos = codigosGridList.Where(c => c.ProductoId == p.ProductoId).ToList();
+
+                    if ((codigos == null || codigos.Count == 0) && rangosProcesadosGlobal != null)
+                    {
+                        var rangosFallback = rangosProcesadosGlobal.Where(rg => rg.productoId == p.ProductoId).ToList();
+                        foreach (var rg in rangosFallback)
+                        {
+                            for (int seq = rg.DesdeNum; seq <= rg.HastaNum; seq++)
+                            {
+                                codigos.Add(new VistaCodigoGrid { CodigoUnique = $"{rg.AbreviaturaBase}-{seq:D7}", ColeccionTipo = rg.ColeccionTipo, ProductoId = rg.productoId });
+                            }
+                        }
+                    }
+
+                    foreach (var code in codigos)
+                    {
+                        ws.Cell(fila, 1).Value = "";
+                        ws.Cell(fila, 2).Value = code.CodigoUnique;
+                        ws.Cell(fila, 3).Value = code.ColeccionTipo ?? string.Empty;
+                        ws.Range(fila, 2, fila, 3).Style.Font.FontColor = XLColor.FromHtml("#333333");
+                        fila++;
+                    }
+                    fila++; // Espacio entre productos
+                }
+
+                ws.Columns(1, 4).AdjustToContents();
+                ws.Column(1).Width = 70;
+                ws.Column(2).Width = 15;
+                ws.Column(3).Width = 12;
+                ws.Column(4).Width = 14;
+
+                string ruta = Path.Combine(Path.GetTempPath(), $"IngresoProductos_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+                wb.SaveAs(ruta);
+                Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error generando Excel: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 }

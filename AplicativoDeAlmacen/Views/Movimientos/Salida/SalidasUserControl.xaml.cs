@@ -1088,5 +1088,10 @@ namespace AplicativoDeAlmacen.Views
             }
             return 0m; // Retorna 0 si no encuentra el costo
         }
+
+        private void TxtBuscarCodigo_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            // Se implementará en el siguiente paso del plan
+        }
     }
 }
