@@ -17,6 +17,9 @@ namespace AplicativoDeAlmacen.Models.Models
         public string Hasta { get; set; }           // Código completo final (Ej: LMA3C26-V-0000104)
         public string ColeccionTipo { get; set; }   // Texto en la grilla (Ej: "C2026 / LIBRO VENTA")
 
+        public string DesdeDisplay => $"CODE-{DesdeNum}"; // O el formato que uses
+        public string HastaDisplay => $"CODE-{HastaNum}";
+
         // Propiedades de control internas indispensables para modificar
         public int DesdeNum { get; set; }           // El correlativo puro inicial (Ej: 100)
         public int HastaNum { get; set; }           // El correlativo puro final (Ej: 104)

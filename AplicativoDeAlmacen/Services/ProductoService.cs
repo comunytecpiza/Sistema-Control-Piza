@@ -551,5 +551,31 @@ namespace AplicativoDeAlmacen.Services
             return null; 
         }
 
+        public async Task<int> ObtenerIdCodigoPorProductoAsync(string codigo, int productoId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                // 🌟 FILTRO CLAVE: ProductoId + Codigo
+                string query = @"SELECT cc.id 
+                         FROM codigos_creados cc
+                         INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                         WHERE cc.codigo = @codigo AND rc.producto_id = @prodId";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@codigo", codigo);
+                    AgregarParametro(cmd, "@prodId", productoId);
+
+                    object result = await cmd.ExecuteScalarAsync();
+                    return result != null ? Convert.ToInt32(result) : 0;
+                }
+            }
+        }
+
+        
     }
 }

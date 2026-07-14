@@ -22,6 +22,7 @@ namespace AplicativoDeAlmacen.Views
         private Producto _productoSeleccionado = null;
 
         // Propiedad que leerá el UserControl principal al cerrarse el modal
+
         public VistaCodigoGrid ItemConfigurado { get; set; }
 
         // Colección reactiva para sincronizar la grilla visual de tramos
@@ -269,12 +270,14 @@ namespace AplicativoDeAlmacen.Views
                         string codigoGenerado = $"{rango.AbreviaturaBase}-{i:D7}";
 
                         // 🌟 AQUÍ ESTÁ EL await: Esto pausa el método hasta que la BD responda
-                        int idEnBaseDeDatos = await _codigoService.ObtenerIdCodigoPorTextoAsync(codigoGenerado);
+                        int idEnBaseDeDatos = await _codigoService.ObtenerIdCodigoPorProductoAsync(codigoGenerado, _productoSeleccionado.Id);
 
                         if (idEnBaseDeDatos == 0)
                         {
-                            MessageBox.Show($"Error: El código {codigoGenerado} no existe en la base de datos.");
-                            continue; // O haz 'return' si prefieres abortar todo
+                            // Esto es lo que te sale en el error. 
+                            // Significa que ese código NO está registrado para ESTE producto.
+                            MessageBox.Show($"Error: El código {codigoGenerado} no está registrado en el maestro de códigos para este producto.");
+                            continue;
                         }
 
                         ListaCodigosGenerados.Add(new VistaCodigoGrid

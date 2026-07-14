@@ -158,5 +158,63 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
         }
+
+        public async Task<CodigoCreado?> ObtenerPorCodigoExactoAsync(string codigo)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                // Esta búsqueda es simple y directa, sin filtros de estado
+                string query = "SELECT id, registro_codigo_id, codigo, es_manual, estado_id FROM codigos_creados WHERE codigo = @cod";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@cod", codigo);
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
+                        {
+                            return new CodigoCreado
+                            {
+                                Id = reader.GetInt32(0),
+                                Codigo = reader.GetString(2),
+                                EstadoId = reader.GetInt32(4)
+                            };
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public async Task<int> ObtenerIdCodigoPorProductoAsync(string codigo, int productoId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                if (dbConn.State != System.Data.ConnectionState.Open)
+                    await dbConn.OpenAsync();
+
+                // 🌟 Esta consulta es la clave: busca por código Y por el ID de producto
+                string query = @"SELECT cc.id 
+                         FROM codigos_creados cc
+                         INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                         WHERE cc.codigo = @codigo 
+                         AND rc.producto_id = @prodId";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@codigo", codigo);
+                    AgregarParametro(cmd, "@prodId", productoId);
+
+                    object result = await cmd.ExecuteScalarAsync();
+                    return result != null ? Convert.ToInt32(result) : 0;
+                }
+            }
+        }
     }
 }

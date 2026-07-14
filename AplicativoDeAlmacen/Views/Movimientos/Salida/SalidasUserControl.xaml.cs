@@ -1,13 +1,20 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel; // Necesario para colecciones reactivas en WPF
+using System.Collections.ObjectModel;
+using System.Data.Common;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Models.Users;
+using AplicativoDeAlmacen.Views.Movimientos.Lectora;
 using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.facturaciòn;
+using AplicativoDeAlmacen.Data;
+using static AplicativoDeAlmacen.Data.DataConnection;
+using AplicativoDeAlmacen.Models.Facturación;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -17,249 +24,901 @@ namespace AplicativoDeAlmacen.Views
         private List<PersonaComercial> _listaClientes;
         private List<Ubicacion> _listaUbicaciones;
 
-        int idUsuarioLogueado = 1; // 💡 Cámbialo por tu variable global de sesión de usuario
-        int estadoSalida = 1;      // 💡 Asegúrate que el estado 1 sea "Registrado" o el que corresponda
-        // 💡 COLECCIONES VINCULADAS A TUS DATAGRIDS DEL XAML
+        int idUsuarioLogueado = 1;
+        int estadoSalida = 1;
+
         private ObservableCollection<VistaProductoGrid> _productosLista;
         private ObservableCollection<VistaCodigoGrid> _codigosLista;
 
-        // 💡 CAPTURADORES DE IDS NUMÉRICOS PARA LAS LLAVES FORÁNEAS (Únicas versiones correctas)
         private int? _idClienteSeleccionado;
         private int? _idUbicacionSeleccionada;
+        private int? _idMovimientoActual;
+
+        private enum ModoFormulario { Ninguno, Nuevo, BuscandoParaEditar, BuscandoParaImprimir }
+        private ModoFormulario _modoActual = ModoFormulario.Ninguno;
 
         public SalidasUserControl()
         {
             InitializeComponent();
             _salidaService = new SalidaMovimientoService();
 
-            // Inicialización de colecciones para evitar errores de referencia nula
             _productosLista = new ObservableCollection<VistaProductoGrid>();
             _codigosLista = new ObservableCollection<VistaCodigoGrid>();
 
-            // Ejecuciones automáticas al cargar la vista
+            dgProductosSalida.ItemsSource = _productosLista;
+            dgCodigosSalida.ItemsSource = _codigosLista;
+
             EstadoInicialFormulario();
             CargarComboMotivosSalida();
         }
 
-        private async void BtnImportarExcel_Click(object sender, RoutedEventArgs e)
+        // ==========================================
+        // UTILIDADES Y REFRESCO VISUAL
+        // ==========================================
+
+        // 🌟 Método clave para obtener la etiqueta REAL (Venta o Guía) desde la BD
+        private async Task<string> ObtenerColeccionTipoBDAsync(int codigoCreadoId)
         {
             try
             {
-                var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
-                // Para salidas, únicamente aceptamos códigos con estado 3 (ingresados en almacén)
-                win.EstadoPermitido = 3;
+                using var conn = new DatabaseConnection().GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+                    SELECT c.ano, rc.categoria_producto_id 
+                    FROM codigos_creados cc
+                    JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                    WHERE cc.id = @id");
 
-                bool? result = win.ShowDialog();
-                if (result != true) return;
+                var p = cmd.CreateParameter(); p.ParameterName = "@id"; p.Value = codigoCreadoId; cmd.Parameters.Add(p);
+                using var rdr = await cmd.ExecuteReaderAsync();
 
-                var lista = win.CodigosImportados ?? new List<string>();
-                if (!lista.Any())
+                if (await rdr.ReadAsync())
                 {
-                    MessageBox.Show("No se seleccionaron códigos para importar.", "Importar", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
+                    string ano = rdr.IsDBNull(0) ? "" : rdr.GetValue(0).ToString();
+                    int cat = rdr.IsDBNull(1) ? 1 : rdr.GetInt32(1);
+                    string tipo = cat == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+                    if (!string.IsNullOrEmpty(ano)) return $"C{ano} / {tipo}";
+                    return tipo;
                 }
+            }
+            catch { }
+            return "LIBRO VENTA"; // Default fallback
+        }
 
-                // Mapear códigos a objetos en BD para obtener ids y producto
-                var ingService = new IngresoMovimientoService();
-                var lookup = await ingService.ObtenerCodigosPorListaAsync(lista.Select(s => s).ToList());
+        private void RecalcularNumerosFila()
+        {
+            int i = 1;
+            foreach (var codigo in _codigosLista)
+            {
+                codigo.NumeroFila = i++;
+            }
 
-                // Agrupar por producto y preparar listado de productIds a consultar
-                var added = 0;
-                var productosAgrupados = new Dictionary<int, int>(); // productoId -> cantidad añadida
+            SincronizarCantidadesConCodigos();
+        }
 
-                foreach (var raw in lista)
+        private void RefrescarGrillas()
+        {
+            RecalcularNumerosFila();
+
+            if (dgProductosSalida.ItemsSource == null)
+                dgProductosSalida.ItemsSource = _productosLista;
+
+            dgProductosSalida.Items.Refresh();
+
+            if (dgProductosSalida.SelectedItem is VistaProductoGrid seleccionado)
+            {
+                dgCodigosSalida.ItemsSource =
+                    _codigosLista.Where(x => x.ProductoId == seleccionado.ProductoId).ToList();
+            }
+            else
+            {
+                dgCodigosSalida.ItemsSource = _codigosLista;
+            }
+
+            dgCodigosSalida.Items.Refresh();
+        }
+
+        private List<RangoCodigoItem> ReconstruirRangosDeCodigos(int productoId)
+        {
+            var rangos = new List<RangoCodigoItem>();
+            var codigosDelProducto = _codigosLista.Where(c => c.ProductoId == productoId).ToList();
+            if (!codigosDelProducto.Any()) return rangos;
+
+            var secuenciasPorBase = new Dictionary<string, List<int>>();
+            var dicColeccion = new Dictionary<int, string>();
+            var ingService = new IngresoMovimientoService();
+
+            foreach (var c in codigosDelProducto)
+            {
+                string norm = ingService.NormalizarCodigo(c.CodigoUnique);
+                if (norm.Length >= 7 && int.TryParse(norm.Substring(norm.Length - 7), out int seq))
                 {
-                    string norm = ingService.NormalizarCodigo(raw);
-                    if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue)
-                    {
-                        // no encontrado o no válido (aunque deberían haber sido filtrados en la previsualización)
-                        continue;
-                    }
-
-                    int codigoId = tup.CodigoObj.Id;
-                    int productoId = tup.ProductoId.Value;
-
-                    // Evitar duplicados en la lista actual
-                    if (_codigosLista.Any(c => string.Equals(c.CodigoUnique, tup.CodigoObj.Codigo, System.StringComparison.OrdinalIgnoreCase))) continue;
-
-                    var nuevo = new VistaCodigoGrid
-                    {
-                        MovCodigo = new MovimientoCodigo
-                        {
-                            CodigoCreadoId = codigoId,
-                            CantidadSalida = 1,
-                            CreatedAt = System.DateTime.Now
-                        },
-                        CodigoUnique = tup.CodigoObj.Codigo,
-                        ProductoId = productoId,
-                        ColeccionTipo = string.Empty
-                    };
-
-                    _codigosLista.Add(nuevo);
-                    added++;
-
-                    if (!productosAgrupados.ContainsKey(productoId)) productosAgrupados[productoId] = 0;
-                    productosAgrupados[productoId]++;
+                    string baseAbrev = norm.Substring(0, norm.Length - 7);
+                    if (!secuenciasPorBase.ContainsKey(baseAbrev)) secuenciasPorBase[baseAbrev] = new List<int>();
+                    secuenciasPorBase[baseAbrev].Add(seq);
+                    dicColeccion[seq] = c.ColeccionTipo;
                 }
+            }
 
-                if (added == 0)
-                {
-                    MessageBox.Show("No se importaron códigos válidos para salida (verifique estados).", "Importar", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+            foreach (var kvp in secuenciasPorBase)
+            {
+                var seqs = kvp.Value;
+                seqs.Sort();
 
-                // Consultar descripciones/abreviaturas de productos implicados
-                var prodMap = new System.Collections.Generic.Dictionary<int, (string Desc, string Abrev)>();
-                var prodIds = productosAgrupados.Keys.ToList();
-                if (prodIds.Any())
+                int start = seqs[0];
+                int end = start;
+
+                for (int i = 1; i < seqs.Count; i++)
                 {
-                    using var conn = new AplicativoDeAlmacen.Data.DataConnection.DatabaseConnection().GetConnection();
-                    var dbConn = (System.Data.Common.DbConnection)conn;
-                    await dbConn.OpenAsync();
-                    var paramNames = new List<string>();
-                    for (int i = 0; i < prodIds.Count; i++) paramNames.Add("@p" + i);
-                    string q = $"SELECT id, descripcion, abreviatura FROM productos WHERE id IN ({string.Join(',', paramNames)})";
-                    using var cmd = dbConn.CreateCommand();
-                    cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(q);
-                    for (int i = 0; i < prodIds.Count; i++) { var p = cmd.CreateParameter(); p.ParameterName = "@p" + i; p.Value = prodIds[i]; cmd.Parameters.Add(p); }
-                    using var rdr = await cmd.ExecuteReaderAsync();
-                    while (await rdr.ReadAsync())
+                    if (seqs[i] == end + 1)
                     {
-                        int id = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
-                        string desc = rdr.IsDBNull(1) ? string.Empty : rdr.GetString(1);
-                        string ab = rdr.IsDBNull(2) ? string.Empty : rdr.GetString(2);
-                        if (id > 0) prodMap[id] = (desc, ab);
-                    }
-                }
-
-                // Agregar/actualizar filas de productos a despachar basadas en los códigos importados
-                foreach (var kv in productosAgrupados)
-                {
-                    int pid = kv.Key;
-                    int cantidad = kv.Value;
-
-                    var existente = _productosLista.FirstOrDefault(p => p.ProductoId == pid);
-                    if (existente != null)
-                    {
-                        existente.Detalle = existente.Detalle ?? new MovimientoDetalle { ProductoId = pid };
-                        existente.Detalle.CantidadSalida += cantidad;
+                        end = seqs[i];
                     }
                     else
                     {
-                        string desc = prodMap.ContainsKey(pid) ? prodMap[pid].Desc : pid.ToString();
-                        string abrev = prodMap.ContainsKey(pid) ? prodMap[pid].Abrev : pid.ToString();
-                        var nuevoProd = new VistaProductoGrid
+                        rangos.Add(new RangoCodigoItem
                         {
-                            Detalle = new MovimientoDetalle { ProductoId = pid, CantidadSalida = cantidad },
-                            ProductoId = pid,
-                            CodigoProducto = abrev ?? pid.ToString(),
-                            Descripcion = desc ?? string.Empty,
-                            UnidadMedida = "UNIDAD"
-                        };
-                        _productosLista.Add(nuevoProd);
+                            productoId = productoId,
+                            AbreviaturaBase = kvp.Key,
+                            DesdeNum = start,
+                            HastaNum = end,
+                            Cantidad = (end - start + 1).ToString(),
+                            Desde = $"{kvp.Key}{start:D7}",
+                            Hasta = $"{kvp.Key}{end:D7}",
+                            ColeccionTipo = dicColeccion.ContainsKey(start) ? dicColeccion[start] : ""
+                        });
+                        start = seqs[i];
+                        end = start;
                     }
                 }
-
-                // Refrescar grillas
-                dgProductosSalida.ItemsSource = null;
-                dgProductosSalida.ItemsSource = _productosLista;
-
-                dgCodigosSalida.ItemsSource = null;
-                dgCodigosSalida.ItemsSource = _codigosLista;
-
+                rangos.Add(new RangoCodigoItem
+                {
+                    productoId = productoId,
+                    AbreviaturaBase = kvp.Key,
+                    DesdeNum = start,
+                    HastaNum = end,
+                    Cantidad = (end - start + 1).ToString(),
+                    Desde = $"{kvp.Key}{start:D7}",
+                    Hasta = $"{kvp.Key}{end:D7}",
+                    ColeccionTipo = dicColeccion.ContainsKey(start) ? dicColeccion[start] : ""
+                });
             }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Error al importar códigos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            return rangos;
         }
 
-        // Configura el estado inicial bloqueado: El usuario debe presionar "Nuevo"
+        // ==========================================
+        // ESTADOS DE LA UI
+        // ==========================================
         private void EstadoInicialFormulario()
         {
             grdFormularioSalida.IsEnabled = false;
 
-            // Bloqueo de botones de procesamiento inferior
             btnAgregarItem.IsEnabled = false;
-            btnModificarItem.IsEnabled = false;
             btnEliminarItem.IsEnabled = false;
+            btnModificarDetalle.IsEnabled = false;
             btnImportarExcel.IsEnabled = false;
             btnGrabarSalida.IsEnabled = false;
             btnCancelar.IsEnabled = false;
+            btnEscanear.IsEnabled = false;
 
-            // Botones habilitados de control principal
+            // La cabecera siempre activa para iniciar acciones
             btnNuevo.IsEnabled = true;
+            btnModificarCabecera.IsEnabled = true;
+            btnImprimirTicket.IsEnabled = true;
+            btnAnularSalida.IsEnabled = true;
 
-            // Limpieza integral de campos
             txtSerieSalida.Clear();
             txtNumeroSalida.Clear();
+            txtNumeroSalida.IsReadOnly = true;
             txtNumeroGuia.Clear();
             txtSerieGuia.Clear();
             dtpFechaDespacho.SelectedDate = null;
             cboMotivoSalida.SelectedIndex = -1;
 
-            txtCliente.Clear();
-            txtCodigoCliente.Clear();
-            txtDireccionCliente.Clear();
-
-            txtUbicacion.Clear();
-            txtCodigoUbicacion.Clear();
-            txtDireccionUbicacion.Clear();
-
+            txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear();
+            txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear();
             txtObservacionSalida.Clear();
 
-            // Limpieza de variables de estado de datos
-            _idClienteSeleccionado = null;
-            _idUbicacionSeleccionada = null;
-            _productosLista.Clear();
-            _codigosLista.Clear();
+            _idClienteSeleccionado = null; _idUbicacionSeleccionada = null; _idMovimientoActual = null;
+            _productosLista.Clear(); _codigosLista.Clear();
 
-            dgProductosSalida.ItemsSource = null; // Desvincula para asegurar refresco
-            dgCodigosSalida.ItemsSource = null;   // LIMPIEZA EXPLÍCITA DEL GRID DE CÓDIGOS
+            dgProductosSalida.ItemsSource = null; dgCodigosSalida.ItemsSource = null;
+            _modoActual = ModoFormulario.Ninguno;
         }
 
+        // ==========================================
+        // CABECERA: NUEVO, MODIFICAR, IMPRIMIR, ANULAR
+        // ==========================================
         private async void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
+            _modoActual = ModoFormulario.Nuevo;
             grdFormularioSalida.IsEnabled = true;
 
-            // Habilitar acciones operativas
+            // Habilitamos todos los campos necesarios para empezar a trabajar
+            cboMotivoSalida.IsEnabled = true;
+            dtpFechaDespacho.IsEnabled = true;
+            txtObservacionSalida.IsEnabled = true;
+            txtNumeroGuia.IsEnabled = true;
+            txtSerieGuia.IsEnabled = true;
+
             btnAgregarItem.IsEnabled = true;
             btnImportarExcel.IsEnabled = true;
+            btnEscanear.IsEnabled = true;
             btnGrabarSalida.IsEnabled = true;
             btnCancelar.IsEnabled = true;
+
             btnNuevo.IsEnabled = false;
+            btnModificarCabecera.IsEnabled = false;
 
             dtpFechaDespacho.SelectedDate = DateTime.Today;
+            txtNumeroSalida.IsReadOnly = true;
+            ActualizarVisibilidadCampos();
 
-            // Forzar el número de operación correlativo dinámico con una serie por defecto (Ej: "S001")
             try
             {
                 string seriePorDefecto = "S001";
                 var proxMov = await _salidaService.GenerarSiguienteCorrelativoAsync(seriePorDefecto);
-
                 txtSerieSalida.Text = proxMov.SerieDocumento;
                 txtNumeroSalida.Text = proxMov.NumeroDocumento;
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al generar el correlativo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error al generar correlativo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private void BtnCancelar_Click(object sender, RoutedEventArgs e)
+        private void BtnModificar_Click(object sender, RoutedEventArgs e)
         {
-            if (MessageBox.Show("¿Desea cancelar la operación actual? Perderá los datos no grabados.",
-                "Confirmación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-            {
-                EstadoInicialFormulario();
-            }
-        }
-
-        private void BtnSalir_Click(object sender, RoutedEventArgs e)
-        {
-            // Restablece y limpia visualmente la interfaz antes de delegar el cierre del contenedor
             EstadoInicialFormulario();
+            _modoActual = ModoFormulario.BuscandoParaEditar;
+
+            grdFormularioSalida.IsEnabled = true;
+            txtNumeroSalida.IsReadOnly = false;
+            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
+            txtSerieSalida.IsReadOnly = false;
+            txtSerieSalida.Text = "S001";
+
+            cboMotivoSalida.IsEnabled = false;
+            dtpFechaDespacho.IsEnabled = false;
+
+            txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
+            txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
+
+            MessageBox.Show("Escriba el N° de Documento y presione ENTER para cargar y modificar.", "Modo Edición", MessageBoxButton.OK, MessageBoxImage.Information);
+            txtNumeroSalida.Focus();
         }
 
+        private void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        {
+            EstadoInicialFormulario();
+            _modoActual = ModoFormulario.BuscandoParaImprimir;
+
+            grdFormularioSalida.IsEnabled = true;
+            txtNumeroSalida.IsReadOnly = false;
+            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
+            txtSerieSalida.IsReadOnly = false;
+            txtSerieSalida.Text = "S001";
+
+            cboMotivoSalida.IsEnabled = false;
+            dtpFechaDespacho.IsEnabled = false;
+
+            txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
+            txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
+
+            MessageBox.Show("Escriba el N° de Documento y presione ENTER para ver e imprimir.", "Modo Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
+            txtNumeroSalida.Focus();
+        }
+
+        private void BtnAnular_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Funcionalidad de anulación en construcción.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private async void txtNumeroSalida_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && (_modoActual == ModoFormulario.BuscandoParaEditar || _modoActual == ModoFormulario.BuscandoParaImprimir))
+            {
+                string serie = txtSerieSalida.Text.Trim();
+                string numStr = txtNumeroSalida.Text.Trim();
+
+                if (string.IsNullOrEmpty(numStr)) return;
+                if (int.TryParse(numStr, out int numVal)) numStr = numVal.ToString("D7");
+                txtNumeroSalida.Text = numStr;
+
+                try
+                {
+                    var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr);
+
+                    if (movCompleto == null || movCompleto.Movimiento == null)
+                    {
+                        MessageBox.Show("Movimiento no encontrado.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    _idMovimientoActual = movCompleto.Movimiento.Id;
+                    dtpFechaDespacho.SelectedDate = movCompleto.Movimiento.FechaMovimiento?.ToDateTime(TimeOnly.MinValue);
+                    cboMotivoSalida.SelectedValue = movCompleto.Movimiento.MotivoProductoId;
+                    txtSerieGuia.Text = movCompleto.Movimiento.SerieGuia;
+                    txtNumeroGuia.Text = movCompleto.Movimiento.NumeroGuia;
+                    txtObservacionSalida.Text = movCompleto.Movimiento.Observacion;
+
+                    // 🌟 CORRECCIÓN: Consultar el nombre real del cliente a la BD
+                    if (movCompleto.Movimiento.PersonaComercialId.HasValue)
+                    {
+                        _idClienteSeleccionado = movCompleto.Movimiento.PersonaComercialId;
+                        try
+                        {
+                            using var conn = new DatabaseConnection().GetConnection();
+                            await ((DbConnection)conn).OpenAsync();
+                            using var cmd = ((DbConnection)conn).CreateCommand();
+                            cmd.CommandText = "SELECT razon_social FROM personas_comerciales WHERE id = " + _idClienteSeleccionado;
+                            var res = await cmd.ExecuteScalarAsync();
+                            txtCliente.Text = res?.ToString() ?? "";
+                        }
+                        catch { txtCliente.Text = $"ID CLIENTE: {_idClienteSeleccionado}"; }
+                    }
+
+                    // 🌟 CORRECCIÓN: Consultar el nombre real de la ubicación a la BD
+                    if (movCompleto.Movimiento.UbicacionId.HasValue)
+                    {
+                        _idUbicacionSeleccionada = movCompleto.Movimiento.UbicacionId;
+                        try
+                        {
+                            using var conn = new DatabaseConnection().GetConnection();
+                            await ((DbConnection)conn).OpenAsync();
+                            using var cmd = ((DbConnection)conn).CreateCommand();
+                            cmd.CommandText = "SELECT descripcion FROM ubicaciones WHERE id = " + _idUbicacionSeleccionada;
+                            var res = await cmd.ExecuteScalarAsync();
+                            txtUbicacion.Text = res?.ToString() ?? "";
+                        }
+                        catch { txtUbicacion.Text = $"ID UBIC: {_idUbicacionSeleccionada}"; }
+                    }
+
+                    _productosLista.Clear();
+                    _codigosLista.Clear();
+
+                    var prodService = new ProductoService();
+
+                    foreach (var det in movCompleto.Detalles)
+                    {
+                        var prodData = await prodService.ObtenerPorIdAsync(det.ProductoId);
+
+                        var vistaProd = new VistaProductoGrid
+                        {
+                            Detalle = det,
+                            ProductoId = det.ProductoId,
+                            CodigoProducto = prodData?.Abreviatura ?? prodData?.Id.ToString() ?? "",
+                            Descripcion = prodData?.Descripcion ?? "Desconocido",
+                            Cantidad = Convert.ToInt32(det.CantidadSalida),
+                            UnidadMedida = "UND"
+                        };
+                        _productosLista.Add(vistaProd);
+
+                        using (var conn = new DatabaseConnection().GetConnection())
+                        {
+                            await ((DbConnection)conn).OpenAsync();
+                            using (var cmd = ((DbConnection)conn).CreateCommand())
+                            {
+                                cmd.CommandText = "SELECT cc.id, cc.codigo FROM movimiento_codigos mc JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id WHERE mc.movimiento_detalle_id = @detId";
+                                var p = cmd.CreateParameter(); p.ParameterName = "@detId"; p.Value = det.Id; cmd.Parameters.Add(p);
+                                using (var rdr = await cmd.ExecuteReaderAsync())
+                                {
+                                    while (await rdr.ReadAsync())
+                                    {
+                                        int idCodigo = rdr.GetInt32(0);
+                                        string codString = rdr.GetString(1);
+                                        string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(idCodigo);
+
+                                        _codigosLista.Add(new VistaCodigoGrid
+                                        {
+                                            ProductoId = det.ProductoId,
+                                            CodigoUnique = codString,
+                                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = idCodigo },
+                                            ColeccionTipo = tipoColeccionReal
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    RefrescarGrillas();
+
+                    txtNumeroSalida.IsReadOnly = true;
+                    txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+                    if (_modoActual == ModoFormulario.BuscandoParaEditar)
+                    {
+                        cboMotivoSalida.IsEnabled = true;
+                        dtpFechaDespacho.IsEnabled = true;
+                        txtObservacionSalida.IsEnabled = true;
+                        txtNumeroGuia.IsEnabled = true;
+                        txtSerieGuia.IsEnabled = true;
+
+                        btnAgregarItem.IsEnabled = true;
+                        btnImportarExcel.IsEnabled = true;
+                        btnEscanear.IsEnabled = true;
+                        btnGrabarSalida.IsEnabled = true;
+                        btnCancelar.IsEnabled = true;
+
+                        ActualizarVisibilidadCampos();
+                    }
+                    else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
+                    {
+                        btnCancelar.IsEnabled = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error al cargar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+        // ==========================================
+        // DETALLE: AGREGAR, MODIFICAR Y ELIMINAR 
+        // ==========================================
+
+        private async void btnAgregarItem_Click(object sender, RoutedEventArgs e)
+        {
+            var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
+            modal.IsAddAction = true;
+            modal.EstadoPermitido = 3;
+
+            if (modal.ShowDialog() == true && modal.FueGrabado)
+            {
+                var productoSelected = modal._productoSeleccionado;
+                var rangosDelModal = modal.ListaRangosAgregados;
+                if (productoSelected == null) return;
+
+                int idProducto = productoSelected.Id;
+                var existente = _productosLista.FirstOrDefault(p => p.ProductoId == idProducto);
+
+                if (existente != null && modal.MergeWithExisting)
+                {
+                    existente.Cantidad += modal.CantidadProductoIngresada;
+                    existente.Detalle.CantidadSalida += modal.CantidadProductoIngresada;
+                }
+                else
+                {
+                    if (existente != null)
+                    {
+                        MessageBox.Show("El producto ya existe. Use modificar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    // 🌟 AQUÍ ESTÁ LA CORRECCIÓN: Declaramos e instanciamos el servicio
+                    var prodService = new ProductoService();
+                    var prodData = await prodService.ObtenerPorIdAsync(idProducto);
+
+                    _productosLista.Add(new VistaProductoGrid
+                    {
+                        ProductoId = idProducto,
+                        CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
+                        Descripcion = prodData?.Descripcion ?? "Desconocido",
+                        UnidadMedida = "UNIDAD",
+                        Cantidad = (int)modal.CantidadProductoIngresada,
+                        Detalle = new MovimientoDetalle
+                        {
+                            ProductoId = idProducto,
+                            CantidadSalida = modal.CantidadProductoIngresada,
+                            CostoUnitario = prodData?.PrecioUnitario ?? 0
+                        }
+                    });
+                }
+
+                // 🌟 CORRECCIÓN CRÍTICA: Extraer los ID Reales de la BD, NO usar 0
+                var ingService = new IngresoMovimientoService();
+                var listaStrings = new List<string>();
+                foreach (var rango in rangosDelModal)
+                {
+                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                    {
+                        listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                    }
+                }
+
+                // Buscamos todos los códigos en la BD en una sola consulta rápida
+                var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
+
+                foreach (var codStr in listaStrings)
+                {
+                    string norm = ingService.NormalizarCodigo(codStr);
+                    if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
+                    {
+                        string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
+                        _codigosLista.Add(new VistaCodigoGrid
+                        {
+                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }, // 🌟 ID REAL
+                            CodigoUnique = tup.CodigoObj.Codigo,
+                            ProductoId = idProducto,
+                            ColeccionTipo = tipoColeccionReal
+                        });
+                    }
+                }
+                RefrescarGrillas();
+            }
+        }
+
+        private async void DgProductosSalida_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (dgProductosSalida.SelectedItem is VistaProductoGrid)
+            {
+                await EditSelectedProductAsync();
+            }
+        }
+
+        private async void BtnModificarDetalle_Click(object sender, RoutedEventArgs e)
+        {
+            if (dgProductosSalida.SelectedItem == null)
+            {
+                MessageBox.Show("Seleccione un producto del detalle para modificar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            await EditSelectedProductAsync();
+        }
+
+        private async Task EditSelectedProductAsync()
+        {
+            if (dgProductosSalida.SelectedItem is not VistaProductoGrid seleccionado) return;
+            var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
+
+            if (seleccionado.Detalle.CostoUnitario == 0)
+            {
+                var prodService = new ProductoService();
+                var prodActualizado = await prodService.ObtenerPorIdAsync(seleccionado.ProductoId);
+                seleccionado.Detalle.CostoUnitario = prodActualizado?.PrecioUnitario ?? 0;
+            }
+            // 🌟 TRUCO: Igualamos CantidadIngreso a CantidadSalida temporalmente 
+            // para que el modal de "Entrada" sepa cuántos elementos hay
+            seleccionado.Detalle.CantidadIngreso = seleccionado.Detalle.CantidadSalida;
+
+            var rangosReconstruidos = ReconstruirRangosDeCodigos(seleccionado.ProductoId);
+
+            modal.InitializeForEdit(seleccionado, rangosReconstruidos);
+            modal.EstadoPermitido = 3;
+
+            if (modal.ShowDialog() == true && modal.FueGrabado)
+            {
+                // Actualizamos los datos de salida
+                seleccionado.Detalle.CantidadSalida = modal.CantidadProductoIngresada;
+                seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
+                seleccionado.Cantidad = modal.CantidadProductoIngresada;
+
+                if (modal.ListaRangosAgregados != null && modal.ListaRangosAgregados.Count > 0)
+                {
+                    // Borramos los viejos
+                    var codigosViejos = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
+                    foreach (var cv in codigosViejos) _codigosLista.Remove(cv);
+
+                    // 🌟 CORRECCIÓN CRÍTICA: Extraer los ID Reales de la BD, NO usar 0
+                    var ingService = new IngresoMovimientoService();
+                    var listaStrings = new List<string>();
+                    foreach (var rango in modal.ListaRangosAgregados)
+                    {
+                        for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                        {
+                            listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                        }
+                    }
+
+                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
+
+                    foreach (var codStr in listaStrings)
+                    {
+                        string norm = ingService.NormalizarCodigo(codStr);
+                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
+                        {
+                            string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
+                            _codigosLista.Add(new VistaCodigoGrid
+                            {
+                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }, // 🌟 ID REAL
+                                CodigoUnique = tup.CodigoObj.Codigo,
+                                ProductoId = seleccionado.ProductoId,
+                                ColeccionTipo = tipoColeccionReal
+                            });
+                        }
+                    }
+                }
+                RefrescarGrillas();
+            }
+        }
+
+        private void BtnEliminar_Click(object sender, RoutedEventArgs e)
+        {
+            if (dgProductosSalida.SelectedItem is VistaProductoGrid seleccionado)
+            {
+                if (MessageBox.Show("¿Está seguro de eliminar este producto y sus códigos del detalle?", "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                {
+                    _productosLista.Remove(seleccionado);
+
+                    var codigosAQuitar = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
+                    foreach (var c in codigosAQuitar) _codigosLista.Remove(c);
+
+                    RefrescarGrillas();
+                }
+            }
+            else
+            {
+                MessageBox.Show("Seleccione un producto para eliminar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void DgProductosSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (dgProductosSalida.SelectedItem is VistaProductoGrid productoSeleccionado)
+            {
+                var codigosFiltrados = _codigosLista.Where(c => c.ProductoId == productoSeleccionado.ProductoId).ToList();
+                dgCodigosSalida.ItemsSource = codigosFiltrados;
+
+                btnModificarDetalle.IsEnabled = true;
+                btnEliminarItem.IsEnabled = true;
+            }
+            else
+            {
+                dgCodigosSalida.ItemsSource = _codigosLista.ToList(); // ToList() repinta el N°
+                btnModificarDetalle.IsEnabled = false;
+                btnEliminarItem.IsEnabled = false;
+            }
+        }
+
+        // ==========================================
+        // PROCESAR GUARDADO DE LA SALIDA
+        // ==========================================
+        private async void btnGrabarSalida_Click(object sender, RoutedEventArgs e)
+        {
+            if (_productosLista.Count == 0 || _codigosLista.Count == 0)
+            {
+                MessageBox.Show("No hay productos o códigos en la lista para procesar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (string.IsNullOrEmpty(txtNumeroSalida.Text))
+            {
+                MessageBox.Show("El número de salida no puede estar vacío.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                btnGrabarSalida.IsEnabled = false;
+
+                var movimiento = new Movimiento
+                {
+                    SerieDocumento = txtSerieSalida.Text,
+                    NumeroDocumento = txtNumeroSalida.Text,
+                    FechaMovimiento = dtpFechaDespacho.SelectedDate.HasValue ? DateOnly.FromDateTime(dtpFechaDespacho.SelectedDate.Value) : DateOnly.FromDateTime(DateTime.Now),
+                    UbicacionId = txtUbicacion.IsEnabled ? _idUbicacionSeleccionada : null,
+                    PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : null,
+                    MotivoProductoId = (int)cboMotivoSalida.SelectedValue,
+                    Observacion = txtObservacionSalida.Text,
+                    SerieGuia = txtSerieGuia.Text,
+                    NumeroGuia = txtNumeroGuia.Text,
+                    CreatedAt = DateTime.Now
+                };
+
+                bool resultado = await _salidaService.RegistrarSalidaCompletaAsync(
+                         movimiento,
+                         _productosLista.ToList(),
+                         _codigosLista.ToList(),
+                         idUsuarioLogueado,
+                         estadoSalida,
+                         _idMovimientoActual
+                     );
+
+                if (resultado)
+                {
+                    MessageBox.Show("Salida registrada correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    EstadoInicialFormulario();
+                    EventBus.NotificarMovimientosChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error crítico al grabar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                btnGrabarSalida.IsEnabled = true;
+            }
+        }
+
+        // ==========================================
+        // IMPORTAR Y ESCANEAR
+        // ==========================================
+        private async void BtnImportarExcel_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
+                win.EstadoPermitido = 3;
+
+                if (win.ShowDialog() != true) return;
+
+                var listaRaw = win.CodigosImportados ?? new List<string>();
+                if (!listaRaw.Any()) return;
+
+                var ingService = new IngresoMovimientoService();
+                var lookup = await ingService.ObtenerCodigosPorListaAsync(listaRaw);
+                var productosAgrupados = new Dictionary<int, int>();
+
+                // 🌟 Obtener categorías reales masivamente (evitar consultas unitarias)
+                var idsCreados = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.Id).ToList();
+                var dicColecciones = new Dictionary<int, string>();
+                if (idsCreados.Any())
+                {
+                    using var conn = new DatabaseConnection().GetConnection();
+                    await ((DbConnection)conn).OpenAsync();
+                    using var cmd = ((DbConnection)conn).CreateCommand();
+                    string idsParam = string.Join(",", idsCreados);
+                    cmd.CommandText = $@"
+                        SELECT cc.id, rc.categoria_producto_id, c.ano 
+                        FROM codigos_creados cc
+                        JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                        LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                        WHERE cc.id IN ({idsParam})";
+                    using var rdr = await cmd.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
+                    {
+                        string ano = rdr.IsDBNull(2) ? "" : rdr.GetValue(2).ToString();
+                        int cat = rdr.IsDBNull(1) ? 1 : rdr.GetInt32(1);
+                        string tipo = cat == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+                        dicColecciones[rdr.GetInt32(0)] = string.IsNullOrEmpty(ano) ? tipo : $"C{ano} / {tipo}";
+                    }
+                }
+
+                foreach (var raw in listaRaw)
+                {
+                    string norm = ingService.NormalizarCodigo(raw);
+                    if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
+
+                    int codigoId = tup.CodigoObj.Id;
+                    int productoId = tup.ProductoId.Value;
+
+                    if (tup.CodigoObj.EstadoId != 3) continue;
+                    if (_codigosLista.Any(c => string.Equals(c.CodigoUnique, tup.CodigoObj.Codigo, StringComparison.OrdinalIgnoreCase))) continue;
+
+                    string colTipo = dicColecciones.ContainsKey(codigoId) ? dicColecciones[codigoId] : "LIBRO VENTA";
+
+                    _codigosLista.Add(new VistaCodigoGrid
+                    {
+                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoId },
+                        CodigoUnique = tup.CodigoObj.Codigo,
+                        ProductoId = productoId,
+                        ColeccionTipo = colTipo
+                    });
+
+                    if (!productosAgrupados.ContainsKey(productoId)) productosAgrupados[productoId] = 0;
+                    productosAgrupados[productoId]++;
+                }
+
+                var prodService = new ProductoService();
+                foreach (var kv in productosAgrupados)
+                {
+                    var existente = _productosLista.FirstOrDefault(p => p.ProductoId == kv.Key);
+                    if (existente != null)
+                    {
+                        existente.Detalle.CantidadSalida += kv.Value;
+                        existente.Cantidad += kv.Value;
+                    }
+                    else
+                    {
+                        // Ahora prodService ya existe en este contexto y no dará error
+                        var prodData = await prodService.ObtenerPorIdAsync(kv.Key);
+
+                        _productosLista.Add(new VistaProductoGrid
+                        {
+                            Detalle = new MovimientoDetalle { ProductoId = kv.Key, CantidadSalida = kv.Value, CostoUnitario = prodData?.PrecioUnitario ?? 0 },
+                            ProductoId = kv.Key,
+                            CodigoProducto = prodData?.Abreviatura ?? kv.Key.ToString(),
+                            Descripcion = prodData?.Descripcion ?? "Desconocido",
+                            Cantidad = kv.Value,
+                            UnidadMedida = "UNIDAD"
+                        });
+                    }
+                }
+                RefrescarGrillas();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al importar códigos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnEscanear_Click(object sender, RoutedEventArgs e)
+        {
+            var lector = new LectorGlobalWindow(async resultado =>
+            {
+                bool ok = await ProcesarCodigoEscaneadoAsync(resultado);
+
+                if (ok)
+                {
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        SincronizarCantidadesConCodigos();
+                        RefrescarGrillas();
+                    });
+                }
+
+                return ok;
+            });
+
+            lector.Owner = Window.GetWindow(this);
+            lector.ShowDialog();
+
+            RefrescarGrillas();
+        }
+
+        // 🌟 CAMBIADO A Task<bool> PARA RESOLVER EL ERROR CS0029
+        private async Task<bool> ProcesarCodigoEscaneadoAsync(LectoraResultDTO resultado)
+        {
+            if (resultado.EstadoId != 3)
+            {
+                MessageBox.Show(
+                    $"El código '{resultado.CodigoCompleto}' no está en almacén.",
+                    "Aviso",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return false;
+            }
+
+            if (_codigosLista.Any(x => x.CodigoUnique == resultado.CodigoCompleto))
+                return false;
+
+            string tipoBD = await ObtenerColeccionTipoBDAsync(resultado.CodigoCreadoId);
+
+            _codigosLista.Add(new VistaCodigoGrid
+            {
+                ProductoId = resultado.ProductoId,
+                CodigoUnique = resultado.CodigoCompleto,
+                ColeccionTipo = tipoBD,
+                MovCodigo = new MovimientoCodigo
+                {
+                    CodigoCreadoId = resultado.CodigoCreadoId
+                }
+            });
+
+            var producto = _productosLista
+                .FirstOrDefault(x => x.ProductoId == resultado.ProductoId);
+
+            if (producto != null)
+            {
+                producto.Cantidad++;
+
+                if (producto.Detalle != null)
+                    producto.Detalle.CantidadSalida++;
+            }
+            else
+            {
+                var prodService = new ProductoService();
+                var prodData = await prodService.ObtenerPorIdAsync(resultado.ProductoId);
+
+                _productosLista.Add(new VistaProductoGrid
+                {
+                    ProductoId = resultado.ProductoId,
+                    CodigoProducto = prodData?.Abreviatura ?? resultado.ProductoId.ToString(),
+                    Descripcion = prodData?.Descripcion ?? resultado.DescripcionProducto,
+                    UnidadMedida = "UNIDAD",
+                    Cantidad = 1,
+                    Detalle = new MovimientoDetalle
+                    {
+                        ProductoId = resultado.ProductoId,
+                        CantidadSalida = 1,
+                        CostoUnitario = prodData?.PrecioUnitario ?? 0
+                    }
+                });
+            }
+
+            RefrescarGrillas();
+
+            return true;
+        }
+
+        // ==========================================
+        // COMBO MOTIVO SALIDA Y CAMPOS DINÁMICOS
+        // ==========================================
         private async void CargarComboMotivosSalida()
         {
             try
@@ -269,16 +928,55 @@ namespace AplicativoDeAlmacen.Views
                 cboMotivoSalida.DisplayMemberPath = "Descripcion";
                 cboMotivoSalida.SelectedValuePath = "Id";
             }
-            catch (Exception ex)
+            catch (Exception ex) { }
+        }
+
+        private void CboMotivoSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            ActualizarVisibilidadCampos();
+        }
+
+        private void ActualizarVisibilidadCampos()
+        {
+            var motivo = cboMotivoSalida.SelectedItem as dynamic;
+            string descripcion = motivo?.Descripcion?.ToString().ToLower() ?? "";
+
+            txtCliente.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+
+            if (descripcion.Contains("venta") || descripcion.Contains("devolucion") || descripcion.Contains("feria") || descripcion.Contains("donacion"))
             {
-                MessageBox.Show($"Error al cargar motivos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                txtCliente.IsEnabled = true;
+            }
+            if (descripcion.Contains("transferencia"))
+            {
+                txtUbicacion.IsEnabled = true;
+            }
+            if (descripcion.Contains("otros") || descripcion.Contains("promocion"))
+            {
+                txtCliente.IsEnabled = true;
+                txtUbicacion.IsEnabled = true;
+            }
+
+            if (!txtCliente.IsEnabled)
+            {
+                txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear(); _idClienteSeleccionado = null;
+            }
+            if (!txtUbicacion.IsEnabled)
+            {
+                txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); _idUbicacionSeleccionada = null;
             }
         }
 
-        // =========================================================================
-        // EVENTOS COMPORTAMIENTO AUTOCOMPLETADO (Popups Inteligentes)
-        // =========================================================================
+        private void BtnCancelar_Click(object sender, RoutedEventArgs e)
+        {
+            if (MessageBox.Show("¿Desea cancelar la operación actual?", "Confirmación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                EstadoInicialFormulario();
+            }
+        }
 
+        // Buscadores
         private async void TxtCliente_TextChanged(object sender, TextChangedEventArgs e)
         {
             string filtro = txtCliente.Text.Trim();
@@ -288,26 +986,7 @@ namespace AplicativoDeAlmacen.Views
                 lstClientes.ItemsSource = _listaClientes;
                 popupClientes.IsOpen = _listaClientes.Count > 0;
             }
-            else
-            {
-                popupClientes.IsOpen = false;
-            }
-        }
-
-        private void LstClientes_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (lstClientes.SelectedItem is PersonaComercial cliente)
-            {
-                txtCliente.TextChanged -= TxtCliente_TextChanged;
-
-                txtCliente.Text = cliente.RazonSocial;
-                txtCodigoCliente.Text = cliente.Id.ToString("D6");
-                txtDireccionCliente.Text = cliente.Direccion;
-                _idClienteSeleccionado = cliente.Id; // Usamos la variable corregida con guion bajo
-
-                popupClientes.IsOpen = false;
-                txtCliente.TextChanged += TxtCliente_TextChanged;
-            }
+            else { popupClientes.IsOpen = false; }
         }
 
         private async void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
@@ -319,288 +998,95 @@ namespace AplicativoDeAlmacen.Views
                 lstUbicaciones.ItemsSource = _listaUbicaciones;
                 popupUbicaciones.IsOpen = _listaUbicaciones.Count > 0;
             }
-            else
-            {
-                popupUbicaciones.IsOpen = false;
-            }
+            else { popupUbicaciones.IsOpen = false; }
         }
 
-        private void LstUbicaciones_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void LstClientes_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (lstUbicaciones.SelectedItem is Ubicacion ub)
-            {
-                txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
-
-                txtUbicacion.Text = ub.Descripcion;
-                txtCodigoUbicacion.Text = ub.Id.ToString();
-                txtDireccionUbicacion.Text = ub.Direccion;
-                _idUbicacionSeleccionada = ub.Id; // Usamos la variable corregida con guion bajo
-
-                popupUbicaciones.IsOpen = false;
-                txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
-            }
-        }
-
-        private void LstClientes_PreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        {
-            var dependencyObject = (DependencyObject)e.OriginalSource;
-            while (dependencyObject != null && !(dependencyObject is ListBoxItem))
-            {
-                dependencyObject = System.Windows.Media.VisualTreeHelper.GetParent(dependencyObject);
-            }
-
-            if (dependencyObject is ListBoxItem item && item.DataContext is PersonaComercial cliente)
+            if (lstClientes.SelectedItem is PersonaComercial cliente)
             {
                 txtCliente.TextChanged -= TxtCliente_TextChanged;
-
                 txtCliente.Text = cliente.RazonSocial;
                 txtCodigoCliente.Text = cliente.Id.ToString("D6");
                 txtDireccionCliente.Text = cliente.Direccion;
                 _idClienteSeleccionado = cliente.Id;
-
                 popupClientes.IsOpen = false;
                 lstClientes.SelectedIndex = -1;
-
                 txtCliente.TextChanged += TxtCliente_TextChanged;
                 e.Handled = true;
             }
         }
 
-        private void LstUbicaciones_PreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        private void LstUbicaciones_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            var dependencyObject = (DependencyObject)e.OriginalSource;
-            while (dependencyObject != null && !(dependencyObject is ListBoxItem))
-            {
-                dependencyObject = System.Windows.Media.VisualTreeHelper.GetParent(dependencyObject);
-            }
-
-            if (dependencyObject is ListBoxItem item && item.DataContext is Ubicacion ub)
+            if (lstUbicaciones.SelectedItem is Ubicacion ub)
             {
                 txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
-
                 txtUbicacion.Text = ub.Descripcion;
                 txtCodigoUbicacion.Text = ub.Id.ToString();
                 txtDireccionUbicacion.Text = ub.Direccion;
                 _idUbicacionSeleccionada = ub.Id;
-
                 popupUbicaciones.IsOpen = false;
                 lstUbicaciones.SelectedIndex = -1;
-
                 txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
                 e.Handled = true;
             }
         }
 
-        private void DgProductosSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void SincronizarCantidadesConCodigos()
         {
-            if (dgProductosSalida.SelectedItem is VistaProductoGrid productoSeleccionado)
+            foreach (var producto in _productosLista)
             {
-                // El filtro aquí es crítico:
-                var codigosFiltrados = _codigosLista
-                    .Where(c => c.ProductoId == productoSeleccionado.ProductoId)
-                    .ToList();
+                // Contamos cuántos códigos tiene este producto en la grilla derecha
+                int count = _codigosLista.Count(c => c.ProductoId == producto.ProductoId);
 
-                dgCodigosSalida.ItemsSource = codigosFiltrados; // <-- Esto reemplaza la fuente, está bien.
+                // Actualizamos la cantidad en el objeto VistaProductoGrid
+                producto.Cantidad = count;
+
+                // Si tienes un objeto Detalle (de Entity Framework), actualiza el campo correspondiente
+                if (producto.Detalle != null)
+                {
+                    producto.Detalle.CantidadSalida = count;
+                }
             }
+
+            // Forzamos el refresco visual para que la columna "Cantidad" cambie de 0 a X
+            dgProductosSalida.Items.Refresh();
+            dgCodigosSalida.Items.Refresh();
         }
 
-        // =========================================================================
-        // ACCIONES DE DETALLE DE ÍTEMS (Llamada al Modal - Única Versión)
-        // =========================================================================
-        // 1. Evento de cambio de motivo
-        private void CboMotivoSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            ActualizarVisibilidadCampos();
-        }
-        private void ActualizarVisibilidadCampos()
-        {
-            // Obtenemos el motivo seleccionado
-            var motivo = cboMotivoSalida.SelectedItem as dynamic;
-            string descripcion = motivo?.Descripcion?.ToString().ToLower() ?? "";
-
-            // 1. Resetear estados: Bloqueamos ambos por defecto
-            txtCliente.IsEnabled = false;
-            txtUbicacion.IsEnabled = false;
-
-            // 2. Lógica específica según el motivo
-            switch (descripcion)
-            {
-                case "transferencia":
-                case "transferencia entre almacenes":
-                    txtUbicacion.IsEnabled = true;
-                    break;
-
-                case "devolucion entregada":
-                case "donacion":
-                case "feria":
-                case "consignacion":
-                case "venta":
-                    txtCliente.IsEnabled = true;
-                    break;
-
-                case "otros":
-                case "promocion/promotoria":
-                    txtCliente.IsEnabled = true;
-                    txtUbicacion.IsEnabled = true;
-                    break;
-
-                default:
-                    // Si no hay motivo o es desconocido, mantener ambos bloqueados
-                    break;
-            }
-
-            // 3. Limpieza de datos si el campo queda bloqueado
-            if (!txtCliente.IsEnabled)
-            {
-                txtCliente.Clear();
-                txtCodigoCliente.Clear();
-                txtDireccionCliente.Clear();
-                _idClienteSeleccionado = null;
-            }
-
-            if (!txtUbicacion.IsEnabled)
-            {
-                txtUbicacion.Clear();
-                txtCodigoUbicacion.Clear();
-                txtDireccionUbicacion.Clear();
-                _idUbicacionSeleccionada = null;
-            }
-        }
-
-        // 2. Método centralizado de control de UI
-
-        private void btnAgregarItem_Click(object sender, RoutedEventArgs e)
+        private async Task<decimal> ObtenerCostoUnitarioProductoAsync(int productoId)
         {
             try
             {
-                DetalleProductoModal modal = new DetalleProductoModal();
-                modal.Owner = Window.GetWindow(this);
+                using var conn = new DatabaseConnection().GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+            SELECT costo_unitario 
+            FROM productos 
+            WHERE id = @productoId");
 
-                bool? resultado = modal.ShowDialog();
+                var p = cmd.CreateParameter();
+                p.ParameterName = "@productoId";
+                p.Value = productoId;
+                cmd.Parameters.Add(p);
 
-                if (resultado == true)
+                using var rdr = await cmd.ExecuteReaderAsync();
+                if (await rdr.ReadAsync())
                 {
-                    // 1. Añadir el producto principal a la lista de la izquierda
-                    if (modal.ProductoGridGenerado != null)
+                    if (!rdr.IsDBNull(0))
                     {
-                        _productosLista.Add(modal.ProductoGridGenerado);
+                        return rdr.GetDecimal(0);
                     }
-
-                    // 2. Añadir el desglose de códigos a la lista MAESTRA (no al grid directamente)
-                    if (modal.ListaCodigosGenerados != null)
-                    {
-                       
-                        foreach (var cod in modal.ListaCodigosGenerados)
-                        {
-                            // ¡ASEGÚRATE DE QUE EL CODIGO TENGA EL PRODUCTOID ASIGNADO AQUÍ!
-                   
-                            cod.ProductoId = modal.ProductoGridGenerado.ProductoId;
-                            _codigosLista.Add(cod);
-
-                        }
-                    }
-
-                    // 3. Forzar refresco visual solo de la lista de productos
-                    dgProductosSalida.ItemsSource = null;
-                    dgProductosSalida.ItemsSource = _productosLista;
-
-                    // 4. Seleccionamos el producto recién agregado para disparar el filtro
-                    dgProductosSalida.SelectedItem = modal.ProductoGridGenerado;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al recibir los datos del modal: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Diagnostics.Debug.WriteLine($"Error obteniendo costo: {ex.Message}");
             }
-        }
-
-        // Aquí puedes colocar tu método `btnGrabarSalida_Click` cuando lo necesites implementar
-        private async void btnGrabarSalida_Click(object sender, RoutedEventArgs e)
-        {
-            // 1. Validaciones básicas de lista
-            if (_productosLista.Count == 0 || _codigosLista.Count == 0)
-            {
-                MessageBox.Show("No hay productos o códigos en la lista para procesar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // 2. Validación de número de salida (siempre es obligatorio)
-            if (string.IsNullOrEmpty(txtNumeroSalida.Text))
-            {
-                MessageBox.Show("El número de salida no puede estar vacío.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            // 3. Validación DINÁMICA: Solo valida si el campo está habilitado según el motivo
-            if (txtCliente.IsEnabled && _idClienteSeleccionado == null)
-            {
-                MessageBox.Show("Debe seleccionar un cliente para este motivo de salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (txtUbicacion.IsEnabled && _idUbicacionSeleccionada == null)
-            {
-                MessageBox.Show("Debe seleccionar una ubicación para este motivo de salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            try
-            {
-                btnGrabarSalida.IsEnabled = false;
-
-                // 4. Crear el objeto con manejo de nulos seguro
-                var movimiento = new Movimiento
-                {
-                    SerieDocumento = txtSerieSalida.Text,
-                    NumeroDocumento = txtNumeroSalida.Text,
-                    FechaMovimiento = dtpFechaDespacho.SelectedDate.HasValue ? DateOnly.FromDateTime(dtpFechaDespacho.SelectedDate.Value) : DateOnly.FromDateTime(DateTime.Now),
-                    // Si el campo estaba deshabilitado, enviamos null o un valor por defecto (0) según tu base de datos
-                    UbicacionId = txtUbicacion.IsEnabled ? _idUbicacionSeleccionada.Value : (int?)null,
-                    PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : (int?)null,
-                    MotivoProductoId = (int)cboMotivoSalida.SelectedValue,
-                    Observacion = txtObservacionSalida.Text,
-                    CreatedAt = DateTime.Now
-                };
-
-                // 2. Preparar el detalle y los códigos desde tus colecciones reactivas
-                // Transformamos lo que está en la grilla al formato que espera tu Service
-                var detalles = _productosLista.Select(p => p.Detalle).ToList();
-                var codigos = _codigosLista.Select(c => c.MovCodigo).ToList();
-
-                // 3. Llamar al servicio transaccional
-                bool resultado = await _salidaService.RegistrarSalidaCompletaAsync(
-                         movimiento,
-                         _productosLista.ToList(), // Convertimos la ObservableCollection a List
-                         _codigosLista.ToList(),   // Convertimos la ObservableCollection a List
-                         idUsuarioLogueado,
-                         estadoSalida
-                     );
-
-
-                if (_codigosLista.Any(c => c.MovCodigo == null))
-                {
-                    MessageBox.Show("Error: Hay códigos en la lista que no tienen el objeto 'MovCodigo' inicializado.");
-                    return;
-                }
-                    if (resultado)
-                {
-                    MessageBox.Show("Salida registrada correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
-                    EstadoInicialFormulario(); // Limpia todo para una nueva operación
-                    EventBus.NotificarMovimientosChanged();
-                }
-                else
-                {
-                    MessageBox.Show("Hubo un problema al guardar el movimiento en la base de datos.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error crítico al grabar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                btnGrabarSalida.IsEnabled = true;
-            }
+            return 0m; // Retorna 0 si no encuentra el costo
         }
     }
 }

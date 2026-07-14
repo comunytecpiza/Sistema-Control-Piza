@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
@@ -13,7 +13,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using ClosedXML.Excel;
-using Microsoft.Win32; // <--- Esta es la librería correcta para WPF
+using Microsoft.Win32; // <--- Esta es la librerÃ­a correcta para WPF
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
@@ -24,14 +24,14 @@ using System.Diagnostics;
 namespace AplicativoDeAlmacen.Views
 {
     /// <summary>
-    /// Lógica de interacción para ImportarCodigos.xaml
+    /// LÃ³gica de interacciÃ³n para ImportarCodigos.xaml
     /// </summary>
     public partial class ImportarCodigos : Window
     {
-        // Estado permitido según motivo (1=COMPRA -> estado 1, otro -> estado 4). Si 0, no filtrar por estado.
+        // Estado permitido segÃºn motivo (1=COMPRA -> estado 1, otro -> estado 4). Si 0, no filtrar por estado.
         public int EstadoPermitido { get; set; } = 0;
 
-        // Si se marca, al transferir incluir códigos aunque su estado no sea el permitido
+        // Si se marca, al transferir incluir cÃ³digos aunque su estado no sea el permitido
         private bool GetIncluirInvalidos()
         {
             try
@@ -41,7 +41,7 @@ namespace AplicativoDeAlmacen.Views
             }
             catch { return false; }
         }
-        // Propiedad pública para que la ventana principal pueda leer los datos
+        // Propiedad pÃºblica para que la ventana principal pueda leer los datos
         public List<string> CodigosImportados { get; set; } = new List<string>();
         private readonly IngresoMovimientoService _serviceMovimiento = new IngresoMovimientoService();
         private readonly DatabaseConnection _db = new DatabaseConnection();
@@ -62,13 +62,13 @@ namespace AplicativoDeAlmacen.Views
         public ImportarCodigos()
         {
             InitializeComponent();
-            // Inicialmente no permitimos transferir hasta que haya al menos un código encontrado
+            // Inicialmente no permitimos transferir hasta que haya al menos un cÃ³digo encontrado
             try
             {
                 btnTransferir.IsEnabled = false;
             }
             catch { }
-            // Actualizar estado del botón cuando se editen checkboxes en la grilla
+            // Actualizar estado del botÃ³n cuando se editen checkboxes en la grilla
             try
             {
                 dgDatos.CellEditEnding += (s, e) => {
@@ -84,7 +84,7 @@ namespace AplicativoDeAlmacen.Views
         private DataTable LeerExcel(string ruta)
         {
             // Leer todo el rango usado y devolver una DataTable con UNA COLUMNA llamada "Codigo".
-            // Esto asegura que se recojan códigos distribuidos en varias columnas (A,B,C...) como suele venir en tus excels.
+            // Esto asegura que se recojan cÃ³digos distribuidos en varias columnas (A,B,C...) como suele venir en tus excels.
             DataTable dt = new DataTable();
             dt.Columns.Add("Codigo");
 
@@ -94,7 +94,7 @@ namespace AplicativoDeAlmacen.Views
                 var usedRange = worksheet.RangeUsed();
                 if (usedRange == null) return dt;
 
-                // Recorrer todas las celdas usadas y añadir cada valor no vacío como fila independiente
+                // Recorrer todas las celdas usadas y aÃ±adir cada valor no vacÃ­o como fila independiente
                 foreach (var row in usedRange.Rows())
                 {
                     foreach (var cell in row.Cells())
@@ -115,7 +115,7 @@ namespace AplicativoDeAlmacen.Views
         private DataTable LeerTXT(string ruta)
         {
             DataTable dt = new DataTable();
-            dt.Columns.Add("Codigo"); // Nombre de la columna que verás en el DataGrid
+            dt.Columns.Add("Codigo"); // Nombre de la columna que verÃ¡s en el DataGrid
 
             string[] lineas = System.IO.File.ReadAllLines(ruta);
             foreach (string linea in lineas)
@@ -136,7 +136,7 @@ namespace AplicativoDeAlmacen.Views
                 // 1. Ponemos la ruta en el TextBox (el que dice 373 en tu imagen)
                 txtRutaArchivo.Text = openFileDialog.FileName;
 
-                // 2. Detectamos la extensión
+                // 2. Detectamos la extensiÃ³n
                 string extension = System.IO.Path.GetExtension(openFileDialog.FileName).ToLower();
                 DataTable dt = new DataTable();
 
@@ -151,11 +151,11 @@ namespace AplicativoDeAlmacen.Views
                         dt = LeerTXT(openFileDialog.FileName);
                     }
 
-                    // 3. Prevalidar contra la BD y mostrar previsualización
+                    // 3. Prevalidar contra la BD y mostrar previsualizaciÃ³n
                     var rawList = dt.Rows.Cast<DataRow>().Select(r => r[0].ToString().Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
                     txtTotalCodigos.Text = rawList.Count.ToString();
 
-                    // Llamar al servicio para obtener mapping de códigos encontrados
+                    // Llamar al servicio para obtener mapping de cÃ³digos encontrados
                     var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(rawList);
 
                     // Obtener producto descripciones para los productIds encontrados (parametrizado)
@@ -186,7 +186,7 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // Preparar mapping de estados (nombre) para mostrar en la previsualización
+                    // Preparar mapping de estados (nombre) para mostrar en la previsualizaciÃ³n
                     var estadoIds = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.EstadoId).Where(id => id != 0).Distinct().ToList();
                     var estadoMap = new Dictionary<int, string>();
                     if (estadoIds.Any())
@@ -215,7 +215,7 @@ namespace AplicativoDeAlmacen.Views
                     try { pnlLoading.Visibility = Visibility.Visible; } catch { }
                     await Task.Delay(50);
 
-                    // Construir filas de previsualización
+                    // Construir filas de previsualizaciÃ³n
                     var preview = new List<PreviewRow>();
                     foreach (var raw in rawList)
                     {
@@ -229,28 +229,33 @@ namespace AplicativoDeAlmacen.Views
                         {
                             CodigoRaw = raw,
                             CodigoNorm = norm,
-                            // Mostrar como encontrado solo si existe en BD y cumple la condición de estado o si el usuario eligió incluir inválidos
-                            // Mostrar como encontrado solo si existe en BD y cumple la condición de estado o si el usuario eligió incluir inválidos
-                            Encontrado = isFound && (estadoValido || GetIncluirInvalidos()),
+                            Encontrado = isFound && (estadoValido || GetIncluirInvalidos()), // Primero validamos si existe
+
+                            // ðŸŒŸ AQUÃ ESTÃ LA LÃ“GICA DE VALIDACIÃ“N ESTRICTA
+                            // Un cÃ³digo es vÃ¡lido si: Existe en BD AND (El estado coincide con EstadoPermitido O el usuario forzÃ³ la inclusiÃ³n)
+                            EstadoValido = isFound && (EstadoPermitido == 0 || tup.CodigoObj.EstadoId == EstadoPermitido),
+
                             CodigoCreadoId = tup.CodigoObj?.Id,
                             ProductoId = tup.ProductoId,
                             ProductoDesc = tup.ProductoId.HasValue && prodMap.ContainsKey(tup.ProductoId.Value) ? prodMap[tup.ProductoId.Value] : string.Empty,
                             EstadoId = tup.CodigoObj?.EstadoId,
-                            EstadoNombre = (tup.CodigoObj != null && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : string.Empty,
-                            EstadoValido = estadoValido
+                            EstadoNombre = (tup.CodigoObj != null && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : string.Empty
                         };
+
+                        // ðŸŒŸ Actualizamos 'Encontrado' para que el checkbox de la grilla dependa de la validaciÃ³n
+                        pr.Encontrado = pr.EstadoValido || GetIncluirInvalidos();
                         preview.Add(pr);
                     }
 
-                    // Ordenar por producto (nombre) y luego por código
+                    // Ordenar por producto (nombre) y luego por cÃ³digo
                     preview = preview.OrderBy(p => p.ProductoDesc).ThenBy(p => p.CodigoRaw).ToList();
-                    // Reasignar números de fila
+                    // Reasignar nÃºmeros de fila
                     int idx2 = 1;
                     foreach (var p in preview) p.RowNumber = idx2++;
 
                     dgDatos.ItemsSource = preview;
 
-                    // Actualizar conteos y estado del botón Transferir según la previsualización
+                    // Actualizar conteos y estado del botÃ³n Transferir segÃºn la previsualizaciÃ³n
                     UpdateTransferButtonState(preview);
                     try
                     {
@@ -275,7 +280,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
-            // Llenamos nuestra lista pública con los códigos marcados como Encontrado en la previsualización
+            // Llenamos nuestra lista pÃºblica con los cÃ³digos marcados como Encontrado en la previsualizaciÃ³n
             CodigosImportados.Clear();
             if (dgDatos.ItemsSource is IEnumerable<PreviewRow> rows)
             {
@@ -288,7 +293,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 foreach (var item in anyRows)
                 {
-                    // intentar convertir dinámicamente
+                    // intentar convertir dinÃ¡micamente
                     try
                     {
                         var prop = item.GetType().GetProperty("CodigoRaw");
@@ -305,18 +310,18 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // Confirmar acción al usuario
+            // Confirmar acciÃ³n al usuario
             int total = CodigosImportados.Count;
             if (total == 0)
             {
-                MessageBox.Show("No hay códigos seleccionados para transferir.", "Transferir", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("No hay cÃ³digos seleccionados para transferir.", "Transferir", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            var resp = MessageBox.Show($"Se transferirán {total} códigos. ¿Desea continuar?","Confirmar transferencia", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var resp = MessageBox.Show($"Se transferirÃ¡n {total} cÃ³digos. Â¿Desea continuar?","Confirmar transferencia", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (resp != MessageBoxResult.Yes) return;
 
-            // Indicamos que la operación fue exitosa y cerramos
+            // Indicamos que la operaciÃ³n fue exitosa y cerramos
             this.DialogResult = true;
             this.Close();
         }
@@ -403,7 +408,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (dgDatos.ItemsSource is not IEnumerable<PreviewRow> rows) return;
                 var invalids = rows.Where(r => r.CodigoCreadoId.HasValue && r.EstadoId.HasValue && EstadoPermitido != 0 && r.EstadoId.Value != EstadoPermitido).ToList();
-                if (!invalids.Any()) { MessageBox.Show("No hay códigos inválidos para exportar.", "Exportar inválidos", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+                if (!invalids.Any()) { MessageBox.Show("No hay cÃ³digos invÃ¡lidos para exportar.", "Exportar invÃ¡lidos", MessageBoxButton.OK, MessageBoxImage.Information); return; }
 
                 var lines = new List<string> { "Codigo;Normalizado;Estado" };
                 foreach (var i in invalids) lines.Add($"{i.CodigoRaw};{i.CodigoNorm};{i.EstadoNombre}");
@@ -414,7 +419,7 @@ namespace AplicativoDeAlmacen.Views
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error exportando inválidos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error exportando invÃ¡lidos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

@@ -9,17 +9,17 @@ namespace AplicativoDeAlmacen.Models
 {
     public class VistaCodigoGrid
     {
-        public MovimientoCodigo MovCodigo { get; set; } // Modelo EF original
-        public int NumeroFila => MovCodigo.MovimientoDetalleId;
-        public string CodigoUnique { get; set; }         // El código físico (Ej: "LIB0000123")
-        public string ColeccionTipo { get; set; }        // Descripción complementaria
-        // 💡 AGREGA ESTA LÍNEA: Sirve de puente para que tu DataGrid XAML lea la propiedad "Codigo"
+        public MovimientoCodigo MovCodigo { get; set; } = new MovimientoCodigo();
+        public int NumeroFila { get; set; }
+        public string CodigoUnique { get; set; } = "";
+        public string ColeccionTipo { get; set; } = "";
         public string Codigo => CodigoUnique;
 
+        // Agregamos el set público para que no dé error de solo lectura
+        public decimal PrecioUnitario { get; set; }
         public int ProductoId { get; set; }
-        // Exponer MovimientoDetalleId para binding directo
+
         public int MovimientoDetalleId => MovCodigo?.MovimientoDetalleId ?? 0;
-
-
+        public string EstadoValidacion { get; set; } = "";
     }
 }

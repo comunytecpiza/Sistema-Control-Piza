@@ -6,6 +6,7 @@ using System.Data.Common; // Multi-Motor
 using System.Windows;
 using System.Windows.Controls;
 using static AplicativoDeAlmacen.Data.DataConnection;
+using System.Diagnostics;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -252,49 +253,49 @@ namespace AplicativoDeAlmacen.Views
 
         // Ahora acepta un parámetro opcional `estadoPermitido` (por defecto = 1) para permitir
         // reutilizar este método cuando el estado esperado cambie según el motivo del movimiento.
-        public bool ValidarExistenciaRangoEnBD(int productoId, string abreviaturaBase, int categoriaId, int desde, int hasta, out int totalEncontrados, int estadoPermitido = 1)
+        public bool ValidarExistenciaRangoEnBD(int productoId, string baseLimpia, int categoriaId, int desde, int hasta, out int totalEncontrados, int estadoPermitido = 1)
         {
             totalEncontrados = 0;
-
-            // El sufijo depende de la categoría
-            string sufijo = categoriaId == 1 ? "-G-" : "-V-";
-            // Construimos el patrón base, ej: "LMA C26-V-%"
-            string patronBusqueda = abreviaturaBase + "%";
+            string patronBusqueda = baseLimpia + "%";
 
             try
             {
                 using (var conn = _database.GetConnection())
                 {
                     var dbConn = (DbConnection)conn;
-                    dbConn.Open();
+                    dbConn.Open(); // Aseguramos conexión abierta
 
-                    // Usamos una lógica más limpia para extraer el número final.
-                    // Asumiendo que el número siempre está al final después del último guion.
-                    string query = @"SELECT COUNT(*) FROM codigos_creados
-                                    WHERE codigo LIKE @patron
-                                     AND estado_id = @estadoPermitido
-                                      AND TRY_CAST(RIGHT(codigo, 7) AS INT) BETWEEN @desde AND @hasta";
-
+                    // 🌟 CAMBIO: Buscamos por Producto y Prefijo, validando el estado
+                    string query = @"SELECT COUNT(*)
+                    FROM codigos_creados cc
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    WHERE rc.producto_id = @productoId
+                      AND rc.categoria_producto_id = @categoriaId
+                      AND cc.codigo LIKE @patron
+                      AND cc.estado_id = @estadoPermitido
+                      AND TRY_CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
 
                     using (var cmd = dbConn.CreateCommand())
                     {
                         cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                        AgregarParametro(cmd, "@categoriaId", categoriaId);
                         AgregarParametro(cmd, "@productoId", productoId);
                         AgregarParametro(cmd, "@patron", patronBusqueda);
-                        AgregarParametro(cmd, "@categoriaId", categoriaId);
                         AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
                         AgregarParametro(cmd, "@desde", desde);
                         AgregarParametro(cmd, "@hasta", hasta);
 
-                        totalEncontrados = Convert.ToInt32(cmd.ExecuteScalar());
+                        object res = cmd.ExecuteScalar();
+                        totalEncontrados = (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
 
-                        // Si la cantidad encontrada es igual a la cantidad en el rango (hasta - desde + 1), es válido
-                        return totalEncontrados == (hasta - desde + 1);
+                        // Retornamos true si encontramos al menos el conteo esperado
+                        return totalEncontrados >= (hasta - desde + 1);
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"Error validando rango: {ex.Message}");
                 return false;
             }
         }
