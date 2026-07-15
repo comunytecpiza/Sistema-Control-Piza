@@ -30,6 +30,6 @@ public partial class Movimiento
     public string Observacion { get; set; }
 
     public int EstadoId { get; set; }
-
+    public string TipoMovimiento { get; set; }
     public DateTime? CreatedAt { get; set; }
 }

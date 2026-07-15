@@ -36,6 +36,7 @@ namespace AplicativoDeAlmacen.Views
         // Esta lista servirá de "espejo" para saber qué ya se registró en el padre
         public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; }
 
+        // Abre tu AgregarItemWindow.xaml.cs y verifica que tu constructor asigne la fuente de esta manera:
         public AgregarItemWindow()
         {
             InitializeComponent();
@@ -49,11 +50,26 @@ namespace AplicativoDeAlmacen.Views
             // Permitir editar al hacer doble click en una fila
             dgDetalleCodigos.MouseDoubleClick += DgDetalleCodigos_MouseDoubleClick;
 
-            // =======================================================================
-            // ENLACE DE EVENTOS PARA EL BUSCADOR PREDICTIVO EN CALIENTE
-            // =======================================================================
             txtProducto.TextChanged += TxtProducto_TextChanged;
             lstSugerenciasProductos.SelectionChanged += LstSugerenciasProductos_SelectionChanged;
+
+            // LÓGICA DE BÚSQUEDA EN TIEMPO REAL PARA DETALLE DE CÓDIGOS ÚNICOS
+            txtBuscarRangoInterno.TextChanged += (s, e) =>
+            {
+                string filtro = txtBuscarRangoInterno.Text.Trim().ToLower();
+                if (string.IsNullOrEmpty(filtro))
+                {
+                    dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
+                }
+                else
+                {
+                    dgDetalleCodigos.ItemsSource = ListaRangosAgregados
+                        .Where(r => (r.Desde != null && r.Desde.ToLower().Contains(filtro)) ||
+                                    (r.Hasta != null && r.Hasta.ToLower().Contains(filtro)) ||
+                                    (r.ColeccionTipo != null && r.ColeccionTipo.ToLower().Contains(filtro)))
+                        .ToList();
+                }
+            };
         }
 
         /// <summary>
@@ -66,7 +82,6 @@ namespace AplicativoDeAlmacen.Views
             IsEdit = true;
             OriginalProductoId = item.ProductoId;
 
-            // Crear un objeto Producto mínimo para uso interno
             _productoSeleccionado = new Producto
             {
                 Id = item.ProductoId,
@@ -74,7 +89,6 @@ namespace AplicativoDeAlmacen.Views
                 PrecioUnitario = item.Detalle?.CostoUnitario
             };
 
-            // Intentar rellenar la abreviatura desde los rangos pasados (si están disponibles)
             if (rangos != null)
             {
                 var primera = rangos.FirstOrDefault();
@@ -85,33 +99,68 @@ namespace AplicativoDeAlmacen.Views
             }
 
             txtProducto.Text = _productoSeleccionado.Descripcion;
-            txtUMedida.Text = "UNIDAD"; // mantener como antes o derivar si dispone
+            txtUMedida.Text = "UNIDAD";
             txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
-            txtCantidad.Text = (item.Detalle?.CantidadIngreso ?? 0m).ToString("0");
 
-            // Cargar rangos existentes (añadir copias para evitar problemas de referencia y asegurar binding)
             ListaRangosAgregados.Clear();
             if (rangos != null)
             {
                 foreach (var r in rangos)
                 {
+                    string txtDesde, txtHasta;
+                    int desdeN = r.DesdeNum;
+                    int hastaN = r.HastaNum;
+                    string abrev = string.IsNullOrEmpty(r.AbreviaturaBase) ? (_productoSeleccionado?.Abreviatura ?? "COD") : r.AbreviaturaBase;
+                    int cantCalcular = (desdeN == -1) ? 1 : (hastaN - desdeN + 1);
+
+                    // 🌟 DETECCIÓN DE FLUJO: Si DesdeNum es -1, es un alfanumérico puro sin secuencia
+                    if (desdeN == -1)
+                    {
+                        txtDesde = abrev; // Usamos el código alfanumérico limpio directo
+                        txtHasta = abrev;
+                    }
+                    else
+                    {
+                        // Si es secuencial con guiones, mantiene el relleno de ceros estándar de 7 dígitos
+                        txtDesde = string.IsNullOrEmpty(r.Desde) ? $"{abrev}-{desdeN:D7}" : r.Desde;
+                        txtHasta = string.IsNullOrEmpty(r.Hasta) ? $"{abrev}-{hastaN:D7}" : r.Hasta;
+                    }
+
+                    int categoriaId = r.CategoriaProductoId == 0 ? (EstadoPermitido == 1 ? 1 : 2) : r.CategoriaProductoId;
+                    string tipoTexto = (categoriaId == 1) ? "LIBRO GUÍA" : "LIBRO VENTA";
+
+                    string textoColeccionFinal = $"C26 / {tipoTexto}";
+                    if (!string.IsNullOrEmpty(r.ColeccionTipo) && r.ColeccionTipo.Contains("/"))
+                    {
+                        var partesColeccion = r.ColeccionTipo.Split('/');
+                        textoColeccionFinal = $"{partesColeccion[0].Trim()} / {tipoTexto}";
+                    }
+
+                    string txtCantidadRango = string.IsNullOrEmpty(r.Cantidad) || r.Cantidad == "0" ? cantCalcular.ToString() : r.Cantidad;
+
                     ListaRangosAgregados.Add(new RangoCodigoItem
                     {
-                        Cantidad = r.Cantidad,
-                        Desde = r.Desde,
-                        Hasta = r.Hasta,
-                        ColeccionTipo = r.ColeccionTipo,
-                        DesdeNum = r.DesdeNum,
-                        HastaNum = r.HastaNum,
-                        CategoriaProductoId = r.CategoriaProductoId,
-                        AbreviaturaBase = r.AbreviaturaBase,
-                        productoId = r.productoId
+                        Cantidad = txtCantidadRango,
+                        Desde = txtDesde,
+                        Hasta = txtHasta,
+                        ColeccionTipo = textoColeccionFinal,
+                        DesdeNum = desdeN,
+                        HastaNum = hastaN,
+                        CategoriaProductoId = categoriaId,
+                        AbreviaturaBase = abrev,
+                        productoId = r.productoId == 0 ? item.ProductoId : r.productoId
                     });
                 }
             }
 
-            // Bloquear edición del selector de producto pero permitir ajustar la cantidad
-            // cuando se abre en modo edición para poder agregar nuevos rangos.
+            // Calcular el total real reflejado por los rangos corregidos
+            int totalCantidadRangos = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0);
+            txtCantidad.Text = totalCantidadRangos > 0 ? totalCantidadRangos.ToString() : (item.Detalle?.CantidadIngreso ?? 0m).ToString("0");
+
+            // 🌟 REFRESH SEGURO PARA EL CONTROL VISUAL
+            dgDetalleCodigos.ItemsSource = null;
+            dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
+
             txtProducto.IsEnabled = false;
             txtCantidad.IsReadOnly = false;
         }

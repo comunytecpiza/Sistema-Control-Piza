@@ -216,33 +216,33 @@ namespace AplicativoDeAlmacen.Views
                     await Task.Delay(50);
 
                     // Construir filas de previsualización
+                    // Dentro de ImportarCodigos.xaml.cs -> busca el método Button_Click (Línea 105 aprox.)
+                    // Reemplaza el bucle foreach que genera la lista 'preview' por este bloque depurado:
+
                     var preview = new List<PreviewRow>();
                     foreach (var raw in rawList)
                     {
                         string norm = _serviceMovimiento.NormalizarCodigo(raw);
                         lookup.TryGetValue(norm, out var tup);
+
                         bool isFound = tup.CodigoObj != null;
-                        bool estadoValido = true;
-                        if (EstadoPermitido != 0 && tup.CodigoObj != null) estadoValido = tup.CodigoObj.EstadoId == EstadoPermitido;
+
+                        // El estado es válido si no se filtra (0) o si coincide exactamente con el motivo/concepto de entrada
+                        bool estadoValido = isFound && (EstadoPermitido == 0 || tup.CodigoObj.EstadoId == EstadoPermitido);
 
                         var pr = new PreviewRow
                         {
                             CodigoRaw = raw,
                             CodigoNorm = norm,
-                            Encontrado = isFound && (estadoValido || GetIncluirInvalidos()), // Primero validamos si existe
-
-                            // 🌟 AQUÍ ESTÁ LA LÓGICA DE VALIDACIÓN ESTRICTA
-                            // Un código es válido si: Existe en BD AND (El estado coincide con EstadoPermitido O el usuario forzó la inclusión)
-                            EstadoValido = isFound && (EstadoPermitido == 0 || tup.CodigoObj.EstadoId == EstadoPermitido),
-
+                            EstadoValido = estadoValido,
                             CodigoCreadoId = tup.CodigoObj?.Id,
                             ProductoId = tup.ProductoId,
-                            ProductoDesc = tup.ProductoId.HasValue && prodMap.ContainsKey(tup.ProductoId.Value) ? prodMap[tup.ProductoId.Value] : string.Empty,
+                            ProductoDesc = (tup.ProductoId.HasValue && prodMap.ContainsKey(tup.ProductoId.Value)) ? prodMap[tup.ProductoId.Value] : (isFound ? "CODIGO PLANO REGISTRADO" : "NO EXISTE EN INVENTARIO"),
                             EstadoId = tup.CodigoObj?.EstadoId,
-                            EstadoNombre = (tup.CodigoObj != null && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : string.Empty
+                            EstadoNombre = (tup.CodigoObj != null && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : "INEXISTENTE"
                         };
 
-                        // 🌟 Actualizamos 'Encontrado' para que el checkbox de la grilla dependa de la validación
+                        // La fila se marca y habilita el checkbox si el estado es correcto o si el usuario marcó "Incluir inválidos"
                         pr.Encontrado = pr.EstadoValido || GetIncluirInvalidos();
                         preview.Add(pr);
                     }

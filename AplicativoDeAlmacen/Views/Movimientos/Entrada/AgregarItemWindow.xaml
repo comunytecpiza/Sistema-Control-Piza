@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
         mc:Ignorable="d"
         Title="Agregar Ítem al Inventario" 
-        Height="520" Width="680"
+        Height="560" Width="700"
         WindowStartupLocation="CenterOwner" 
         ResizeMode="NoResize"
         Background="#F1F5F9">
@@ -51,6 +51,7 @@
                         <ColumnDefinition Width="90"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
+
                     <TextBlock Text="U. Medida:" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
                     <TextBox x:Name="txtUMedida" Grid.Column="1" Height="32" IsReadOnly="True" Background="#F8FAFC" Foreground="#64748B" FontWeight="Medium" VerticalContentAlignment="Center" Padding="5,0" FontSize="13"/>
                 </Grid>
@@ -77,18 +78,33 @@
             </StackPanel>
         </Border>
 
-        <GroupBox Grid.Row="2" Header="🔑 Detalle de Códigos Únicos" BorderBrush="#E2E8F0" Foreground="#1E293B" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,16">
+        <GroupBox Grid.Row="2" BorderBrush="#E2E8F0" Foreground="#1E293B" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,16">
+            <GroupBox.Header>
+                <StackPanel Orientation="Horizontal" Width="630">
+                    <TextBlock Text="🔑 Detalle de Códigos Únicos" VerticalAlignment="Center" Margin="0,0,20,0"/>
+
+                    <TextBlock Text="🔍 Buscar Código:" FontSize="11" Foreground="#64748B" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="txtBuscarRangoInterno" Width="200" Height="22" FontSize="11" FontWeight="Normal" VerticalContentAlignment="Center" Padding="4,0" BorderBrush="#CBD5E1"/>
+                </StackPanel>
+            </GroupBox.Header>
+
             <DataGrid x:Name="dgDetalleCodigos" 
-                     
-                      AutoGenerateColumns="False" 
-                      HeadersVisibility="Column" 
-                      Background="White" 
-                      BorderThickness="1" 
-                    
-                      BorderBrush="#E2E8F0"
-                      GridLinesVisibility="Horizontal"
-                      HorizontalGridLinesBrush="#F1F5F9"
-                      RowHeight="28">
+              MaxHeight="160"
+              Margin="0,6,0,0"
+              AutoGenerateColumns="False" 
+              HeadersVisibility="Column" 
+              Background="White" 
+              BorderThickness="1" 
+              BorderBrush="#E2E8F0"
+              GridLinesVisibility="Horizontal"
+              HorizontalGridLinesBrush="#F1F5F9"
+              RowHeight="28"
+              CanUserAddRows="False"
+              SelectionMode="Single"
+              IsReadOnly="True"
+              VirtualizingPanel.IsVirtualizing="True"
+              VirtualizingPanel.VirtualizationMode="Recycling">
+
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="#1E293B"/>
@@ -97,12 +113,17 @@
                         <Setter Property="Padding" Value="8,4"/>
                         <Setter Property="BorderThickness" Value="0"/>
                     </Style>
+
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Foreground" Value="#1E293B"/>
+                        <Setter Property="FontWeight" Value="Normal"/>
+                    </Style>
                 </DataGrid.Resources>
 
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Cantidad" Width="90" Binding="{Binding Cantidad}"/>
-                    <DataGridTextColumn Header="Desde (Rango Inicial)" Width="140" Binding="{Binding Desde}"/>
-                    <DataGridTextColumn Header="Hasta (Rango Final)" Width="140" Binding="{Binding Hasta}"/>
+                    <DataGridTextColumn Header="Desde (Rango Inicial)" Width="145" Binding="{Binding Desde}"/>
+                    <DataGridTextColumn Header="Hasta (Rango Final)" Width="145" Binding="{Binding Hasta}"/>
                     <DataGridTextColumn Header="Colección / Tipo de Guía" Width="200*" Binding="{Binding ColeccionTipo}"/>
                 </DataGrid.Columns>
             </DataGrid>
@@ -110,27 +131,30 @@
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="btnAgregarFilaCodigo" 
-            Content="➕ Agregar" 
-            Width="110" Height="36" 
-            Background="#2563EB" Foreground="White" 
-            FontWeight="Bold" FontSize="13"
-            BorderThickness="0" Margin="0,0,10,0" 
-            Cursor="Hand" Click="BtnAgregarRangoCodigo_Click"/>
+                    Content="➕ Agregar" 
+                    Width="110" Height="36" 
+                    Background="#2563EB" Foreground="White" 
+                    FontWeight="Bold" FontSize="13"
+                    BorderThickness="0" Margin="0,0,10,0" 
+                    Cursor="Hand" Click="BtnAgregarRangoCodigo_Click"/>
+
             <Button x:Name="btnModificar"
                     FontWeight="Bold" FontSize="13"
                     BorderThickness="0" Margin="0,0,10,0" 
                     Background="#E0840B" 
                     Foreground="White" 
                     Content="Modificar" 
-                    Cursor="Hand" Click=" BtnModificarRango_Click" Height="36" Width="110"/>
+                    Cursor="Hand" Click="BtnModificarRango_Click" Height="36" Width="110"/>
+
             <Button Content="Eliminar" 
                     Cursor="Hand" Click="BtnEliminarRango_Click" 
                     Background="#DE1E0D" 
                     Foreground="White" 
-                    Width="130" Height="36" 
-                     FontWeight="Bold" FontSize="13"
-                     BorderThickness="0" Margin="0,0,10,0" 
-                    Padding="10,0"/>        
+                    Width="110" Height="36" 
+                    FontWeight="Bold" FontSize="13"
+                    BorderThickness="0" Margin="0,0,10,0" 
+                    Padding="10,0"/>
+
             <Button x:Name="btnGrabar" 
                     Content="💾 Grabar Ítem" 
                     Width="130" Height="36" 
