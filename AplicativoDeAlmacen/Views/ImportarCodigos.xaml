@@ -35,31 +35,47 @@
                 <TextBlock Text="  Procesando archivo..." VerticalAlignment="Center" />
             </StackPanel>
 
-            <DataGrid x:Name="dgDatos" Grid.Row="1" AutoGenerateColumns="False" Margin="0,4,0,4" CanUserAddRows="False" IsReadOnly="False"
-                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                      EnableRowVirtualization="True">
-                <DataGrid.RowStyle>
-                    <Style TargetType="DataGridRow">
-                        <Setter Property="Background" Value="White" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding EstadoValido}" Value="True">
-                                <Setter Property="Background" Value="#E6F4EA" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding EstadoValido}" Value="False">
-                                <Setter Property="Background" Value="#FDEAEA" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </DataGrid.RowStyle>
-                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="#" Binding="{Binding RowNumber}" Width="50" IsReadOnly="True" />
-                    <DataGridTextColumn Header="Codigo" Binding="{Binding CodigoRaw}" Width="*" IsReadOnly="True" />
-                    <DataGridTextColumn Header="Normalizado" Binding="{Binding CodigoNorm}" Width="*" IsReadOnly="True" />
-                    <DataGridCheckBoxColumn Header="Encontrado" Binding="{Binding Encontrado, Mode=TwoWay}" Width="90" />
-                    <DataGridTextColumn Header="Producto" Binding="{Binding ProductoDesc}" Width="2*" IsReadOnly="True" />
-                    <DataGridTextColumn Header="Estado" Binding="{Binding EstadoNombre}" Width="120" IsReadOnly="True" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <Border Grid.Row="1" 
+        Margin="0,4" 
+        BorderBrush="#E5E7EB" 
+        BorderThickness="1" 
+        CornerRadius="4">
+                <DataGrid x:Name="dgDatos"
+              AutoGenerateColumns="False"
+              CanUserAddRows="False"
+              IsReadOnly="False"
+              EnableRowVirtualization="True"
+              EnableColumnVirtualization="True"
+              VirtualizingPanel.IsVirtualizing="True"
+              VirtualizingPanel.VirtualizationMode="Recycling"
+              ScrollViewer.CanContentScroll="True"
+              VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Auto">
+
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="Background" Value="White" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding EstadoValido}" Value="True">
+                                    <Setter Property="Background" Value="#E6F4EA" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding EstadoValido}" Value="False">
+                                    <Setter Property="Background" Value="#FDEAEA" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding RowNumber}" Width="50" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Codigo" Binding="{Binding CodigoRaw}" Width="*" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Normalizado" Binding="{Binding CodigoNorm}" Width="*" IsReadOnly="True" />
+                        <DataGridCheckBoxColumn Header="Encontrado" Binding="{Binding Encontrado, Mode=TwoWay}" Width="90" />
+                        <DataGridTextColumn Header="Producto" Binding="{Binding ProductoDesc}" Width="2*" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Estado" Binding="{Binding EstadoNombre}" Width="120" IsReadOnly="True" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
         </Grid>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,6,0,0">

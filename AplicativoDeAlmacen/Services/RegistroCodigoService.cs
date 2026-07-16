@@ -59,12 +59,13 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"SELECT p.id, p.descripcion, p.abreviatura, um.descripcion AS unidad_medida 
+                // 🌟 CORRECCIÓN MAESTRA: Quitamos la restricción 'p.abreviatura IS NOT NULL'.
+                // Ahora el combo listará de forma inteligente todos los libros secuenciales Y alfanuméricos puros.
+                string query = @"SELECT p.id, p.descripcion, p.abreviatura, um.descripcion AS unidad_medida, p.tipo_producto_id
                                  FROM productos p 
                                  INNER JOIN unidad_medida um ON p.unidad_medida_id = um.id 
                                  INNER JOIN tipo_producto tp ON p.tipo_producto_id = tp.id
                                  WHERE p.descripcion IS NOT NULL 
-                                   AND p.abreviatura IS NOT NULL
                                    AND (tp.nombre LIKE '%Texto Escolar%' OR tp.nombre LIKE '%Plan Lector%')";
 
                 using (var cmd = dbConn.CreateCommand())
@@ -78,8 +79,10 @@ namespace AplicativoDeAlmacen.Services
                             {
                                 Id = reader.GetInt32(0),
                                 Descripcion = reader["descripcion"] as string,
-                                Abreviatura = reader["abreviatura"] as string,
-                                UnidadMedida = new UnidadMedida { Descripcion = reader["unidad_medida"] as string }
+                                // Si es NULL en la BD, lo capturamos de manera segura como null
+                                Abreviatura = reader.IsDBNull(2) ? null : reader.GetString(2),
+                                UnidadMedida = new UnidadMedida { Descripcion = reader["unidad_medida"] as string },
+                                TipoProductoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
                             });
                         }
                     }
@@ -144,12 +147,12 @@ namespace AplicativoDeAlmacen.Services
                             {
                                 Id = reader.GetInt32(0),
                                 Cantidad = Convert.ToInt32(reader.GetValue(1)),
-                                Desde = reader["desde"] as string,
-                                Hasta = reader["hasta"] as string,
+                                Desde = reader.IsDBNull(2) ? "" : reader["desde"] as string,
+                                Hasta = reader.IsDBNull(3) ? "" : reader["hasta"] as string,
                                 Producto = new Producto
                                 {
                                     Descripcion = reader["producto_desc"] as string,
-                                    Abreviatura = reader["abreviatura"] as string,
+                                    Abreviatura = reader.IsDBNull(5) ? null : reader["abreviatura"] as string,
                                     UnidadMedida = new UnidadMedida { Descripcion = reader["unidad_medida_desc"] as string }
                                 },
                                 CategoriaProducto = new CategoriaProducto { Nombre = reader["categoria_nombre"] as string }
@@ -163,6 +166,10 @@ namespace AplicativoDeAlmacen.Services
 
         public async Task<int> ObtenerUltimoCodigoAsync(int productoId, string abreviatura, int categoriaId)
         {
+            // 🌟 Si el libro no tiene abreviatura configurada, es un PackLibro alfanumérico puro. 
+            // Retornamos 0 de inmediato de forma inteligente y profesional para evitar romper funciones de cadena en SQL.
+            if (string.IsNullOrWhiteSpace(abreviatura)) return 0;
+
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
@@ -181,7 +188,7 @@ namespace AplicativoDeAlmacen.Services
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                    AgregarParametro(cmd, "@abreviatura", abreviatura ?? "");
+                    AgregarParametro(cmd, "@abreviatura", abreviatura);
                     AgregarParametro(cmd, "@productoId", productoId);
                     AgregarParametro(cmd, "@categoriaId", categoriaId);
 
@@ -202,17 +209,13 @@ namespace AplicativoDeAlmacen.Services
                 {
                     try
                     {
-                        // =========================================================================
-                        // 🛡️ ESCUDO ANTI-COLISIONES (Para múltiples sedes simultáneas)
-                        // =========================================================================
                         int lastDashIndex = desde.LastIndexOf('-');
-                        int desdeInt = int.Parse(desde.Substring(lastDashIndex + 1));
-                        string prefijo = desde.Substring(0, lastDashIndex + 1);
+                        int desdeInt = lastDashIndex >= 0 ? int.Parse(desde.Substring(lastDashIndex + 1)) : 0;
+                        string prefijo = lastDashIndex >= 0 ? desde.Substring(0, lastDashIndex + 1) : desde;
 
                         string lenFunc = QueryAdapter.EsMySQL ? "LENGTH" : "LEN";
                         string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
 
-                        // Si es SQL Server, usa WITH (UPDLOCK, HOLDLOCK). Si es MySQL, usa FOR UPDATE.
                         string bloqueoSQLServer = QueryAdapter.EsMySQL ? "" : "WITH (UPDLOCK, HOLDLOCK)";
                         string bloqueoMySQL = QueryAdapter.EsMySQL ? "FOR UPDATE" : "";
 
@@ -234,15 +237,13 @@ namespace AplicativoDeAlmacen.Services
                             object resultVerif = await cmdVerif.ExecuteScalarAsync();
                             int maxActual = (resultVerif != DBNull.Value && resultVerif != null) ? Convert.ToInt32(resultVerif) : 0;
 
-                            if (maxActual >= desdeInt)
+                            if (desdeInt > 0 && maxActual >= desdeInt)
                             {
                                 throw new Exception($"¡Colisión detectada!\n\nOtro operador en otra sede acaba de registrar códigos para este producto.\n\nEl sistema intentaba registrar desde el código {desdeInt}, pero la base de datos ya va en el {maxActual}.\n\nPor favor, cancele esta ventana y vuelva a seleccionar el producto para obtener el rango actualizado.");
                             }
                         }
 
-                        // =========================================================================
                         // 1. GUARDAR REGISTRO MAESTRO
-                        // =========================================================================
                         string queryRegistro = "INSERT INTO registro_codigos (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id) VALUES (@cId, @pId, @cant, @des, @has, @catId);";
                         string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
@@ -261,9 +262,7 @@ namespace AplicativoDeAlmacen.Services
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        // =========================================================================
-                        // 2. INSERCIÓN EN BLOQUE (BULK INSERT) PARA LA NUBE
-                        // =========================================================================
+                        // 2. INSERCIÓN EN BLOQUE INDUSTRIAL
                         int batchSize = 500;
                         for (int i = 0; i < cantidad; i += batchSize)
                         {
@@ -278,7 +277,7 @@ namespace AplicativoDeAlmacen.Services
                                 {
                                     int idx = i + j;
                                     string paramCod = $"@cod{idx}";
-                                    string codigoGenerado = $"{prefijo}{(desdeInt + idx):D7}";
+                                    string codigoGenerado = lastDashIndex >= 0 ? $"{prefijo}{(desdeInt + idx):D7}" : $"{prefijo}-{idx}";
 
                                     queryBuilder.Append($"({registroId}, {paramCod}, 1)");
                                     if (j < currentBatch - 1) queryBuilder.Append(", ");
@@ -340,65 +339,35 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        public async Task<int> ObtenerUltimoCodigoSecuencialAsync(
-    int productoId,
-    string abreviatura,
-    int categoriaId)
+        public async Task<int> ObtenerUltimoCodigoSecuencialAsync(int productoId, string abreviatura, int categoriaId)
         {
+            if (string.IsNullOrWhiteSpace(abreviatura)) return 0;
+
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
-
                 await dbConn.OpenAsync();
 
                 string query = @"
-
-SELECT ISNULL(MAX(
-CAST(
-RIGHT(cc.codigo,7)
-AS INT)),0)
-
-FROM codigos_creados cc
-
-INNER JOIN registro_codigos rc
-ON cc.registro_codigo_id=rc.id
-
-WHERE rc.producto_id=@producto
-AND rc.categoria_producto_id=@categoria
-AND cc.codigo LIKE @prefijo
-AND ISNUMERIC(RIGHT(cc.codigo,7))=1
-
-";
+                    SELECT ISNULL(MAX(CAST(RIGHT(cc.codigo,7) AS INT)),0)
+                    FROM codigos_creados cc
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id=rc.id
+                    WHERE rc.producto_id=@producto
+                      AND rc.categoria_producto_id=@categoria
+                      AND cc.codigo LIKE @prefijo
+                      AND ISNUMERIC(RIGHT(cc.codigo,7))=1";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
-                    cmd.CommandText =
-                        QueryAdapter.FormatearConsulta(query);
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@producto", productoId);
+                    AgregarParametro(cmd, "@categoria", categoriaId);
+                    AgregarParametro(cmd, "@prefijo", abreviatura + "-%");
 
-                    AgregarParametro(
-                        cmd,
-                        "@producto",
-                        productoId);
-
-                    AgregarParametro(
-                        cmd,
-                        "@categoria",
-                        categoriaId);
-
-                    AgregarParametro(
-                        cmd,
-                        "@prefijo",
-                        abreviatura + "-%");
-
-                    object result =
-                        await cmd.ExecuteScalarAsync();
-
-                    return result == DBNull.Value
-                        ? 0
-                        : Convert.ToInt32(result);
+                    object result = await cmd.ExecuteScalarAsync();
+                    return result == DBNull.Value ? 0 : Convert.ToInt32(result);
                 }
             }
         }
-
     }
 }

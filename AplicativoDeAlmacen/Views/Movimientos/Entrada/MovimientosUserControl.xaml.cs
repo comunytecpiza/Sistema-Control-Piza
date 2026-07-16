@@ -35,7 +35,7 @@ namespace AplicativoDeAlmacen.Views
         private readonly IngresoMovimientoService _serviceMovimiento;
         private readonly UbicacionService _ubicacionService;
         private readonly ReporteExcelService _reporteService; // 🌟 INICIALIZAMOS SERVICIO DE EXCEL
-
+        private readonly ProductoService _productoService = new ProductoService();
         private List<VistaProductoGrid> _productosGridList;
         private List<VistaCodigoGrid> _codigosGridList;
         private List<RangoCodigoItem> _rangosProcesadosGlobal;
@@ -55,7 +55,7 @@ namespace AplicativoDeAlmacen.Views
             _productosGridList = new List<VistaProductoGrid>();
             _codigosGridList = new List<VistaCodigoGrid>();
             _rangosProcesadosGlobal = new List<RangoCodigoItem>();
-
+            _productoService = new ProductoService();
             _service = new PersonaComercialService();
             _serviceMovimiento = new IngresoMovimientoService();
             _ubicacionService = new UbicacionService();
@@ -200,18 +200,21 @@ namespace AplicativoDeAlmacen.Views
             _codigosGridList.Clear();
             _rangosProcesadosGlobal.Clear();
 
-            // 🌟 AHORA USAMOS EL SERVICIO PARA LA DESCRIPCIÓN (Limpio y profesional)
+            var prodService = new ProductoService();
             foreach (var det in movimientoComp.Detalles)
             {
-                // Llamada al método limpio en IngresoMovimientoService
                 string descripcionProducto = await _serviceMovimiento.ObtenerDescripcionProductoAsync(det.ProductoId);
+                var prodData = await prodService.ObtenerPorIdAsync(det.ProductoId);
+
+                // 🌟 CORRECCIÓN INTELIGENTE: Extraemos la descripción real del objeto compuesto UnidadMedida
+                string unidadDeBD = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD";
 
                 var vp = new VistaProductoGrid
                 {
                     ProductoId = det.ProductoId,
                     CodigoProducto = det.ProductoId.ToString(),
                     Descripcion = descripcionProducto,
-                    UnidadMedida = "UNIDAD",
+                    UnidadMedida = unidadDeBD, // Asigna PACKS, UNIDAD, MILLAR correctamente
                     Detalle = new MovimientoDetalle { Id = det.Id, ProductoId = det.ProductoId, CantidadIngreso = det.CantidadIngreso, CostoUnitario = det.CostoUnitario }
                 };
 
@@ -221,6 +224,8 @@ namespace AplicativoDeAlmacen.Views
                     _rangosProcesadosGlobal.Add(r);
                     for (int i = r.DesdeNum; i <= r.HastaNum; i++)
                     {
+                        if (r.DesdeNum == -1) continue;
+
                         _codigosGridList.Add(new VistaCodigoGrid
                         {
                             MovCodigo = new MovimientoCodigo { MovimientoDetalleId = det.Id },
@@ -229,11 +234,21 @@ namespace AplicativoDeAlmacen.Views
                             ProductoId = r.productoId
                         });
                     }
+
+                    if (r.DesdeNum == -1)
+                    {
+                        _codigosGridList.Add(new VistaCodigoGrid
+                        {
+                            MovCodigo = new MovimientoCodigo { MovimientoDetalleId = det.Id },
+                            CodigoUnique = r.AbreviaturaBase,
+                            ColeccionTipo = r.ColeccionTipo ?? string.Empty,
+                            ProductoId = r.productoId
+                        });
+                    }
                 }
                 _productosGridList.Add(vp);
             }
 
-            
             var listaFusionada = _serviceMovimiento.MergeDuplicateProducts(_productosGridList.ToList());
 
             _productosGridList.Clear();
@@ -246,8 +261,6 @@ namespace AplicativoDeAlmacen.Views
             dgProductos.ItemsSource = _productosGridList;
             dgCodigos.ItemsSource = null;
             dgCodigos.ItemsSource = _codigosGridList;
-
-                     
 
             if (!_printMode)
             {
@@ -342,141 +355,137 @@ namespace AplicativoDeAlmacen.Views
         // ==========================================
         // BOTÓN GUARDAR (REGISTRO)
         // ==========================================
+        // 🌟 NUEVA VARIABLE GLOBAL DE CONTROL: Evita doble guardado simultáneo
+        private bool _isRegistrandoMovimiento = false;
+
         private async void RegistrarMovimientoCompleto(object sender, RoutedEventArgs e)
         {
+            // Si ya hay un hilo guardando en segundo plano, abortamos cualquier clic fantasma
+            if (_isRegistrandoMovimiento) return;
 
+            // VALIDACIÓN PERSISTENTE
             if (txtRazonSocial.IsEnabled && string.IsNullOrWhiteSpace(txtRazonSocial.Text))
             {
-                MessageBox.Show("La Razón Social es obligatoria para este motivo.");
+                MessageBox.Show("La Razón Social es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
             if (txtUbicacion.IsEnabled && string.IsNullOrWhiteSpace(txtUbicacion.Text))
             {
-                MessageBox.Show("La Ubicación es obligatoria para este motivo.");
+                MessageBox.Show("La Ubicación es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
             if (txtSerieGuia.IsEnabled && (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text)))
             {
-                MessageBox.Show("La Guía de Remisión es obligatoria para este motivo.");
+                MessageBox.Show("La Guía de Remisión es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-
             if (_productosGridList == null || !_productosGridList.Any())
             {
-                MessageBox.Show(
-                    "Debe agregar al menos un producto antes de guardar.", "Validación", MessageBoxButton.OK,MessageBoxImage.Warning);
-
+                MessageBox.Show("Debe agregar al menos un producto antes de guardar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
+                // Encendemos los candados físicos y lógicos de inmediato
+                _isRegistrandoMovimiento = true;
                 btnGrabar.IsEnabled = false;
+                btnCancelar.IsEnabled = false;
                 Cursor = Cursors.Wait;
-                // Crear solicitud para el servicio
+
                 var solicitud = CrearSolicitudMovimiento();
 
-                // Ejecutar toda la lógica en el Service
-                // Desarmamos el objeto 'solicitud' para pasar los 5 parámetros requeridos
-                bool resultado = await _serviceMovimiento.RegistrarMovimientoCompletoAsync(solicitud.Movimiento, solicitud.Productos, _rangosProcesadosGlobal.ToList(), solicitud.Movimiento.UbicacionId ?? 1, solicitud.MovimientoId);
+                pbCargaMasiva.Visibility = Visibility.Visible;
+                lblPorcentajeCarga.Visibility = Visibility.Visible;
+                pbCargaMasiva.Value = 0;
+                lblPorcentajeCarga.Text = "0% Guardando...";
+
+                var progress = new Progress<int>(percent =>
+                {
+                    pbCargaMasiva.Value = percent;
+                    lblPorcentajeCarga.Text = $"{percent}% Procesado...";
+                });
+
+                bool resultado = await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
+                    solicitud.Movimiento,
+                    solicitud.Productos.ToList(),
+                    _rangosProcesadosGlobal.ToList(),
+                    solicitud.Movimiento.UbicacionId ?? 1,
+                    solicitud.MovimientoId,
+                    progress);
 
                 if (resultado)
                 {
-                    // 🌟 AVISO EN GRANDE CON EL NÚMERO
                     string mensaje = $"¡Movimiento registrado con éxito!\n\n" +
                                      $"Número de Registro: {solicitud.Movimiento.SerieDocumento}-{solicitud.Movimiento.NumeroDocumento}";
 
                     MessageBox.Show(mensaje, "Guardado Exitoso", MessageBoxButton.OK, MessageBoxImage.Information);
-
                     EstablecerEstadoInicial();
                 }
-
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-                    $"Error al guardar movimiento:\n{ex.Message}",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                MessageBox.Show($"Error al guardar movimiento:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
+                // Liberamos los candados una vez finalizado todo el proceso e hilos asíncronos
+                pbCargaMasiva.Visibility = Visibility.Collapsed;
+                lblPorcentajeCarga.Visibility = Visibility.Collapsed;
+
+                _isRegistrandoMovimiento = false;
                 btnGrabar.IsEnabled = true;
+                btnCancelar.IsEnabled = true;
                 Cursor = Cursors.Arrow;
             }
         }
 
         private SolicitudMovimiento CrearSolicitudMovimiento()
         {
-
             // 🌟 RE-SINCRONIZAR CANTIDADES ANTES DE ENVIAR
             foreach (var p in _productosGridList)
             {
                 if (p.Detalle == null) p.Detalle = new MovimientoDetalle { ProductoId = p.ProductoId };
 
-                // Contamos los códigos reales en la lista _codigosGridList para este producto
-                p.Detalle.CantidadIngreso = _codigosGridList.Count(c => c.ProductoId == p.ProductoId);
-                p.Cantidad = (int)p.Detalle.CantidadIngreso;
+                // Contamos cuántos códigos tiene asignados en la grilla derecha
+                int codigosReales = _codigosGridList.Count(c => c.ProductoId == p.ProductoId);
+
+                if (codigosReales > 0)
+                {
+                    // Si es un producto con códigos (Plan lector / Texto escolar) manda el conteo
+                    p.Detalle.CantidadIngreso = codigosReales;
+                    p.Cantidad = codigosReales;
+                }
+                else
+                {
+                    // Si es un producto genérico (Mochilas, cuadernos), respetamos el valor manual digitado en la celda
+                    p.Detalle.CantidadIngreso = p.Cantidad;
+                }
             }
+
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
                 {
-                    FechaMovimiento =
-                        dtpFechaRecepcion.SelectedDate.HasValue
+                    FechaMovimiento = dtpFechaRecepcion.SelectedDate.HasValue
                         ? DateOnly.FromDateTime(dtpFechaRecepcion.SelectedDate.Value)
                         : DateOnly.FromDateTime(DateTime.Today),
-
-
-                    SerieDocumento =
-                        txtNumSerie.Text.Trim(),
-
-
-                    NumeroDocumento =
-                        txtNumDocumento.Text.Trim(),
-
-
-                    MotivoProductoId =
-                        Convert.ToInt32(cboMotivo.SelectedValue),
-
-
-                    UbicacionId =
-                        UBICACION_ID_SELECCIONADA,
-
-
+                    SerieDocumento = txtNumSerie.Text.Trim(),
+                    NumeroDocumento = txtNumDocumento.Text.Trim(),
+                    MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
+                    UbicacionId = UBICACION_ID_SELECCIONADA,
                     UsuarioId = 1,
-
-
-                    PersonaComercialId =
-                        _personaComercialIdSeleccionada,
-
-
-                    SerieGuia =
-                        txtSerieGuia.Text.Trim(),
-
-
-                    NumeroGuia =
-                        txtNumeroGuia.Text.Trim(),
-
-
-                    Observacion =
-                        txtObservacion.Text.Trim()
+                    PersonaComercialId = _personaComercialIdSeleccionada,
+                    SerieGuia = txtSerieGuia.Text.Trim(),
+                    NumeroGuia = txtNumeroGuia.Text.Trim(),
+                    Observacion = txtObservacion.Text.Trim()
                 },
-
-
                 Productos = _productosGridList,
-
-
                 Codigos = _codigosGridList,
-
-
                 MovimientoId = _currentMovimientoId
             };
         }
-        
+
         // ==========================================
         // EXPORTAR REPORTE (A EXCEL)
         // ==========================================
@@ -565,45 +574,36 @@ namespace AplicativoDeAlmacen.Views
 
         private void RefrescarGrillas()
         {
-            // AHORA LLAMAS AL SERVICIO, pasando las listas que tienes en la UI
-            _serviceMovimiento.SincronizarCantidadesConCodigos(_productosGridList.ToList(), _codigosGridList.ToList());
+            // Sincroniza cantidades con los códigos actuales
+            _serviceMovimiento.SincronizarCantidadesConCodigos(
+                _productosGridList,
+                _codigosGridList);
 
-            // Fuerza la actualización de la vista
-            dgProductos.ItemsSource = null;
+            // Actualiza la grilla izquierda
             dgProductos.ItemsSource = _productosGridList;
             dgProductos.Items.Refresh();
 
-            dgCodigos.ItemsSource = null;
-            if (dgProductos.SelectedItem is VistaProductoGrid seleccionado)
-            {
-                dgCodigos.ItemsSource = _codigosGridList.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
-            }
-            else
-            {
-                dgCodigos.ItemsSource = _codigosGridList.ToList();
-            }
+            // Actualiza la grilla derecha según el producto seleccionado
+            MostrarCodigosProductoSeleccionado();
         }
 
         private void MostrarCodigosProductoSeleccionado()
         {
-            // Verificación de nulidad segura
-            var producto = dgProductos.SelectedItem as VistaProductoGrid;
-
-            if (producto == null)
+            if (dgProductos.SelectedItem is not VistaProductoGrid producto)
             {
                 dgCodigos.ItemsSource = null;
                 lblResumenCodigos.Text = "0 / 0";
                 return;
             }
 
-            // Filtramos códigos
-            var codigosFiltrados = _codigosGridList.Where(c => c.ProductoId == producto.ProductoId).ToList();
+            var codigosFiltrados = _codigosGridList
+                .Where(c => c.ProductoId == producto.ProductoId)
+                .ToList();
+
             dgCodigos.ItemsSource = codigosFiltrados;
 
-            // Actualizar el resumen
-            // Usamos el conteo del detalle (o la suma total de códigos asociados al ID)
-            int totalDelProducto = _codigosGridList.Count(c => c.ProductoId == producto.ProductoId);
-            lblResumenCodigos.Text = $"{codigosFiltrados.Count} / {totalDelProducto}";
+            int total = _codigosGridList.Count(c => c.ProductoId == producto.ProductoId);
+            lblResumenCodigos.Text = $"{codigosFiltrados.Count} / {total}";
         }
 
 
@@ -777,7 +777,8 @@ namespace AplicativoDeAlmacen.Views
                     Detalle = new MovimientoDetalle { ProductoId = idProducto, CantidadIngreso = modal.CantidadProductoIngresada, CostoUnitario = modal.CostoUnitarioIngresado },
                     CodigoProducto = idProducto.ToString(),
                     Descripcion = productoSelected.Descripcion,
-                    UnidadMedida = "UNIDAD",
+                    // 🌟 CORRECCIÓN: Le pasamos la unidad de medida real que el producto seleccionado del modal ya posee
+                    UnidadMedida = productoSelected.UnidadMedida?.Descripcion ?? "UNIDAD",
                     ProductoId = idProducto
                 };
                 _productosGridList.Add(nuevoProductoGrid);
@@ -847,19 +848,22 @@ namespace AplicativoDeAlmacen.Views
             string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(resultado.CodigoCreadoId);
 
             // 3. Obtener o registrar el producto en la grilla izquierda
-            var producto = ObtenerOAgregarProductoEnLista(resultado.ProductoId, resultado.DescripcionProducto, resultado.PrecioUnitario);
+            var producto = await ObtenerOAgregarProductoEnListaAsync(
+            resultado.ProductoId,
+            resultado.DescripcionProducto,
+            resultado.PrecioUnitario);
 
             // 4. Crear el código único
             var nuevosCodigos = new List<VistaCodigoGrid>
-    {
-        new VistaCodigoGrid
-        {
-            ProductoId = resultado.ProductoId,
-            CodigoUnique = resultado.CodigoCompleto,
-            ColeccionTipo = tipoBD,
-            MovCodigo = new MovimientoCodigo { CodigoCreadoId = resultado.CodigoCreadoId }
-        }
-    };
+            {
+                new VistaCodigoGrid
+                {
+                    ProductoId = resultado.ProductoId,
+                    CodigoUnique = resultado.CodigoCompleto,
+                    ColeccionTipo = tipoBD,
+                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = resultado.CodigoCreadoId }
+                }
+            };
 
             // 🌟 CORRECCIÓN: Le pasamos directamente '_codigosGridList' para que los inserte en la lista REAL, no en una copia .ToList()
             _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, producto.ProductoId, nuevosCodigos);
@@ -874,21 +878,31 @@ namespace AplicativoDeAlmacen.Views
             return true;
         }
 
-        private VistaProductoGrid ObtenerOAgregarProductoEnLista(int productoId, string descripcion, decimal precio)
+        private async Task<VistaProductoGrid> ObtenerOAgregarProductoEnListaAsync(int productoId, string descripcion, decimal precio)
         {
             var prod = _productosGridList.FirstOrDefault(p => p.ProductoId == productoId);
-            if (prod == null)
+
+            if (prod != null)
+                return prod;
+
+            var productoBD = await _productoService.ObtenerPorIdAsync(productoId);
+
+            prod = new VistaProductoGrid
             {
-                prod = new VistaProductoGrid
+                ProductoId = productoId,
+                CodigoProducto = productoId.ToString(),
+                Descripcion = descripcion,
+                UnidadMedida = productoBD?.UnidadMedida?.Descripcion ?? "UNIDAD",
+                Detalle = new MovimientoDetalle
                 {
                     ProductoId = productoId,
-                    CodigoProducto = productoId.ToString(),
-                    Descripcion = descripcion,
-                    UnidadMedida = "UNIDAD",
-                    Detalle = new MovimientoDetalle { ProductoId = productoId, CantidadIngreso = 0, CostoUnitario = precio }
-                };
-                _productosGridList.Add(prod);
-            }
+                    CantidadIngreso = 0,
+                    CostoUnitario = precio
+                }
+            };
+
+            _productosGridList.Add(prod);
+
             return prod;
         }
 
@@ -896,72 +910,72 @@ namespace AplicativoDeAlmacen.Views
         {
             var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
             try { win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4; } catch { win.EstadoPermitido = 1; }
+
             if (win.ShowDialog() != true) return;
 
             var listaRaw = win.CodigosImportados ?? new List<string>();
             if (!listaRaw.Any()) return;
 
             this.Cursor = Cursors.Wait;
-            try
+
+            // 🌟 OPTIMIZACIÓN: Movemos el procesamiento pesado fuera del hilo de la UI
+            await Task.Run(async () =>
             {
-                var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaRaw);
-                var codigosFisicosAgrupados = new Dictionary<int, List<VistaCodigoGrid>>();
-
-                foreach (var raw in listaRaw)
+                try
                 {
-                    string norm = _serviceMovimiento.NormalizarCodigo(raw);
-                    if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
+                    var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaRaw);
+                    var codigosFisicosAgrupados = new Dictionary<int, List<VistaCodigoGrid>>();
 
-                    if (_codigosGridList.Any(c => string.Equals(c.CodigoUnique, tup.CodigoObj.Codigo, StringComparison.OrdinalIgnoreCase))) continue;
-
-                    string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
-
-                    if (!codigosFisicosAgrupados.ContainsKey(tup.ProductoId.Value))
-                        codigosFisicosAgrupados[tup.ProductoId.Value] = new List<VistaCodigoGrid>();
-
-                    codigosFisicosAgrupados[tup.ProductoId.Value].Add(new VistaCodigoGrid
+                    foreach (var raw in listaRaw)
                     {
-                        ProductoId = tup.ProductoId.Value,
-                        CodigoUnique = tup.CodigoObj.Codigo,
-                        ColeccionTipo = tipoBD,
-                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
+                        string norm = _serviceMovimiento.NormalizarCodigo(raw);
+                        if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
+
+                        // Evitar duplicados en memoria
+                        if (_codigosGridList.Any(c => string.Equals(c.CodigoUnique, tup.CodigoObj.Codigo, StringComparison.OrdinalIgnoreCase))) continue;
+
+                        string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
+
+                        if (!codigosFisicosAgrupados.ContainsKey(tup.ProductoId.Value))
+                            codigosFisicosAgrupados[tup.ProductoId.Value] = new List<VistaCodigoGrid>();
+
+                        codigosFisicosAgrupados[tup.ProductoId.Value].Add(new VistaCodigoGrid
+                        {
+                            ProductoId = tup.ProductoId.Value,
+                            CodigoUnique = tup.CodigoObj.Codigo,
+                            ColeccionTipo = tipoBD,
+                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
+                        });
+                    }
+
+                    // Actualizar UI desde el hilo principal
+                    await Application.Current.Dispatcher.InvokeAsync(async () =>
+                    {
+                        var prodService = new ProductoService();
+                        foreach (var kvp in codigosFisicosAgrupados)
+                        {
+                            int productoId = kvp.Key;
+                            var prodData = await prodService.ObtenerPorIdAsync(productoId);
+                            string unidadDeBD = prodData?.Descripcion ?? "UNIDAD";
+
+                            var producto = AgregarOActualizarProducto(productoId, prodData?.Descripcion ?? "Desconocido", 0, prodData?.PrecioUnitario ?? 0, unidadDeBD);
+                            _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, productoId, kvp.Value);
+                            var codigosDelProducto = _codigosGridList.Where(c => c.ProductoId == productoId).ToList();
+                            var nuevosRangos = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosDelProducto);
+                            _serviceMovimiento.ReemplazarRangosProducto(_rangosProcesadosGlobal, productoId, nuevosRangos);
+                        }
+                        RefrescarGrillas();
+                        if (_productosGridList.Count > 0) dgProductos.SelectedItem = _productosGridList.Last();
                     });
                 }
-
-                var prodService = new ProductoService();
-                foreach (var kvp in codigosFisicosAgrupados)
+                catch (Exception ex)
                 {
-                    int productoId = kvp.Key;
-                    var prodData = await prodService.ObtenerPorIdAsync(productoId);
-
-                    string unidadDeBD = prodData?.Descripcion ?? "UNIDAD";
-
-                    var producto = AgregarOActualizarProducto(
-                    productoId,
-                    prodData?.Descripcion ?? "Desconocido",
-                    0,
-                    prodData?.PrecioUnitario ?? 0,
-                    unidadDeBD);
-
-                    // 🌟 CORRECCIÓN: Pasamos '_codigosGridList' directamente sin el .ToList()
-                    _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, productoId, kvp.Value);
-
-                    // 🌟 CORRECCIÓN: Generar y enlazar rangos en memoria para que aparezcan en el Modal de Edición
-                    var codigosDelProducto = _codigosGridList.Where(c => c.ProductoId == productoId).ToList();
-                    var nuevosRangos = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosDelProducto);
-
-                    _serviceMovimiento.ReemplazarRangosProducto(_rangosProcesadosGlobal, productoId, nuevosRangos);
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                        MessageBox.Show($"Error al importar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error));
                 }
+            });
 
-                RefrescarGrillas();
-
-                if (_productosGridList.Count > 0)
-                    dgProductos.SelectedItem = _productosGridList.Last();
-
-                MessageBox.Show($"Importación finalizada. Se procesaron {codigosFisicosAgrupados.Values.Sum(v => v.Count)} códigos.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex) { MessageBox.Show($"Error al importar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
-            finally { this.Cursor = Cursors.Arrow; }
+            this.Cursor = Cursors.Arrow;
         }
 
         private VistaProductoGrid AgregarOActualizarProducto(int productoId, string descripcion, int cantidad, decimal precio, string unidadMedida)

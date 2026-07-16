@@ -14,6 +14,7 @@ namespace AplicativoDeAlmacen.Services
     {
         private readonly DatabaseConnection _database;
 
+
         public ProductoService()
         {
             _database = new DatabaseConnection();

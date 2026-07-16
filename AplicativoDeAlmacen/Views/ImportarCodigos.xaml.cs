@@ -13,36 +13,23 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using ClosedXML.Excel;
-using Microsoft.Win32; // <--- Esta es la librería correcta para WPF
+using Microsoft.Win32;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
 using System.Data.Common;
 using AplicativoDeAlmacen.Models.Models;
 using System.Diagnostics;
+using System.IO;
 
 namespace AplicativoDeAlmacen.Views
 {
-    /// <summary>
-    /// Lógica de interacción para ImportarCodigos.xaml
-    /// </summary>
     public partial class ImportarCodigos : Window
     {
-        // Estado permitido según motivo (1=COMPRA -> estado 1, otro -> estado 4). Si 0, no filtrar por estado.
         public int EstadoPermitido { get; set; } = 0;
-
-        // Si se marca, al transferir incluir códigos aunque su estado no sea el permitido
-        private bool GetIncluirInvalidos()
-        {
-            try
-            {
-                var field = this.FindName("chkIncluirInvalidos") as System.Windows.Controls.CheckBox;
-                return field != null && field.IsChecked == true;
-            }
-            catch { return false; }
-        }
-        // Propiedad pública para que la ventana principal pueda leer los datos
         public List<string> CodigosImportados { get; set; } = new List<string>();
+
+        private readonly Microsoft.Win32.OpenFileDialog openFileDialog = new Microsoft.Win32.OpenFileDialog();
         private readonly IngresoMovimientoService _serviceMovimiento = new IngresoMovimientoService();
         private readonly DatabaseConnection _db = new DatabaseConnection();
 
@@ -59,106 +46,78 @@ namespace AplicativoDeAlmacen.Views
             public int? EstadoId { get; set; }
             public string EstadoNombre { get; set; }
         }
+
+        private bool GetIncluirInvalidos()
+        {
+            try
+            {
+                var field = this.FindName("chkIncluirInvalidos") as System.Windows.Controls.CheckBox;
+                return field != null && field.IsChecked == true;
+            }
+            catch { return false; }
+        }
+
         public ImportarCodigos()
         {
             InitializeComponent();
-            // Inicialmente no permitimos transferir hasta que haya al menos un código encontrado
-            try
-            {
-                btnTransferir.IsEnabled = false;
-            }
-            catch { }
-            // Actualizar estado del botón cuando se editen checkboxes en la grilla
-            try
-            {
-                dgDatos.CellEditEnding += (s, e) => {
-                    // Postpone the check to after the edit is committed
-                    System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(new System.Action(() => {
-                        UpdateTransferButtonState();
-                    }));
-                };
-            }
-            catch { }
+            try { btnTransferir.IsEnabled = false; } catch { }
         }
 
-        private DataTable LeerExcel(string ruta)
+        private List<string> LeerExcel(string ruta)
         {
-            // Leer todo el rango usado y devolver una DataTable con UNA COLUMNA llamada "Codigo".
-            // Esto asegura que se recojan códigos distribuidos en varias columnas (A,B,C...) como suele venir en tus excels.
-            DataTable dt = new DataTable();
-            dt.Columns.Add("Codigo");
+            var lista = new List<string>(50000);
+            using var workbook = new XLWorkbook(ruta);
+            var ws = workbook.Worksheet(1);
+            var used = ws.RangeUsed();
+            if (used == null) return lista;
 
-            using (XLWorkbook workbook = new XLWorkbook(ruta))
+            foreach (var row in used.Rows())
             {
-                var worksheet = workbook.Worksheet(1);
-                var usedRange = worksheet.RangeUsed();
-                if (usedRange == null) return dt;
-
-                // Recorrer todas las celdas usadas y añadir cada valor no vacío como fila independiente
-                foreach (var row in usedRange.Rows())
+                foreach (var cell in row.Cells())
                 {
-                    foreach (var cell in row.Cells())
-                    {
-                        var val = cell.GetString();
-                        if (!string.IsNullOrWhiteSpace(val))
-                        {
-                            var dr = dt.NewRow();
-                            dr[0] = val.Trim();
-                            dt.Rows.Add(dr);
-                        }
-                    }
+                    var codigo = cell.GetString().Trim();
+                    if (!string.IsNullOrWhiteSpace(codigo))
+                        lista.Add(codigo);
                 }
             }
-            return dt;
+            return lista;
         }
 
-        private DataTable LeerTXT(string ruta)
+        private List<string> LeerTXT(string ruta)
         {
-            DataTable dt = new DataTable();
-            dt.Columns.Add("Codigo"); // Nombre de la columna que verás en el DataGrid
-
-            string[] lineas = System.IO.File.ReadAllLines(ruta);
-            foreach (string linea in lineas)
-            {
-                if (!string.IsNullOrWhiteSpace(linea))
-                    dt.Rows.Add(linea.Trim());
-            }
-            return dt;
+            return File.ReadLines(ruta)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .ToList();
         }
-        private async void Button_Click(object sender, RoutedEventArgs e)
+
+        // =========================================================================
+        // ACCIÓN 1: BUSCAR Y PREVISUALIZAR EXCEL CON BARRA DE PORCENTAJE REUTILIZABLE
+        // =========================================================================
+        private void Button_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog();
-            // Filtro para mostrar ambos tipos de archivos
             openFileDialog.Filter = "Archivos Permitidos (*.xlsx; *.txt)|*.xlsx;*.txt";
 
             if (openFileDialog.ShowDialog() == true)
             {
-                // 1. Ponemos la ruta en el TextBox (el que dice 373 en tu imagen)
                 txtRutaArchivo.Text = openFileDialog.FileName;
-
-                // 2. Detectamos la extensión
                 string extension = System.IO.Path.GetExtension(openFileDialog.FileName).ToLower();
-                DataTable dt = new DataTable();
 
-                try
+                List<string> rawList = new List<string>();
+                var preview = new List<PreviewRow>();
+
+                // 🌟 BARRA DE PROGRESO 1: Captura la lectura y el cruce masivo de la BD
+                var loadingModal = new ProgressWindow("Leyendo Archivo Masivo", "Extrayendo y mapeando datos desde el almacén...", async (progress) =>
                 {
                     if (extension == ".xlsx")
-                    {
-                        dt = LeerExcel(openFileDialog.FileName);
-                    }
-                    else if (extension == ".txt")
-                    {
-                        dt = LeerTXT(openFileDialog.FileName);
-                    }
+                        rawList = LeerExcel(openFileDialog.FileName);
+                    else
+                        rawList = LeerTXT(openFileDialog.FileName);
 
-                    // 3. Prevalidar contra la BD y mostrar previsualización
-                    var rawList = dt.Rows.Cast<DataRow>().Select(r => r[0].ToString().Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
-                    txtTotalCodigos.Text = rawList.Count.ToString();
-
-                    // Llamar al servicio para obtener mapping de códigos encontrados
+                    // Viaje rápido indexado a la base de datos
                     var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(rawList);
 
-                    // Obtener producto descripciones para los productIds encontrados (parametrizado)
+                    // Descripciones de productos en bloque
                     var prodIds = lookup.Values.Where(v => v.ProductoId.HasValue).Select(v => v.ProductoId.Value).Distinct().ToList();
                     var prodMap = new Dictionary<int, string>();
                     if (prodIds.Any())
@@ -166,7 +125,6 @@ namespace AplicativoDeAlmacen.Views
                         using var conn = _db.GetConnection();
                         var dbConn = (DbConnection)conn;
                         await dbConn.OpenAsync();
-
                         var paramNames = new List<string>();
                         for (int i = 0; i < prodIds.Count; i++) paramNames.Add("@p" + i);
                         string q = $"SELECT id, descripcion FROM productos WHERE id IN ({string.Join(',', paramNames)})";
@@ -176,7 +134,6 @@ namespace AplicativoDeAlmacen.Views
                         {
                             var p = cmd.CreateParameter(); p.ParameterName = "@p" + i; p.Value = prodIds[i]; cmd.Parameters.Add(p);
                         }
-
                         using var rdr = await cmd.ExecuteReaderAsync();
                         while (await rdr.ReadAsync())
                         {
@@ -186,7 +143,7 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // Preparar mapping de estados (nombre) para mostrar en la previsualización
+                    // Mapping de nombres de estados masivos
                     var estadoIds = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.EstadoId).Where(id => id != 0).Distinct().ToList();
                     var estadoMap = new Dictionary<int, string>();
                     if (estadoIds.Any())
@@ -194,14 +151,12 @@ namespace AplicativoDeAlmacen.Views
                         using var conn2 = _db.GetConnection();
                         var dbConn2 = (DbConnection)conn2;
                         await dbConn2.OpenAsync();
-
                         var paramNames2 = new List<string>();
                         for (int i = 0; i < estadoIds.Count; i++) paramNames2.Add("@e" + i);
                         string qest = $"SELECT id, nombre FROM estados WHERE id IN ({string.Join(',', paramNames2)})";
                         using var cmdEst = dbConn2.CreateCommand();
                         cmdEst.CommandText = QueryAdapter.FormatearConsulta(qest);
                         for (int i = 0; i < estadoIds.Count; i++) { var p = cmdEst.CreateParameter(); p.ParameterName = "@e" + i; p.Value = estadoIds[i]; cmdEst.Parameters.Add(p); }
-
                         using var rdrEst = await cmdEst.ExecuteReaderAsync();
                         while (await rdrEst.ReadAsync())
                         {
@@ -211,175 +166,109 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // Mostrar indicador de carga
-                    try { pnlLoading.Visibility = Visibility.Visible; } catch { }
-                    await Task.Delay(50);
-
-                    // Construir filas de previsualización
-                    // Dentro de ImportarCodigos.xaml.cs -> busca el método Button_Click (Línea 105 aprox.)
-                    // Reemplaza el bucle foreach que genera la lista 'preview' por este bloque depurado:
-
-                    var preview = new List<PreviewRow>();
-                    foreach (var raw in rawList)
+                    // Construcción de filas con reporte de porcentaje iterativo
+                    int total = rawList.Count;
+                    for (int i = 0; i < total; i++)
                     {
-                        string norm = _serviceMovimiento.NormalizarCodigo(raw);
+                        string norm = _serviceMovimiento.NormalizarCodigo(rawList[i]);
                         lookup.TryGetValue(norm, out var tup);
 
                         bool isFound = tup.CodigoObj != null;
-
-                        // El estado es válido si no se filtra (0) o si coincide exactamente con el motivo/concepto de entrada
                         bool estadoValido = isFound && (EstadoPermitido == 0 || tup.CodigoObj.EstadoId == EstadoPermitido);
 
                         var pr = new PreviewRow
                         {
-                            CodigoRaw = raw,
+                            CodigoRaw = rawList[i],
                             CodigoNorm = norm,
                             EstadoValido = estadoValido,
-                            CodigoCreadoId = tup.CodigoObj?.Id,
-                            ProductoId = tup.ProductoId,
-                            ProductoDesc = (tup.ProductoId.HasValue && prodMap.ContainsKey(tup.ProductoId.Value)) ? prodMap[tup.ProductoId.Value] : (isFound ? "CODIGO PLANO REGISTRADO" : "NO EXISTE EN INVENTARIO"),
-                            EstadoId = tup.CodigoObj?.EstadoId,
-                            EstadoNombre = (tup.CodigoObj != null && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : "INEXISTENTE"
+                            CodigoCreadoId = isFound ? tup.CodigoObj.Id : (int?)null,
+                            ProductoId = isFound ? tup.ProductoId : (int?)null,
+                            ProductoDesc = (isFound && tup.ProductoId.HasValue && prodMap.ContainsKey(tup.ProductoId.Value)) ? prodMap[tup.ProductoId.Value] : (isFound ? "CODIGO PLANO REGISTRADO" : "NO EXISTE EN INVENTARIO"),
+                            EstadoId = isFound ? tup.CodigoObj.EstadoId : (int?)null,
+                            EstadoNombre = (isFound && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : "INEXISTENTE"
                         };
 
-                        // La fila se marca y habilita el checkbox si el estado es correcto o si el usuario marcó "Incluir inválidos"
                         pr.Encontrado = pr.EstadoValido || GetIncluirInvalidos();
                         preview.Add(pr);
+
+                        // Reportamos el porcentaje cada 1,000 registros para no saturar el renderizador de la UI
+                        if (i % 1000 == 0) progress.Report((i * 100) / total);
                     }
 
-                    // Ordenar por producto (nombre) y luego por código
-                    preview = preview.OrderBy(p => p.ProductoDesc).ThenBy(p => p.CodigoRaw).ToList();
-                    // Reasignar números de fila
+                    // Ordenar rápidamente en RAM antes de pintar
+                    preview.Sort((a, b) => string.Compare(a.ProductoDesc, b.ProductoDesc, StringComparison.Ordinal));
                     int idx2 = 1;
                     foreach (var p in preview) p.RowNumber = idx2++;
+                });
 
+                loadingModal.Owner = this;
+                if (loadingModal.ShowDialog() == true)
+                {
+                    txtTotalCodigos.Text = rawList.Count.ToString();
+                    dgDatos.ItemsSource = null;
                     dgDatos.ItemsSource = preview;
 
-                    // Actualizar conteos y estado del botón Transferir según la previsualización
+                    // Forzar el redibujado instantáneo de la UI
+                    dgDatos.UpdateLayout();
                     UpdateTransferButtonState(preview);
-                    try
-                    {
-                        int valid = preview.Count(p => p.EstadoValido);
-                        int invalid = preview.Count - valid;
-                        txtValidos.Text = valid.ToString();
-                        txtInvalidos.Text = invalid.ToString();
-                    }
-                    catch { }
                 }
-                catch (Exception ex)
+                else if (loadingModal.ErrorResult != null)
                 {
-                    MessageBox.Show("Error al leer el archivo: " + ex.Message);
-                }
-                finally
-                {
-                    try { pnlLoading.Visibility = Visibility.Collapsed; } catch { }
+                    MessageBox.Show($"Error leyendo el archivo masivo:\n{loadingModal.ErrorResult.Message}", "Error de Carga", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
 
-
+        // =========================================================================
+        // ACCIÓN 2: BOTÓN TRANSFERIR CON BARRA DE PROGRESO DE PORCENTAJE (THREAD-SAFE)
+        // =========================================================================
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
-            // Llenamos nuestra lista pública con los códigos marcados como Encontrado en la previsualización
             CodigosImportados.Clear();
-            if (dgDatos.ItemsSource is IEnumerable<PreviewRow> rows)
-            {
-                foreach (var r in rows.Where(x => x.Encontrado))
-                {
-                    CodigosImportados.Add(r.CodigoRaw);
-                }
-            }
-            else if (dgDatos.ItemsSource is System.Collections.IEnumerable anyRows)
-            {
-                foreach (var item in anyRows)
-                {
-                    // intentar convertir dinámicamente
-                    try
-                    {
-                        var prop = item.GetType().GetProperty("CodigoRaw");
-                        if (prop != null)
-                        {
-                            var val = prop.GetValue(item)?.ToString();
-                            var encontrProp = item.GetType().GetProperty("Encontrado");
-                            bool ok = true;
-                            if (encontrProp != null) ok = Convert.ToBoolean(encontrProp.GetValue(item));
-                            if (ok && !string.IsNullOrWhiteSpace(val)) CodigosImportados.Add(val);
-                        }
-                    }
-                    catch { }
-                }
-            }
 
-            // Confirmar acción al usuario
-            int total = CodigosImportados.Count;
+            if (dgDatos.ItemsSource is not IEnumerable<PreviewRow> rows) return;
+            var itemsSeleccionados = rows.Where(x => x.Encontrado).ToList();
+
+            int total = itemsSeleccionados.Count;
             if (total == 0)
             {
                 MessageBox.Show("No hay códigos seleccionados para transferir.", "Transferir", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            var resp = MessageBox.Show($"Se transferirán {total} códigos. ¿Desea continuar?","Confirmar transferencia", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var resp = MessageBox.Show($"Se transferirán {total} códigos. ¿Desea continuar?", "Confirmar transferencia", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (resp != MessageBoxResult.Yes) return;
 
-            // Indicamos que la operación fue exitosa y cerramos
-            this.DialogResult = true;
-            this.Close();
+            // 🌟 BARRA DE PROGRESO 2: Captura el empaquetado asíncrono hacia la memoria del Kárdex
+            var transferModal = new ProgressWindow("Transfiriendo Lote", "Inyectando ítems al grid de movimientos...", async (progress) =>
+            {
+                for (int i = 0; i < total; i++)
+                {
+                    var r = itemsSeleccionados[i];
+                    if (!string.IsNullOrWhiteSpace(r.CodigoRaw))
+                    {
+                        CodigosImportados.Add(r.CodigoRaw);
+                    }
+
+                    // Reporte dinámico de la inyección
+                    if (i % 500 == 0) progress.Report((i * 100) / total);
+                }
+                await Task.CompletedTask;
+            });
+
+            transferModal.Owner = this;
+            if (transferModal.ShowDialog() == true)
+            {
+                this.DialogResult = true;
+                this.Close();
+            }
         }
 
         private void UpdateTransferButtonState()
         {
             if (dgDatos.ItemsSource is IEnumerable<PreviewRow> rows)
             {
-                int found = rows.Count(r => r.Encontrado);
-                try
-                {
-                    btnTransferir.IsEnabled = found > 0;
-                    btnTransferir.Content = found > 0 ? $"Transferir ({found})" : "Transferir";
-                    try
-                    {
-                        int valid = rows.Count(r => r.EstadoValido);
-                        int invalid = rows.Count() - valid;
-                        txtValidos.Text = valid.ToString();
-                        txtInvalidos.Text = invalid.ToString();
-                    }
-                    catch { }
-                }
-                catch { }
-            }
-            else if (dgDatos.ItemsSource is System.Collections.IEnumerable anyRows)
-            {
-                int count = 0;
-                foreach (var item in anyRows)
-                {
-                    try
-                    {
-                        var prop = item.GetType().GetProperty("Encontrado");
-                        if (prop != null && Convert.ToBoolean(prop.GetValue(item))) count++;
-                    }
-                    catch { }
-                }
-                try
-                {
-                    btnTransferir.IsEnabled = count > 0;
-                    btnTransferir.Content = count > 0 ? $"Transferir ({count})" : "Transferir";
-                    try
-                    {
-                        int valid = 0; int total = 0;
-                        foreach (var item in anyRows)
-                        {
-                            try
-                            {
-                                var pv = item as PreviewRow;
-                                if (pv != null) { total++; if (pv.EstadoValido) valid++; }
-                            }
-                            catch { }
-                        }
-                        txtValidos.Text = valid.ToString();
-                        txtInvalidos.Text = (total - valid).ToString();
-                    }
-                    catch { }
-                }
-                catch { }
+                UpdateTransferButtonState(rows);
             }
         }
 
@@ -390,14 +279,9 @@ namespace AplicativoDeAlmacen.Views
             {
                 btnTransferir.IsEnabled = found > 0;
                 btnTransferir.Content = found > 0 ? $"Transferir ({found})" : "Transferir";
-                try
-                {
-                    int valid = preview.Count(r => r.EstadoValido);
-                    int invalid = preview.Count() - valid;
-                    txtValidos.Text = valid.ToString();
-                    txtInvalidos.Text = invalid.ToString();
-                }
-                catch { }
+                int valid = preview.Count(r => r.EstadoValido);
+                txtValidos.Text = valid.ToString();
+                txtInvalidos.Text = (preview.Count() - valid).ToString();
             }
             catch { }
         }
@@ -408,7 +292,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (dgDatos.ItemsSource is not IEnumerable<PreviewRow> rows) return;
                 var invalids = rows.Where(r => r.CodigoCreadoId.HasValue && r.EstadoId.HasValue && EstadoPermitido != 0 && r.EstadoId.Value != EstadoPermitido).ToList();
-                if (!invalids.Any()) { MessageBox.Show("No hay códigos inválidos para exportar.", "Exportar inválidos", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+                if (!invalids.Any()) { MessageBox.Show("No hay códigos inválidos para exportar.", "Exportar", MessageBoxButton.OK, MessageBoxImage.Information); return; }
 
                 var lines = new List<string> { "Codigo;Normalizado;Estado" };
                 foreach (var i in invalids) lines.Add($"{i.CodigoRaw};{i.CodigoNorm};{i.EstadoNombre}");
@@ -417,23 +301,13 @@ namespace AplicativoDeAlmacen.Views
                 System.IO.File.WriteAllLines(ruta, lines, System.Text.Encoding.UTF8);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error exportando inválidos: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            catch (Exception ex) { MessageBox.Show($"Error exportando: {ex.Message}"); }
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e)
         {
-            // Cerrar la ventana sin efectuar la transferencia
-            try
-            {
-                this.DialogResult = false;
-            }
-            catch { }
+            try { this.DialogResult = false; } catch { }
             this.Close();
         }
-
-
     }
 }

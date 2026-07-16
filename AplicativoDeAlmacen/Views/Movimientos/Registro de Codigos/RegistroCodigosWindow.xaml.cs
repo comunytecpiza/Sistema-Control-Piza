@@ -133,8 +133,18 @@ namespace AplicativoDeAlmacen.Views
 
             if (!string.IsNullOrWhiteSpace(textoBusqueda))
             {
+                // 🌟 REGLA DE EXCLUSIÓN TOTAL:
+                // Buscamos las coincidencias de texto ignorando mayúsculas/minúsculas.
+                // Solo descartamos el producto si cumple AMBAS condiciones de descarte: 
+                // 1. Su descripción o datos contienen la palabra "MOCHILA" u "OTRO" (es un producto genérico por volumen).
+                // 2. Y a la vez carece de prefijo (Abreviatura NULL o vacía).
+                // De este modo, tu "LIBRO ALFANUMERICO" (Texto Escolar sin prefijo) pasará libre y se mostrará al instante.
                 var sugerencias = _todosLosProductos
-                    .Where(p => p.Descripcion != null && p.Descripcion.Contains(textoBusqueda, StringComparison.OrdinalIgnoreCase))
+                    .Where(p => p.Descripcion != null &&
+                                p.Descripcion.Contains(textoBusqueda, StringComparison.OrdinalIgnoreCase) &&
+                                !(string.IsNullOrWhiteSpace(p.Abreviatura) &&
+                                  (p.Descripcion.ToUpperInvariant().Contains("MOCHILA") ||
+                                   p.Descripcion.ToUpperInvariant().Contains("CUADERNO"))))
                     .Take(10)
                     .ToList();
 
@@ -166,32 +176,35 @@ namespace AplicativoDeAlmacen.Views
                 PopupProducto.IsOpen = false;
                 LstProducto.SelectedIndex = -1;
 
-                productoAbreviaturaActual = prod.Abreviatura;
+                // 🌟 Asignación profesional de base: Si no hay abreviatura, usamos la descripción limpia
+                productoAbreviaturaActual = string.IsNullOrWhiteSpace(prod.Abreviatura)
+                    ? prod.Descripcion
+                    : prod.Abreviatura;
 
                 if (CmbModalCategoria.SelectedValue is int catId)
                 {
                     try
                     {
-                        if (_isModoExcel)
+                        // Si el producto no tiene abreviatura (es alfanumérico puro), forzamos Modo Excel automáticamente
+                        if (string.IsNullOrWhiteSpace(prod.Abreviatura))
                         {
-                            // Códigos importados/alfa-numéricos
-                            ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(
-                                prod.Id,
-                                prod.Abreviatura,
-                                catId);
-
+                            ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, productoAbreviaturaActual, catId);
                             TxtDesde.Text = "";
                             TxtHasta.Text = "";
                         }
                         else
                         {
-                            // Solo secuenciales
-                            ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoSecuencialAsync(
-                                prod.Id,
-                                prod.Abreviatura,
-                                catId);
-
-                            CalcularRangos();
+                            if (_isModoExcel)
+                            {
+                                ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoAsync(prod.Id, productoAbreviaturaActual, catId);
+                                TxtDesde.Text = "";
+                                TxtHasta.Text = "";
+                            }
+                            else
+                            {
+                                ultimoCodigoActual = await _registroService.ObtenerUltimoCodigoSecuencialAsync(prod.Id, productoAbreviaturaActual, catId);
+                                CalcularRangos();
+                            }
                         }
                     }
                     catch (Exception ex)

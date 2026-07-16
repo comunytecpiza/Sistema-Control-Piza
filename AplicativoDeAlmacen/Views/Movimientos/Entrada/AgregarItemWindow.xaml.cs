@@ -4,6 +4,7 @@ using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -36,7 +37,6 @@ namespace AplicativoDeAlmacen.Views
         // Esta lista servirá de "espejo" para saber qué ya se registró en el padre
         public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; }
 
-        // Abre tu AgregarItemWindow.xaml.cs y verifica que tu constructor asigne la fuente de esta manera:
         public AgregarItemWindow()
         {
             InitializeComponent();
@@ -86,7 +86,9 @@ namespace AplicativoDeAlmacen.Views
             {
                 Id = item.ProductoId,
                 Descripcion = item.Descripcion,
-                PrecioUnitario = item.Detalle?.CostoUnitario
+                PrecioUnitario = item.Detalle?.CostoUnitario,
+                // 🌟 Mapeamos la unidad para que los métodos de guardado la reconozcan
+                UnidadMedida = new UnidadMedida { Descripcion = item.UnidadMedida }
             };
 
             if (rangos != null)
@@ -99,7 +101,10 @@ namespace AplicativoDeAlmacen.Views
             }
 
             txtProducto.Text = _productoSeleccionado.Descripcion;
-            txtUMedida.Text = "UNIDAD";
+
+            // 🌟 CORRECCIÓN: Reflejamos la unidad real que tenía en el padre
+            txtUMedida.Text = !string.IsNullOrWhiteSpace(item.UnidadMedida) ? item.UnidadMedida.ToUpperInvariant() : "UNIDAD";
+
             txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
 
             ListaRangosAgregados.Clear();
@@ -113,15 +118,13 @@ namespace AplicativoDeAlmacen.Views
                     string abrev = string.IsNullOrEmpty(r.AbreviaturaBase) ? (_productoSeleccionado?.Abreviatura ?? "COD") : r.AbreviaturaBase;
                     int cantCalcular = (desdeN == -1) ? 1 : (hastaN - desdeN + 1);
 
-                    // 🌟 DETECCIÓN DE FLUJO: Si DesdeNum es -1, es un alfanumérico puro sin secuencia
                     if (desdeN == -1)
                     {
-                        txtDesde = abrev; // Usamos el código alfanumérico limpio directo
+                        txtDesde = abrev;
                         txtHasta = abrev;
                     }
                     else
                     {
-                        // Si es secuencial con guiones, mantiene el relleno de ceros estándar de 7 dígitos
                         txtDesde = string.IsNullOrEmpty(r.Desde) ? $"{abrev}-{desdeN:D7}" : r.Desde;
                         txtHasta = string.IsNullOrEmpty(r.Hasta) ? $"{abrev}-{hastaN:D7}" : r.Hasta;
                     }
@@ -153,11 +156,9 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // Calcular el total real reflejado por los rangos corregidos
             int totalCantidadRangos = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0);
             txtCantidad.Text = totalCantidadRangos > 0 ? totalCantidadRangos.ToString() : (item.Detalle?.CantidadIngreso ?? 0m).ToString("0");
 
-            // 🌟 REFRESH SEGURO PARA EL CONTROL VISUAL
             dgDetalleCodigos.ItemsSource = null;
             dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
 
@@ -165,10 +166,8 @@ namespace AplicativoDeAlmacen.Views
             txtCantidad.IsReadOnly = false;
         }
 
-
         #region MOTOR DE BÚSQUEDA PREDICTIVA
 
-        // 🌟 1. Se agrega 'async' a la declaración del evento
         private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             string textoBusqueda = txtProducto.Text.Trim();
@@ -185,7 +184,6 @@ namespace AplicativoDeAlmacen.Views
                 // Solo busca si no se ha seleccionado ya ese producto exacto
                 if (_productoSeleccionado == null || _productoSeleccionado.Descripcion != txtProducto.Text)
                 {
-                    // 🌟 2. Se cambia el nombre del método y se usa 'await'
                     List<Producto> listaFiltrada = await _productoService.BuscarProductosPorTextoAsync(textoBusqueda);
 
                     if (listaFiltrada.Count > 0)
@@ -212,7 +210,12 @@ namespace AplicativoDeAlmacen.Views
                 // Inyectamos el producto seleccionado en los controles correspondientes
                 _productoSeleccionado = producto;
                 txtProducto.Text = producto.Descripcion;
-                txtUMedida.Text = producto.UnidadMedidaId == 1 ? "UNIDAD" : "MILLAR";
+
+                // 🌟 CORRECCIÓN MAESTRA: Respetamos la Unidad de Medida real de la Base de Datos
+                // Si el objeto UnidadMedida o su descripción vienen nulos, usamos "UNIDAD" como respaldo seguro.
+                txtUMedida.Text = (producto.UnidadMedida != null && !string.IsNullOrWhiteSpace(producto.UnidadMedida.Descripcion))
+                    ? producto.UnidadMedida.Descripcion.ToUpperInvariant()
+                    : "UNIDAD";
 
                 txtCUnitario.Text = producto.PrecioUnitario.HasValue
                     ? producto.PrecioUnitario.Value.ToString("F2")
@@ -236,6 +239,13 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
+            // 🌟 BLOQUEO PARA PRODUCTOS GENÉRICOS (Mochilas, Cuadernos)
+            bool esProductoSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura); // Ajusta a la propiedad que defina si tiene prefijo
+            if (esProductoSinCodigo)
+            {
+                MessageBox.Show("Este producto es de tipo genérico/otros y no requiere la asignación de códigos.", "Producto sin Códigos", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
 
             // 2. Validar cantidad esperada
             if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
@@ -274,7 +284,7 @@ namespace AplicativoDeAlmacen.Views
                     _productoSeleccionado.Id,
                     cantidadFaltantePorAsignar
                 );
-                // Propagamos el estado permitido para que la ventana de asignación valide correctamente
+
                 ventanaCodigo.EstadoPermitido = this.EstadoPermitido;
                 ventanaCodigo.Owner = this;
 
@@ -284,7 +294,7 @@ namespace AplicativoDeAlmacen.Views
 
                     if (nuevoRango != null)
                     {
-                        // 🔥 AQUÍ ESTÁ LA SOLUCIÓN: Validar duplicidad antes de agregar
+                        // Validar duplicidad antes de agregar
                         bool yaExiste = false;
                         foreach (var existente in ListaRangosAgregados)
                         {
@@ -300,7 +310,7 @@ namespace AplicativoDeAlmacen.Views
                         if (yaExiste)
                         {
                             MessageBox.Show("Este rango ya ha sido agregado a la lista.", "Rango Duplicado", MessageBoxButton.OK, MessageBoxImage.Warning);
-                            return; // No agregamos nada y salimos
+                            return;
                         }
 
                         // Si no existe, procedemos a agregar a la colección enlazada
@@ -320,63 +330,39 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
-
             if (_productoSeleccionado == null || string.IsNullOrWhiteSpace(txtProducto.Text))
             {
                 MessageBox.Show("Por favor, seleccione un producto válido antes de grabar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            // En AgregarItemWindow.xaml.cs: validar duplicados excepto si estamos editando el mismo producto
+
+            // Validar duplicados excepto si estamos editando el mismo producto
             if (ListaProductosExistentesEnPadre != null)
             {
                 bool existe = ListaProductosExistentesEnPadre.Exists(p => p.ProductoId == _productoSeleccionado.Id);
                 if (existe && !(IsEdit && OriginalProductoId == _productoSeleccionado.Id))
                 {
-                    // Si la ventana fue invocada desde la acción 'Agregar Ítem' no permitimos hacer merge
                     if (IsAddAction)
                     {
                         MessageBox.Show("Este producto ya existe en la lista. Use 'Modificar' para agregar códigos a un producto ya registrado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
 
-                    // Si el usuario ha agregado rangos/códigos en esta ventana, permitimos
-                    // que se añadan esos códigos al producto ya existente (modo merge).
                     if (ListaRangosAgregados.Count > 0)
                     {
                         MergeWithExisting = true;
-                        // continuar y cerrar normalmente; el padre deberá integrar los rangos al producto existente
                     }
                     else
                     {
                         MessageBox.Show("Este producto ya existe.", "Aviso");
-                        return; // No se cierra
+                        return;
                     }
                 }
             }
-            if (!decimal.TryParse(txtCantidad.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantidadPaquetesDeclarados))
-            {
-                MessageBox.Show("Cantidad de paquetes inválida.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
 
-            // REGLA DE ORO: La cantidad de filas en la grilla debe ser idéntica a la cantidad de paquetes declarada
-            int totalCodigosUnicosRegistrados = 0;
-            foreach (var rango in ListaRangosAgregados)
+            if (!decimal.TryParse(txtCantidad.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantidadPaquetesDeclarados) || cantidadPaquetesDeclarados <= 0)
             {
-                if (int.TryParse(rango.Cantidad, out int cantidadDelRango))
-                {
-                    totalCodigosUnicosRegistrados += cantidadDelRango;
-                }
-            }
-
-            // Ahora comparamos unidades físicas vs total de códigos únicos generados
-            if ((int)cantidadPaquetesDeclarados != totalCodigosUnicosRegistrados)
-            {
-                MessageBox.Show($"Inconsistencia de Códigos Únicos ❌\n\n" +
-                                $"En la cantidad del producto indicó: {cantidadPaquetesDeclarados} unidades.\n" +
-                                $"Sin embargo, la suma de los códigos en los rangos agregados es de: {totalCodigosUnicosRegistrados} códigos.\n\n" +
-                                $"Por favor, configure los rangos para que la cantidad total de códigos coincida exactamente con la cantidad de productos a ingresar.",
-                                "Error de Cuadrante", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Cantidad de paquetes inválida. Debe ser mayor a 0.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -386,22 +372,58 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
+            // 🌟 LÓGICA DE ESCALABILIDAD (EL NÚCLEO DEL ARREGLO)
+            // Evaluamos si es un producto genérico (ej. Mochila) que NO lleva códigos (Prefijo/Abreviatura nula)
+            bool esProductoSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura);
 
-            CantidadProductoIngresada = cantidadPaquetesDeclarados;
-            CostoUnitarioIngresado = costoValido;
+            if (esProductoSinCodigo)
+            {
+                // Es un producto sin códigos: Asignamos valores directos y omitimos la evaluación de la grilla
+                CantidadProductoIngresada = cantidadPaquetesDeclarados;
+                CostoUnitarioIngresado = costoValido;
+            }
+            else
+            {
+                // Es un producto serializado (Libros): Exigimos validación estricta
+                if (ListaRangosAgregados.Count == 0)
+                {
+                    MessageBox.Show("Los productos con código (libros) requieren que registre al menos un rango en la tabla.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
 
-            // Los datos ya están en ListaRangosAgregados (colección enlazada)
+                // REGLA DE ORO: La cantidad de filas en la grilla debe ser idéntica a la cantidad declarada
+                int totalCodigosUnicosRegistrados = 0;
+                foreach (var rango in ListaRangosAgregados)
+                {
+                    if (int.TryParse(rango.Cantidad, out int cantidadDelRango))
+                    {
+                        totalCodigosUnicosRegistrados += cantidadDelRango;
+                    }
+                }
+
+                if ((int)cantidadPaquetesDeclarados != totalCodigosUnicosRegistrados)
+                {
+                    MessageBox.Show($"Inconsistencia de Códigos Únicos ❌\n\n" +
+                                    $"En la cantidad del producto indicó: {cantidadPaquetesDeclarados} unidades.\n" +
+                                    $"Sin embargo, la suma de los códigos en los rangos agregados es de: {totalCodigosUnicosRegistrados} códigos.\n\n" +
+                                    $"Por favor, configure los rangos para que la cantidad total de códigos coincida exactamente con la cantidad de productos a ingresar.",
+                                    "Error de Cuadrante", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                CantidadProductoIngresada = cantidadPaquetesDeclarados;
+                CostoUnitarioIngresado = costoValido;
+            }
 
             FueGrabado = true;
             this.DialogResult = true;
+            this.Close(); // 🌟 Cerramos el modal de forma correcta
         }
 
         private void BtnEliminarRango_Click(object sender, RoutedEventArgs e)
         {
-            // 1. Verificamos si hay una fila seleccionada en el DataGrid
             if (dgDetalleCodigos.SelectedItem is RangoCodigoItem rangoSeleccionado)
             {
-                // 2. Pedimos confirmación al usuario
                 var confirmacion = MessageBox.Show("¿Está seguro de que desea eliminar este rango de códigos?",
                                                    "Confirmar Eliminación",
                                                    MessageBoxButton.YesNo,
@@ -409,13 +431,10 @@ namespace AplicativoDeAlmacen.Views
 
                 if (confirmacion == MessageBoxResult.Yes)
                 {
-                    // 3. Eliminamos de la colección enlazada
                     ListaRangosAgregados.Remove(rangoSeleccionado);
 
-                    // 4. Lógica extra: Si la grilla queda vacía, permitimos editar la cantidad de nuevo
                     if (ListaRangosAgregados.Count == 0)
                     {
-                        // Permitimos que el usuario modifique la cantidad para poder agregar nuevos rangos
                         txtCantidad.IsReadOnly = false;
                         txtProducto.IsEnabled = true;
                     }
@@ -429,6 +448,7 @@ namespace AplicativoDeAlmacen.Views
                                 MessageBoxImage.Information);
             }
         }
+
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
             FueGrabado = false;
@@ -436,7 +456,6 @@ namespace AplicativoDeAlmacen.Views
             this.Close();
         }
 
-    
         private void BtnModificarRango_Click(object sender, RoutedEventArgs e)
         {
             EditarRangoSeleccionado();
@@ -452,7 +471,6 @@ namespace AplicativoDeAlmacen.Views
 
         private void EditarRangoSeleccionado()
         {
-            // 1. Validar que haya una fila seleccionada
             if (dgDetalleCodigos.SelectedItem is not RangoCodigoItem rangoSeleccionado)
             {
                 MessageBox.Show("Por favor, seleccione un rango de la tabla para modificar.",
@@ -460,17 +478,14 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            // 2. Extraer cantidad total declarada
             if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
             {
                 MessageBox.Show("Ingrese una cantidad válida de unidades antes de modificar un rango.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 3. Obtener la lista actual de rangos desde la colección enlazada
             List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>(ListaRangosAgregados);
 
-            // 4. Calcular el total ya registrado y la cantidad del ítem seleccionado
             int totalCodigosYaAgregados = 0;
             int cantidadDelItemSeleccionado = 0;
             foreach (var rango in listaDeRangosActual)
@@ -492,7 +507,6 @@ namespace AplicativoDeAlmacen.Views
             try
             {
                 AsignarCodigoWindow ventanaEdicion = new AsignarCodigoWindow(listaDeRangosActual, rangoSeleccionado, cantidadFaltantePorAsignar);
-                // Propagamos el estado permitido para edición
                 ventanaEdicion.EstadoPermitido = this.EstadoPermitido;
                 ventanaEdicion.Owner = this;
 

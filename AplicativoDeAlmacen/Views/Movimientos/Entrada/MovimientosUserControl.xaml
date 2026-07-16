@@ -292,7 +292,12 @@
                             <Button x:Name="btnEscanear" Style="{StaticResource ModernButton}" Content="🔫 Escanear" Background="#8B5CF6" MinWidth="100" Click="BtnEscanear_Click"/>
                         </StackPanel>
 
-                        <StackPanel Orientation="Horizontal" Grid.Column="1">
+                        <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock x:Name="lblPorcentajeCarga" Text="0% Guardando..." Foreground="#4F46E5" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Visibility="Collapsed" Margin="0,0,8,0"/>
+                                <ProgressBar x:Name="pbCargaMasiva" Width="120" Height="8" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" Foreground="#4F46E5" Background="#E2E8F0"/>
+                            </StackPanel>
+
                             <Button x:Name="btnGrabar" Style="{StaticResource ModernButton}" Content="💾 Guardar Entrada" Background="#1E293B" Margin="0,0,8,0" MinWidth="150" Click="RegistrarMovimientoCompleto"/>
                             <Button x:Name="btnCancelar" Style="{StaticResource ModernButton}" Content="❌ Cancelar" Background="#64748B" MinWidth="105" Click="BtnCancelar_Click"/>
                         </StackPanel>

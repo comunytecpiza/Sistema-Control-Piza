@@ -397,24 +397,55 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(TxtAbreviatura.Text))
+            if (CmbTipoProducto.SelectedValue == null)
             {
-                MessageBox.Show("La abreviatura es obligatoria para poder generar los códigos en el sistema.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                TxtAbreviatura.Focus();
+                MessageBox.Show("Debe clasificar el producto seleccionando un Tipo de Producto.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                CmbTipoProducto.Focus();
                 return false;
+            }
+
+            // 🌟 REFACTORIZACIÓN SEGURA: Detectamos si es un producto genérico sin códigos
+            bool esProductoGenérico = false;
+            if (CmbTipoProducto.SelectedItem is TipoProducto tipoSeleccionado)
+            {
+                string nombreTipo = (tipoSeleccionado.Nombre ?? "").ToLower().Trim();
+
+                // Evaluamos variaciones comunes como "otro", "otros", o si el Id en tu BD representa a "Otros"
+                esProductoGenérico = nombreTipo.Contains("otro") || tipoSeleccionado.Id == 3; // Usa el Id correspondiente si lo sabes (ej: 3)
+            }
+
+            // 🌟 REGLA DE ORO: Si es una Mochila/Cuaderno ("Otro"), NO lleva abreviatura y pasa libre sin avisos.
+            if (esProductoGenérico)
+            {
+                // Forzamos que la abreviatura se limpie para evitar que se guarde basura en BD
+                TxtAbreviatura.Text = string.Empty;
+            }
+            else
+            {
+                // Si es un libro serializado (Plan Lector, Texto Escolar) y dejaron la abreviatura vacía...
+                if (string.IsNullOrWhiteSpace(TxtAbreviatura.Text))
+                {
+                    // Lanzamos la advertencia inteligente y exclusiva para los Packs Alfanuméricos
+                    MessageBoxResult confirmacionAlfa = MessageBox.Show(
+                        "Está intentando registrar un libro o producto serializado sin prefijo/abreviatura.\n\n" +
+                        "El sistema asumirá que este producto se manejará estrictamente con Códigos Alfanuméricos Puros (como estructuras PackLibro).\n\n" +
+                        "¿Desea continuar con el registro de este Pack de Libros?",
+                        "Confirmación de Estructura Alfanumérica",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+                    if (confirmacionAlfa == MessageBoxResult.No)
+                    {
+                        TxtAbreviatura.Focus();
+                        return false;
+                    }
+                }
             }
 
             if (CmbUnidadMedida.SelectedValue == null)
             {
                 MessageBox.Show("Debe seleccionar una Unidad de Medida (Ej. Unidad, Docena, Paquete).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 CmbUnidadMedida.Focus();
-                return false;
-            }
-
-            if (CmbTipoProducto.SelectedValue == null)
-            {
-                MessageBox.Show("Debe clasificar el producto seleccionando un Tipo de Producto.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                CmbTipoProducto.Focus();
                 return false;
             }
 
@@ -439,7 +470,6 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
-            // 🌟 NUEVA VALIDACIÓN: Verifica que el Stock Mínimo sea un número válido 🌟
             if (!string.IsNullOrWhiteSpace(TxtStockMinimo.Text) && !int.TryParse(TxtStockMinimo.Text, out _))
             {
                 MessageBox.Show("El Stock Mínimo debe ser un número entero válido (Ej. 100).", "Validación Numérica", MessageBoxButton.OK, MessageBoxImage.Warning);
