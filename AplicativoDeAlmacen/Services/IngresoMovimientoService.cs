@@ -414,13 +414,7 @@ namespace AplicativoDeAlmacen.Services
             await cmd.ExecuteNonQueryAsync();
         }
         // Agrega este método vacío en tu clase IngresoMovimientoService
-        private async Task EliminarMovimientoCodigoAsync(int detId, int codId, DbConnection conn, DbTransaction trans)
-        {
-            // Método vacío para evitar borrar datos físicos
-            await Task.CompletedTask;
-        }
-
-        public async Task<bool> RegistrarMovimientoCompletoAsync(Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos, int ubicacionId,  int? existingMovimientoId = null, IProgress<int> progress = null) // 🌟 Progreso para la UI
+        public async Task<bool> AnularMovimientoCompletoAsync(int movimientoId, IProgress<int> progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
@@ -429,149 +423,230 @@ namespace AplicativoDeAlmacen.Services
 
             try
             {
-                // 1. CABECERA
-                int movimientoId = await GuardarCabeceraAsync(
-                    cabecera,
-                    ubicacionId,
-                    existingMovimientoId,
-                    dbConn,
-                    transaccion);
+                // 1. OBTENER INFORMACIÓN CRUCIAL DEL MOVIMIENTO ACTUAL
+                DateTime fechaMovimiento;
+                using (var cmdMov = dbConn.CreateCommand())
+                {
+                    cmdMov.Transaction = transaccion;
+                    cmdMov.CommandText = QueryAdapter.FormatearConsulta("SELECT fecha_movimiento, estado_id FROM movimientos WHERE id = @movId");
+                    AgregarParametro(cmdMov, "@movId", movimientoId);
+                    using var rdrMov = await cmdMov.ExecuteReaderAsync();
+                    if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento especificado no existe.");
 
-                // 2. OBTENER CÓDIGOS ACTUALES EN BASE DE DATOS (Si es edición)
+                    if (rdrMov.GetInt32(1) == 5) throw new Exception("Este movimiento ya se encuentra anulado.");
+                    fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
+                }
+
+                // =========================================================================
+                // 🌟 CORRECCIÓN DE EJECUCIÓN (SEPARACIÓN DE COMANDOS)
+                // =========================================================================
+                // Primero: Creamos la tabla temporal sola para que SQL Server la registre en RAM
+                using (var cmdCreate = dbConn.CreateCommand())
+                {
+                    cmdCreate.Transaction = transaccion;
+                    cmdCreate.CommandText = QueryAdapter.FormatearConsulta("CREATE TABLE #temp_codigos_anular (codigo_creado_id INT NOT NULL PRIMARY KEY);");
+                    await cmdCreate.ExecuteNonQueryAsync();
+                }
+
+                // Segundo: Insertamos los registros del kárdex asociados al lote
+                using (var cmdPopulate = dbConn.CreateCommand())
+                {
+                    cmdPopulate.Transaction = transaccion;
+                    cmdPopulate.CommandText = QueryAdapter.FormatearConsulta("INSERT INTO #temp_codigos_anular (codigo_creado_id) SELECT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId;");
+                    AgregarParametro(cmdPopulate, "@movId", movimientoId);
+                    await cmdPopulate.ExecuteNonQueryAsync();
+                }
+
+                // 3. CANDADO DE SEGURIDAD LOOK-AHEAD (JOIN ATÓMICO)
+                using (var cmdCheck = dbConn.CreateCommand())
+                {
+                    cmdCheck.Transaction = transaccion;
+                    cmdCheck.CommandText = QueryAdapter.FormatearConsulta(@"
+                SELECT COUNT(*) 
+                FROM movimiento_codigos mc
+                INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = mc.codigo_creado_id
+                INNER JOIN movimientos m ON m.id = mc.movimiento_id
+                WHERE m.fecha_movimiento > @fechaMov OR (m.fecha_movimiento = @fechaMov AND m.id > @movId)");
+
+                    AgregarParametro(cmdCheck, "@fechaMov", fechaMovimiento);
+                    AgregarParametro(cmdCheck, "@movId", movimientoId);
+
+                    int posteriores = Convert.ToInt32(await cmdCheck.ExecuteScalarAsync());
+                    if (posteriores > 0)
+                    {
+                        throw new Exception($"Operación Rechazada: Existen {posteriores} códigos en este lote que ya registran movimientos o procesos logísticos posteriores en la línea de tiempo.");
+                    }
+                }
+
+                progress?.Report(30);
+
+                // =========================================================================
+                // 🚀 REVERSIÓN UTILIZANDO TU NUEVO ÍNDICE COMPUESTO
+                // =========================================================================
+                // Inyectamos el Hint WITH (INDEX(...)) para forzar a SQL Server a usar tu árbol 
+                // indexado en RAM y actualizar los 28,000 registros en microsegundos de un solo golpe.
+                string sqlRevertirEstados = @"
+            UPDATE cc
+            SET cc.estado_id = COALESCE(
+                (
+                    SELECT TOP 1 prev_m.motivo_producto_id
+                    FROM movimiento_codigos prev_mc
+                    INNER JOIN movimientos prev_m ON prev_m.id = prev_mc.movimiento_id
+                    WHERE prev_mc.codigo_creado_id = tmp.codigo_creado_id 
+                      AND prev_m.id < @movId
+                    ORDER BY prev_m.fecha_movimiento DESC, prev_m.id DESC
+                ), 1)
+            FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) -- 🌟 TU ÍNDICE AQUÍ
+            INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id";
+
+                using (var cmdRevert = dbConn.CreateCommand())
+                {
+                    cmdRevert.Transaction = transaccion;
+                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta(sqlRevertirEstados);
+                    AgregarParametro(cmdRevert, "@movId", movimientoId);
+                    await cmdRevert.ExecuteNonQueryAsync();
+                }
+
+                progress?.Report(70);
+
+                // 5. CAMBIAR EL ESTADO DEL MOVIMIENTO A ANULADO (estado_id = 5)
+                using (var cmdStatus = dbConn.CreateCommand())
+                {
+                    cmdStatus.Transaction = transaccion;
+                    cmdStatus.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimientos SET estado_id = 5 WHERE id = @movId");
+                    AgregarParametro(cmdStatus, "@movId", movimientoId);
+                    await cmdStatus.ExecuteNonQueryAsync();
+                }
+
+                progress?.Report(100);
+
+                transaccion.Commit();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                transaccion.Rollback();
+                throw new Exception($"Falla Crítica al Anular Movimiento: {ex.Message}");
+            }
+            finally
+            {
+                // Limpieza absoluta de la RAM del servidor SQL
+                try
+                {
+                    using var cmdDrop = dbConn.CreateCommand();
+                    cmdDrop.Transaction = transaccion;
+                    cmdDrop.CommandText = "DROP TABLE IF EXISTS #temp_codigos_anular;";
+                    await cmdDrop.ExecuteNonQueryAsync();
+                }
+                catch { }
+            }
+        }
+
+        public async Task<bool> RegistrarMovimientoCompletoAsync(Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos, int ubicacionId, int? existingMovimientoId = null, IProgress<int> progress = null)
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+            using var transaccion = dbConn.BeginTransaction();
+
+            try
+            {
+                // 1. GUARDAR O ACTUALIZAR LA CABECERA DEL MOVIMIENTO
+                int movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, dbConn, transaccion);
+
+                // 2. CAPTURAR HISTORIAL EN CASO DE EDICIÓN
                 var codigosPreviosEnBD = existingMovimientoId.HasValue
                     ? await ObtenerCodigosEnMovimientoAsync(new List<int> { existingMovimientoId.Value })
                     : new HashSet<int>();
 
-                // ============================================
-                // OPTIMIZACIÓN
-                // Agrupar rangos una sola vez
-                // ============================================
-                var rangosPorProducto = rangos
-                    .GroupBy(r => r.productoId)
-                    .ToDictionary(g => g.Key, g => g.ToList());
+                var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());
 
-                // Total real de códigos para el progreso
-                int totalCodigos = rangos.Sum(r =>
-                    r.DesdeNum == -1
-                        ? 1
-                        : (r.HastaNum - r.DesdeNum + 1));
+                int totalCodigos = rangos.Sum(r => r.DesdeNum == -1 ? 1 : (r.HastaNum - r.DesdeNum + 1));
+                if (totalCodigos == 0) totalCodigos = 1;
 
-                if (totalCodigos == 0)
-                    totalCodigos = 1;
-
-                int codigosProcesados = 0;
-
+                int codigosProcesadosGlobal = 0;
+                int ultimoPorcentajeReportado = -1; // 🌟 CANDADO DE CONTENCIÓN GRÁFICA
                 var nuevosCodigosIds = new HashSet<int>();
 
                 foreach (var item in productos)
                 {
-                    int detalleId = await UpsertMovimientoDetalleAsync(
-                        movimientoId,
-                        item,
-                        dbConn,
-                        transaccion);
+                    int detalleId = await UpsertMovimientoDetalleAsync(movimientoId, item, dbConn, transaccion);
+
+                    if (existingMovimientoId.HasValue)
+                    {
+                        string sqlLimpiarCodigos = "DELETE FROM movimiento_codigos WHERE movimiento_detalle_id = @detId";
+                        using (var cmdDel = dbConn.CreateCommand())
+                        {
+                            cmdDel.Transaction = transaccion;
+                            cmdDel.CommandText = QueryAdapter.FormatearConsulta(sqlLimpiarCodigos);
+                            AgregarParametro(cmdDel, "@detId", detalleId);
+                            await cmdDel.ExecuteNonQueryAsync();
+                        }
+                    }
 
                     if (!rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
                         continue;
 
-                    var codigosAInsertar = new List<int>();
+                    var codigosAInsertar = new List<int>(totalCodigos);
 
                     foreach (var r in rangosProd)
                     {
                         await InsertarRangoAsync(r, detalleId, dbConn, transaccion);
 
-                        var encontrados = await ObtenerIdsCodigosPorRangoAsync(
-                            r.productoId,
-                            r.AbreviaturaBase,
-                            r.CategoriaProductoId,
-                            r.DesdeNum,
-                            r.HastaNum,
-                            dbConn,
-                            transaccion);
+                        var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
 
                         foreach (var t in encontrados)
                         {
-                            if (await TieneMovimientosPosterioresAsync(
-                                t.CodigoObj.Id,
-                                cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today,
-                                dbConn,
-                                transaccion))
-                            {
-                                throw new Exception($"El código {t.CodigoObj.Codigo} tiene movimientos posteriores registrados. No se puede modificar.");
-                            }
-
                             codigosAInsertar.Add(t.CodigoObj.Id);
                             nuevosCodigosIds.Add(t.CodigoObj.Id);
                         }
 
-                        // Progreso REAL por códigos
-                        codigosProcesados += encontrados.Count;
+                        codigosProcesadosGlobal += encontrados.Count;
 
-                        progress?.Report(
-                            (codigosProcesados * 100) / totalCodigos);
+                        // 🌟 CONTROL SUAVE DE PROGRESO: Sólo reporta si cambia el número entero
+                        int nuevoPorcentaje = (codigosProcesadosGlobal * 100) / totalCodigos;
+                        if (nuevoPorcentaje > ultimoPorcentajeReportado)
+                        {
+                            ultimoPorcentajeReportado = nuevoPorcentaje;
+                            progress?.Report(nuevoPorcentaje);
+                        }
                     }
 
-                    const int batchSize = 1000;
-
-                    for (int i = 0; i < codigosAInsertar.Count; i += batchSize)
+                    // Inserción masiva en ráfagas estructuradas de 1,000 ítems exactos
+                    const int bulkSize = 1000;
+                    for (int i = 0; i < codigosAInsertar.Count; i += bulkSize)
                     {
-                        var batch = codigosAInsertar
-                            .Skip(i)
-                            .Take(batchSize)
-                            .ToList();
-
-                        await InsertarMovimientoCodigosMasivoAsync(
-                            movimientoId,
-                            detalleId,
-                            batch,
-                            dbConn,
-                            transaccion);
-
-                        await ActualizarEstadoCodigosMasivoAsync(
-                            batch,
-                            3,
-                            dbConn,
-                            transaccion);
+                        var batch = codigosAInsertar.Skip(i).Take(bulkSize).ToList();
+                        await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, batch, dbConn, transaccion);
+                        await ActualizarEstadoCodigosMasivoAsync(batch, 3, dbConn, transaccion); // 3 = En Almacén
                     }
                 }
 
-                // ============================================
-                // ELIMINAR CÓDIGOS REMOVIDOS
-                // ============================================
-                var codigosAEliminar = codigosPreviosEnBD
-                    .Where(id => !nuevosCodigosIds.Contains(id))
-                    .ToList();
-
-                foreach (var codId in codigosAEliminar)
+                // 3. PROCESAR REMOCIONES CRONOLÓGICAS (Solo si es Edición)
+                var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
+                if (codigosAEliminar.Any())
                 {
-                    bool tieneFuturo = await TieneMovimientosPosterioresAsync(
-                        codId,
-                        cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today,
-                        dbConn,
-                        transaccion);
-
-                    if (tieneFuturo)
+                    foreach (var codId in codigosAEliminar)
                     {
-                        throw new Exception($"El código ID {codId} no puede eliminarse porque tiene movimientos posteriores.");
+                        bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+                        if (tieneFuturo)
+                            throw new Exception($"Operación rechazada: El código ID {codId} cuenta con transacciones logísticas posteriores en kárdex.");
+
+                        int estadoAnterior = await ObtenerEstadoAnteriorAsync(codId, movimientoId, dbConn, transaccion);
+                        await ActualizarEstadoCodigo(codId, estadoAnterior, dbConn, transaccion);
                     }
 
-                    int estadoAnterior = await ObtenerEstadoAnteriorAsync(
-                        codId,
-                        movimientoId,
-                        dbConn,
-                        transaccion);
-
-                    await ActualizarEstadoCodigo(
-                        codId,
-                        estadoAnterior,
-                        dbConn,
-                        transaccion);
-
-                    await EliminarMovimientoCodigoAsync(
-                        movimientoId,
-                        codId,
-                        dbConn,
-                        transaccion);
+                    const int deleteBatchSize = 1000;
+                    for (int i = 0; i < codigosAEliminar.Count; i += deleteBatchSize)
+                    {
+                        var batchDel = codigosAEliminar.Skip(i).Take(deleteBatchSize).ToList();
+                        string queryDel = $"DELETE FROM movimiento_codigos WHERE movimiento_id = @movId AND codigo_creado_id IN ({string.Join(",", batchDel)})";
+                        using var cmdDel = dbConn.CreateCommand();
+                        cmdDel.Transaction = transaccion;
+                        cmdDel.CommandText = queryDel;
+                        var p = cmdDel.CreateParameter(); p.ParameterName = "@movId"; p.Value = movimientoId; cmdDel.Parameters.Add(p);
+                        await cmdDel.ExecuteNonQueryAsync();
+                    }
                 }
 
                 transaccion.Commit();
@@ -580,7 +655,7 @@ namespace AplicativoDeAlmacen.Services
             catch (Exception ex)
             {
                 transaccion.Rollback();
-                throw new Exception($"Error en transacción: {ex.Message}");
+                throw new Exception($"Falla en la persistencia del Kárdex: {ex.Message}");
             }
         }
 
@@ -657,12 +732,11 @@ namespace AplicativoDeAlmacen.Services
         {
             var resultados = new List<(CodigoCreado CodigoObj, int Seq)>();
 
-            // 🌟 CAMINO A: PACKS ALFANUMÉRICOS PUROS
             if (desde == -1)
             {
                 string queryPack = @"
             SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id
-            FROM codigos_creados cc
+            FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
             INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
             WHERE rc.producto_id = @productoId
               AND rc.categoria_producto_id = @categoriaId
@@ -683,9 +757,9 @@ namespace AplicativoDeAlmacen.Services
                         new CodigoCreado
                         {
                             Id = readerPack.GetInt32(0),
-                            RegistroCodigoId = readerPack.GetInt32(1),
+                            RegistroCodigoId = readerPack.IsDBNull(1) ? 0 : readerPack.GetInt32(1),
                             Codigo = readerPack.GetString(2),
-                            EsManual = readerPack.IsDBNull(3) ? false : readerPack.GetBoolean(3),
+                            EsManual = !readerPack.IsDBNull(3) && readerPack.GetBoolean(3),
                             EstadoId = readerPack.IsDBNull(4) ? 0 : readerPack.GetInt32(4)
                         },
                         -1
@@ -694,49 +768,65 @@ namespace AplicativoDeAlmacen.Services
                 return resultados;
             }
 
-            // ----------------------------------------------------------------------
-            // 🌟 CAMINO B: LIBROS SECUENCIALES (CORREGIDO)
-            // ----------------------------------------------------------------------
-            var listaCodigosBuscados = new List<string>();
-            for (int i = desde; i <= hasta; i++)
+            // =========================================================================
+            // 🚀 OPTIMIZACIÓN LOGÍSTICA PARA VOLÚMENES GRANDES (28,000+ REGISTROS)
+            // =========================================================================
+            // 1. Crear una tabla temporal ligera en la sesión de la transacción
+            string sqlCrearTabla = "CREATE TABLE #temp_rango_busqueda (codigo_buscado VARCHAR(50) NOT NULL PRIMARY KEY);";
+            using (var cmdTable = conn.CreateCommand())
             {
-                listaCodigosBuscados.Add($"{baseLimpia}-{i:D7}");
+                cmdTable.Transaction = trans;
+                cmdTable.CommandText = sqlCrearTabla;
+                await cmdTable.ExecuteNonQueryAsync();
             }
 
-            const int batchSize = 1000;
-
-            // 🌟 AHORA USAMOS 'chunkIndex' COMO VARIABLE CORRECTA DEL BUCLE
-            for (int chunkIndex = 0; chunkIndex < listaCodigosBuscados.Count; chunkIndex += batchSize)
+            try
             {
-                var chunk = listaCodigosBuscados.Skip(chunkIndex).Take(batchSize).ToList();
-                var paramNames = new List<string>();
+                // 2. Insertar los 28,000 códigos en bloques limpios utilizando texto estructurado
+                int totalCodigos = hasta - desde + 1;
+                const int batchSize = 1000;
 
-                using var cmd = conn.CreateCommand();
-                cmd.Transaction = trans;
-
-                for (int j = 0; j < chunk.Count; j++)
+                for (int i = 0; i < totalCodigos; i += batchSize)
                 {
-                    string paramName = "@c" + j;
-                    paramNames.Add(paramName);
-                    AgregarParametro(cmd, paramName, chunk[j]);
+                    int chunk = Math.Min(batchSize, totalCodigos - i);
+                    var sbInsert = new System.Text.StringBuilder("INSERT INTO #temp_rango_busqueda (codigo_buscado) VALUES ");
+                    using var cmdIns = conn.CreateCommand();
+                    cmdIns.Transaction = trans;
+
+                    for (int j = 0; j < chunk; j++)
+                    {
+                        int correlativo = desde + i + j;
+                        string parametroNombre = $"@p{j}";
+                        sbInsert.Append($"({parametroNombre})");
+                        if (j < chunk - 1) sbInsert.Append(",");
+
+                        // 🌟 CORREGIDO: Cambiado paramparametroNombre por parametroNombre
+                        AgregarParametro(cmdIns, parametroNombre, $"{baseLimpia}-{correlativo:D7}");
+                    }
+
+                    cmdIns.CommandText = sbInsert.ToString();
+                    await cmdIns.ExecuteNonQueryAsync();
                 }
 
-                string query = $@"
+                // 3. INNER JOIN Maestro directo contra tu índice compuesto sin usar el pesado operador 'IN'
+                string queryMaster = @"
             SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id
-            FROM codigos_creados cc
+            FROM #temp_rango_busqueda tmp
+            INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) ON cc.codigo = tmp.codigo_buscado
             INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
             WHERE rc.producto_id = @productoId
-              AND rc.categoria_producto_id = @categoriaId
-              AND cc.codigo IN ({string.Join(",", paramNames)})";
+              AND rc.categoria_producto_id = @categoriaId";
 
-                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                AgregarParametro(cmd, "@productoId", productoId);
-                AgregarParametro(cmd, "@categoriaId", categoriaId);
+                using var cmdQuery = conn.CreateCommand();
+                cmdQuery.Transaction = trans;
+                cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
+                AgregarParametro(cmdQuery, "@productoId", productoId);
+                AgregarParametro(cmdQuery, "@categoriaId", categoriaId);
 
-                using var reader = await cmd.ExecuteReaderAsync();
+                using var reader = await cmdQuery.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
-                    string codigoRaw = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                    string codigoRaw = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
                     string codigoNorm = NormalizarCodigo(codigoRaw);
 
                     if (codigoNorm.Length >= 7)
@@ -744,22 +834,27 @@ namespace AplicativoDeAlmacen.Services
                         string colaStr = codigoNorm.Substring(codigoNorm.Length - 7);
                         if (int.TryParse(colaStr, out int seq))
                         {
-                            if (seq >= desde && seq <= hasta)
-                            {
-                                resultados.Add((
-                                    new CodigoCreado
-                                    {
-                                        Id = reader.GetInt32(0),
-                                        RegistroCodigoId = reader.GetInt32(1),
-                                        Codigo = codigoRaw,
-                                        EsManual = reader.IsDBNull(3) ? false : reader.GetBoolean(3),
-                                        EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
-                                    },
-                                    seq));
-                            }
+                            resultados.Add((
+                                new CodigoCreado
+                                {
+                                    Id = reader.GetInt32(0),
+                                    RegistroCodigoId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                                    Codigo = codigoRaw,
+                                    EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                                    EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
+                                },
+                                seq));
                         }
                     }
                 }
+            }
+            finally
+            {
+                // 4. Limpieza preventiva
+                using var cmdDrop = conn.CreateCommand();
+                cmdDrop.Transaction = trans;
+                cmdDrop.CommandText = "DROP TABLE IF EXISTS #temp_rango_busqueda;";
+                await cmdDrop.ExecuteNonQueryAsync();
             }
 
             return resultados;
@@ -769,21 +864,41 @@ namespace AplicativoDeAlmacen.Services
         public string NormalizarCodigo(string codigo)
         {
             if (string.IsNullOrWhiteSpace(codigo)) return string.Empty;
-            // quitar espacios, comillas simples/dobles, apóstrofes tipográficos y distintas variedades de guion/dash
-            var s = codigo.Replace(" ", "")
-                          .Replace("'", "")
-                          .Replace("\"", "")
-                          .Replace("\u2019", "")
-                          .Replace("\u2018", "")
-                          .Replace("-", "")
-                          .Replace("\u2010", "")
-                          .Replace("\u2011", "")
-                          .Replace("\u2012", "")
-                          .Replace("\u2013", "")
-                          .Replace("\u2014", "")
-                          .Replace("\u2015", "")
-                          .Replace("\u200B", ""); // zero-width space
-            return s.ToUpperInvariant();
+
+            // 1. Convertimos a mayúsculas y quitamos los espacios duplicados o en los extremos
+            string s = codigo.ToUpperInvariant().Trim();
+
+            // 2. Homologamos apóstrofes convirtiéndolos en guiones normales
+            s = s.Replace("'", "-");
+            s = s.Replace("\u2019", "-").Replace("\u2018", "-");
+
+            // 🌟 3. NORMALIZACIÓN SIMÉTRICA DE ESPACIOS
+            // Si el Excel venía compactado (ej: "LMA4C26-V-0009498"), forzamos el espacio reglamentario 
+            // después de "LMA4" para que calce exactamente con el formato de la Base de Datos: "LMA4 C26-V-0009498"
+            if (s.StartsWith("LMA4") && !s.StartsWith("LMA4 "))
+            {
+                s = "LMA4 " + s.Substring(4);
+            }
+
+            // =========================================================================
+            // 🌟 FORMATEADOR DE 7 DÍGITOS (Sincronización estricta de ceros)
+            // =========================================================================
+            int posGuion = s.LastIndexOf('-');
+            if (posGuion >= 0)
+            {
+                string prefijoBase = s.Substring(0, posGuion + 1);
+                string parteNumerica = s.Substring(posGuion + 1);
+
+                if (!string.IsNullOrEmpty(parteNumerica) && parteNumerica.All(char.IsDigit))
+                {
+                    if (int.TryParse(parteNumerica, out int numeroVal))
+                    {
+                        s = prefijoBase + numeroVal.ToString("D7");
+                    }
+                }
+            }
+
+            return s;
         }
 
         public async Task<Dictionary<string, (CodigoCreado CodigoObj, int? ProductoId)>> ObtenerCodigosPorListaAsync(IEnumerable<string> codigos)
@@ -791,124 +906,119 @@ namespace AplicativoDeAlmacen.Services
             if (codigos == null)
                 return new Dictionary<string, (CodigoCreado, int?)>();
 
-            //====================================================
-            // PREPARAR LISTA
-            //====================================================
-
-            var listaRaw = codigos
+            // ====================================================
+            // 1. PREPARAR Y NORMALIZAR LISTA DE CORRIDO EN RAM
+            // ====================================================
+            var listaNormalizada = codigos
                 .Where(c => !string.IsNullOrWhiteSpace(c))
-                .Select(c => c.Trim())
+                .Select(c => NormalizarCodigo(c))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (listaRaw.Count == 0)
-                return new Dictionary<string, (CodigoCreado, int?)>();
-
-            // Reserva memoria desde el inicio
             var resultado = new Dictionary<string, (CodigoCreado, int?)>(
-                listaRaw.Count,
+                listaNormalizada.Count,
                 StringComparer.OrdinalIgnoreCase);
 
-            // Normalizar UNA SOLA VEZ
-            var codigosNormalizados = new Dictionary<string, string>(
-                listaRaw.Count,
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (string codigo in listaRaw)
-            {
-                string normalizado = NormalizarCodigo(codigo);
-
-                if (!codigosNormalizados.ContainsKey(normalizado))
-                    codigosNormalizados.Add(normalizado, codigo);
-            }
+            if (listaNormalizada.Count == 0)
+                return resultado;
 
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
-
             await dbConn.OpenAsync();
 
-            const int batchSize = 1000;
+            // ====================================================
+            // 🚀 TABLA TEMPORAL EN MEMORIA (Alineada a tus Índices)
+            // ====================================================
+            // Usamos la sintaxis oficial de SQL Server (#) con una clave primaria 
+            // para que el motor indexe en RAM los 60,000 registros instantáneamente.
+            string sqlCrearTabla = "CREATE TABLE #temp_codigos_bulk (codigo_norm VARCHAR(50) NOT NULL PRIMARY KEY);";
 
-            //====================================================
-            // CONSULTA POR LOTES
-            //====================================================
-
-            for (int i = 0; i < listaRaw.Count; i += batchSize)
+            using (var cmdTmp = dbConn.CreateCommand())
             {
-                int cantidad = Math.Min(batchSize, listaRaw.Count - i);
+                cmdTmp.CommandText = QueryAdapter.FormatearConsulta(sqlCrearTabla);
+                await cmdTmp.ExecuteNonQueryAsync();
+            }
 
-                // Muchísimo más rápido que Skip().Take()
-                List<string> loteActual = listaRaw.GetRange(i, cantidad);
+            try
+            {
+                // ====================================================
+                // 2. INSERCIÓN MASIVA CONTROLADA (ESTRICTAMENTE 1,000 FILAS)
+                // ====================================================
+                // Bajamos a 1000 para cumplir con la regla estricta de SQL Server y evitar el error de fila
+                const int batchInsertSize = 1000;
 
-                var parametros = new List<string>(cantidad);
-
-                using var cmd = dbConn.CreateCommand();
-
-                for (int j = 0; j < loteActual.Count; j++)
+                for (int i = 0; i < listaNormalizada.Count; i += batchInsertSize)
                 {
-                    string nombre = "@c" + j;
+                    int cantidad = Math.Min(batchInsertSize, listaNormalizada.Count - i);
+                    List<string> lote = listaNormalizada.GetRange(i, cantidad);
 
-                    parametros.Add(nombre);
+                    var sbInsert = new System.Text.StringBuilder("INSERT INTO #temp_codigos_bulk (codigo_norm) VALUES ");
+                    using var cmdInsert = dbConn.CreateCommand();
 
-                    AgregarParametro(cmd, nombre, loteActual[j]);
+                    for (int j = 0; j < lote.Count; j++)
+                    {
+                        sbInsert.Append($"(@txt{j})");
+                        if (j < lote.Count - 1) sbInsert.Append(",");
+
+                        var p = cmdInsert.CreateParameter();
+                        p.ParameterName = "@txt" + j;
+                        p.Value = lote[j];
+                        cmdInsert.Parameters.Add(p);
+                    }
+
+                    cmdInsert.CommandText = sbInsert.ToString();
+                    await cmdInsert.ExecuteNonQueryAsync();
                 }
 
-                cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-SELECT
-    cc.id,
-    cc.registro_codigo_id,
-    cc.codigo,
-    cc.es_manual,
-    cc.estado_id,
-    rc.producto_id
-FROM codigos_creados cc
-LEFT JOIN registro_codigos rc
-       ON rc.id = cc.registro_codigo_id
-WHERE cc.codigo IN ({string.Join(",", parametros)})");
+                // ====================================================
+                // 3. INNER JOIN MAESTRO SOBRE TUS ÍNDICES COMPUESTOS
+                // ====================================================
+                // Gracias a tus índices con INCLUDE, esta consulta vuela porque cruza la 
+                // tabla temporal contra los árboles indexados en memoria, sin buscar en las tablas físicas.
+                string queryMaster = @"
+                SELECT 
+                    cc.id, 
+                    cc.registro_codigo_id, 
+                    cc.codigo, 
+                    cc.es_manual, 
+                    cc.estado_id, 
+                    rc.producto_id
+                FROM #temp_codigos_bulk tmp
+                INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) 
+                    ON cc.codigo = tmp.codigo_norm -- 🌟 ¡FALTABA ESTA CONDICIÓN DE UNIÓN!
+                LEFT JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id";
 
-                using var reader = await cmd.ExecuteReaderAsync();
+                using var cmdQuery = dbConn.CreateCommand();
+                cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
 
+                using var reader = await cmdQuery.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
-                    string codigo = reader.IsDBNull(2)
-                        ? string.Empty
-                        : reader.GetString(2);
+                    string codigoRaw = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                    string codigoNorm = NormalizarCodigo(codigoRaw);
 
-                    string codigoNormalizado = NormalizarCodigo(codigo);
-
-                    // Si ya lo agregamos no hacemos nada
-                    if (resultado.ContainsKey(codigoNormalizado))
-                        continue;
-
-                    var codigoCreado = new CodigoCreado
+                    if (!resultado.ContainsKey(codigoNorm))
                     {
-                        Id = reader.IsDBNull(0)
-                            ? 0
-                            : reader.GetInt32(0),
+                        var codigoCreado = new CodigoCreado
+                        {
+                            Id = reader.GetInt32(0),
+                            RegistroCodigoId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                            Codigo = codigoRaw,
+                            EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                            EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
+                        };
 
-                        RegistroCodigoId = reader.IsDBNull(1)
-                            ? 0
-                            : reader.GetInt32(1),
-
-                        Codigo = codigo,
-
-                        EsManual = reader.IsDBNull(3)
-                            ? false
-                            : reader.GetBoolean(3),
-
-                        EstadoId = reader.IsDBNull(4)
-                            ? 0
-                            : reader.GetInt32(4)
-                    };
-
-                    int? productoId = reader.IsDBNull(5)
-                        ? (int?)null
-                        : reader.GetInt32(5);
-
-                    resultado.Add(
-                        codigoNormalizado,
-                        (codigoCreado, productoId));
+                        int? productoId = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5);
+                        resultado.Add(codigoNorm, (codigoCreado, productoId));
+                    }
                 }
+            }
+            finally
+            {
+                // 🛡️ LIMPIEZA ABSOLUTA DE RECURSOS TEMPORALES EN SQL SERVER
+                using var cmdDrop = dbConn.CreateCommand();
+                cmdDrop.CommandText = "DROP TABLE IF EXISTS #temp_codigos_bulk;";
+                await cmdDrop.ExecuteNonQueryAsync();
             }
 
             return resultado;

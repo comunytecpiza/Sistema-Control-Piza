@@ -243,24 +243,18 @@ namespace AplicativoDeAlmacen.Views
             if (_isGuardando) return;
 
             if (CmbModalColeccion.SelectedValue == null || _productoSeleccionadoId == 0)
+            {
+                MessageBox.Show("Por favor, seleccione una colección y un producto válido.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
+            }
 
             _isGuardando = true;
-
             Button btnGuardar = (Button)sender;
             string textoOriginal = btnGuardar.Content?.ToString() ?? "Guardar";
 
             try
             {
                 btnGuardar.IsEnabled = false;
-                btnGuardar.Content = "⏳ Verificando...";
-
-                PbProgreso.Visibility = Visibility.Visible;
-                Mouse.OverrideCursor = Cursors.Wait;
-
-                await Task.Delay(1000);
-
-                btnGuardar.Content = "☁️ Subiendo códigos...";
 
                 int coleccionId = (int)CmbModalColeccion.SelectedValue;
                 int categoriaId = (int)CmbModalCategoria.SelectedValue;
@@ -270,69 +264,70 @@ namespace AplicativoDeAlmacen.Views
                 {
                     if (!_codigosImportados.Any())
                     {
-                        MessageBox.Show(
-                            "Debe importar códigos primero.",
-                            "Aviso",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Warning);
-
+                        MessageBox.Show("Debe importar códigos primero.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
 
-                    var importService =
-                        new ImportacionExcelService();
+                    var importService = new ImportacionExcelService();
 
-                    var duplicados =
-                        await importService.ObtenerCodigosDuplicadosAsync(
-                            _codigosImportados);
-
-                    if (duplicados.Any())
+                    // 🌟 CORRECCIÓN ASÍNCRONA: Instanciamos el modal y le asignamos el Owner correcto de la App
+                    var progressModal = new ProgressWindow("Guardando Lote de Códigos", "Insertando registros masivos en la base de datos...", async (progress) =>
                     {
-                        MessageBox.Show(
-                            $"Existen {duplicados.Count} códigos repetidos.\nRevise la vista previa.",
-                            "Duplicados",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Warning);
+                        await importService.GuardarCodigosImportadosTransactionAsync(coleccionId, productoId, categoriaId, _codigosImportados, progress);
+                    });
 
-                        return;
+                    progressModal.Owner = Window.GetWindow(this);
+
+                    // Forzamos el ShowDialog de manera segura esperando el hilo gráfico
+                    if (progressModal.ShowDialog() == true)
+                    {
+                        MessageBox.Show("Códigos importados y generados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                        ModalAgregar.Visibility = Visibility.Collapsed;
+                        await CargarGridAsync(coleccionId, categoriaId);
+                        EventBus.NotificarRegistroCodigosChanged();
                     }
-
-                    await importService.GuardarCodigosImportadosTransactionAsync(
-                        coleccionId,
-                        productoId,
-                        categoriaId,
-                        _codigosImportados);
+                    else if (progressModal.ErrorResult != null)
+                    {
+                        throw progressModal.ErrorResult;
+                    }
                 }
                 else
                 {
+                    if (string.IsNullOrWhiteSpace(TxtCantidad.Text)) return;
                     int cantidad = int.Parse(TxtCantidad.Text);
+                    string desde = TxtDesde.Text;
+                    string hasta = TxtHasta.Text;
 
-                    await _registroService.GuardarCodigosTransactionAsync(
-                        coleccionId,
-                        productoId,
-                        cantidad,
-                        TxtDesde.Text,
-                        TxtHasta.Text,
-                        categoriaId);
+                    // 🌟 CORRECCIÓN ASÍNCRONA: Lote secuencial
+                    var progressModal = new ProgressWindow("Generando Secuencia", "Creando e insertando lote secuencial...", async (progress) =>
+                    {
+                        await _registroService.GuardarCodigosTransactionAsync(coleccionId, productoId, cantidad, desde, hasta, categoriaId, progress);
+                    });
+
+                    progressModal.Owner = Window.GetWindow(this);
+
+                    if (progressModal.ShowDialog() == true)
+                    {
+                        MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                        ModalAgregar.Visibility = Visibility.Collapsed;
+                        await CargarGridAsync(coleccionId, categoriaId);
+                        EventBus.NotificarRegistroCodigosChanged();
+                    }
+                    else if (progressModal.ErrorResult != null)
+                    {
+                        throw progressModal.ErrorResult;
+                    }
                 }
-
-                MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                ModalAgregar.Visibility = Visibility.Collapsed;
-                await CargarGridAsync(coleccionId, categoriaId);
-                EventBus.NotificarRegistroCodigosChanged();
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Aviso del Sistema", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show($"Ocurrió un problema al procesar el lote:\n\n{ex.Message}", "Aviso del Sistema", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
                 _isGuardando = false;
                 btnGuardar.IsEnabled = true;
                 btnGuardar.Content = textoOriginal;
-                PbProgreso.Visibility = Visibility.Collapsed;
-                Mouse.OverrideCursor = null;
             }
         }
 
@@ -474,34 +469,36 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private async void BtnVisualizarExcel_Click(object sender, RoutedEventArgs e)
+        private void BtnVisualizarExcel_Click(object sender, RoutedEventArgs e)
         {
-            if (!_codigosImportados.Any())
-                return;
+            if (!_codigosImportados.Any()) return;
 
-            var service =
-                new ImportacionExcelService();
+            var service = new ImportacionExcelService();
+            List<string> duplicados = new List<string>();
 
-            var duplicados =
-                await service.ObtenerCodigosDuplicadosAsync(
-                        _codigosImportados);
-
-            var ventana =
-                new VistaPreviaExcelWindow(
-                        _codigosImportados,
-                        duplicados);
-
-            bool? resultado =
-                ventana.ShowDialog();
-
-            if (resultado == true)
+            // 🌟 1. VENTANA DE PROGRESO REAL PARA LA BÚSQUEDA DE DUPLICADOS
+            var loadingModal = new ProgressWindow("Verificando Duplicados", "Cruzando datos con el inventario...", async (progress) =>
             {
-                _codigosImportados =
-                    ventana.CodigosAprobados;
+                // Gracias a tu índice SQL y la tabla temporal, esto volará, 
+                // pero la ventana entretiene al usuario mientras la red responde.
+                duplicados = await service.ObtenerCodigosDuplicadosAsync(_codigosImportados);
+            });
 
-                TxtCantidadExcel.Text =
-                    $"Total seleccionados: {_codigosImportados.Count}";
+            loadingModal.Owner = Window.GetWindow(this);
+
+            if (loadingModal.ShowDialog() == true)
+            {
+                var ventana = new VistaPreviaExcelWindow(_codigosImportados, duplicados);
+                ventana.Owner = Window.GetWindow(this);
+
+                if (ventana.ShowDialog() == true)
+                {
+                    _codigosImportados = ventana.CodigosAprobados;
+                    TxtCantidadExcel.Text = $"Total seleccionados: {_codigosImportados.Count}";
+                }
             }
         }
+
+        
     }
 }

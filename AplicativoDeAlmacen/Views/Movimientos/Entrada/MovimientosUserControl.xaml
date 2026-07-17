@@ -170,7 +170,13 @@
                             <Button x:Name="btnAgregar" Style="{StaticResource ModernButton}" Content="➕ Nuevo" Background="#10B981" Margin="0,0,8,0" MinWidth="105" Click="BtnAgregar_Click"/>
                             <Button x:Name="btnEditar" Style="{StaticResource ModernButton}" Content="📝 Editar" Background="#F59E0B" Margin="0,0,8,0" MinWidth="105"/>
                             <Button x:Name="btnImprimir" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
-                            <Button x:Name="btnAnular" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#EF4444" MinWidth="105"/>
+                            <Button x:Name="btnAnular" 
+                                Style="{StaticResource ModernButton}" 
+                                Content="🗑️ Anular Movimiento" 
+                                Background="#EF4444" 
+                                MinWidth="150" 
+                                Click="BtnAnular_Click"
+                                IsEnabled="False"/>
                         </StackPanel>
 
                         <!-- Formulario de datos -->

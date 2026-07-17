@@ -11,6 +11,7 @@ using System;
 
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -40,6 +41,8 @@ namespace AplicativoDeAlmacen.Views
         private List<VistaCodigoGrid> _codigosGridList;
         private List<RangoCodigoItem> _rangosProcesadosGlobal;
 
+        private bool _anularMode = false;
+        private Button _btnAnularNearSave = null;
         private bool _isUpdatingFromSelection = false;
         private int? _personaComercialIdSeleccionada = null;
         private const int UBICACION_ID_SELECCIONADA = 1; // ID Fijo de Almacén Central
@@ -88,7 +91,11 @@ namespace AplicativoDeAlmacen.Views
             btnAgregar.Click += BtnAgregar_Click;
             btnEditar.Click += BtnEditar_Click;
             btnImprimir.Click += BtnImprimir_Click;
-            
+            if (btnAnular != null)
+            {
+                btnAnular.Click -= BtnAnular_Click;
+                btnAnular.Click += BtnAnular_Click;
+            }
             btnGrabar.Click += RegistrarMovimientoCompleto;
 
             // Botones de Grilla (Detalle)
@@ -155,7 +162,14 @@ namespace AplicativoDeAlmacen.Views
                     this.Cursor = Cursors.Wait;
                     await LoadMovimientoBySerieNumeroAsync(serie, numero);
 
-                    if (_printMode)
+                    // 🌟 CAMINO A: SI ESTAMOS PREPARANDO ANULACIÓN, SUBE EL BOTÓN ROJO DE CONFIRMACIÓN
+                    if (_anularMode)
+                    {
+                        ShowAnularButtonNearSave();
+                        BloquearParaAnulacionVisual();
+                    }
+                    // CAMINO B: MODO IMPRESIÓN ESTÁNDAR
+                    else if (_printMode)
                     {
                         ShowPrintButtonNearSave();
                         BloquearParaImpresion();
@@ -167,6 +181,103 @@ namespace AplicativoDeAlmacen.Views
                 }
                 finally { this.Cursor = Cursors.Arrow; }
             }
+        }
+        private void ShowAnularButtonNearSave()
+        {
+            if (_btnAnularNearSave != null) return;
+
+            if (btnGrabar?.Parent is Panel parentPanel)
+            {
+                _btnAnularNearSave = new Button
+                {
+                    Content = "💥 CONFIRMAR ANULACIÓN",
+                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#EF4444")), // Rojo Industrial
+                    Foreground = btnGrabar.Foreground,
+                    Style = btnGrabar.Style,
+                    Margin = btnGrabar.Margin,
+                    Padding = btnGrabar.Padding,
+                    MinWidth = btnGrabar.MinWidth,
+                    Height = btnGrabar.Height,
+                    FontSize = btnGrabar.FontSize,
+                    FontWeight = FontWeights.Bold
+                };
+
+                // Al darle clic al botón rojo, RECIÉN AHÍ se ejecuta la anulación física en la BD
+                _btnAnularNearSave.Click += EjecutarAnulacionDefinitiva_Click;
+
+                parentPanel.Children.Insert(parentPanel.Children.IndexOf(btnGrabar) + 1, _btnAnularNearSave);
+                btnGrabar.IsEnabled = false; // Deshabilitamos el botón grabar normal
+            }
+        }
+
+        private async void EjecutarAnulacionDefinitiva_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_currentMovimientoId.HasValue) return;
+
+            var confirmacion = MessageBox.Show($"⚠️ ¿Está absolutamente seguro de ANULAR por completo el movimiento actual ({txtNumSerie.Text}-{txtNumDocumento.Text})?\n\nEsta acción es irreversible y revertirá los estados de todos los códigos en la historia del kárdex.", "Confirmar Anulación Histórica", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmacion != MessageBoxResult.Yes) return;
+
+            try
+            {
+                this.Cursor = Cursors.Wait;
+                if (_btnAnularNearSave != null) _btnAnularNearSave.IsEnabled = false;
+
+                pbCargaMasiva.Visibility = Visibility.Visible;
+                lblPorcentajeCarga.Visibility = Visibility.Visible;
+                pbCargaMasiva.Value = 0;
+                lblPorcentajeCarga.Text = "0% Anulando lote...";
+
+                var progress = new Progress<int>(percent =>
+                {
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (pbCargaMasiva != null) pbCargaMasiva.Value = percent;
+                        if (lblPorcentajeCarga != null) lblPorcentajeCarga.Text = $"{percent}% Revirtiendo Kárdex...";
+                    }), System.Windows.Threading.DispatcherPriority.Background);
+                });
+
+                // Ejecutamos la reversión masiva en segundo plano
+                bool resultado = await Task.Run(async () =>
+                    await _serviceMovimiento.AnularMovimientoCompletoAsync(_currentMovimientoId.Value, progress)
+                );
+
+                if (resultado)
+                {
+                    MessageBox.Show("¡El movimiento y todo su lote de códigos han sido anulados con éxito en la línea de tiempo!", "Operación Exitosa", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    // Limpieza del botón dinámico
+                    if (_btnAnularNearSave != null && _btnAnularNearSave.Parent is Panel p) { p.Children.Remove(_btnAnularNearSave); _btnAnularNearSave = null; }
+                    _anularMode = false;
+
+                    EstablecerEstadoInicial();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"No se pudo ejecutar la anulación:\n\n{ex.Message}", "Restricción de Kárdex", MessageBoxButton.OK, MessageBoxImage.Stop);
+                if (_btnAnularNearSave != null) _btnAnularNearSave.IsEnabled = true;
+            }
+            finally
+            {
+                pbCargaMasiva.Visibility = Visibility.Collapsed;
+                lblPorcentajeCarga.Visibility = Visibility.Collapsed;
+                this.Cursor = Cursors.Arrow;
+            }
+        }
+
+        private void BloquearParaAnulacionVisual()
+        {
+            if (dgProductos != null) dgProductos.IsReadOnly = true;
+            if (dgCodigos != null) dgCodigos.IsReadOnly = true;
+
+            btnAgregar.IsEnabled = false;
+            btnModificar.IsEnabled = false;
+            btnEliminar.IsEnabled = false;
+            btnImportar.IsEnabled = false;
+            btnAgregarProducto.IsEnabled = false;
+            btnImprimir.IsEnabled = false;
+            btnCancelar.IsEnabled = true;
+            btnGrabar.IsEnabled = false;
         }
 
         private async Task LoadMovimientoBySerieNumeroAsync(string serie, string numero)
@@ -182,6 +293,14 @@ namespace AplicativoDeAlmacen.Views
 
             var movimiento = movimientoComp.Movimiento;
             _currentMovimientoId = movimiento.Id;
+            if (movimiento.EstadoId == 5)
+            {
+                MessageBox.Show("Este movimiento está ANULADO (Estado 5) y no permite modificaciones.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                EstablecerEstadoInicial();
+                return;
+            }
+
+            btnAnular.IsEnabled = (movimiento.EstadoId != 5);
 
             if (movimiento.FechaMovimiento.HasValue)
                 dtpFechaRecepcion.SelectedDate = movimiento.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue);
@@ -190,8 +309,29 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.Text = movimiento.NumeroDocumento;
             cboMotivo.SelectedValue = movimiento.MotivoProductoId;
 
-            txtRazonSocial.Text = movimiento.PersonaComercialId?.ToString() ?? string.Empty;
-            txtCodigoRazonSocial.Text = movimiento.PersonaComercialId?.ToString() ?? string.Empty;
+            // 🌟 RECOBRAR RAZÓN SOCIAL REAL DESDE LA BASE DE DATOS
+            _personaComercialIdSeleccionada = movimiento.PersonaComercialId;
+            if (movimiento.PersonaComercialId.HasValue)
+            {
+                txtCodigoRazonSocial.Text = movimiento.PersonaComercialId.Value.ToString("D6");
+                try
+                {
+                    // Buscamos la entidad comercial completa para pintar la descripción real en lugar del ID
+                    var persona = await _service.ObtenerPorIdAsync(movimiento.PersonaComercialId.Value);
+                    if (persona != null)
+                    {
+                        txtRazonSocial.Text = !string.IsNullOrEmpty(persona.RazonSocial)
+                            ? persona.RazonSocial
+                            : $"{persona.Nombres} {persona.ApellidoPaterno}";
+                        txtDireccion.Text = persona.Direccion ?? "Sin dirección registrada";
+                    }
+                }
+                catch
+                {
+                    txtRazonSocial.Text = $"Cliente ID: {movimiento.PersonaComercialId.Value}";
+                }
+            }
+
             txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
             txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
             txtObservacion.Text = movimiento.Observacion ?? string.Empty;
@@ -277,20 +417,23 @@ namespace AplicativoDeAlmacen.Views
             this.Cursor = Cursors.Wait;
             try
             {
+                // 🌟 CORRECCIÓN CRÍTICA DE ESTADO: 
+                // Forzamos a la memoria a olvidar el ID cargado previamente para que el guardado sea un INSERT limpio y no un UPDATE.
+                _currentMovimientoId = null;
+
                 LimpiarFormulario();
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
 
                 HabilitarCamposFormulario(true);
                 GestionarBotonesPrincipales(enEdicion: true);
 
-                // 🌟 CORRECCIÓN DE INTEGRIDAD: Autogenerar serie y número correlativo
-                string seriePorDefecto = "0001"; // O la serie que use tu empresa
+                // Autogenerar serie y número correlativo
+                string seriePorDefecto = "0001";
                 var siguienteCorrelativo = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(seriePorDefecto);
 
                 txtNumSerie.Text = siguienteCorrelativo.SerieDocumento;
                 txtNumDocumento.Text = siguienteCorrelativo.NumeroDocumento;
 
-                // Bloqueamos para que el usuario no altere el correlativo automático de forma maliciosa
                 txtNumSerie.IsEnabled = false;
                 txtNumDocumento.IsEnabled = false;
 
@@ -346,7 +489,13 @@ namespace AplicativoDeAlmacen.Views
             if (resultado == MessageBoxResult.Yes)
             {
                 if (_printMode) { _printMode = false; }
-                if (_btnPrintNearSave != null && _btnPrintNearSave.Parent is Panel p) { p.Children.Remove(_btnPrintNearSave); _btnPrintNearSave = null; }
+                if (_anularMode) { _anularMode = false; }
+
+                // Removemos el botón de impresión si existe
+                if (_btnPrintNearSave != null && _btnPrintNearSave.Parent is Panel p1) { p1.Children.Remove(_btnPrintNearSave); _btnPrintNearSave = null; }
+
+                // 🌟 Removemos el botón rojo de anulación si existe
+                if (_btnAnularNearSave != null && _btnAnularNearSave.Parent is Panel p2) { p2.Children.Remove(_btnAnularNearSave); _btnAnularNearSave = null; }
 
                 EstablecerEstadoInicial();
             }
@@ -360,10 +509,12 @@ namespace AplicativoDeAlmacen.Views
 
         private async void RegistrarMovimientoCompleto(object sender, RoutedEventArgs e)
         {
-            // Si ya hay un hilo guardando en segundo plano, abortamos cualquier clic fantasma
             if (_isRegistrandoMovimiento) return;
 
-            // VALIDACIÓN PERSISTENTE
+            if (_currentMovimientoId.HasValue)
+            {
+                _productosGridList = _serviceMovimiento.MergeDuplicateProducts(_productosGridList.ToList());
+            }
             if (txtRazonSocial.IsEnabled && string.IsNullOrWhiteSpace(txtRazonSocial.Text))
             {
                 MessageBox.Show("La Razón Social es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -387,7 +538,6 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                // Encendemos los candados físicos y lógicos de inmediato
                 _isRegistrandoMovimiento = true;
                 btnGrabar.IsEnabled = false;
                 btnCancelar.IsEnabled = false;
@@ -400,26 +550,35 @@ namespace AplicativoDeAlmacen.Views
                 pbCargaMasiva.Value = 0;
                 lblPorcentajeCarga.Text = "0% Guardando...";
 
+                // 🌟 FIJACIÓN ATÓMICA DE HILOS (THREAD-SAFE PROGRESS)
+                // Liberamos el bloqueo de WPF despachando la UI en hilos prioritarios de segundo plano
                 var progress = new Progress<int>(percent =>
                 {
-                    pbCargaMasiva.Value = percent;
-                    lblPorcentajeCarga.Text = $"{percent}% Procesado...";
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (pbCargaMasiva != null) pbCargaMasiva.Value = percent;
+                        if (lblPorcentajeCarga != null) lblPorcentajeCarga.Text = $"{percent}% Guardando Lote...";
+                    }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
-                bool resultado = await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
-                    solicitud.Movimiento,
-                    solicitud.Productos.ToList(),
-                    _rangosProcesadosGlobal.ToList(),
-                    solicitud.Movimiento.UbicacionId ?? 1,
-                    solicitud.MovimientoId,
-                    progress);
+                // Corremos el pesado registro relacional de forma asíncrona real
+                bool resultado = await Task.Run(async () =>
+                    await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
+                        solicitud.Movimiento,
+                        solicitud.Productos.ToList(),
+                        _rangosProcesadosGlobal.ToList(),
+                        solicitud.Movimiento.UbicacionId ?? 1,
+                        solicitud.MovimientoId,
+                        progress)
+                );
 
                 if (resultado)
                 {
-                    string mensaje = $"¡Movimiento registrado con éxito!\n\n" +
-                                     $"Número de Registro: {solicitud.Movimiento.SerieDocumento}-{solicitud.Movimiento.NumeroDocumento}";
+                    string accion = solicitud.MovimientoId.HasValue ? "actualizado" : "registrado";
+                    string titulo = solicitud.MovimientoId.HasValue ? "Actualización Exitosa" : "Guardado Exitoso";
+                    string mensaje = $"¡Movimiento {accion} con éxito!\n\nNúmero de Registro: {solicitud.Movimiento.SerieDocumento}-{solicitud.Movimiento.NumeroDocumento}";
 
-                    MessageBox.Show(mensaje, "Guardado Exitoso", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(mensaje, titulo, MessageBoxButton.OK, MessageBoxImage.Information);
                     EstablecerEstadoInicial();
                 }
             }
@@ -429,10 +588,8 @@ namespace AplicativoDeAlmacen.Views
             }
             finally
             {
-                // Liberamos los candados una vez finalizado todo el proceso e hilos asíncronos
                 pbCargaMasiva.Visibility = Visibility.Collapsed;
                 lblPorcentajeCarga.Visibility = Visibility.Collapsed;
-
                 _isRegistrandoMovimiento = false;
                 btnGrabar.IsEnabled = true;
                 btnCancelar.IsEnabled = true;
@@ -574,14 +731,28 @@ namespace AplicativoDeAlmacen.Views
 
         private void RefrescarGrillas()
         {
-            // Sincroniza cantidades con los códigos actuales
+            if (dgProductos == null) return;
+
+            // 🌟 CORRECCIÓN CS1061: Salir del modo de edición directamente desde el control DataGrid
+            try
+            {
+                // Cancelamos cualquier edición de celda o fila activa para liberar el CollectionView
+                dgProductos.CancelEdit(DataGridEditingUnit.Cell);
+                dgProductos.CancelEdit(DataGridEditingUnit.Row);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Aviso en descarte de edición del DataGrid: {ex.Message}");
+            }
+
+            // Sincroniza cantidades con los códigos actuales en segundo plano
             _serviceMovimiento.SincronizarCantidadesConCodigos(
                 _productosGridList,
                 _codigosGridList);
 
-            // Actualiza la grilla izquierda
+            // Actualiza la grilla izquierda de manera limpia desvinculando el origen
+            dgProductos.ItemsSource = null;
             dgProductos.ItemsSource = _productosGridList;
-            dgProductos.Items.Refresh();
 
             // Actualiza la grilla derecha según el producto seleccionado
             MostrarCodigosProductoSeleccionado();
@@ -697,23 +868,27 @@ namespace AplicativoDeAlmacen.Views
             // Pasamos el producto seleccionado junto con sus rangos enriquecidos con texto real
             modal.InitializeForEdit(seleccionado, rangosExistentes);
 
+            // ... dentro de EditSelectedProductAsync, justo donde capturas el ShowDialog():
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
-                // 1. Actualizar cantidades
+                // 1. Aplicar las nuevas dimensiones matemáticas procesadas en el modal
                 seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
                 seleccionado.Cantidad = (int)seleccionado.Detalle.CantidadIngreso;
 
-                // 2. Reemplazar rangos en la lista global en memoria
+                // 2. REGLA DE EDICIÓN: Limpieza absoluta del producto modificado en las colecciones globales
                 _rangosProcesadosGlobal.RemoveAll(r => r.productoId == seleccionado.ProductoId);
-                _rangosProcesadosGlobal.AddRange(modal.ListaRangosAgregados);
-
-                // 3. Reconstruir los códigos del grid a partir de los rangos modificados
                 _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
+
+                // 3. Inyectar los nuevos rangos y reconstruir la lista de códigos planos
+                _rangosProcesadosGlobal.AddRange(modal.ListaRangosAgregados);
 
                 var nuevosCodigos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(modal.ListaRangosAgregados.ToList());
                 _codigosGridList.AddRange(nuevosCodigos);
 
-                // 4. Actualizar visualización de las grillas principales
+                // 🌟 CORRECCIÓN CS7036: Se añaden los dos parámetros reglamentarios (Unidad, SalirModoEdicion)
+                dgProductos.CommitEdit(DataGridEditingUnit.Row, true);
+
+                // 5. Refrescar las vistas de forma thread-safe sin colisiones
                 RefrescarGrillas();
             }
         }
@@ -733,6 +908,37 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+        private void BtnAnular_Click(object sender, RoutedEventArgs e)
+        {
+            if (_anularMode) return;
+
+            // 1. Activamos el modo de preparación
+            _anularMode = true;
+            _printMode = false; // Por seguridad desactivamos el de impresión
+
+            // 2. Limpiamos y preparamos las cajas de texto
+            HabilitarCamposFormulario(false);
+            grdFormulario.IsEnabled = true;
+
+            if (txtNumDocumento != null)
+            {
+                txtNumDocumento.IsReadOnly = false;
+                txtNumDocumento.IsEnabled = true;
+                txtNumDocumento.Text = string.Empty;
+                txtNumSerie.Text = "0001"; // Serie por defecto o vacía para buscar
+                txtNumDocumento.Focus();
+            }
+
+            // 3. Enganchamos el evento Enter para que al buscar cargue los datos
+            txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
+            txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
+
+            // 4. Gestionamos los estados de los botones de cabecera
+            GestionarBotonesPrincipales(enEdicion: true);
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+            MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento que desea anular y presione Enter para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
         private void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this), IsAddAction = true };
@@ -911,71 +1117,101 @@ namespace AplicativoDeAlmacen.Views
             var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
             try { win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4; } catch { win.EstadoPermitido = 1; }
 
+            // El sistema espera a que el modal termine de procesar el archivo
             if (win.ShowDialog() != true) return;
 
             var listaRaw = win.CodigosImportados ?? new List<string>();
             if (!listaRaw.Any()) return;
 
-            this.Cursor = Cursors.Wait;
+            var lookup = new Dictionary<string, (CodigoCreado CodigoObj, int? ProductoId)>(StringComparer.OrdinalIgnoreCase);
+            var codigosFisicosAgrupados = new Dictionary<int, List<VistaCodigoGrid>>();
 
-            // 🌟 OPTIMIZACIÓN: Movemos el procesamiento pesado fuera del hilo de la UI
-            await Task.Run(async () =>
+            // Lanzamos la pantalla de progreso genérica
+            var loadingTransfer = new ProgressWindow("Procesando Códigos Importados", "Sincronizando registros con la grilla de movimientos principales...", async (progress) =>
             {
-                try
+                lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaRaw);
+
+                int total = listaRaw.Count;
+                int ultimoPorcentaje = -1;
+
+                for (int i = 0; i < total; i++)
                 {
-                    var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaRaw);
-                    var codigosFisicosAgrupados = new Dictionary<int, List<VistaCodigoGrid>>();
+                    string raw = listaRaw[i];
+                    string norm = _serviceMovimiento.NormalizarCodigo(raw);
+                    if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
 
-                    foreach (var raw in listaRaw)
+                    string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
+
+                    if (!codigosFisicosAgrupados.ContainsKey(tup.ProductoId.Value))
+                        codigosFisicosAgrupados[tup.ProductoId.Value] = new List<VistaCodigoGrid>();
+
+                    codigosFisicosAgrupados[tup.ProductoId.Value].Add(new VistaCodigoGrid
                     {
-                        string norm = _serviceMovimiento.NormalizarCodigo(raw);
-                        if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
-
-                        // Evitar duplicados en memoria
-                        if (_codigosGridList.Any(c => string.Equals(c.CodigoUnique, tup.CodigoObj.Codigo, StringComparison.OrdinalIgnoreCase))) continue;
-
-                        string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
-
-                        if (!codigosFisicosAgrupados.ContainsKey(tup.ProductoId.Value))
-                            codigosFisicosAgrupados[tup.ProductoId.Value] = new List<VistaCodigoGrid>();
-
-                        codigosFisicosAgrupados[tup.ProductoId.Value].Add(new VistaCodigoGrid
-                        {
-                            ProductoId = tup.ProductoId.Value,
-                            CodigoUnique = tup.CodigoObj.Codigo,
-                            ColeccionTipo = tipoBD,
-                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
-                        });
-                    }
-
-                    // Actualizar UI desde el hilo principal
-                    await Application.Current.Dispatcher.InvokeAsync(async () =>
-                    {
-                        var prodService = new ProductoService();
-                        foreach (var kvp in codigosFisicosAgrupados)
-                        {
-                            int productoId = kvp.Key;
-                            var prodData = await prodService.ObtenerPorIdAsync(productoId);
-                            string unidadDeBD = prodData?.Descripcion ?? "UNIDAD";
-
-                            var producto = AgregarOActualizarProducto(productoId, prodData?.Descripcion ?? "Desconocido", 0, prodData?.PrecioUnitario ?? 0, unidadDeBD);
-                            _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, productoId, kvp.Value);
-                            var codigosDelProducto = _codigosGridList.Where(c => c.ProductoId == productoId).ToList();
-                            var nuevosRangos = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosDelProducto);
-                            _serviceMovimiento.ReemplazarRangosProducto(_rangosProcesadosGlobal, productoId, nuevosRangos);
-                        }
-                        RefrescarGrillas();
-                        if (_productosGridList.Count > 0) dgProductos.SelectedItem = _productosGridList.Last();
+                        ProductoId = tup.ProductoId.Value,
+                        CodigoUnique = tup.CodigoObj.Codigo,
+                        ColeccionTipo = tipoBD,
+                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
                     });
-                }
-                catch (Exception ex)
-                {
-                    await Application.Current.Dispatcher.InvokeAsync(() =>
-                        MessageBox.Show($"Error al importar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error));
+
+                    int pct = (i * 100) / total;
+                    if (pct > ultimoPorcentaje)
+                    {
+                        ultimoPorcentaje = pct;
+                        progress.Report(pct);
+                    }
                 }
             });
 
-            this.Cursor = Cursors.Arrow;
+            loadingTransfer.Owner = Window.GetWindow(this);
+
+            // Dentro de BtnImportar_Click en MovimientosUserControl.xaml.cs, al pasar el ShowDialog() == true:
+            if (loadingTransfer.ShowDialog() == true)
+            {
+                this.Cursor = Cursors.Wait;
+                try
+                {
+                    var prodService = new ProductoService();
+
+                    foreach (var kvp in codigosFisicosAgrupados)
+                    {
+                        int productoId = kvp.Key;
+                        var prodData = await prodService.ObtenerPorIdAsync(productoId);
+                        string unidadDeBD = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD";
+
+                        // 🌟 REGLA DE ORO DE EDICIÓN HISTÓRICA:
+                        // Limpiamos de forma estricta los códigos viejos en memoria de ESTE producto 
+                        // antes de agregar los nuevos del Excel para evitar acumulaciones duplicadas.
+                        _codigosGridList.RemoveAll(c => c.ProductoId == productoId);
+                        _rangosProcesadosGlobal.RemoveAll(r => r.productoId == productoId);
+
+                        var producto = AgregarOActualizarProducto(productoId, prodData?.Descripcion ?? "Desconocido", 0, prodData?.PrecioUnitario ?? 0, unidadDeBD);
+
+                        _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, productoId, kvp.Value);
+
+                        var codigosDelProducto = _codigosGridList.Where(c => c.ProductoId == productoId).ToList();
+                        var nuevosRangos = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosDelProducto);
+
+                        _serviceMovimiento.ReemplazarRangosProducto(_rangosProcesadosGlobal, productoId, nuevosRangos);
+                    }
+
+                    RefrescarGrillas();
+                    if (_productosGridList.Count > 0) dgProductos.SelectedItem = _productosGridList.Last();
+
+                    MessageBox.Show($"Importación finalizada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error al enlazar la grilla principal: {ex.Message}", "Error Interno", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    this.Cursor = Cursors.Arrow;
+                }
+            }
+            else if (loadingTransfer.ErrorResult != null)
+            {
+                MessageBox.Show($"Error crítico al procesar la lista en segundo plano:\n{loadingTransfer.ErrorResult.Message}", "Error de Negocio", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private VistaProductoGrid AgregarOActualizarProducto(int productoId, string descripcion, int cantidad, decimal precio, string unidadMedida)
@@ -1011,6 +1247,8 @@ namespace AplicativoDeAlmacen.Views
                 return nuevoProd;
             }
         }
+
+        
         // ==========================================
         // MÉTODOS VISUALES
         // ==========================================

@@ -34,14 +34,17 @@ namespace AplicativoDeAlmacen.Views
             int contadorNuevos = 0;
             int contadorDuplicados = 0;
 
+            // 🌟 OPTIMIZACIÓN DE ALTO RENDIMIENTO: Convertir a HashSet para búsquedas instantáneas O(1)
+            var setDuplicados = new HashSet<string>(duplicados, StringComparer.OrdinalIgnoreCase);
+
             foreach (var cod in todos)
             {
-                bool esDuplicado = duplicados.Contains(cod);
+                // La búsqueda en el Hash es inmediata, no importa si son 60,000 registros
+                bool esDuplicado = setDuplicados.Contains(cod);
                 if (esDuplicado) contadorDuplicados++; else contadorNuevos++;
 
                 _listaVisual.Add(new CodigoExcelPreview
                 {
-                    // Desmarcamos por defecto si es duplicado para evitar errores
                     Incluir = !esDuplicado,
                     Numero = index++,
                     Codigo = cod,

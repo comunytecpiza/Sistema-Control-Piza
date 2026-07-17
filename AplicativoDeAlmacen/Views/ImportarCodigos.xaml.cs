@@ -65,7 +65,7 @@ namespace AplicativoDeAlmacen.Views
 
         private List<string> LeerExcel(string ruta)
         {
-            var lista = new List<string>(50000);
+            var lista = new List<string>(60000);
             using var workbook = new XLWorkbook(ruta);
             var ws = workbook.Worksheet(1);
             var used = ws.RangeUsed();
@@ -92,7 +92,10 @@ namespace AplicativoDeAlmacen.Views
         }
 
         // =========================================================================
-        // ACCIÓN 1: BUSCAR Y PREVISUALIZAR EXCEL CON BARRA DE PORCENTAJE REUTILIZABLE
+        // ACCIÓN 1: CARGAR EXCEL DE IMPRENTA CON VENTANA DE PROGRESO REUTILIZABLE
+        // =========================================================================
+        // =========================================================================
+        // ACCIÓN 1: CARGAR EXCEL DE IMPRENTA CON VENTANA DE PROGRESO REUTILIZABLE
         // =========================================================================
         private void Button_Click(object sender, RoutedEventArgs e)
         {
@@ -106,18 +109,19 @@ namespace AplicativoDeAlmacen.Views
                 List<string> rawList = new List<string>();
                 var preview = new List<PreviewRow>();
 
-                // 🌟 BARRA DE PROGRESO 1: Captura la lectura y el cruce masivo de la BD
-                var loadingModal = new ProgressWindow("Leyendo Archivo Masivo", "Extrayendo y mapeando datos desde el almacén...", async (progress) =>
+                // Lanzamos la ventana de progreso genérica de segundo plano
+                var loadingModal = new ProgressWindow("Procesando Archivo de Imprenta", "Mapeando registros contra el inventario central...", async (progress) =>
                 {
+                    // 1. Lectura veloz en memoria
                     if (extension == ".xlsx")
                         rawList = LeerExcel(openFileDialog.FileName);
                     else
                         rawList = LeerTXT(openFileDialog.FileName);
 
-                    // Viaje rápido indexado a la base de datos
+                    // 2. Cruce atómico por el Join maestro indexado en Tabla Temporal
                     var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(rawList);
 
-                    // Descripciones de productos en bloque
+                    // 3. Obtener descripciones de productos relacionales
                     var prodIds = lookup.Values.Where(v => v.ProductoId.HasValue).Select(v => v.ProductoId.Value).Distinct().ToList();
                     var prodMap = new Dictionary<int, string>();
                     if (prodIds.Any())
@@ -143,7 +147,7 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // Mapping de nombres de estados masivos
+                    // 4. Obtener nombres de estados relacionales
                     var estadoIds = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.EstadoId).Where(id => id != 0).Distinct().ToList();
                     var estadoMap = new Dictionary<int, string>();
                     if (estadoIds.Any())
@@ -166,36 +170,57 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // Construcción de filas con reporte de porcentaje iterativo
                     int total = rawList.Count;
+                    int ultimoPorcentajeReportado = -1;
+                    int estadoPermitidoLocal = EstadoPermitido;
+                    bool incluirInvalidosLocal = GetIncluirInvalidos();
+
                     for (int i = 0; i < total; i++)
                     {
-                        string norm = _serviceMovimiento.NormalizarCodigo(rawList[i]);
+                        string raw = rawList[i];
+                        string norm = _serviceMovimiento.NormalizarCodigo(raw);
                         lookup.TryGetValue(norm, out var tup);
 
                         bool isFound = tup.CodigoObj != null;
-                        bool estadoValido = isFound && (EstadoPermitido == 0 || tup.CodigoObj.EstadoId == EstadoPermitido);
+                        bool estadoValido = isFound && (estadoPermitidoLocal == 0 || tup.CodigoObj.EstadoId == estadoPermitidoLocal);
+
+                        string productoDescFinal = "NO EXISTE EN INVENTARIO";
+                        if (isFound && tup.ProductoId.HasValue)
+                        {
+                            prodMap.TryGetValue(tup.ProductoId.Value, out productoDescFinal);
+                            if (string.IsNullOrEmpty(productoDescFinal)) productoDescFinal = "CODIGO PLANO REGISTRADO";
+                        }
+
+                        string estadoNombreFinal = "INEXISTENTE";
+                        if (isFound && tup.CodigoObj.EstadoId != 0)
+                        {
+                            estadoMap.TryGetValue(tup.CodigoObj.EstadoId, out estadoNombreFinal);
+                        }
 
                         var pr = new PreviewRow
                         {
-                            CodigoRaw = rawList[i],
+                            CodigoRaw = raw,
                             CodigoNorm = norm,
                             EstadoValido = estadoValido,
                             CodigoCreadoId = isFound ? tup.CodigoObj.Id : (int?)null,
                             ProductoId = isFound ? tup.ProductoId : (int?)null,
-                            ProductoDesc = (isFound && tup.ProductoId.HasValue && prodMap.ContainsKey(tup.ProductoId.Value)) ? prodMap[tup.ProductoId.Value] : (isFound ? "CODIGO PLANO REGISTRADO" : "NO EXISTE EN INVENTARIO"),
+                            ProductoDesc = productoDescFinal,
                             EstadoId = isFound ? tup.CodigoObj.EstadoId : (int?)null,
-                            EstadoNombre = (isFound && tup.CodigoObj.EstadoId != 0 && estadoMap.ContainsKey(tup.CodigoObj.EstadoId)) ? estadoMap[tup.CodigoObj.EstadoId] : "INEXISTENTE"
+                            EstadoNombre = estadoNombreFinal
                         };
 
-                        pr.Encontrado = pr.EstadoValido || GetIncluirInvalidos();
+                        pr.Encontrado = pr.EstadoValido || incluirInvalidosLocal;
                         preview.Add(pr);
 
-                        // Reportamos el porcentaje cada 1,000 registros para no saturar el renderizador de la UI
-                        if (i % 1000 == 0) progress.Report((i * 100) / total);
+                        // 🌟 CORRECCIÓN TOTAL AQUÍ: El progreso reporta sobre el índice real 'i' del archivo importado
+                        int porcentajeActual = (i * 100) / total;
+                        if (porcentajeActual > ultimoPorcentajeReportado)
+                        {
+                            ultimoPorcentajeReportado = porcentajeActual;
+                            progress?.Report(porcentajeActual);
+                        }
                     }
 
-                    // Ordenar rápidamente en RAM antes de pintar
                     preview.Sort((a, b) => string.Compare(a.ProductoDesc, b.ProductoDesc, StringComparison.Ordinal));
                     int idx2 = 1;
                     foreach (var p in preview) p.RowNumber = idx2++;
@@ -207,41 +232,46 @@ namespace AplicativoDeAlmacen.Views
                     txtTotalCodigos.Text = rawList.Count.ToString();
                     dgDatos.ItemsSource = null;
                     dgDatos.ItemsSource = preview;
-
-                    // Forzar el redibujado instantáneo de la UI
                     dgDatos.UpdateLayout();
                     UpdateTransferButtonState(preview);
                 }
                 else if (loadingModal.ErrorResult != null)
                 {
-                    MessageBox.Show($"Error leyendo el archivo masivo:\n{loadingModal.ErrorResult.Message}", "Error de Carga", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Ocurrió un error al procesar el lote masivo:\n{loadingModal.ErrorResult.Message}", "Error de Carga", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
 
         // =========================================================================
-        // ACCIÓN 2: BOTÓN TRANSFERIR CON BARRA DE PROGRESO DE PORCENTAJE (THREAD-SAFE)
+        // ACCIÓN 2: TRANSFERIR CÓDIGOS AL MOVIMIENTO CON PROGRESO SUAVE
+        // =========================================================================
+        // =========================================================================
+        // ACCIÓN 2: BOTÓN TRANSFERIR CON BARRA DE PROGRESO DE PORCENTAJE (CORREGIDO)
         // =========================================================================
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
             CodigosImportados.Clear();
 
             if (dgDatos.ItemsSource is not IEnumerable<PreviewRow> rows) return;
-            var itemsSeleccionados = rows.Where(x => x.Encontrado).ToList();
 
+            // Tomamos solo los que el usuario tiene marcados/aprobados en la grilla
+            var itemsSeleccionados = rows.Where(x => x.Encontrado).ToList();
             int total = itemsSeleccionados.Count;
+
             if (total == 0)
             {
-                MessageBox.Show("No hay códigos seleccionados para transferir.", "Transferir", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("No hay códigos seleccionados o aprobados para transferir.", "Transferir", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            var resp = MessageBox.Show($"Se transferirán {total} códigos. ¿Desea continuar?", "Confirmar transferencia", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var resp = MessageBox.Show($"Se inyectarán {total} códigos al registro kárdex. ¿Desea continuar?", "Confirmar Transferencia", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (resp != MessageBoxResult.Yes) return;
 
-            // 🌟 BARRA DE PROGRESO 2: Captura el empaquetado asíncrono hacia la memoria del Kárdex
-            var transferModal = new ProgressWindow("Transfiriendo Lote", "Inyectando ítems al grid de movimientos...", async (progress) =>
+            // 🌟 INICIALIZAMOS Y PARAMETRIZAMOS LA VENTANA DE PROGRESO GENÉRICA
+            var transferModal = new ProgressWindow("Transfiriendo Lote al Kárdex", "Sincronizando registros con el movimiento actual...", async (progress) =>
             {
+                int ultimoPorcentaje = -1;
+
                 for (int i = 0; i < total; i++)
                 {
                     var r = itemsSeleccionados[i];
@@ -250,17 +280,31 @@ namespace AplicativoDeAlmacen.Views
                         CodigosImportados.Add(r.CodigoRaw);
                     }
 
-                    // Reporte dinámico de la inyección
-                    if (i % 500 == 0) progress.Report((i * 100) / total);
+                    // Cálculo y suavizado matemático del porcentaje de 1% en 1%
+                    int pct = (i * 100) / total;
+                    if (pct > ultimoPorcentaje)
+                    {
+                        ultimoPorcentaje = pct;
+                        progress.Report(pct);
+                    }
                 }
-                await Task.CompletedTask;
+                // Pequeño respiro imperceptible para asegurar que la UI pinte el 100%
+                await Task.Delay(50);
             });
 
+            // 🌟 REGLA DE ORO EN WPF: Enlazamos el Owner para que se centre perfectamente sobre la ventana de importación
             transferModal.Owner = this;
+
+            // Al llamar a .ShowDialog(), la ejecución se pausa y muestra la barra de progreso mientras corre el bucle de arriba
             if (transferModal.ShowDialog() == true)
             {
+                // Si todo terminó sin errores, le devolvemos True al MovimientosUserControl padre para que refresque sus grillas
                 this.DialogResult = true;
                 this.Close();
+            }
+            else if (transferModal.ErrorResult != null)
+            {
+                MessageBox.Show($"Error durante la transferencia de memoria:\n{transferModal.ErrorResult.Message}", "Error Interno", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -292,16 +336,16 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (dgDatos.ItemsSource is not IEnumerable<PreviewRow> rows) return;
                 var invalids = rows.Where(r => r.CodigoCreadoId.HasValue && r.EstadoId.HasValue && EstadoPermitido != 0 && r.EstadoId.Value != EstadoPermitido).ToList();
-                if (!invalids.Any()) { MessageBox.Show("No hay códigos inválidos para exportar.", "Exportar", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+                if (!invalids.Any()) { MessageBox.Show("No hay registros inválidos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information); return; }
 
                 var lines = new List<string> { "Codigo;Normalizado;Estado" };
                 foreach (var i in invalids) lines.Add($"{i.CodigoRaw};{i.CodigoNorm};{i.EstadoNombre}");
 
-                string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"codigos_invalidos_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+                string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lote_errores_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
                 System.IO.File.WriteAllLines(ruta, lines, System.Text.Encoding.UTF8);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
             }
-            catch (Exception ex) { MessageBox.Show($"Error exportando: {ex.Message}"); }
+            catch (Exception ex) { MessageBox.Show($"Error: {ex.Message}"); }
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e)

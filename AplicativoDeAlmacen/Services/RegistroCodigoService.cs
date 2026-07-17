@@ -8,6 +8,8 @@ using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
+using System.Text.RegularExpressions;
+using DocumentFormat.OpenXml.Presentation;
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -198,7 +200,7 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        public async Task GuardarCodigosTransactionAsync(int coleccionId, int productoId, int cantidad, string desde, string hasta, int categoriaId)
+        public async Task GuardarCodigosTransactionAsync(int coleccionId, int productoId, int cantidad, string desde, string hasta, int categoriaId, IProgress<int> progress = null)
         {
             using (var conn = _database.GetConnection())
             {
@@ -220,11 +222,11 @@ namespace AplicativoDeAlmacen.Services
                         string bloqueoMySQL = QueryAdapter.EsMySQL ? "FOR UPDATE" : "";
 
                         string queryVerif = $@"
-                            SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@pref) + 1, {lenFunc}(codigo)) AS {castType}))
-                            FROM codigos_creados cc {bloqueoSQLServer}
-                            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                            WHERE rc.producto_id = @pId AND rc.categoria_producto_id = @catId
-                            {bloqueoMySQL}";
+                    SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@pref) + 1, {lenFunc}(codigo)) AS {castType}))
+                    FROM codigos_creados cc {bloqueoSQLServer}
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    WHERE rc.producto_id = @pId AND rc.categoria_producto_id = @catId
+                    {bloqueoMySQL}";
 
                         using (var cmdVerif = dbConn.CreateCommand())
                         {
@@ -262,12 +264,12 @@ namespace AplicativoDeAlmacen.Services
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        // 2. INSERCIÓN EN BLOQUE INDUSTRIAL
-                        int batchSize = 500;
+                        // 2. INSERCION EN BLOQUE INDUSTRIAL
+                        int batchSize = 1000;
                         for (int i = 0; i < cantidad; i += batchSize)
                         {
                             int currentBatch = Math.Min(batchSize, cantidad - i);
-                            System.Text.StringBuilder queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES ");
+                            var queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES ");
 
                             using (var cmd = dbConn.CreateCommand())
                             {
@@ -277,7 +279,10 @@ namespace AplicativoDeAlmacen.Services
                                 {
                                     int idx = i + j;
                                     string paramCod = $"@cod{idx}";
+
+                                    // 🌟 RE-DECLARACIÓN ADAPTADA DE LA CADENA SERIALIZADA
                                     string codigoGenerado = lastDashIndex >= 0 ? $"{prefijo}{(desdeInt + idx):D7}" : $"{prefijo}-{idx}";
+                                    codigoGenerado = codigoGenerado.Replace("'", "-");
 
                                     queryBuilder.Append($"({registroId}, {paramCod}, 1)");
                                     if (j < currentBatch - 1) queryBuilder.Append(", ");
@@ -288,6 +293,9 @@ namespace AplicativoDeAlmacen.Services
                                 cmd.CommandText = QueryAdapter.FormatearConsulta(queryBuilder.ToString());
                                 await cmd.ExecuteNonQueryAsync();
                             }
+
+                            int pct = ((i + currentBatch) * 100) / cantidad;
+                            progress?.Report(pct);
                         }
 
                         transaction.Commit();
@@ -300,7 +308,16 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
         }
-
+        public static class CodigoUtils
+        {
+            public static string NormalizarParaBusqueda(string codigo)
+            {
+                if (string.IsNullOrWhiteSpace(codigo)) return string.Empty;
+                // Reemplazamos TODO lo que no sea número o letra por NADA
+                // Esto convierte 'LMA4 C26'V0019' en "LMA4C26V0019"
+                return Regex.Replace(codigo.ToUpperInvariant(), @"[^A-Z0-9]", "");
+            }
+        }
         public async Task EliminarRegistroTransactionAsync(int registroCodigoId)
         {
             using (var conn = _database.GetConnection())

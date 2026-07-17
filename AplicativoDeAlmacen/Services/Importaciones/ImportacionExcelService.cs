@@ -36,34 +36,30 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             cmd.Parameters.Add(p);
         }
 
-        public async Task<List<string>> LeerCodigosDesdeExcelAsync(string rutaArchivo)
+        public async Task<List<string>> LeerCodigosDesdeExcelAsync(string ruta)
         {
-            var codigos = new List<string>();
+            var lista = new List<string>();
+            using var workbook = new XLWorkbook(ruta);
+            var ws = workbook.Worksheet(1);
+            var used = ws.RangeUsed();
+            if (used == null) return lista;
 
-            await Task.Run(() =>
+            foreach (var row in used.Rows())
             {
-                using var stream = new System.IO.FileStream(
-                    rutaArchivo,
-                    System.IO.FileMode.Open,
-                    System.IO.FileAccess.Read,
-                    System.IO.FileShare.ReadWrite);
-
-                using var wb = new XLWorkbook(stream);
-                var ws = wb.Worksheet(1);
-
-                foreach (var row in ws.RowsUsed())
+                foreach (var cell in row.Cells())
                 {
-                    foreach (var cell in row.CellsUsed())
+                    var valor = cell.GetString().Trim();
+                    if (!string.IsNullOrWhiteSpace(valor))
                     {
-                        string codigo = cell.GetString().Trim();
+                        // 🌟 LIMPIEZA TOTAL: Reemplazamos apostrófes por guiones
+                        // Esto hace que "LMA4 C26'V0000009" se convierta en "LMA4 C26-V0000009"
+                        string codigoLimpio = valor.Replace("'", "-");
 
-                        if (!string.IsNullOrWhiteSpace(codigo))
-                            codigos.Add(codigo);
+                        lista.Add(codigoLimpio);
                     }
                 }
-            });
-
-            return codigos.Distinct().ToList();
+            }
+            return lista;
         }
 
         public async Task<List<string>> ObtenerCodigosDuplicadosAsync(List<string> codigosExcel)
@@ -101,11 +97,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             return duplicados;
         }
 
-        public async Task GuardarCodigosImportadosTransactionAsync(
-            int coleccionId,
-            int productoId,
-            int categoriaId,
-            List<string> codigosValidos)
+        public async Task GuardarCodigosImportadosTransactionAsync(int coleccionId, int productoId, int categoriaId, List<string> codigosValidos, IProgress<int> progress = null)
         {
             if (!codigosValidos.Any())
                 throw new Exception("No hay códigos para guardar.");
@@ -123,27 +115,12 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.Transaction = trans;
-
                     cmd.CommandText = @"
-                        INSERT INTO registro_codigos
-                        (
-                        coleccion_id,
-                        producto_id,
-                        categoria_producto_id,
-                        cantidad,
-                        desde,
-                        hasta
-                        )
-                        OUTPUT INSERTED.id
-                        VALUES
-                        (
-                        @coleccion,
-                        @producto,
-                        @categoria,
-                        @cantidad,
-                        @desde,
-                        @hasta
-                        )";
+                INSERT INTO registro_codigos
+                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta)
+                OUTPUT INSERTED.id
+                VALUES
+                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta)";
 
                     AgregarParametro(cmd, "@coleccion", coleccionId);
                     AgregarParametro(cmd, "@producto", productoId);
@@ -155,41 +132,33 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                     loteId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                 }
 
-                using (var cmd = dbConn.CreateCommand())
+                // 🌟 SE CORRIGIÓ EL FLUJO: Se eliminó el foreach individual que duplicaba el procesamiento.
+                // Ahora todo corre bajo la arquitectura limpia de bloques industriales.
+                int total = codigosValidos.Count;
+                const int insertBatchSize = 1000;
+
+                for (int i = 0; i < total; i += insertBatchSize)
                 {
-                    cmd.Transaction = trans;
+                    int currentBatchCount = Math.Min(insertBatchSize, total - i);
+                    var queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id, es_manual) VALUES ");
 
-                    cmd.CommandText = @"
-                        INSERT INTO codigos_creados
-                        (
-                        registro_codigo_id,
-                        codigo,
-                        estado_id,
-                        es_manual
-                        )
-                        VALUES
-                        (
-                        @registro,
-                        @codigo,
-                        1,
-                        0
-                        )";
+                    using var cmdInsert = dbConn.CreateCommand();
+                    cmdInsert.Transaction = trans;
 
-                    var pRegistro = cmd.CreateParameter();
-                    pRegistro.ParameterName = "@registro";
-                    cmd.Parameters.Add(pRegistro);
-
-                    var pCodigo = cmd.CreateParameter();
-                    pCodigo.ParameterName = "@codigo";
-                    cmd.Parameters.Add(pCodigo);
-
-                    foreach (var codigo in codigosValidos)
+                    for (int j = 0; j < currentBatchCount; j++)
                     {
-                        pRegistro.Value = loteId;
-                        pCodigo.Value = codigo;
+                        int idx = i + j;
+                        queryBuilder.Append($"({loteId}, @cod{idx}, 1, 0)");
+                        if (j < currentBatchCount - 1) queryBuilder.Append(", ");
 
-                        await cmd.ExecuteNonQueryAsync();
+                        AgregarParametro(cmdInsert, $"@cod{idx}", codigosValidos[idx]);
                     }
+
+                    cmdInsert.CommandText = queryBuilder.ToString();
+                    await cmdInsert.ExecuteNonQueryAsync();
+
+                    int pct = ((i + currentBatchCount) * 100) / total;
+                    progress?.Report(pct);
                 }
 
                 trans.Commit();
