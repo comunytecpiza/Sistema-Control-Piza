@@ -3,7 +3,7 @@ using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Services.Reportes; // 🌟 SERVICIO DE REPORTE IMPORTADO
+using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using AplicativoDeAlmacen.Views.Movimientos.Lectora;
 using HandyControl.Controls;
@@ -417,22 +417,20 @@ namespace AplicativoDeAlmacen.Views
             this.Cursor = Cursors.Wait;
             try
             {
-                // 🌟 CORRECCIÓN CRÍTICA DE ESTADO: 
-                // Forzamos a la memoria a olvidar el ID cargado previamente para que el guardado sea un INSERT limpio y no un UPDATE.
                 _currentMovimientoId = null;
-
                 LimpiarFormulario();
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
 
                 HabilitarCamposFormulario(true);
                 GestionarBotonesPrincipales(enEdicion: true);
 
-                // Autogenerar serie y número correlativo
-                string seriePorDefecto = "0001";
-                var siguienteCorrelativo = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(seriePorDefecto);
-
-                txtNumSerie.Text = siguienteCorrelativo.SerieDocumento;
-                txtNumDocumento.Text = siguienteCorrelativo.NumeroDocumento;
+                // 🌟 NUEVO: Mantenemos la serie, pero enmascaramos el número
+                txtNumSerie.Text = "0001"; // O la serie que corresponda
+                txtNumDocumento.Text = "[ AUTOMÁTICO ]";
+                txtNumDocumento.IsReadOnly = true;
+                txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
+                txtNumDocumento.Foreground = System.Windows.Media.Brushes.Gray;
+                txtNumDocumento.FontStyle = FontStyles.Italic;
 
                 txtNumSerie.IsEnabled = false;
                 txtNumDocumento.IsEnabled = false;
@@ -442,19 +440,46 @@ namespace AplicativoDeAlmacen.Views
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al inicializar correlativo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error: {ex.Message}");
             }
-            finally
-            {
-                this.Cursor = Cursors.Arrow;
-            }
+            finally { this.Cursor = Cursors.Arrow; }
         }
 
-        private void BtnEditar_Click(object sender, RoutedEventArgs e)
+        private void PrepararCajaBusqueda()
+        {
+            txtNumDocumento.Text = string.Empty;
+            txtNumDocumento.IsReadOnly = false;
+            txtNumDocumento.IsEnabled = true;
+            txtNumDocumento.Background = System.Windows.Media.Brushes.White;
+            txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
+            txtNumDocumento.FontWeight = FontWeights.Normal;
+            txtNumDocumento.FontStyle = FontStyles.Normal; // 🌟 Asegura que no se quede en Italic
+            txtNumDocumento.Focus();
+        }
+        private async void BtnEditar_Click(object sender, RoutedEventArgs e)
         {
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
-            if (txtNumDocumento != null) { txtNumDocumento.IsReadOnly = false; txtNumDocumento.IsEnabled = true; txtNumDocumento.Focus(); }
+
+            // 🌟 AQUÍ LLAMAS A TU SERVICIO PARA TRAER EL ÚLTIMO REGISTRO DE LA BD
+            // Esto evita que el usuario tenga que recordar o escribir el número
+            var ultimoMov = await _serviceMovimiento.ObtenerUltimoMovimientoRegistradoAsync();
+
+            if (txtNumDocumento != null)
+            {
+                txtNumDocumento.IsReadOnly = false;
+                txtNumDocumento.IsEnabled = true;
+
+                // 🌟 SI TENEMOS UN ÚLTIMO NÚMERO, LO PONEMOS AUTOMÁTICAMENTE
+                if (ultimoMov != null)
+                {
+                    txtNumSerie.Text = ultimoMov.SerieDocumento;
+                    txtNumDocumento.Text = ultimoMov.NumeroDocumento;
+                }
+
+                txtNumDocumento.Focus();
+                txtNumDocumento.SelectAll(); // Selecciona el texto para que si escribe encima se borre solo
+            }
 
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
@@ -463,24 +488,37 @@ namespace AplicativoDeAlmacen.Views
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
         }
 
-        private void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        private async void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_printMode) return;
             _printMode = true;
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
+            // 🌟 1. Llamamos al servicio para traer el último registro de la BD
+            var ultimoMov = await _serviceMovimiento.ObtenerUltimoMovimientoRegistradoAsync();
+
             if (txtNumDocumento != null)
             {
                 txtNumDocumento.IsReadOnly = false;
                 txtNumDocumento.IsEnabled = true;
+
+                // 🌟 2. Autocompletamos para que el usuario solo tenga que presionar ENTER
+                if (ultimoMov != null)
+                {
+                    txtNumSerie.Text = ultimoMov.SerieDocumento;
+                    txtNumDocumento.Text = ultimoMov.NumeroDocumento;
+                }
+
                 txtNumDocumento.Focus();
+                txtNumDocumento.SelectAll(); // 🌟 Facilita que si no es ese, escriba otro directamente
             }
 
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
-            System.Windows.MessageBox.Show("Modo Imprimir activado. Ingrese el número y presione Enter.", "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
+            System.Windows.MessageBox.Show("Modo Imprimir: Se ha cargado el último registro. Presione ENTER para imprimirlo, o escriba otro número.",
+                                           "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void BtnCancelar_Click(object sender, RoutedEventArgs e)
@@ -574,12 +612,25 @@ namespace AplicativoDeAlmacen.Views
 
                 if (resultado)
                 {
+                    // 🌟 1. Usamos los datos de 'solicitud.Movimiento' que ya tiene el número real de la BD
+                    string numFinal = solicitud.Movimiento.NumeroDocumento;
+                    string serieFinal = solicitud.Movimiento.SerieDocumento;
                     string accion = solicitud.MovimientoId.HasValue ? "actualizado" : "registrado";
-                    string titulo = solicitud.MovimientoId.HasValue ? "Actualización Exitosa" : "Guardado Exitoso";
-                    string mensaje = $"¡Movimiento {accion} con éxito!\n\nNúmero de Registro: {solicitud.Movimiento.SerieDocumento}-{solicitud.Movimiento.NumeroDocumento}";
 
-                    MessageBox.Show(mensaje, titulo, MessageBoxButton.OK, MessageBoxImage.Information);
+                    // 🌟 2. Actualizamos el TextBox con el número real de la base de datos
+                    txtNumDocumento.Text = numFinal;
+                    txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
+                    txtNumDocumento.FontWeight = FontWeights.Bold;
+                    txtNumDocumento.FontStyle = FontStyles.Normal;
+                    txtNumDocumento.Background = System.Windows.Media.Brushes.White;
+
+                    // 🌟 3. Ahora sí mostramos el MessageBox con los datos correctos
+                    MessageBox.Show($"¡Movimiento {accion} con éxito!\nNúmero: {serieFinal}-{numFinal}",
+                                    "Guardado Exitoso", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    // 4. Limpiamos para la siguiente operación
                     EstablecerEstadoInicial();
+                    EventBus.NotificarMovimientosChanged();
                 }
             }
             catch (Exception ex)
@@ -1248,7 +1299,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        
+
         // ==========================================
         // MÉTODOS VISUALES
         // ==========================================

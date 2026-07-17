@@ -10,6 +10,6 @@ namespace AplicativoDeAlmacen.Models.Motivo_y_Movimientos
     public class MovimientoCompletoDTO
     {
         public Movimiento Movimiento { get; set; } = new Movimiento();
-        public List<MovimientoDetalle> Detalles { get; set; } = new();
+        public List<MovimientoDetalle> Detalles { get; set; } = new List<MovimientoDetalle>();
     }
 }

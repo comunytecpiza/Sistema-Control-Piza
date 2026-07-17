@@ -6,95 +6,140 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AplicativoDeAlmacen.Views"
         mc:Ignorable="d"
-        Title="ImportarCodigos" Height="610" Width="851">
+        Title="Mapeo y Filtro Antiduplicados de Lotes Masivos" Height="650" Width="980" WindowStartupLocation="CenterOwner">
 
-    <Grid Margin="10">
+    <Grid Margin="15">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Text="Importar codigos" FontSize="16" FontWeight="Bold" Grid.Row="0" Margin="4" />
+        <TextBlock Text="Mapeo de Importación con Sistema de Alerta de Colisiones" FontSize="18" FontWeight="Bold" Grid.Row="0" Margin="4" Foreground="#1F2937" />
 
+        <!-- ARCHIVO -->
         <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,8,0,8">
-            <Label Content="Archivo:" VerticalAlignment="Center" />
-            <TextBox x:Name="txtRutaArchivo" Width="420" Margin="6,0,6,0" IsReadOnly="True" />
-            <Button x:Name="btn_buscar" Content="Seleccionar" Click="Button_Click" Width="100" />
+            <Label Content="Archivo:" VerticalAlignment="Center" FontWeight="SemiBold"/>
+            <TextBox x:Name="txtRutaArchivo" Width="520" Margin="6,0,6,0" IsReadOnly="True" Padding="4" VerticalContentAlignment="Center"/>
+            <Button x:Name="btn_buscar" Content="📂 Seleccionar" Click="Button_Click" Width="120" Background="#3B82F6" Foreground="White"/>
         </StackPanel>
 
-        <Grid Grid.Row="2">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+        <!-- 🌟 NUEVO CONTENEDOR DE BUSCADOR Y ALERTAS -->
+        <Border Grid.Row="2" Background="#F3F4F6" CornerRadius="6" Padding="12" Margin="0,4,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
 
-            <StackPanel x:Name="pnlLoading" Grid.Row="0" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,6" VerticalAlignment="Center">
-                <ProgressBar IsIndeterminate="True" Width="200" Height="16" />
-                <TextBlock Text="  Procesando archivo..." VerticalAlignment="Center" />
-            </StackPanel>
+                <StackPanel Orientation="Horizontal" Grid.Column="0" Margin="0,0,15,0">
+                    <Label Content="🎯 Tipo:" VerticalAlignment="Center" FontWeight="Bold"/>
+                    <ComboBox x:Name="cboFiltroTipoLibro" Width="160" VerticalContentAlignment="Center" SelectedIndex="0" SelectionChanged="CboFiltroTipoLibro_SelectionChanged">
+                        <ComboBoxItem Content="🔍 MOSTRAR TODOS" />
+                        <ComboBoxItem Content="📘 SOLO GUÍA" />
+                        <ComboBoxItem Content="📙 SOLO VENTA" />
+                    </ComboBox>
+                </StackPanel>
 
-            <Border Grid.Row="1" 
-        Margin="0,4" 
-        BorderBrush="#E5E7EB" 
-        BorderThickness="1" 
-        CornerRadius="4">
-                <DataGrid x:Name="dgDatos"
-              AutoGenerateColumns="False"
-              CanUserAddRows="False"
-              IsReadOnly="False"
-              EnableRowVirtualization="True"
-              EnableColumnVirtualization="True"
-              VirtualizingPanel.IsVirtualizing="True"
-              VirtualizingPanel.VirtualizationMode="Recycling"
-              ScrollViewer.CanContentScroll="True"
-              VerticalScrollBarVisibility="Auto"
-              HorizontalScrollBarVisibility="Auto">
+                <!-- 🔍 BUSCADOR EN TIEMPO REAL -->
+                <StackPanel Orientation="Horizontal" Grid.Column="1">
+                    <Label Content="🔍 Buscar Código:" VerticalAlignment="Center" FontWeight="Bold"/>
+                    <TextBox x:Name="txtBuscarCodigo" Width="200" Padding="4" VerticalContentAlignment="Center" TextChanged="TxtBuscarCodigo_TextChanged"/>
+                </StackPanel>
+
+                <!-- ⚠️ BOTÓN INDICADOR DE ALERTAS DE DUPLICADOS -->
+                <Button x:Name="btnVerDuplicados" Grid.Column="3" Click="BtnVerDuplicados_Click" Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" Padding="10,4" Cursor="Hand" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="⚠️ Se detectaron " Foreground="#D97706" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="txtContadorDuplicados" Text="0" Foreground="#B45309" FontWeight="Black" VerticalAlignment="Center"/>
+                        <TextBlock Text=" colisiones. ¡Haz clic para filtrarlos!" Foreground="#D97706" FontWeight="Bold" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- GRILLA -->
+        <Grid Grid.Row="3">
+            <Border BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="4">
+                <DataGrid x:Name="dgDatos" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="False"
+                          EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                          VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
 
                     <DataGrid.RowStyle>
                         <Style TargetType="DataGridRow">
                             <Setter Property="Background" Value="White" />
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding EstadoValido}" Value="True">
-                                    <Setter Property="Background" Value="#E6F4EA" />
+                                <DataTrigger Binding="{Binding EsClonDuplicado}" Value="True">
+                                    <Setter Property="Background" Value="#FEF3C7" />
                                 </DataTrigger>
-                                <DataTrigger Binding="{Binding EstadoValido}" Value="False">
-                                    <Setter Property="Background" Value="#FDEAEA" />
-                                </DataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding EstadoValido}" Value="True"/>
+                                        <Condition Binding="{Binding EsClonDuplicado}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <!-- 🌟 CORREGIDO: Uso estándar de Setters en WPF -->
+                                    <MultiDataTrigger.Setters>
+                                        <Setter Property="Background" Value="#E6F4EA" />
+                                    </MultiDataTrigger.Setters>
+                                </MultiDataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding EstadoValido}" Value="False"/>
+                                        <Condition Binding="{Binding EsClonDuplicado}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <!-- 🌟 CORREGIDO: Uso estándar de Setters en WPF -->
+                                    <MultiDataTrigger.Setters>
+                                        <Setter Property="Background" Value="#FDEAEA" />
+                                    </MultiDataTrigger.Setters>
+                                </MultiDataTrigger>
                             </Style.Triggers>
                         </Style>
                     </DataGrid.RowStyle>
 
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="#" Binding="{Binding RowNumber}" Width="50" IsReadOnly="True" />
-                        <DataGridTextColumn Header="Codigo" Binding="{Binding CodigoRaw}" Width="*" IsReadOnly="True" />
-                        <DataGridTextColumn Header="Normalizado" Binding="{Binding CodigoNorm}" Width="*" IsReadOnly="True" />
-                        <DataGridCheckBoxColumn Header="Encontrado" Binding="{Binding Encontrado, Mode=TwoWay}" Width="90" />
-                        <DataGridTextColumn Header="Producto" Binding="{Binding ProductoDesc}" Width="2*" IsReadOnly="True" />
-                        <DataGridTextColumn Header="Estado" Binding="{Binding EstadoNombre}" Width="120" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Código" Binding="{Binding CodigoRaw}" Width="160" IsReadOnly="True" />
+                        <DataGridTemplateColumn Header="Aprobar" Width="80">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding Encontrado, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center" Click="CheckBox_Click"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Producto Asociado" Binding="{Binding ProductoDesc}" Width="2*" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Estado Actual" Binding="{Binding EstadoNombre}" Width="120" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Origen / Destino" Binding="{Binding TipoGuiaBD}" Width="140" IsReadOnly="True" FontWeight="Bold"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>
         </Grid>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,6,0,0">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
-                <Label Content="Total codigos:" VerticalAlignment="Center" />
-                <TextBox x:Name="txtTotalCodigos" Width="80" IsReadOnly="True" Margin="6,0,12,0" />
-                <Label Content="Validos:" VerticalAlignment="Center" />
-                <TextBox x:Name="txtValidos" Width="60" IsReadOnly="True" Margin="6,0,12,0" />
-                <Label Content="Invalidos:" VerticalAlignment="Center" />
-                <TextBox x:Name="txtInvalidos" Width="60" IsReadOnly="True" Margin="6,0,12,0" />
+        <!-- TOTALES -->
+        <Grid Grid.Row="4" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Grid.Column="0">
+                <Label Content="Total:" />
+                <TextBox x:Name="txtTotalCodigos" Width="70" IsReadOnly="True" Margin="4,0,10,0"/>
+                <Label Content="Válidos:" />
+                <TextBox x:Name="txtValidos" Width="60" IsReadOnly="True" Margin="4,0,10,0"/>
+                <Label Content="Alertas/Inválidos:" />
+                <TextBox x:Name="txtInvalidos" Width="90" IsReadOnly="True" Margin="4,0,10,0"/>
+                <Button x:Name="btnExportInvalid" Content="⚠️ Exportar Alertas" Click="BtnExportInvalid_Click" Width="130" Background="#EF4444" Foreground="White"/>
             </StackPanel>
 
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,12,0">
-                <CheckBox x:Name="chkIncluirInvalidos" Content="Incluir codigos invalidos" VerticalAlignment="Center" ToolTip="Si esta marcado, incluir codigos aunque su estado no coincida con el motivo" Visibility="Collapsed" />
-                <Button x:Name="btnExportInvalid" Content="Exportar invalidos" Click="BtnExportInvalid_Click" Width="120" Margin="8,0,0,0" />
+            <StackPanel Orientation="Horizontal" Grid.Column="1" VerticalAlignment="Center">
+                <Button x:Name="btnTransferir" Content="🚀 Transferir" Click="Button_Click_2" Width="140" Margin="6,0,6,0" IsEnabled="False" Background="#10B981" Foreground="White" FontWeight="Bold"/>
+                <Button x:Name="btnSalir" Content="❌ Salir" Click="Button_Click_1" Width="100"/>
             </StackPanel>
-
-            <Button x:Name="btnTransferir" Content="Transferir" Click="Button_Click_2" Width="120" Margin="6,0,6,0" IsEnabled="False" />
-            <Button x:Name="btnSalir" Content="Salir" Click="Button_Click_1" Width="100" />
-        </StackPanel>
+        </Grid>
     </Grid>
 </Window>

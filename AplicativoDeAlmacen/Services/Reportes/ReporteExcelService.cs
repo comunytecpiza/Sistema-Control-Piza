@@ -680,5 +680,82 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 MessageBox.Show($"Error generando Excel: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+
+        public void GenerarReporteSalida(
+    string numeroRegistro, string fecha, string motivo, string cliente,
+    string direccion, string ubicacion, string guia, string observacion,
+    List<VistaProductoGrid> productosGridList,
+    List<VistaCodigoGrid> codigosGridList)
+        {
+            try
+            {
+                using var wb = new XLWorkbook();
+                var ws = wb.Worksheets.Add("Salida de Productos");
+
+                // Título
+                ws.Range("A1:E1").Merge();
+                ws.Cell(1, 1).Value = "SALIDA DE PRODUCTOS - ALMACEN CENTRAL";
+                ws.Cell(1, 1).Style.Font.Bold = true;
+                ws.Cell(1, 1).Style.Font.FontSize = 14;
+                ws.Cell(1, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                // Cabecera de datos
+                int r = 3;
+                void PutKV(string key, string val)
+                {
+                    ws.Cell(r, 1).Value = key;
+                    ws.Cell(r, 2).Value = val;
+                    ws.Range(r, 1, r, 5).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                    r++;
+                }
+
+                PutKV("# Operación", numeroRegistro);
+                PutKV("Fecha", fecha);
+                PutKV("Motivo", motivo);
+                PutKV("Cliente", cliente);
+                PutKV("Dirección", direccion);
+                PutKV("Ubicación", ubicacion);
+                PutKV("# Guía", guia);
+                PutKV("Observación", observacion);
+
+                // Encabezado tabla productos
+                int headerRow = r + 1;
+                ws.Cell(headerRow, 1).Value = "Producto";
+                ws.Cell(headerRow, 2).Value = "U. Medida";
+                ws.Cell(headerRow, 3).Value = "Cantidad";
+                ws.Cell(headerRow, 4).Value = "C. Unitario";
+                ws.Range(headerRow, 1, headerRow, 4).Style.Fill.BackgroundColor = XLColor.FromHtml("#DC2626"); // Rojo Salidas
+                ws.Range(headerRow, 1, headerRow, 4).Style.Font.FontColor = XLColor.White;
+                ws.Range(headerRow, 1, headerRow, 4).Style.Font.Bold = true;
+
+                int fila = headerRow + 1;
+                foreach (var p in productosGridList)
+                {
+                    ws.Cell(fila, 1).Value = p.Descripcion;
+                    ws.Cell(fila, 2).Value = p.UnidadMedida;
+                    ws.Cell(fila, 3).Value = p.Detalle?.CantidadSalida ?? 0; // 🌟 AQUI USAMOS CantidadSalida
+                    ws.Cell(fila, 4).Value = p.Detalle?.CostoUnitario ?? 0;
+                    fila++;
+
+                    var codigos = codigosGridList.Where(c => c.ProductoId == p.ProductoId);
+                    foreach (var code in codigos)
+                    {
+                        ws.Cell(fila, 2).Value = code.CodigoUnique;
+                        ws.Cell(fila, 3).Value = code.ColeccionTipo;
+                        fila++;
+                    }
+                }
+
+                ws.Columns().AdjustToContents();
+                string ruta = Path.Combine(Path.GetTempPath(), $"Salida_{numeroRegistro}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+                wb.SaveAs(ruta);
+                Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error generando Excel: {ex.Message}");
+            }
+        }
     }
 }

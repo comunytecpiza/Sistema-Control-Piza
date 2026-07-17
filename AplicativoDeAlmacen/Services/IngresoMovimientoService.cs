@@ -30,7 +30,7 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
-        public async Task<MovimientoCompletoResult> GetMovimientoCompletoAsync(string serie, string numero)
+        public async Task<MovimientoCompletoResult?> GetMovimientoCompletoAsync(string serie, string numero)
         {
             var result = new MovimientoCompletoResult();
 
@@ -38,46 +38,39 @@ namespace AplicativoDeAlmacen.Services
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            bool numeroEsEntero = int.TryParse(numero, out int numeroIntVal);
+            if (string.IsNullOrEmpty(serie) || string.IsNullOrEmpty(numero)) return null;
+
+            if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
             string query = @"
                 SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
-                       m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion,
-                       mp.descripcion AS motivo_desc, pc.razon_social, u.descripcion AS ubicacion_desc
+                       m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id
                 FROM movimientos m
-                LEFT JOIN motivo_productos mp ON mp.id = m.motivo_producto_id
-                LEFT JOIN personas_comerciales pc ON pc.id = m.persona_comercial_id
-                LEFT JOIN ubicaciones u ON u.id = m.ubicacion_id
-                WHERE (m.numero_documento = @numero" + (numeroEsEntero ? " OR TRY_CAST(m.numero_documento AS INT) = @numeroInt" : "") + ")";
-
-            if (!string.IsNullOrEmpty(serie)) query += " AND m.serie_documento = @serie";
+                WHERE m.serie_documento = @serie AND m.numero_documento = @numero";
 
             using (var cmd = dbConn.CreateCommand())
             {
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                var p1 = cmd.CreateParameter(); p1.ParameterName = "@numero"; p1.Value = numero; cmd.Parameters.Add(p1);
-                if (numeroEsEntero) { var pInt = cmd.CreateParameter(); pInt.ParameterName = "@numeroInt"; pInt.Value = numeroIntVal; cmd.Parameters.Add(pInt); }
-                if (!string.IsNullOrEmpty(serie)) { var p2 = cmd.CreateParameter(); p2.ParameterName = "@serie"; p2.Value = serie; cmd.Parameters.Add(p2); }
+                AgregarParametro(cmd, "@serie", serie);
+                AgregarParametro(cmd, "@numero", numero);
 
                 using var reader = await cmd.ExecuteReaderAsync();
                 if (!await reader.ReadAsync()) return null;
 
-                // Mapear a la entidad Movimiento existente
-                var mov = new Movimiento
+                result.Movimiento = new Movimiento
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
                     FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateOnly?)null : DateOnly.FromDateTime(reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"))),
-                    SerieDocumento = reader["serie_documento"] as string,
-                    NumeroDocumento = reader["numero_documento"] as string,
+                    SerieDocumento = reader["serie_documento"].ToString(),
+                    NumeroDocumento = reader["numero_documento"].ToString(),
                     MotivoProductoId = reader.IsDBNull(reader.GetOrdinal("motivo_producto_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("motivo_producto_id")),
                     PersonaComercialId = reader.IsDBNull(reader.GetOrdinal("persona_comercial_id")) ? null : reader.GetInt32(reader.GetOrdinal("persona_comercial_id")),
                     SerieGuia = reader.IsDBNull(reader.GetOrdinal("serie_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("serie_guia")),
                     NumeroGuia = reader.IsDBNull(reader.GetOrdinal("numero_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("numero_guia")),
                     Observacion = reader.IsDBNull(reader.GetOrdinal("observacion")) ? string.Empty : reader.GetString(reader.GetOrdinal("observacion")),
-                    UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id"))
+                    UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id")),
+                    EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
                 };
-
-                result.Movimiento = mov;
             }
 
             // Detalles
@@ -99,10 +92,11 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
 
-            // Rangos asociados por detalle
+            // Rangos asociados
             string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
             using (var cmdR = dbConn.CreateCommand())
             {
+                cmdR.Transaction = cmdR.Transaction;
                 cmdR.CommandText = QueryAdapter.FormatearConsulta(qRangos);
                 var pr = cmdR.CreateParameter(); pr.ParameterName = "@movId"; pr.Value = result.Movimiento.Id; cmdR.Parameters.Add(pr);
                 using var rdrR = await cmdR.ExecuteReaderAsync();
@@ -113,17 +107,13 @@ namespace AplicativoDeAlmacen.Services
                     int categoriaId = rdrR.GetInt32(rdrR.GetOrdinal("categoria_producto_id"));
                     string baseAbrev = rdrR.IsDBNull(rdrR.GetOrdinal("abreviatura_base")) ? string.Empty : rdrR.GetString(rdrR.GetOrdinal("abreviatura_base"));
 
-                    // 🌟 EVALUACIÓN ESCALABLE: Si desdeNum es -1, es Alfanumérico Puro y se muestra el texto crudo.
-                    // Si no, es un libro secuencial estándar y se le aplica el formato de 7 ceros.
                     string desdeText = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}";
                     string hastaText = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}";
 
-                    // Mapeo dinámico de descripciones según la categoría de producto
                     string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : (categoriaId == 2 ? "LIBRO VENTA" : "OTROS");
                     string coleccionTipo = $"C2026 / {tipoTexto}";
 
-                    // Agrega el objeto con las dimensiones correctas (Evita bucles innecesarios en memoria)
-                    var nuevoRango = new RangoCodigoItem
+                    result.Rangos.Add(new RangoCodigoItem
                     {
                         MovimientoDetalleId = rdrR.IsDBNull(rdrR.GetOrdinal("movimiento_detalle_id")) ? 0 : rdrR.GetInt32(rdrR.GetOrdinal("movimiento_detalle_id")),
                         productoId = rdrR.GetInt32(rdrR.GetOrdinal("producto_id")),
@@ -135,14 +125,9 @@ namespace AplicativoDeAlmacen.Services
                         Desde = desdeText,
                         Hasta = hastaText,
                         ColeccionTipo = coleccionTipo
-                    };
-
-                    // Nota: En GetMovimientoCompletoAsync usa result.Rangos.Add(nuevoRango); 
-                    // En GetRangosByMovimientoDetalleIdAsync usa lista.Add(nuevoRango);
-                    result.Rangos.Add(nuevoRango);
+                    });
                 }
             }
-
             return result;
         }
 
@@ -159,6 +144,28 @@ namespace AplicativoDeAlmacen.Services
             return res?.ToString() ?? "Producto";
         }
 
+        public async Task<Movimiento?> ObtenerUltimoMovimientoRegistradoAsync()
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            string query = "SELECT TOP 1 serie_documento, numero_documento FROM movimientos ORDER BY id DESC";
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new Movimiento
+                {
+                    SerieDocumento = reader.GetString(0),
+                    NumeroDocumento = reader.GetString(1)
+                };
+            }
+            return null;
+        }
         public async Task<List<RangoCodigoItem>> GetRangosByMovimientoDetalleIdAsync(int movimientoDetalleId)
         {
             var lista = new List<RangoCodigoItem>();
@@ -249,11 +256,11 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        public async Task<Movimiento> GenerarSiguienteCorrelativoAsync(string serie)
+        public async Task<Movimiento> GenerarSiguienteCorrelativoAsync(string seriePorDefecto)
         {
             var resultado = new Movimiento
             {
-                SerieDocumento = serie,
+                SerieDocumento = seriePorDefecto,
                 NumeroDocumento = "0000001"
             };
 
@@ -262,24 +269,64 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // CAMBIO MULTI-MOTOR: ISNULL -> COALESCE
-                string query = @"
-                    SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 
-                    FROM movimientos 
-                    WHERE serie_documento = @serie";
+                // 1. Buscamos cuál es la ÚLTIMA serie que se ha estado usando en el sistema
+                string queryUltimaSerie = @"
+            SELECT TOP 1 serie_documento 
+            FROM movimientos 
+            WHERE motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento = 'entrada')
+            ORDER BY id DESC";
 
-                using (var cmd = dbConn.CreateCommand())
+                string serieActual = seriePorDefecto;
+                using (var cmdSerie = dbConn.CreateCommand())
                 {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                    AgregarParametro(cmd, "@serie", serie);
+                    cmdSerie.CommandText = QueryAdapter.FormatearConsulta(queryUltimaSerie);
+                    var resSerie = await cmdSerie.ExecuteScalarAsync();
+                    if (resSerie != null && resSerie != DBNull.Value)
+                    {
+                        serieActual = resSerie.ToString();
+                    }
+                }
 
-                    object resultObj = await cmd.ExecuteScalarAsync();
+                // 2. Obtenemos el número máximo registrado para esa serie específica
+                string queryMaxNum = @"
+            SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0)
+            FROM movimientos 
+            WHERE serie_documento = @serie";
 
+                int ultimoNumero = 0;
+                using (var cmdNum = dbConn.CreateCommand())
+                {
+                    cmdNum.CommandText = QueryAdapter.FormatearConsulta(queryMaxNum);
+                    AgregarParametro(cmdNum, "@serie", serieActual);
+                    object resultObj = await cmdNum.ExecuteScalarAsync();
                     if (resultObj != null && resultObj != DBNull.Value)
                     {
-                        int siguienteNumero = Convert.ToInt32(resultObj);
-                        resultado.NumeroDocumento = siguienteNumero.ToString("D7");
+                        ultimoNumero = Convert.ToInt32(resultObj);
                     }
+                }
+
+                // 3. 🌟 REGLA DE ORO: EVALUACIÓN DE DESBORDE DE SERIE (9,999,999)
+                if (ultimoNumero >= 9999999)
+                {
+                    // Si el número llegó al límite, intentamos parsear la serie (Ej: "0001" -> 1)
+                    if (int.TryParse(serieActual, out int numeroSerieVal))
+                    {
+                        int siguienteSerieInt = numeroSerieVal + 1;
+                        resultado.SerieDocumento = siguienteSerieInt.ToString("D4"); // Pasa a "0002"
+                        resultado.NumeroDocumento = "0000001"; // Reinicia el conteo
+                    }
+                    else
+                    {
+                        // Fallback por si la serie tiene letras por algún motivo extraño
+                        resultado.SerieDocumento = serieActual;
+                        resultado.NumeroDocumento = "0000001";
+                    }
+                }
+                else
+                {
+                    // Flujo normal: Mantiene la serie actual e incrementa el número en 1
+                    resultado.SerieDocumento = serieActual;
+                    resultado.NumeroDocumento = (ultimoNumero + 1).ToString("D7");
                 }
             }
             return resultado;
@@ -414,7 +461,7 @@ namespace AplicativoDeAlmacen.Services
             await cmd.ExecuteNonQueryAsync();
         }
         // Agrega este método vacío en tu clase IngresoMovimientoService
-        public async Task<bool> AnularMovimientoCompletoAsync(int movimientoId, IProgress<int> progress = null)
+        public async Task<bool> AnularMovimientoCompletoAsync(int movimientoId, IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
@@ -423,7 +470,6 @@ namespace AplicativoDeAlmacen.Services
 
             try
             {
-                // 1. OBTENER INFORMACIÓN CRUCIAL DEL MOVIMIENTO ACTUAL
                 DateTime fechaMovimiento;
                 using (var cmdMov = dbConn.CreateCommand())
                 {
@@ -431,16 +477,12 @@ namespace AplicativoDeAlmacen.Services
                     cmdMov.CommandText = QueryAdapter.FormatearConsulta("SELECT fecha_movimiento, estado_id FROM movimientos WHERE id = @movId");
                     AgregarParametro(cmdMov, "@movId", movimientoId);
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
-                    if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento especificado no existe.");
-
-                    if (rdrMov.GetInt32(1) == 5) throw new Exception("Este movimiento ya se encuentra anulado.");
+                    if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento no existe.");
+                    if (rdrMov.GetInt32(1) == 5) throw new Exception("Este movimiento ya está anulado.");
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
                 }
 
-                // =========================================================================
-                // 🌟 CORRECCIÓN DE EJECUCIÓN (SEPARACIÓN DE COMANDOS)
-                // =========================================================================
-                // Primero: Creamos la tabla temporal sola para que SQL Server la registre en RAM
+                // Generar tabla de control
                 using (var cmdCreate = dbConn.CreateCommand())
                 {
                     cmdCreate.Transaction = transaccion;
@@ -448,7 +490,6 @@ namespace AplicativoDeAlmacen.Services
                     await cmdCreate.ExecuteNonQueryAsync();
                 }
 
-                // Segundo: Insertamos los registros del kárdex asociados al lote
                 using (var cmdPopulate = dbConn.CreateCommand())
                 {
                     cmdPopulate.Transaction = transaccion;
@@ -457,59 +498,57 @@ namespace AplicativoDeAlmacen.Services
                     await cmdPopulate.ExecuteNonQueryAsync();
                 }
 
-                // 3. CANDADO DE SEGURIDAD LOOK-AHEAD (JOIN ATÓMICO)
+                // 🛑 CANDADO REGLA DE ORO 1: Si se dio entrada a los códigos, NO se puede anular si ya salieron (EstadoId != 3)
+                string sqlValidarEstados = @"
+                    SELECT COUNT(*) 
+                    FROM codigos_creados cc
+                    INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id
+                    WHERE cc.estado_id != 3"; // 3 = En Almacén. Si cambió a 4 (Salida) se congela la operación.
+
+                using (var cmdCheckStock = dbConn.CreateCommand())
+                {
+                    cmdCheckStock.Transaction = transaccion;
+                    cmdCheckStock.CommandText = QueryAdapter.FormatearConsulta(sqlValidarEstados);
+                    int enMovimiento = Convert.ToInt32(await cmdCheckStock.ExecuteScalarAsync());
+                    if (enMovimiento > 0)
+                    {
+                        throw new Exception($"Operación Denegada: Hay {enMovimiento} códigos de este ingreso que ya registran Despachos o Salidas activas en Almacén.");
+                    }
+                }
+
+                // 🛑 CANDADO REGLA DE ORO 2: Línea de tiempo
                 using (var cmdCheck = dbConn.CreateCommand())
                 {
                     cmdCheck.Transaction = transaccion;
                     cmdCheck.CommandText = QueryAdapter.FormatearConsulta(@"
-                SELECT COUNT(*) 
-                FROM movimiento_codigos mc
-                INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = mc.codigo_creado_id
-                INNER JOIN movimientos m ON m.id = mc.movimiento_id
-                WHERE m.fecha_movimiento > @fechaMov OR (m.fecha_movimiento = @fechaMov AND m.id > @movId)");
+                        SELECT COUNT(*) FROM movimiento_codigos mc
+                        INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = mc.codigo_creado_id
+                        INNER JOIN movimientos m ON m.id = mc.movimiento_id
+                        WHERE m.fecha_movimiento > @fechaMov OR (m.fecha_movimiento = @fechaMov AND m.id > @movId)");
 
                     AgregarParametro(cmdCheck, "@fechaMov", fechaMovimiento);
                     AgregarParametro(cmdCheck, "@movId", movimientoId);
 
                     int posteriores = Convert.ToInt32(await cmdCheck.ExecuteScalarAsync());
-                    if (posteriores > 0)
-                    {
-                        throw new Exception($"Operación Rechazada: Existen {posteriores} códigos en este lote que ya registran movimientos o procesos logísticos posteriores en la línea de tiempo.");
-                    }
+                    if (posteriores > 0) throw new Exception($"Rechazado: {posteriores} códigos tienen transacciones logísticas posteriores.");
                 }
 
-                progress?.Report(30);
+                progress?.Report(40);
 
-                // =========================================================================
-                // 🚀 REVERSIÓN UTILIZANDO TU NUEVO ÍNDICE COMPUESTO
-                // =========================================================================
-                // Inyectamos el Hint WITH (INDEX(...)) para forzar a SQL Server a usar tu árbol 
-                // indexado en RAM y actualizar los 28,000 registros en microsegundos de un solo golpe.
-                string sqlRevertirEstados = @"
-            UPDATE cc
-            SET cc.estado_id = COALESCE(
-                (
-                    SELECT TOP 1 prev_m.motivo_producto_id
-                    FROM movimiento_codigos prev_mc
-                    INNER JOIN movimientos prev_m ON prev_m.id = prev_mc.movimiento_id
-                    WHERE prev_mc.codigo_creado_id = tmp.codigo_creado_id 
-                      AND prev_m.id < @movId
-                    ORDER BY prev_m.fecha_movimiento DESC, prev_m.id DESC
-                ), 1)
-            FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) -- 🌟 TU ÍNDICE AQUÍ
-            INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id";
+                // Revertimos el estado de los códigos a 1 (Disponible / Registrado) ya que borramos su ingreso físico
+                string sqlRevertir = @"
+                    UPDATE cc SET cc.estado_id = 1
+                    FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
+                    INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id";
 
                 using (var cmdRevert = dbConn.CreateCommand())
                 {
                     cmdRevert.Transaction = transaccion;
-                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta(sqlRevertirEstados);
-                    AgregarParametro(cmdRevert, "@movId", movimientoId);
+                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta(sqlRevertir);
                     await cmdRevert.ExecuteNonQueryAsync();
                 }
 
-                progress?.Report(70);
-
-                // 5. CAMBIAR EL ESTADO DEL MOVIMIENTO A ANULADO (estado_id = 5)
+                // Marcar movimiento como Anulado
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
@@ -519,26 +558,13 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 progress?.Report(100);
-
                 transaccion.Commit();
                 return true;
             }
             catch (Exception ex)
             {
                 transaccion.Rollback();
-                throw new Exception($"Falla Crítica al Anular Movimiento: {ex.Message}");
-            }
-            finally
-            {
-                // Limpieza absoluta de la RAM del servidor SQL
-                try
-                {
-                    using var cmdDrop = dbConn.CreateCommand();
-                    cmdDrop.Transaction = transaccion;
-                    cmdDrop.CommandText = "DROP TABLE IF EXISTS #temp_codigos_anular;";
-                    await cmdDrop.ExecuteNonQueryAsync();
-                }
-                catch { }
+                throw new Exception(ex.Message);
             }
         }
 
