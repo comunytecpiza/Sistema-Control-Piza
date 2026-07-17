@@ -601,8 +601,8 @@ namespace AplicativoDeAlmacen.Views
 
                 // Corremos el pesado registro relacional de forma asíncrona real
                 bool resultado = await Task.Run(async () =>
-                    await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
-                        solicitud.Movimiento,
+                await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
+                        solicitud.Movimiento, // 🌟 Pasamos el objeto
                         solicitud.Productos.ToList(),
                         _rangosProcesadosGlobal.ToList(),
                         solicitud.Movimiento.UbicacionId ?? 1,
@@ -612,23 +612,24 @@ namespace AplicativoDeAlmacen.Views
 
                 if (resultado)
                 {
-                    // 🌟 1. Usamos los datos de 'solicitud.Movimiento' que ya tiene el número real de la BD
+                    // 🌟 CORRECCIÓN AQUÍ:
+                    // Usamos el objeto 'solicitud.Movimiento' que ya debe tener el número real
                     string numFinal = solicitud.Movimiento.NumeroDocumento;
                     string serieFinal = solicitud.Movimiento.SerieDocumento;
                     string accion = solicitud.MovimientoId.HasValue ? "actualizado" : "registrado";
 
-                    // 🌟 2. Actualizamos el TextBox con el número real de la base de datos
+                    // 1. Pintamos el dato real en la UI
                     txtNumDocumento.Text = numFinal;
                     txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
                     txtNumDocumento.FontWeight = FontWeights.Bold;
                     txtNumDocumento.FontStyle = FontStyles.Normal;
                     txtNumDocumento.Background = System.Windows.Media.Brushes.White;
 
-                    // 🌟 3. Ahora sí mostramos el MessageBox con los datos correctos
-                    MessageBox.Show($"¡Movimiento {accion} con éxito!\nNúmero: {serieFinal}-{numFinal}",
+                    txtNumDocumento.Text = numFinal; // Esto se verá correctamente
+
+                    MessageBox.Show($"¡Movimiento registrado con éxito!\nNúmero: {serieFinal}-{numFinal}",
                                     "Guardado Exitoso", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                    // 4. Limpiamos para la siguiente operación
                     EstablecerEstadoInicial();
                     EventBus.NotificarMovimientosChanged();
                 }

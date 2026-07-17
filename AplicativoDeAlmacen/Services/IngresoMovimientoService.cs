@@ -366,6 +366,7 @@ namespace AplicativoDeAlmacen.Services
                 nuevoNumero = Convert.ToInt32(await cmdLock.ExecuteScalarAsync());
             }
 
+            cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
             string qCab = $@"INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
                      VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, 1, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
 
