@@ -118,10 +118,10 @@ namespace AplicativoDeAlmacen.Views
             // Si el buscador está vacío, limpiamos la pantalla
             if (string.IsNullOrWhiteSpace(searchText))
             {
-                CboProductos.IsDropDownOpen = false;
-                CboProductos.ItemsSource = null;
-                _productoSeleccionadoId = 0;
-                return;
+                CboProductos.IsDropDownOpen = false; 
+                CboProductos.ItemsSource = null; 
+                _productoSeleccionadoId = 0; // 🌟 Reset preventivo obligatorio
+                            return; 
             }
 
             // Cerramos la puerta para evitar un ciclo infinito

@@ -262,8 +262,6 @@ namespace AplicativoDeAlmacen.Views
         // ==========================================
         private async void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
-
-
             _modoActual = ModoFormulario.Nuevo;
             grdFormularioSalida.IsEnabled = true;
 
@@ -286,27 +284,17 @@ namespace AplicativoDeAlmacen.Views
             dtpFechaDespacho.SelectedDate = DateTime.Today;
             ActualizarVisibilidadCampos();
 
-            // 🌟 ENMASCARAMIENTO LOGÍSTICO ANTI-CONCURRENCIA
-            txtSerieSalida.Text = "S001";
+            // 🌟 CORRECCIÓN AQUÍ: Forzamos serie limpia y enmascaramos el número en la UI
+            txtSerieSalida.Text = "0001"; // Serie numérica fija sin la 'S'
             txtNumeroSalida.Text = "[ AUTOMÁTICO ]";
             txtNumeroSalida.IsReadOnly = true;
             txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
             txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Gray;
             txtNumeroSalida.FontStyle = FontStyles.Italic;
             txtNumeroSalida.FontWeight = FontWeights.Normal;
-            ActualizarVisibilidadCampos();
 
-            try
-            {
-                string seriePorDefecto = "S001";
-                var proxMov = await _salidaService.GenerarSiguienteCorrelativoAsync(seriePorDefecto);
-                txtSerieSalida.Text = proxMov.Movimiento.SerieDocumento;
-                txtNumeroSalida.Text = proxMov.Movimiento.NumeroDocumento;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al generar correlativo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            txtSerieSalida.IsEnabled = false;
+            txtNumeroSalida.IsEnabled = false;
         }
 
         private void BtnModificar_Click(object sender, RoutedEventArgs e)
@@ -321,7 +309,7 @@ namespace AplicativoDeAlmacen.Views
             // 🌟 Limpia y habilita la escritura limpia en la UI
             PrepararCajaBusqueda();
             txtSerieSalida.IsReadOnly = false;
-            txtSerieSalida.Text = "S001";
+            txtSerieSalida.Text = "0001";
 
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
@@ -341,7 +329,7 @@ namespace AplicativoDeAlmacen.Views
             PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
-            txtSerieSalida.Text = "S001";
+            txtSerieSalida.Text = "0001";
 
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
@@ -384,12 +372,12 @@ namespace AplicativoDeAlmacen.Views
             PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
-            txtSerieSalida.Text = "S001";
+            txtSerieSalida.Text = "0001";
 
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
-            btnNuevo.IsEnabled = false;
+            btnNuevo.IsEnabled = false; 
             btnModificarCabecera.IsEnabled = false;
             btnImprimirTicket.IsEnabled = false;
             btnAnularSalida.IsEnabled = false;
@@ -512,12 +500,15 @@ namespace AplicativoDeAlmacen.Views
                 try
                 {
                     this.Cursor = Cursors.Wait; // Encendemos reloj de espera
+                    _idMovimientoActual = null;
 
                     var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr);
 
                     if (movCompleto == null || movCompleto.Movimiento == null)
                     {
-                        MessageBox.Show("Movimiento no encontrado.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        // 🌟 LIMPIEZA INMEDIATA SI NO ENCUENTRA NADA
+                        MessageBox.Show("Movimiento no encontrado o no corresponde a una Salida.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        EstadoInicialFormulario();
                         return;
                     }
 
@@ -673,6 +664,11 @@ namespace AplicativoDeAlmacen.Views
                             ActualizarVisibilidadCampos();
                         }
                     }
+                    else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
+                    {
+                        HabilitarCamposFormulario(false); // Congela el formulario para que solo sea lectura[cite: 4]
+                        ShowExportButtonNearSave(); // 🚀 Inyectamos el botón de Exportar Excel al lado de Guardar
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -745,11 +741,11 @@ namespace AplicativoDeAlmacen.Views
         // ==========================================
         // DETALLE: AGREGAR, MODIFICAR Y ELIMINAR 
         // ==========================================
-        private async void btnAgregarItem_Click(object sender, RoutedEventArgs e)
+        private void btnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
             modal.IsAddAction = true;
-            modal.EstadoPermitido = 3; // Salidas exige estrictamente códigos que estén "En Almacén"
+            modal.EstadoPermitido = 3;
 
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
@@ -760,84 +756,99 @@ namespace AplicativoDeAlmacen.Views
                 int idProducto = productoSelected.Id;
                 var existente = _productosLista.FirstOrDefault(p => p.ProductoId == idProducto);
 
-                if (existente != null && modal.MergeWithExisting)
-                {
-                    existente.Cantidad += (int)modal.CantidadProductoIngresada;
-                    existente.Detalle.CantidadSalida += modal.CantidadProductoIngresada;
-                }
-                else
-                {
-                    if (existente != null)
-                    {
-                        MessageBox.Show("El producto ya existe en el detalle. Use la opción modificar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-
-                    var prodService = new ProductoService();
-                    var prodData = await prodService.ObtenerPorIdAsync(idProducto);
-
-                    _productosLista.Add(new VistaProductoGrid
-                    {
-                        ProductoId = idProducto,
-                        CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
-                        Descripcion = prodData?.Descripcion ?? "Desconocido",
-                        UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
-                        Cantidad = (int)modal.CantidadProductoIngresada,
-                        Detalle = new MovimientoDetalle
-                        {
-                            ProductoId = idProducto,
-                            CantidadSalida = modal.CantidadProductoIngresada,
-                            CostoUnitario = prodData?.PrecioUnitario ?? 0
-                        }
-                    });
-                }
-
-                this.Cursor = Cursors.Wait;
                 var ingService = new IngresoMovimientoService();
                 var listaStrings = new List<string>();
 
-                foreach (var rango in rangosDelModal)
+                // 🌟 Ventana de progreso para procesar el lote manual de salida sin colgar la UI
+                var progressModal = new ProgressWindow("Procesando Lote Manual Despacho", "Validando correlativos y stock físico lateral...", async (progress) =>
                 {
-                    if (rango.DesdeNum == -1)
+                    int totalRangos = rangosDelModal.Count;
+                    for (int rIdx = 0; rIdx < totalRangos; rIdx++)
                     {
-                        listaStrings.Add(rango.AbreviaturaBase);
+                        var rango = rangosDelModal[rIdx];
+                        int pctRango = (rIdx * 30) / (totalRangos == 0 ? 1 : totalRangos);
+                        progress.Report(pctRango);
+
+                        if (rango.DesdeNum == -1)
+                        {
+                            listaStrings.Add(rango.AbreviaturaBase);
+                        }
+                        else
+                        {
+                            for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                            {
+                                listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                            }
+                        }
+                    }
+
+                    progress.Report(40);
+                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
+
+                    int totalStrings = listaStrings.Count;
+                    for (int sIdx = 0; sIdx < totalStrings; sIdx++)
+                    {
+                        string codStr = listaStrings[sIdx];
+                        string norm = ingService.NormalizarCodigo(codStr);
+
+                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
+                        {
+                            // 🌟 SOLUCIÓN AL ERROR CS4033: 
+                            // Como estamos dentro de un bucle de acción paralela que no permite un await directo,
+                            // forzamos a que espere el resultado de la tarea de base de datos de manera segura con .Result
+                            string tipoColeccionReal = ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id).GetAwaiter().GetResult();
+
+                            Application.Current.Dispatcher.Invoke(() =>
+                            {
+                                _codigosLista.Add(new VistaCodigoGrid
+                                {
+                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
+                                    CodigoUnique = tup.CodigoObj.Codigo,
+                                    ProductoId = idProducto,
+                                    ColeccionTipo = tipoColeccionReal
+                                });
+                            });
+                        }
+
+                        int pctFinal = 40 + ((sIdx * 60) / (totalStrings == 0 ? 1 : totalStrings));
+                        progress.Report(pctFinal);
+                    }
+                });
+
+                progressModal.Owner = Window.GetWindow(this);
+
+                if (progressModal.ShowDialog() == true)
+                {
+                    this.Cursor = Cursors.Wait;
+                    if (existente != null && modal.MergeWithExisting)
+                    {
+                        existente.Cantidad += (int)modal.CantidadProductoIngresada;
+                        existente.Detalle.CantidadSalida += modal.CantidadProductoIngresada;
                     }
                     else
                     {
-                        for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                        var prodService = new ProductoService();
+                        var prodData = prodService.ObtenerPorIdAsync(idProducto).GetAwaiter().GetResult();
+
+                        _productosLista.Add(new VistaProductoGrid
                         {
-                            listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
-                        }
-                    }
-                }
-
-                var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
-
-                // 🚀 TRUCO INDUSTRIAL DE RENDIMIENTO: Desactivamos las notificaciones visuales temporales de la grilla
-                dgCodigosSalida.ItemsSource = null;
-
-                foreach (var codStr in listaStrings)
-                {
-                    string norm = ingService.NormalizarCodigo(codStr);
-
-                    if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
-                    {
-                        // Evitamos el pesado .Any() de Linq en bucle. El detector de duplicados interno ya limpia esto.
-                        string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
-
-                        _codigosLista.Add(new VistaCodigoGrid
-                        {
-                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
-                            CodigoUnique = tup.CodigoObj.Codigo,
                             ProductoId = idProducto,
-                            ColeccionTipo = tipoColeccionReal
+                            CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
+                            Descripcion = prodData?.Descripcion ?? "Desconocido",
+                            UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
+                            Cantidad = (int)modal.CantidadProductoIngresada,
+                            Detalle = new MovimientoDetalle
+                            {
+                                ProductoId = idProducto,
+                                CantidadSalida = modal.CantidadProductoIngresada,
+                                CostoUnitario = prodData?.PrecioUnitario ?? 0
+                            }
                         });
                     }
-                }
 
-                // Forzamos el refresco completo de la UI en un único bloque de hilos
-                RefrescarGrillas();
-                this.Cursor = Cursors.Arrow;
+                    RefrescarGrillas();
+                    this.Cursor = Cursors.Arrow;
+                }
             }
         }
 
@@ -1038,28 +1049,29 @@ namespace AplicativoDeAlmacen.Views
                 // Ejecución industrial real en segundo plano libre de congelamientos
                 bool resultado = await Task.Run(async () =>
                     await _salidaService.RegistrarSalidaCompletaAsync(
-                         movimiento,
-                         _productosLista.ToList(),
-                         _codigosLista.ToList(),
-                         idUsuarioLogueado,
-                         estadoSalida,
-                         _idMovimientoActual,
-                         progress)
+                     movimiento,
+                     _productosLista.ToList(),
+                     _codigosLista.ToList(),
+                     idUsuarioLogueado,
+                     estadoSalida,
+                     _idMovimientoActual,
+                     progress)
                 );
 
                 if (resultado)
                 {
                     // 🌟 CAPTURA DEL CORRELATIVO REAL PERSISTIDO EN BASE DE DATOS
-                    string numFinal = movimiento.NumeroDocumento;
-                    string serieFinal = movimiento.SerieDocumento;
+                    string numFinal = movimiento.NumeroDocumento; 
+                    string serieFinal = movimiento.SerieDocumento; 
 
-                    // Inyectamos el valor de kárdex con formato destacado en caliente
+                    // Inyectamos el valor real con formato destacado en caliente en la UI
                     txtNumeroSalida.Text = numFinal;
                     txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Black;
                     txtNumeroSalida.FontWeight = FontWeights.Bold;
                     txtNumeroSalida.FontStyle = FontStyles.Normal;
                     txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
 
+                    // Mostramos el mensaje de éxito impecable con la numeración oficial generada por SQL
                     MessageBox.Show($"¡Salida registrada con éxito!\n\nNúmero de Registro: {serieFinal}-{numFinal}",
                                     "Proceso Completado", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -1490,27 +1502,33 @@ namespace AplicativoDeAlmacen.Views
 
         private void TxtBuscarCodigo_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // 🌟 FILTRADO ASÍNCRONO EN TIEMPO REAL SOBRE CACHÉ DE MEMORIA RAM
             if (dgProductosSalida.SelectedItem is not VistaProductoGrid productoSeleccionado) return;
 
             string filtro = txtBuscarCodigo.Text.Trim().ToLower();
 
-            // Filtramos la sub-colección de códigos asociados a este producto específico
-            var codigosDelProducto = _codigosLista.Where(c => c.ProductoId == productoSeleccionado.ProductoId).ToList();
+            // 🚀 BUSQUEDA MAESTRA EN RAM: Extraemos el 100% de los códigos de la lista observable
+            var todosLosCodigosDelProducto = _codigosLista
+                .Where(c => c.ProductoId == productoSeleccionado.ProductoId)
+                .ToList();
 
             if (string.IsNullOrEmpty(filtro))
             {
-                dgCodigosSalida.ItemsSource = codigosDelProducto;
+                // Si el buscador está vacío, volvemos a limitar la vista por rendimiento gráfico
+                dgCodigosSalida.ItemsSource = todosLosCodigosDelProducto.Take(500).ToList();
+                lblResumenCodigos.Text = todosLosCodigosDelProducto.Count > 500
+                    ? $"500 (Viendo) / {todosLosCodigosDelProducto.Count}"
+                    : $"{todosLosCodigosDelProducto.Count} / {todosLosCodigosDelProducto.Count}";
             }
             else
             {
-                // Cruzamos el string normalizado contra la grilla virtualizada
-                var filtrados = codigosDelProducto.Where(c => c.CodigoUnique.ToLower().Contains(filtro)).ToList();
-                dgCodigosSalida.ItemsSource = filtrados;
-            }
+                // 🌟 BÚSQUEDA TOTAL: Encuentra cualquier coincidencia exacta o parcial al instante
+                var filtrados = todosLosCodigosDelProducto
+                    .Where(c => c.CodigoUnique.ToLower().Contains(filtro))
+                    .ToList();
 
-            // Sincronizamos las etiquetas de conteo de la UI
-            lblResumenCodigos.Text = $"{((List<VistaCodigoGrid>)dgCodigosSalida.ItemsSource).Count} / {codigosDelProducto.Count}";
+                dgCodigosSalida.ItemsSource = filtrados;
+                lblResumenCodigos.Text = $"{filtrados.Count} (Encontrados) / {todosLosCodigosDelProducto.Count}";
+            }
         }
     }
 }

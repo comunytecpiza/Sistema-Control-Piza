@@ -38,7 +38,7 @@ namespace AplicativoDeAlmacen.Services
         // KARDEX FÍSICO (Refacturado Asíncrono y Multi-Motor)
         // =========================================================
         public async Task<KardexFisicoReporte> GenerarKardexFisicoAsync(
-            int productoId, DateTime fechaDesde, DateTime fechaHasta)
+    int productoId, DateTime fechaDesde, DateTime fechaHasta)
         {
             var reporte = new KardexFisicoReporte();
 
@@ -49,38 +49,36 @@ namespace AplicativoDeAlmacen.Services
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                        SELECT
-                            m.fecha_movimiento,
-                            mp.descripcion          AS motivo,
-                            mp.tipo_movimiento,
-                            m.serie_documento,
-                            m.numero_documento,
-                            m.serie_guia,
-                            m.numero_guia,
-                            pc.razon_social,
-                            u.descripcion           AS ubicacion_desc,
-                            CASE WHEN mp.tipo_movimiento = 'entrada' AND mp.descripcion LIKE '%DEVOLUCION%' THEN md.cantidad_ingreso ELSE 0 END AS IngresoDev,
-                            CASE WHEN mp.tipo_movimiento = 'entrada' AND mp.descripcion NOT LIKE '%DEVOLUCION%' THEN md.cantidad_ingreso ELSE 0 END AS IngresoNorm,
-                            CASE WHEN mp.tipo_movimiento = 'salida' AND mp.descripcion LIKE '%DEVOLUCION%' THEN md.cantidad_salida ELSE 0 END  AS SalidaDev,
-                            CASE WHEN mp.tipo_movimiento = 'salida' AND mp.descripcion NOT LIKE '%DEVOLUCION%' THEN md.cantidad_salida ELSE 0 END  AS SalidaNorm
-                        FROM movimiento_detalles md
-                        INNER JOIN movimientos       m  ON md.movimiento_id      = m.id
-                        INNER JOIN motivo_productos  mp ON m.motivo_producto_id  = mp.id
-                        LEFT  JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                        LEFT  JOIN ubicaciones       u  ON m.ubicacion_id        = u.id
-                        WHERE md.producto_id       = @ProductoId
-                          AND m.fecha_movimiento  >= @FechaDesde
-                          AND m.fecha_movimiento  <= @FechaHasta
-                        ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                SELECT
+                    m.fecha_movimiento,
+                    mp.descripcion          AS motivo,
+                    mp.tipo_movimiento,
+                    m.serie_documento,
+                    m.numero_documento,
+                    m.serie_guia,
+                    m.numero_guia,
+                    pc.razon_social,
+                    u.descripcion           AS ubicacion_desc,
+                    CASE WHEN mp.tipo_movimiento = 'entrada' AND mp.descripcion LIKE '%DEVOLUCION%' THEN md.cantidad_ingreso ELSE 0 END AS IngresoDev,
+                    CASE WHEN mp.tipo_movimiento = 'entrada' AND mp.descripcion NOT LIKE '%DEVOLUCION%' THEN md.cantidad_ingreso ELSE 0 END AS IngresoNorm,
+                    CASE WHEN mp.tipo_movimiento = 'salida' AND mp.descripcion LIKE '%DEVOLUCION%' THEN md.cantidad_salida ELSE 0 END  AS SalidaDev,
+                    CASE WHEN mp.tipo_movimiento = 'salida' AND mp.descripcion NOT LIKE '%DEVOLUCION%' THEN md.cantidad_salida ELSE 0 END  AS SalidaNorm
+                FROM movimiento_detalles md
+                INNER JOIN movimientos       m  ON md.movimiento_id      = m.id
+                INNER JOIN motivo_productos  mp ON m.motivo_producto_id  = mp.id
+                LEFT  JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+                LEFT  JOIN ubicaciones       u  ON m.ubicacion_id        = u.id
+                WHERE md.producto_id       = @ProductoId
+                  AND m.fecha_movimiento  >= @FechaDesde
+                  AND m.fecha_movimiento  <= @FechaHasta
+                  AND m.estado_id        != 5 -- 🌟 CANDADO DE ORO: Ignora transacciones anuladas";
 
-                    // CORRECCIÓN PROTECCIÓN: Formateamos la consulta dinámicamente
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
 
-                    // CORRECCIÓN ASINCRONÍA: Cambiado a ExecuteReaderAsync para optimizar WPF
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
                         decimal saldoAcumulado = 0;
@@ -123,7 +121,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
             }
-
             return reporte;
         }
 
@@ -142,26 +139,27 @@ namespace AplicativoDeAlmacen.Services
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                        WITH MovimientosRango AS (
-                            SELECT
-                                md.producto_id,
-                                SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN md.cantidad_ingreso - md.cantidad_salida ELSE 0 END) AS StockInicial,
-                                SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
-                                SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
-                            FROM movimiento_detalles md
-                            INNER JOIN movimientos m ON md.movimiento_id = m.id
-                            GROUP BY md.producto_id
-                        )
+                    WITH MovimientosRango AS (
                         SELECT
-                            ISNULL(p.abreviatura, CAST(p.id AS VARCHAR)) AS codigo,
-                            p.descripcion,
-                            ISNULL(mr.StockInicial,   0) AS StockInicial,
-                            ISNULL(mr.TotalIngresos,  0) AS TotalIngresos,
-                            ISNULL(mr.TotalSalidas,   0) AS TotalSalidas
-                        FROM productos p
-                        LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
-                        WHERE p.estado_id = 1
-                        ORDER BY p.descripcion";
+                            md.producto_id,
+                            SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN md.cantidad_ingreso - md.cantidad_salida ELSE 0 END) AS StockInicial,
+                            SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
+                            SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
+                        FROM movimiento_detalles md
+                        INNER JOIN movimientos m ON md.movimiento_id = m.id
+                        WHERE m.estado_id != 5 -- 🌟 CANDADO ATÓMICO: Descarta por completo operaciones anuladas
+                        GROUP BY md.producto_id
+                    )
+                    SELECT
+                        ISNULL(p.abreviatura, CAST(p.id AS VARCHAR)) AS codigo,
+                        p.descripcion,
+                        ISNULL(mr.StockInicial,   0) AS StockInicial,
+                        ISNULL(mr.TotalIngresos,  0) AS TotalIngresos,
+                        ISNULL(mr.TotalSalidas,   0) AS TotalSalidas
+                    FROM productos p
+                    LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
+                    WHERE p.estado_id = 1
+                    ORDER BY p.descripcion";
 
                     // CORRECCIÓN PROTECCIÓN: Traduce dinámicamente ISNULL a IFNULL y VARCHAR a CHAR para MySQL
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
@@ -205,21 +203,22 @@ namespace AplicativoDeAlmacen.Services
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                        SELECT
-                            m.fecha_movimiento,
-                            COALESCE(m.serie_documento,  '') + '-' + COALESCE(m.numero_documento, '')             AS registro,
-                            COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-                            COALESCE(m.serie_guia,    '000') + '-' + COALESCE(m.numero_guia,   '0000000')         AS guia,
-                            COALESCE(md.cantidad_ingreso, 0)                                             AS cantidad_ingreso,
-                            COALESCE(md.cantidad_salida,  0)                                             AS cantidad_salida
-                        FROM movimiento_detalles md
-                        INNER JOIN movimientos          m  ON md.movimiento_id       = m.id
-                        LEFT  JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                        LEFT  JOIN ubicaciones          u  ON m.ubicacion_id         = u.id
-                        WHERE md.producto_id      = @ProductoId
-                          AND m.fecha_movimiento >= @FechaDesde
-                          AND m.fecha_movimiento <= @FechaHasta
-                        ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                    SELECT
+                        m.fecha_movimiento,
+                        COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
+                        COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+                        COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
+                        CASE WHEN m.estado_id = 5 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cantidad_ingreso,
+                        CASE WHEN m.estado_id = 5 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cantidad_salida,
+                        CASE WHEN m.estado_id = 5 THEN '❌ ANULADO - ' + COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') ELSE COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') END AS registro_display
+                    FROM movimiento_detalles md
+                    INNER JOIN movimientos m ON md.movimiento_id = m.id
+                    LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+                    LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+                    WHERE md.producto_id = @ProductoId
+                      AND m.fecha_movimiento >= @FechaDesde
+                      AND m.fecha_movimiento <= @FechaHasta
+                    ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -427,7 +426,7 @@ namespace AplicativoDeAlmacen.Services
         }
 
         public async Task<KardexValorizadoReporte> GenerarKardexValorizadoAsync(
-            int productoId, DateTime fechaDesde, DateTime fechaHasta)
+    int productoId, DateTime fechaDesde, DateTime fechaHasta)
         {
             var reporte = new KardexValorizadoReporte();
 
@@ -437,28 +436,27 @@ namespace AplicativoDeAlmacen.Services
 
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    // Consulta optimizada con COALESCE para evitar nulos
                     string queryRaw = @"
-                        SELECT
-                            m.fecha_movimiento,
-                            mp.descripcion AS motivo,
-                            mp.tipo_movimiento,
-                            COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
-                            COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-                            COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
-                            COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
-                            COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
-                            COALESCE(p.precio_unitario, 0) AS costo_base
-                        FROM movimiento_detalles md
-                        INNER JOIN movimientos m  ON md.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        INNER JOIN productos p ON md.producto_id = p.id
-                        LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                        LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
-                        WHERE md.producto_id = @ProductoId
-                          AND m.fecha_movimiento >= @FechaDesde
-                          AND m.fecha_movimiento <= @FechaHasta
-                        ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                SELECT
+                    m.fecha_movimiento,
+                    mp.descripcion AS motivo,
+                    mp.tipo_movimiento,
+                    COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
+                    COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+                    COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
+                    COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
+                    COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
+                    COALESCE(p.precio_unitario, 0) AS costo_base
+                FROM movimiento_detalles md
+                INNER JOIN movimientos m  ON md.movimiento_id = m.id
+                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                INNER JOIN productos p ON md.producto_id = p.id
+                LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+                LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+                WHERE md.producto_id = @ProductoId
+                  AND m.fecha_movimiento >= @FechaDesde
+                  AND m.fecha_movimiento <= @FechaHasta
+                  AND m.estado_id != 5 -- 🌟 Filtrar anulados";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -477,30 +475,33 @@ namespace AplicativoDeAlmacen.Services
                             var item = new KardexValorizadoItem
                             {
                                 Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
-                                Tipo = reader.GetString(1), // Motivo (Ej. VENTA, TRANSFERENCIA)
+                                Tipo = reader.GetString(1),
                                 Registro = reader.GetString(3),
                                 RazonSocialUbicacion = reader.GetString(4),
                                 Guia = reader.GetString(5),
                                 IngresoFisico = reader.GetDecimal(6),
                                 SalidaFisico = reader.GetDecimal(7),
-                                CostoUnitario = reader.GetDecimal(8) // Asumimos el precio/costo del producto por defecto
+                                CostoUnitario = reader.GetDecimal(8)
                             };
 
-                            // LÓGICA DE PROMEDIO PONDERADO
+                            // 🌟 REGLA DE SALVAGUARDA: Si no hay ingresos previos en la iteración, 
+                            // inicializamos el costo promedio con el costo_base del maestro de productos.
+                            if (costoPromedioActual == 0 && item.CostoUnitario > 0)
+                            {
+                                costoPromedioActual = item.CostoUnitario;
+                            }
+
                             if (item.IngresoFisico > 0)
                             {
-                                // Entradas: Entran al costo unitario actual
                                 item.IngresoValorado = item.IngresoFisico * item.CostoUnitario;
                                 saldoFisicoAcumulado += item.IngresoFisico;
                                 saldoValorizadoAcumulado += item.IngresoValorado;
 
-                                // Recalcular Costo Promedio
                                 if (saldoFisicoAcumulado > 0)
                                     costoPromedioActual = saldoValorizadoAcumulado / saldoFisicoAcumulado;
                             }
                             else if (item.SalidaFisico > 0)
                             {
-                                // Salidas: Salen al costo promedio actual
                                 item.CostoUnitario = costoPromedioActual;
                                 item.SalidaValorado = item.SalidaFisico * costoPromedioActual;
 
@@ -512,7 +513,6 @@ namespace AplicativoDeAlmacen.Services
                             item.SaldoFisico = saldoFisicoAcumulado;
                             item.SaldoValorado = saldoValorizadoAcumulado;
 
-                            // Acumuladores Finales para el Reporte
                             reporte.TotalIngresoFisico += item.IngresoFisico;
                             reporte.TotalSalidaFisico += item.SalidaFisico;
                             reporte.TotalIngresoValorado += item.IngresoValorado;
@@ -526,7 +526,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
             }
-
             return reporte;
         }
 
@@ -542,56 +541,51 @@ namespace AplicativoDeAlmacen.Services
 
                 using (var cmd = conn.CreateCommand())
                 {
-                    // 🌟 CORRECCIÓN: Usamos LIKE para comparar cadenas de texto, NO convertimos a INT 🌟
                     string sql = @"
-                        SELECT DISTINCT
-                            m.fecha_movimiento,
-                            m.created_at,
-                            mp.descripcion,
-                            ISNULL(m.serie_documento, '') + '-' + ISNULL(m.numero_documento, ''),
-                            COALESCE(pc.razon_social, u.descripcion, 'ALMACEN'),
-                            ISNULL(m.serie_guia, '') + '-' + ISNULL(m.numero_guia, ''),
-                            md.cantidad_ingreso,
-                            md.cantidad_salida
-                        FROM movimiento_codigos mc
-                        INNER JOIN movimiento_detalles md ON mc.movimiento_detalle_id = md.id
-                        INNER JOIN movimientos m ON md.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                        LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
-                        INNER JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id
-                        INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                        WHERE md.producto_id = @ProductoId
-                          AND rc.categoria_producto_id = @CategoriaProductoId
-                          -- 🌟 CAMBIO AQUÍ: Comparamos convirtiendo a string y limpiando ceros 🌟
-                          AND CAST(cc.codigo AS VARCHAR) LIKE @CodigoExacto
-                        ORDER BY m.created_at ASC";
+                SELECT DISTINCT
+                    m.fecha_movimiento,
+                    m.created_at,
+                    CASE WHEN m.estado_id = 5 THEN '❌ ANULADO - ' + mp.descripcion ELSE mp.descripcion END AS tipo_mov,
+                    ISNULL(m.serie_documento, '') + '-' + ISNULL(m.numero_documento, '') AS doc,
+                    COALESCE(pc.razon_social, u.descripcion, 'ALMACEN') AS raz_ub,
+                    ISNULL(m.serie_guia, '') + '-' + ISNULL(m.numero_guia, '') AS gu,
+                    CASE WHEN m.estado_id = 5 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
+                    CASE WHEN m.estado_id = 5 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa
+                FROM movimiento_codigos mc
+                INNER JOIN movimiento_detalles md ON mc.movimiento_detalle_id = md.id
+                INNER JOIN movimientos m ON md.movimiento_id = m.id
+                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+                LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+                INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) ON mc.codigo_creado_id = cc.id
+                INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                WHERE md.producto_id = @ProductoId
+                  AND rc.categoria_producto_id = @CategoriaProductoId
+                  AND CAST(cc.codigo AS VARCHAR) LIKE @CodigoExacto
+                ORDER BY m.created_at ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@CategoriaProductoId", categoriaProductoId);
-
-                    // 🌟 CAMBIO: Quitamos los '%' del inicio y fin para que no busque "contiene",
-                    // sino que busque "el código que termina en..." o "el código exacto".
-                    // Si el código en tu base es "00000705" y el usuario escribe "705":
                     AgregarParametro(cmd, "@CodigoExacto", "%" + codigoEscaneado.TrimStart('0'));
 
                     using (var reader = await ((System.Data.Common.DbCommand)cmd).ExecuteReaderAsync())
                     {
                         while (await reader.ReadAsync())
                         {
-                            lista.Add(new KardexFisicoItem
+                            var item = new KardexFisicoItem
                             {
                                 Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
-                                // m.created_at es ahora el índice 1, así que mp.descripcion pasa a ser 2
                                 Tipo = reader.IsDBNull(2) ? "" : reader.GetString(2),
                                 Registro = reader.IsDBNull(3) ? "" : reader.GetString(3),
                                 RazonSocialUbicacion = reader.IsDBNull(4) ? "" : reader.GetString(4),
                                 Guia = reader.IsDBNull(5) ? "" : reader.GetString(5),
                                 IngresoNormal = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
                                 SalidaNormal = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7)
-                            });
+                            };
+
+                            lista.Add(item);
                         }
                     }
                 }

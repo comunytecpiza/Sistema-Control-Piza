@@ -34,8 +34,11 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
         public KardexUbicacionUserControl()
         {
             InitializeComponent();
-            DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-            DpHasta.SelectedDate = DateTime.Now;
+            DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1); 
+            DpHasta.SelectedDate = DateTime.Now; 
+    
+            // 🌟 Inyección UX
+            DgResumen.MouseDoubleClick += (s, e) => { DgResumen_SelectionChanged(null, null); };
         }
 
 

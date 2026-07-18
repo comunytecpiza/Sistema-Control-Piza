@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Ubicaciones;
+using System.Windows.Media;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -37,13 +38,34 @@ namespace AplicativoDeAlmacen.Views
             _ubicacionService = new UbicacionService();
 
             _todosLosCodigos = new List<ConsultaCodigoItem>();
-
+            MovimientosDataGrid.LoadingRow += MovimientosDataGrid_LoadingRow;
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
             DpHasta.SelectedDate = DateTime.Today;
 
             Loaded += Control_Loaded;
         }
 
+        private void MovimientosDataGrid_LoadingRow(object sender, DataGridRowEventArgs e)
+        {
+            if (e.Row.Item is ConsultaMovimientoItem movimiento)
+            {
+                // 🌟 Ahora esto funcionará porque el query ya le inyectó "ANULADO"
+                if (movimiento.NumeroRegistro != null && movimiento.NumeroRegistro.Contains("ANULADO"))
+                {
+                    e.Row.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"));
+                    e.Row.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
+                    e.Row.FontStyle = FontStyles.Italic;
+                    e.Row.ToolTip = "Esta operación fue ANULADA.";
+                }
+                else
+                {
+                    e.Row.Background = Brushes.White;
+                    e.Row.Foreground = Brushes.Black;
+                    e.Row.FontStyle = FontStyles.Normal;
+                    e.Row.ToolTip = null;
+                }
+            }
+        }
         private async void Control_Loaded(object sender, RoutedEventArgs e)
         {
             try
@@ -274,7 +296,6 @@ namespace AplicativoDeAlmacen.Views
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(_productoSeleccionadoId, desde, hasta);
                 var movimientos = reporte.Movimientos.AsEnumerable();
 
-                // 🌟 Leemos el texto de los TextBoxes de autocompletado
                 if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
                     movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtRazonSocial.Text.ToLower()));
 
@@ -282,13 +303,23 @@ namespace AplicativoDeAlmacen.Views
                     movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtUbicacion.Text.ToLower()));
 
                 if (RbGuia != null && RbGuia.IsChecked == true) movimientos = movimientos.Where(m => m.NumeroRegistro.Contains("-") || string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
-                else if (RbVenta != null && RbVenta.IsChecked == true) movimientos = movimientos.Where(m => !m.NumeroRegistro.Contains("-") && !string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
+                else if (RbVenta != null && RbVenta.IsChecked == true)
+                {
+                    movimientos = movimientos.Where(m => !m.NumeroRegistro.Contains("-") && !string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
+                }
 
                 var listaFinal = movimientos.ToList();
                 MovimientosDataGrid.ItemsSource = listaFinal;
 
-                TxtTotalIngreso.Text = listaFinal.Sum(m => m.Ingreso).ToString("N2");
-                TxtTotalSalida.Text = listaFinal.Sum(m => m.Salida).ToString("N2");
+                // 🌟 CORRECCIÓN MATEMÁTICA: Sumamos SOLO los movimientos que NO estén anulados
+                // Buscamos si el comprobante contiene la etiqueta de anulado o validamos su estado
+                TxtTotalIngreso.Text = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Ingreso).ToString("N2");
+                TxtTotalSalida.Text = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Salida).ToString("N2");
+
+                // Calcular Ventas Netas del tercer cuadro de tu pie de página
+                decimal entradas = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Ingreso);
+                decimal salidas = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Salida);
+                TxtTotalVendidos.Text = (entradas - salidas).ToString("N2");
 
                 _todosLosCodigos = reporte.Codigos;
                 CodigosDataGrid.ItemsSource = null;

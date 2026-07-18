@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 
@@ -20,12 +21,40 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
         public HistorialPorCodigoUserControl()
         {
             InitializeComponent();
-            _kardexService = new KardexService();
-            _productoService = new ProductoService();
+            _kardexService = new KardexService(); 
+            _productoService = new ProductoService(); 
 
-            // Ahora el flujo empieza en Producto, no en Código
-            TxtCodigoEscaneado.IsEnabled = false;
-            TxtProducto.Focus();
+            TxtCodigoEscaneado.IsEnabled = false; 
+            TxtProducto.Focus(); 
+
+            // 🌟 CANDADO DE SOMBREADO EN VIVO PARA ANULADOS
+            DgHistorial.LoadingRow += DgHistorial_LoadingRow;
+        }
+
+        private void DgHistorial_LoadingRow(object sender, DataGridRowEventArgs e)
+        {
+            if (e.Row.Item is KardexFisicoItem item)
+            {
+                // 🌟 Buscamos el prefijo 'ANULADO' que inyectamos en la propiedad Tipo
+                if (item.Tipo != null && item.Tipo.ToUpperInvariant().Contains("ANULADO"))
+                {
+                    // Sombreado en gris claro y letras opacas de advertencia
+                    e.Row.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"));
+                    e.Row.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
+                    e.Row.FontStyle = FontStyles.Italic;
+
+                    // Tooltip real de WPF explicativo para el usuario al pasar el mouse
+                    e.Row.ToolTip = "Este movimiento fue ANULADO. Sus cantidades físicas fueron reducidas a 0.00 para no alterar los saldos actuales.";
+                }
+                else
+                {
+                    // Restaurar valores limpios por defecto para las filas recicladas por el motor de virtualización de WPF
+                    e.Row.Background = Brushes.White;
+                    e.Row.Foreground = Brushes.Black;
+                    e.Row.FontStyle = FontStyles.Normal;
+                    e.Row.ToolTip = null;
+                }
+            }
         }
 
         // 1. Buscador que activa el Popup

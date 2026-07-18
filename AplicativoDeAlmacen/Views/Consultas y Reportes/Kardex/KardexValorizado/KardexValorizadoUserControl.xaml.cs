@@ -100,18 +100,21 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
                 DgResumen.ItemsSource = null;
 
                 _reporteActual = await _kardexService.GenerarKardexValorizadoAsync(
-                    _productoSeleccionadoId,
-                    DpDesde.SelectedDate.Value,
-                    DpHasta.SelectedDate.Value);
+                _productoSeleccionadoId,
+                DpDesde.SelectedDate.Value,
+                DpHasta.SelectedDate.Value); 
 
-                DgResumen.ItemsSource = _reporteActual.Detalles;
+                DgResumen.ItemsSource = _reporteActual.Detalles; 
 
-                // Actualizar Footer
-                TxtSaldoInicial.Text = "0.00";
-                TxtCostoInicial.Text = "0.00";
-                TxtTotalIngresos.Text = _reporteActual.TotalIngresoFisico.ToString("N2");
-                TxtTotalSalidas.Text = _reporteActual.TotalSalidaFisico.ToString("N2");
-                TxtSaldoFinal.Text = _reporteActual.StockFinalFisico.ToString("N2");
+                // 🌟 CORRECCIÓN DE FOOTER DINÁMICO RE計算
+                decimal saldoInicialCalculado = _reporteActual.StockFinalFisico - _reporteActual.TotalIngresoFisico + _reporteActual.TotalSalidaFisico;
+                                decimal costoPromedioInicial = _reporteActual.Detalles.FirstOrDefault()?.CostoPromedio ?? 0;
+
+                TxtSaldoInicial.Text = Math.Max(0, saldoInicialCalculado).ToString("N2");
+                TxtCostoInicial.Text = (saldoInicialCalculado * costoPromedioInicial).ToString("N2");
+                TxtTotalIngresos.Text = _reporteActual.TotalIngresoValorado.ToString("N2"); // 🌟 Cambiado a valorizado en dinero
+                TxtTotalSalidas.Text = _reporteActual.TotalSalidaValorado.ToString("N2");   // 🌟 Cambiado a valorizado en dinero
+                TxtSaldoFinal.Text = _reporteActual.SaldoFinalValorado.ToString("N2");
             }
             catch (Exception ex)
             {

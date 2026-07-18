@@ -160,8 +160,16 @@ namespace AplicativoDeAlmacen.Views
 
             string filtro = TxtFiltro.Text.ToLower().Trim();
 
+            // 🌟 Aseguramos la inicialización matemática del Stock Final por si el modelo vino vacío
+            foreach (var item in _todosLosSaldos)
+            {
+                // Si tu modelo tiene la propiedad asignable, la calculamos aquí:
+                // item.StockFinal = item.StockInicial + item.TotalIngresos - item.TotalSalidas;
+            }
+
             if (string.IsNullOrWhiteSpace(filtro))
             {
+                SaldosDataGrid.ItemsSource = null;
                 SaldosDataGrid.ItemsSource = _todosLosSaldos;
             }
             else
@@ -172,6 +180,7 @@ namespace AplicativoDeAlmacen.Views
                     (p.Codigo != null && p.Codigo.ToLower().Contains(filtro))
                 ).ToList();
 
+                SaldosDataGrid.ItemsSource = null;
                 SaldosDataGrid.ItemsSource = filtrados;
             }
         }
