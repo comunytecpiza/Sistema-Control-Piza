@@ -380,7 +380,7 @@ namespace AplicativoDeAlmacen.Services
         }
 
         // =========================================================================
-        // 🌟 4. REGISTRAR SALIDA MASIVA OPTIMIZADA POR TABLAS TEMPORALES
+        // 🌟 4. REGISTRAR SALIDA MASIVA OPTIMIZADA Y BLINDADA ANTI-DUPLICADOS
         // =========================================================================
         public async Task<bool> RegistrarSalidaCompletaAsync(
             Movimiento cabecera,
@@ -401,11 +401,23 @@ namespace AplicativoDeAlmacen.Services
                 string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
                 int movimientoIdInserted = 0;
 
-                // Generar Cabecera Anti-Colisión
+                // 🌟 [CANDADO 1: DETECTOR DE DUPLICADOS INTERNOS EN LA MISMA GRILLA/SOLICITUD]
+                var detectorDuplicadosInternos = new HashSet<int>();
+                foreach (var cod in listaCodigos)
+                {
+                    if (!detectorDuplicadosInternos.Add(cod.MovCodigo.CodigoCreadoId))
+                    {
+                        throw new Exception($"Error de Operación: El código único con ID {cod.MovCodigo.CodigoCreadoId} se encuentra duplicado en la grilla actual de despacho. Elimine el código repetido antes de guardar.");
+                    }
+                }
+
+                // Generar Cabecera Anti-Colisión por Concurrencia
                 if (!existingMovimientoId.HasValue)
                 {
-                    string serieParaGenerar = string.IsNullOrWhiteSpace(cabecera.SerieDocumento) ? "0001" : cabecera.SerieDocumento;
-                    string bloqueoConcurrencia = QueryAdapter.EsMySQL ? "FOR UPDATE" : "WITH (UPDLOCK, HOLDLOCK)";
+                    string serieParaGenerar = string.IsNullOrWhiteSpace(cabecera.SerieDocumento) ? "S001" : cabecera.SerieDocumento;
+
+                    // 🌟 Cambiado UPDLOCK por TABLOCKX para asegurar el bloqueo estricto si MAX devuelve 0 rows
+                    string bloqueoConcurrencia = QueryAdapter.EsMySQL ? "FOR UPDATE" : "WITH (TABLOCKX, HOLDLOCK)";
 
                     using (var cmdGen = dbConn.CreateCommand())
                     {
@@ -414,6 +426,7 @@ namespace AplicativoDeAlmacen.Services
                         AgregarParametro(cmdGen, "@serie", serieParaGenerar);
                         object? genRes = await cmdGen.ExecuteScalarAsync();
                         int siguienteNumero = genRes != null && genRes != DBNull.Value ? Convert.ToInt32(genRes) : 1;
+
                         cabecera.NumeroDocumento = siguienteNumero.ToString("D7");
                         cabecera.SerieDocumento = serieParaGenerar;
                     }
@@ -435,7 +448,15 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia);
                     AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
                     AgregarParametro(cmdCab, "@estadoId", estadoId);
-                    movimientoIdInserted = Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
+
+                    try
+                    {
+                        movimientoIdInserted = Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
+                    }
+                    catch (DbException ex) when (ex.Message.Contains("PRIMARY KEY") || ex.Message.Contains("UNIQUE") || ex.ErrorCode == 2627)
+                    {
+                        throw new Exception("Colisión de Red: Otro terminal generó la misma numeración de salida al mismo tiempo. Por favor, vuelva a presionar 'Guardar Salida' para recalcular el correlativo.");
+                    }
                 }
                 else
                 {
@@ -461,7 +482,7 @@ namespace AplicativoDeAlmacen.Services
                     : new HashSet<int>();
 
                 // =========================================================================
-                // 🚀 VALIDACIÓN INDUSTRIAL EN RAM: Tabla temporal en vez de Foreach iterativo
+                // 🚀 VALIDACIÓN INDUSTRIAL EN RAM CONTRA LA BASE DE DATOS
                 // =========================================================================
                 using (var cmdTable = dbConn.CreateCommand())
                 {
@@ -492,10 +513,10 @@ namespace AplicativoDeAlmacen.Services
 
                 // Cruzamos de un solo golpe contra tu índice compuesto para atrapar códigos sin stock
                 string sqlCheckStock = @"
-                    SELECT cc.codigo, cc.estado_id 
+                    SELECT cc.id, cc.codigo, cc.estado_id 
                     FROM #temp_salida_valida tmp
                     INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) ON cc.id = tmp.id
-                    WHERE cc.estado_id != 3";
+                    WHERE cc.estado_id != 3"; // 3 = Debe estar estrictamente En Almacén
 
                 var codigosInvalidos = new List<string>();
                 using (var cmdCheckStock = dbConn.CreateCommand())
@@ -505,17 +526,19 @@ namespace AplicativoDeAlmacen.Services
                     using var rdrStock = await cmdCheckStock.ExecuteReaderAsync();
                     while (await rdrStock.ReadAsync())
                     {
-                        int idCod = rdrStock.GetInt32(0); // Si no estaba previamente guardado en esta misma salida, salta el error
+                        int idCod = rdrStock.GetInt32(0);
                         if (!codigosPreviosEnBD.Contains(idCod))
                         {
-                            codigosInvalidos.Add($"{rdrStock.GetString(0)} (Estado actual: {rdrStock.GetInt32(1)} - Requiere estar En Almacén)");
+                            codigosInvalidos.Add($"- {rdrStock.GetString(1)} (Estado: {rdrStock.GetInt32(2)})");
                         }
                     }
                 }
 
                 if (codigosInvalidos.Any())
                 {
-                    throw new Exception("Error de validación física:\nLos siguientes códigos no están en Almacén:\n" + string.Join("\n", codigosInvalidos.Take(10)));
+                    throw new Exception("Operación Cancelada por Seguridad del Inventario.\n\n" +
+                                        "Los siguientes códigos ya no están disponibles en Almacén (fueron despachados en otra venta):\n" +
+                                        string.Join("\n", codigosInvalidos.Take(5)));
                 }
 
                 // 3. REGISTRO Y BATCHING GRÁFICO SUAVE
@@ -573,7 +596,7 @@ namespace AplicativoDeAlmacen.Services
                         {
                             if (await TieneMovimientosPosterioresAsync(cod.MovCodigo.CodigoCreadoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion))
                             {
-                                throw new Exception($"El código ID {cod.MovCodigo.CodigoCreadoId} cuenta con transacciones posteriores. Operación abortada.");
+                                throw new Exception($"El código ID {cod.MovCodigo.CodigoCreadoId} cuenta con transacciones posteriores en kárdex. Operación abortada.");
                             }
 
                             nuevosCodigosIds.Add(cod.MovCodigo.CodigoCreadoId);
@@ -583,7 +606,6 @@ namespace AplicativoDeAlmacen.Services
                             }
                         }
 
-                        // Ráfagas estables de 1,000 en 1,000 ítems exactos para despachar
                         const int insertBatchSize = 1000;
                         for (int i = 0; i < codigosNuevosParaInsertar.Count; i += insertBatchSize)
                         {

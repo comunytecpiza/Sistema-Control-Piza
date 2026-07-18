@@ -355,7 +355,7 @@ namespace AplicativoDeAlmacen.Services
             }
 
 
-            string queryLock = "SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 FROM movimientos WITH (UPDLOCK, HOLDLOCK) WHERE serie_documento = @serie";
+            string queryLock = "SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 FROM movimientos WITH (TABLOCKX, HOLDLOCK) WHERE serie_documento = @serie";
             int nuevoNumero;
 
             using (var cmdLock = conn.CreateCommand())
@@ -365,6 +365,8 @@ namespace AplicativoDeAlmacen.Services
                 AgregarParametro(cmdLock, "@serie", cabecera.SerieDocumento);
                 nuevoNumero = Convert.ToInt32(await cmdLock.ExecuteScalarAsync());
             }
+
+            cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
 
             cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
             string qCab = $@"INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
@@ -385,7 +387,17 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
             AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia);
 
-            return Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
+            try
+            {
+                return Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
+            }
+            catch (DbException ex) when (ex.Message.Contains("PRIMARY KEY") || ex.Message.Contains("UNIQUE") || ex.ErrorCode == 2627)
+            {
+                // 🚨 Si otra transacción ganó el número en el mismo instante, lanzamos un aviso controlado para que el usuario reintente
+                throw new Exception("Conflicto de Concurrencia: Otro usuario registró un movimiento simultáneamente con el mismo correlativo. Por favor, intente guardar el documento nuevamente.");
+            }
+
+            
         }
 
         private async Task<int> UpsertMovimientoDetalleAsync(int movId, VistaProductoGrid item, DbConnection conn, DbTransaction trans)
@@ -592,9 +604,105 @@ namespace AplicativoDeAlmacen.Services
                 if (totalCodigos == 0) totalCodigos = 1;
 
                 int codigosProcesadosGlobal = 0;
-                int ultimoPorcentajeReportado = -1; // 🌟 CANDADO DE CONTENCIÓN GRÁFICA
+                int ultimoPorcentajeReportado = -1;
                 var nuevosCodigosIds = new HashSet<int>();
+                var todosLosCodigosAValidar = new List<int>();
 
+                // 🌟 [PASO DE BLINDAJE INDUSTRIAL 1]: Recopilar todos los IDs de códigos que se pretenden procesar
+                foreach (var item in productos)
+                {
+                    if (!rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd)) continue;
+
+                    foreach (var r in rangosProd)
+                    {
+                        var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
+                        foreach (var t in encontrados)
+                        {
+                            // Si estamos editando el mismo documento, ignoramos sus propios códigos previos
+                            if (!codigosPreviosEnBD.Contains(t.CodigoObj.Id))
+                            {
+                                todosLosCodigosAValidar.Add(t.CodigoObj.Id);
+                            }
+                        }
+                    }
+                }
+
+                // 🌟 [PASO DE BLINDAJE INDUSTRIAL 2]: Validación atómica masiva en bloques de 1,000 items
+                if (todosLosCodigosAValidar.Any())
+                {
+                    // Creamos una tabla temporal ligera para la comprobación en ráfaga
+                    using (var cmdCreateCheck = dbConn.CreateCommand())
+                    {
+                        cmdCreateCheck.Transaction = transaccion;
+                        cmdCreateCheck.CommandText = "CREATE TABLE #temp_nuevos_ingresos_check (id INT NOT NULL PRIMARY KEY);";
+                        await cmdCreateCheck.ExecuteNonQueryAsync();
+                    }
+
+                    try
+                    {
+                        const int insertBatchSize = 1000;
+                        for (int i = 0; i < todosLosCodigosAValidar.Count; i += insertBatchSize)
+                        {
+                            var batchCheck = todosLosCodigosAValidar.Skip(i).Take(insertBatchSize).ToList();
+                            var sbCheck = new System.Text.StringBuilder("INSERT INTO #temp_nuevos_ingresos_check (id) VALUES ");
+                            using var cmdInsCheck = dbConn.CreateCommand();
+                            cmdInsCheck.Transaction = transaccion;
+
+                            for (int j = 0; j < batchCheck.Count; j++)
+                            {
+                                sbCheck.Append($"(@chk{j})");
+                                if (j < batchCheck.Count - 1) sbCheck.Append(",");
+                                AgregarParametro(cmdInsCheck, "@chk" + j, batchCheck[j]);
+                            }
+
+                            cmdInsCheck.CommandText = sbCheck.ToString();
+                            await cmdInsCheck.ExecuteNonQueryAsync();
+                        }
+
+                        // Cruzamos la tabla temporal contra el índice maestro buscando duplicados activos (EstadoId != 1)
+                        string sqlVerificarDuplicados = @"
+                    SELECT TOP 5 cc.codigo, cc.estado_id 
+                    FROM codigos_creados cc
+                    INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                    WHERE cc.estado_id IN (3, 4)"; // 3 = En Almacén, 4 = Despachado
+
+                        using var cmdVerify = dbConn.CreateCommand();
+                        cmdVerify.Transaction = transaccion;
+                        cmdVerify.CommandText = QueryAdapter.FormatearConsulta(sqlVerificarDuplicados);
+
+                        var listaConflictos = new List<string>();
+                        using (var rdrVerify = await cmdVerify.ExecuteReaderAsync())
+                        {
+                            while (await rdrVerify.ReadAsync())
+                            {
+                                string codConflicto = rdrVerify.GetString(0);
+                                int estConflicto = rdrVerify.GetInt32(1);
+                                string nombreEstado = estConflicto == 3 ? "EN ALMACÉN" : "DESPACHADO/SALIDA";
+                                listaConflictos.Add($"- {codConflicto} ({nombreEstado})");
+                            }
+                        }
+
+                        // Si la consulta arroja registros, disparamos la excepción fulminante y cancelamos la transacción
+                        if (listaConflictos.Any())
+                        {
+                            throw new Exception("Operación Cancelada por Seguridad de Stock.\n\n" +
+                                                "Se detectaron códigos que ya cuentan con un ingreso activo en el sistema:\n" +
+                                                string.Join("\n", listaConflictos) + "\n\n" +
+                                                "Por favor, revise el detalle de ítems antes de reintentar.");
+                        }
+                    }
+                    finally
+                    {
+                        using var cmdDropCheck = dbConn.CreateCommand();
+                        cmdDropCheck.Transaction = transaccion;
+                        cmdDropCheck.CommandText = "DROP TABLE IF EXISTS #temp_nuevos_ingresos_check;";
+                        await cmdDropCheck.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // =========================================================================
+                // FLUJO DE PERSISTENCIA ORIGINAL (Mantiene tu excelente rendimiento intacto)
+                // =========================================================================
                 foreach (var item in productos)
                 {
                     int detalleId = await UpsertMovimientoDetalleAsync(movimientoId, item, dbConn, transaccion);
@@ -630,7 +738,6 @@ namespace AplicativoDeAlmacen.Services
 
                         codigosProcesadosGlobal += encontrados.Count;
 
-                        // 🌟 CONTROL SUAVE DE PROGRESO: Sólo reporta si cambia el número entero
                         int nuevoPorcentaje = (codigosProcesadosGlobal * 100) / totalCodigos;
                         if (nuevoPorcentaje > ultimoPorcentajeReportado)
                         {
@@ -639,7 +746,6 @@ namespace AplicativoDeAlmacen.Services
                         }
                     }
 
-                    // Inserción masiva en ráfagas estructuradas de 1,000 ítems exactos
                     const int bulkSize = 1000;
                     for (int i = 0; i < codigosAInsertar.Count; i += bulkSize)
                     {
@@ -649,7 +755,7 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // 3. PROCESAR REMOCIONES CRONOLÓGICAS (Solo si es Edición)
+                // PROCESAR REMOCIONES CRONOLÓGICAS (Solo si es Edición)
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
                 if (codigosAEliminar.Any())
                 {

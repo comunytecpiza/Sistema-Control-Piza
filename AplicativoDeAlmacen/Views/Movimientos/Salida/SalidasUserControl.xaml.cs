@@ -227,6 +227,18 @@ namespace AplicativoDeAlmacen.Views
                 };
             }
         }
+
+        private void PrepararCajaBusqueda()
+        {
+            txtNumeroSalida.Text = string.Empty;
+            txtNumeroSalida.IsReadOnly = false;
+            txtNumeroSalida.IsEnabled = true;
+            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
+            txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Black;
+            txtNumeroSalida.FontWeight = FontWeights.Normal;
+            txtNumeroSalida.FontStyle = FontStyles.Normal; // Desactiva cursiva
+            txtNumeroSalida.Focus();
+        }
         // ==========================================
         // CABECERA: NUEVO, MODIFICAR, IMPRIMIR, ANULAR
         // ==========================================
@@ -254,7 +266,16 @@ namespace AplicativoDeAlmacen.Views
             btnModificarCabecera.IsEnabled = false;
 
             dtpFechaDespacho.SelectedDate = DateTime.Today;
+            ActualizarVisibilidadCampos();
+
+            // 🌟 ENMASCARAMIENTO LOGÍSTICO ANTI-CONCURRENCIA
+            txtSerieSalida.Text = "S001";
+            txtNumeroSalida.Text = "[ AUTOMÁTICO ]";
             txtNumeroSalida.IsReadOnly = true;
+            txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
+            txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Gray;
+            txtNumeroSalida.FontStyle = FontStyles.Italic;
+            txtNumeroSalida.FontWeight = FontWeights.Normal;
             ActualizarVisibilidadCampos();
 
             try
@@ -276,19 +297,18 @@ namespace AplicativoDeAlmacen.Views
             _modoActual = ModoFormulario.BuscandoParaEditar;
 
             grdFormularioSalida.IsEnabled = true;
-            txtNumeroSalida.IsReadOnly = false;
-            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
-            txtSerieSalida.IsReadOnly = false;
-            txtSerieSalida.Text = "S001";
-
             cboMotivoSalida.IsEnabled = false;
             dtpFechaDespacho.IsEnabled = false;
+
+            // 🌟 Limpia y habilita la escritura limpia en la UI
+            PrepararCajaBusqueda();
+            txtSerieSalida.IsReadOnly = false;
+            txtSerieSalida.Text = "S001";
 
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
             MessageBox.Show("Escriba el N° de Documento y presione ENTER para cargar y modificar.", "Modo Edición", MessageBoxButton.OK, MessageBoxImage.Information);
-            txtNumeroSalida.Focus();
         }
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
@@ -296,26 +316,19 @@ namespace AplicativoDeAlmacen.Views
             EstadoInicialFormulario();
             _modoActual = ModoFormulario.BuscandoParaImprimir;
 
-            // 1. Mantenemos el contenedor habilitado para poder escribir
             grdFormularioSalida.IsEnabled = true;
-
-            // 2. Bloqueamos todo el formulario EXCEPTO los de búsqueda
             HabilitarCamposFormulario(false);
 
-            // 3. Específicamente habilitamos los campos de búsqueda
+            // 🌟 Limpia y habilita la escritura limpia en la UI
+            PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
             txtSerieSalida.Text = "S001";
-
-            txtNumeroSalida.IsEnabled = true; // <--- ESTE ES EL QUE NECESITAS
-            txtNumeroSalida.IsReadOnly = false;
-            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
 
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
             MessageBox.Show("Escriba el N° de Documento y presione ENTER para ver e imprimir.", "Modo Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
-            txtNumeroSalida.Focus();
         }
 
         private void HabilitarCamposFormulario(bool habilitar)
@@ -342,32 +355,22 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_anularMode) return;
 
-            // 1. Limpieza inicial del estado y activación de flags de control
             EstadoInicialFormulario();
             _anularMode = true;
-            _modoActual = ModoFormulario.BuscandoParaEditar; // Forzamos desvío compatible para la carga
+            _modoActual = ModoFormulario.BuscandoParaEditar;
 
-            // 2. Mantenemos el contenedor principal habilitado para poder escribir
             grdFormularioSalida.IsEnabled = true;
-
-            // 3. Bloqueamos los campos de edición de datos generales
             HabilitarCamposFormulario(false);
 
-            // 4. 🌟 RE-HABILITAMOS ÚNICAMENTE LOS CONTROLES DE BÚSQUEDA
+            // 🌟 Limpia y habilita la escritura limpia en la UI
+            PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
-            txtSerieSalida.Text = "S001"; // Serie por defecto de salidas
+            txtSerieSalida.Text = "S001";
 
-            txtNumeroSalida.IsEnabled = true;
-            txtNumeroSalida.IsReadOnly = false;
-            txtNumeroSalida.Text = string.Empty;
-            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
-
-            // 5. Enganchamos el gatillo del teclado
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
-            // 6. Bloqueamos acciones paralelas y habilitamos cancelar
             btnNuevo.IsEnabled = false;
             btnModificarCabecera.IsEnabled = false;
             btnImprimirTicket.IsEnabled = false;
@@ -375,7 +378,6 @@ namespace AplicativoDeAlmacen.Views
             btnCancelar.IsEnabled = true;
 
             MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento que desea anular y presione ENTER para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
-            txtNumeroSalida.Focus();
         }
 
         private void ShowAnularButtonNearSave()
@@ -1030,7 +1032,20 @@ namespace AplicativoDeAlmacen.Views
 
                 if (resultado)
                 {
-                    MessageBox.Show("Salida registrada y rebajada de inventario correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    // 🌟 CAPTURA DEL CORRELATIVO REAL PERSISTIDO EN BASE DE DATOS
+                    string numFinal = movimiento.NumeroDocumento;
+                    string serieFinal = movimiento.SerieDocumento;
+
+                    // Inyectamos el valor de kárdex con formato destacado en caliente
+                    txtNumeroSalida.Text = numFinal;
+                    txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Black;
+                    txtNumeroSalida.FontWeight = FontWeights.Bold;
+                    txtNumeroSalida.FontStyle = FontStyles.Normal;
+                    txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
+
+                    MessageBox.Show($"¡Salida registrada con éxito!\n\nNúmero de Registro: {serieFinal}-{numFinal}",
+                                    "Proceso Completado", MessageBoxButton.OK, MessageBoxImage.Information);
+
                     EstadoInicialFormulario();
                     EventBus.NotificarMovimientosChanged();
                 }
