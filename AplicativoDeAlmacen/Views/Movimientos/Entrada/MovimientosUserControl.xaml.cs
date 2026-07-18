@@ -244,20 +244,31 @@ namespace AplicativoDeAlmacen.Views
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
-                // Ejecutamos la reversión masiva en segundo plano
                 bool resultado = await Task.Run(async () =>
-                    await _serviceMovimiento.AnularMovimientoCompletoAsync(_currentMovimientoId.Value, progress)
-                );
+                {
+                    try
+                    {
+                        return await _serviceMovimiento.AnularMovimientoCompletoAsync(
+                            _currentMovimientoId.Value,
+                            progress);
+                    }
+                    catch (Exception exTask)
+                    {
+                        Debug.WriteLine($"ERROR EN TASK: {exTask.Message}\n{exTask.StackTrace}");
+                        throw;
+                    }
+                });
 
                 if (resultado)
                 {
-                    MessageBox.Show("¡El movimiento y todo su lote de códigos han sido anulados con éxito en la línea de tiempo!", "Operación Exitosa", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                    // Limpieza del botón dinámico
-                    if (_btnAnularNearSave != null && _btnAnularNearSave.Parent is Panel p) { p.Children.Remove(_btnAnularNearSave); _btnAnularNearSave = null; }
-                    _anularMode = false;
-
+                    MessageBox.Show($"¡Movimiento registrado con éxito!...");
                     EstablecerEstadoInicial();
+                    EventBus.NotificarMovimientosChanged();
+                }
+                else
+                {
+                    MessageBox.Show("Error: El movimiento no se guardó. Verifique los datos e intente de nuevo.",
+                                    "Falla al guardar", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
@@ -564,15 +575,34 @@ namespace AplicativoDeAlmacen.Views
                 btnCancelar.IsEnabled = false;
                 Cursor = Cursors.Wait;
 
-                var solicitud = CrearSolicitudMovimiento();
+                if (cboMotivo.SelectedIndex < 0)
+                {
+                    MessageBox.Show("Debe seleccionar un MOTIVO válido (Compra, Devolución, etc.)",
+                                    "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                var solicitud = await CrearSolicitudMovimientoAsync();
+
+                // 🌟 VALIDAR SOLICITUD
+                if (solicitud?.Movimiento == null)
+                {
+                    MessageBox.Show("Error: La solicitud de movimiento es nula. Datos incompletos.",
+                                    "Validación", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(solicitud.Movimiento.NumeroDocumento))
+                {
+                    MessageBox.Show("Error: No se pudo generar el número de documento automático.",
+                                    "Error de Correlativo", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
 
                 pbCargaMasiva.Visibility = Visibility.Visible;
                 lblPorcentajeCarga.Visibility = Visibility.Visible;
                 pbCargaMasiva.Value = 0;
                 lblPorcentajeCarga.Text = "0% Guardando...";
 
-                // 🌟 FIJACIÓN ATÓMICA DE HILOS (THREAD-SAFE PROGRESS)
-                // Liberamos el bloqueo de WPF despachando la UI en hilos prioritarios de segundo plano
                 var progress = new Progress<int>(percent =>
                 {
                     Application.Current.Dispatcher.BeginInvoke(new Action(() =>
@@ -582,44 +612,69 @@ namespace AplicativoDeAlmacen.Views
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
-                // Corremos el pesado registro relacional de forma asíncrona real
                 bool resultado = await Task.Run(async () =>
-                await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
-                        solicitud.Movimiento, // 🌟 Pasamos el objeto
-                        solicitud.Productos.ToList(),
-                        _rangosProcesadosGlobal.ToList(),
-                        solicitud.Movimiento.UbicacionId ?? 1,
-                        solicitud.MovimientoId,
-                        progress)
-                );
+                {
+                    try
+                    {
+                        return await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
+                            solicitud.Movimiento,
+                            solicitud.Productos.ToList(),
+                            _rangosProcesadosGlobal.ToList(),
+                            solicitud.Movimiento.UbicacionId ?? 1,
+                            solicitud.MovimientoId,
+                            progress);
+                    }
+                    catch (Exception exTask)
+                    {
+                        Debug.WriteLine($"ERROR EN TASK: {exTask.Message}\n{exTask.StackTrace}");
+                        throw;
+                    }
+                });
 
                 if (resultado)
                 {
-                    // 🌟 CORRECCIÓN AQUÍ:
-                    // Usamos el objeto 'solicitud.Movimiento' que ya debe tener el número real
                     string numFinal = solicitud.Movimiento.NumeroDocumento;
                     string serieFinal = solicitud.Movimiento.SerieDocumento;
-                    string accion = solicitud.MovimientoId.HasValue ? "actualizado" : "registrado";
 
-                    // 1. Pintamos el dato real en la UI
                     txtNumDocumento.Text = numFinal;
                     txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
                     txtNumDocumento.FontWeight = FontWeights.Bold;
                     txtNumDocumento.FontStyle = FontStyles.Normal;
                     txtNumDocumento.Background = System.Windows.Media.Brushes.White;
 
-                    txtNumDocumento.Text = numFinal; // Esto se verá correctamente
-
-                    MessageBox.Show($"¡Movimiento registrado con éxito!\nNúmero: {serieFinal}-{numFinal}",
+                    MessageBox.Show($"✅ ¡Movimiento registrado con éxito!\nSerie: {serieFinal}\nNúmero: {numFinal}",
                                     "Guardado Exitoso", MessageBoxButton.OK, MessageBoxImage.Information);
 
                     EstablecerEstadoInicial();
                     EventBus.NotificarMovimientosChanged();
                 }
+                else
+                {
+                    // 🔴 NUEVO: Capturar cuando resultado es FALSE (sin excepción lanzada)
+                    MessageBox.Show($"❌ ERROR SILENCIOSO: El movimiento no se guardó.\n\n" +
+                                    $"Datos intentados:\n" +
+                                    $"  • Serie: {solicitud.Movimiento.SerieDocumento}\n" +
+                                    $"  • Número: {solicitud.Movimiento.NumeroDocumento}\n" +
+                                    $"  • Motivo: {solicitud.Movimiento.MotivoProductoId}\n" +
+                                    $"  • Productos: {solicitud.Productos?.Count ?? 0}\n" +
+                                    $"  • Códigos: {solicitud.Codigos?.Count ?? 0}\n\n" +
+                                    $"Revise que todos los campos obligatorios estén llenos y que los códigos sean válidos.",
+                                    "Falla al guardar - Sin excepción", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al guardar movimiento:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                // 🌟 MEJORADO: Mostrar máximo detalle del error
+                string innerMsg = ex.InnerException?.Message ?? "No hay información interna";
+                string stackTrace = ex.StackTrace ?? "Sin detalles de stack";
+
+                MessageBox.Show($"❌ EXCEPCIÓN CAPTURADA:\n\n" +
+                                $"Mensaje principal:\n{ex.Message}\n\n" +
+                                $"Mensaje interno:\n{innerMsg}\n\n" +
+                                $"Stack Trace:\n{stackTrace}",
+                                "Error Crítico", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                Debug.WriteLine($"ERROR COMPLETO: {ex}");
             }
             finally
             {
@@ -632,16 +687,26 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private SolicitudMovimiento CrearSolicitudMovimiento()
+        private async Task<SolicitudMovimiento> CrearSolicitudMovimientoAsync()
         {
+
+
+            // 🌟 VALIDACIÓN: Verificar que hay un motivo seleccionado
+            if (cboMotivo.SelectedValue == null || cboMotivo.SelectedIndex < 0)
+            {
+                throw new Exception("Error: Debe seleccionar un motivo válido antes de guardar.");
+            }
+
+            if (!int.TryParse(cboMotivo.SelectedValue.ToString(), out int motivoId) || motivoId <= 0)
+            {
+                throw new Exception("Error: El motivo seleccionado no es válido. Intente de nuevo.");
+            }
             // 🌟 RE-SINCRONIZAR CANTIDADES ANTES DE ENVIAR
             foreach (var p in _productosGridList)
             {
                 if (p.Detalle == null) p.Detalle = new MovimientoDetalle { ProductoId = p.ProductoId };
-
                 // Contamos cuántos códigos tiene asignados en la grilla derecha
                 int codigosReales = _codigosGridList.Count(c => c.ProductoId == p.ProductoId);
-
                 if (codigosReales > 0)
                 {
                     // Si es un producto con códigos (Plan lector / Texto escolar) manda el conteo
@@ -655,17 +720,43 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
+            // 🌟 GENERAR CORRELATIVO SI ES AUTOMÁTICO
+            string numeroDoc = txtNumDocumento.Text.Trim();
+            string serieDoc = txtNumSerie.Text.Trim();
+
+            if (numeroDoc.Contains("AUTOMÁTICO") || numeroDoc == "[ AUTOMÁTICO ]")
+            {
+                try
+                {
+                    var correlativo = await _serviceMovimiento.GenerarSiguienteCorrelativoAsync(serieDoc);
+                    numeroDoc = correlativo.NumeroDocumento;
+                    serieDoc = correlativo.SerieDocumento;
+
+                    // Actualizar UI
+                    txtNumDocumento.Text = numeroDoc;
+                    txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
+                    txtNumDocumento.FontWeight = FontWeights.Bold;
+                    txtNumDocumento.FontStyle = FontStyles.Normal;
+                    txtNumDocumento.Background = System.Windows.Media.Brushes.White;
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Error al generar correlativo automático: {ex.Message}");
+                }
+            }
+
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
                 {
                     FechaMovimiento = dtpFechaRecepcion.SelectedDate.HasValue
-                        ? DateOnly.FromDateTime(dtpFechaRecepcion.SelectedDate.Value)
-                        : DateOnly.FromDateTime(DateTime.Today),
-                    SerieDocumento = txtNumSerie.Text.Trim(),
-                    NumeroDocumento = txtNumDocumento.Text.Trim(),
-                    MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
+                ? DateOnly.FromDateTime(dtpFechaRecepcion.SelectedDate.Value)
+                : DateOnly.FromDateTime(DateTime.Today),
+                    SerieDocumento = serieDoc,
+                    NumeroDocumento = numeroDoc,
+                    MotivoProductoId = motivoId,  // ✅ Usa la variable validada
                     UbicacionId = UBICACION_ID_SELECCIONADA,
+
                     UsuarioId = 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
                     SerieGuia = txtSerieGuia.Text.Trim(),
