@@ -537,7 +537,7 @@ namespace AplicativoDeAlmacen.Services
                 if (codigosInvalidos.Any())
                 {
                     throw new Exception("Operación Cancelada por Seguridad del Inventario.\n\n" +
-                                        "Los siguientes códigos ya no están disponibles en Almacén (fueron despachados en otra venta):\n" +
+                                        "Los siguientes códigos ya no están disponibles en Almacén (fueron despachados en otra SALIDA):\n" +
                                         string.Join("\n", codigosInvalidos.Take(5)));
                 }
 

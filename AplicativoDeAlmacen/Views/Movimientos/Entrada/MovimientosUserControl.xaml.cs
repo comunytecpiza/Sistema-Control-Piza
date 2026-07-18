@@ -447,39 +447,23 @@ namespace AplicativoDeAlmacen.Views
 
         private void PrepararCajaBusqueda()
         {
-            txtNumDocumento.Text = string.Empty;
+            txtNumDocumento.Text = string.Empty; // Asegura que empiece vacío
             txtNumDocumento.IsReadOnly = false;
             txtNumDocumento.IsEnabled = true;
             txtNumDocumento.Background = System.Windows.Media.Brushes.White;
             txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
             txtNumDocumento.FontWeight = FontWeights.Normal;
-            txtNumDocumento.FontStyle = FontStyles.Normal; // 🌟 Asegura que no se quede en Italic
+            txtNumDocumento.FontStyle = FontStyles.Normal;
             txtNumDocumento.Focus();
         }
-        private async void BtnEditar_Click(object sender, RoutedEventArgs e)
+        private void BtnEditar_Click(object sender, RoutedEventArgs e)
         {
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
-            // 🌟 AQUÍ LLAMAS A TU SERVICIO PARA TRAER EL ÚLTIMO REGISTRO DE LA BD
-            // Esto evita que el usuario tenga que recordar o escribir el número
-            var ultimoMov = await _serviceMovimiento.ObtenerUltimoMovimientoRegistradoAsync();
-
-            if (txtNumDocumento != null)
-            {
-                txtNumDocumento.IsReadOnly = false;
-                txtNumDocumento.IsEnabled = true;
-
-                // 🌟 SI TENEMOS UN ÚLTIMO NÚMERO, LO PONEMOS AUTOMÁTICAMENTE
-                if (ultimoMov != null)
-                {
-                    txtNumSerie.Text = ultimoMov.SerieDocumento;
-                    txtNumDocumento.Text = ultimoMov.NumeroDocumento;
-                }
-
-                txtNumDocumento.Focus();
-                txtNumDocumento.SelectAll(); // Selecciona el texto para que si escribe encima se borre solo
-            }
+            // 🌟 CORREGIDO: Eliminamos la precarga de la BD. Dejamos limpio y forzamos la serie de ENTRADA.
+            PrepararCajaBusqueda();
+            txtNumSerie.Text = "0001"; // Serie fija de ingresos
 
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
@@ -488,36 +472,21 @@ namespace AplicativoDeAlmacen.Views
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
         }
 
-        private async void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_printMode) return;
             _printMode = true;
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
-            // 🌟 1. Llamamos al servicio para traer el último registro de la BD
-            var ultimoMov = await _serviceMovimiento.ObtenerUltimoMovimientoRegistradoAsync();
-
-            if (txtNumDocumento != null)
-            {
-                txtNumDocumento.IsReadOnly = false;
-                txtNumDocumento.IsEnabled = true;
-
-                // 🌟 2. Autocompletamos para que el usuario solo tenga que presionar ENTER
-                if (ultimoMov != null)
-                {
-                    txtNumSerie.Text = ultimoMov.SerieDocumento;
-                    txtNumDocumento.Text = ultimoMov.NumeroDocumento;
-                }
-
-                txtNumDocumento.Focus();
-                txtNumDocumento.SelectAll(); // 🌟 Facilita que si no es ese, escriba otro directamente
-            }
+            // 🌟 CORREGIDO: Eliminamos la precarga de la BD. Dejamos limpio y forzamos la serie de ENTRADA.
+            PrepararCajaBusqueda();
+            txtNumSerie.Text = "0001"; // Serie fija de ingresos
 
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
-            System.Windows.MessageBox.Show("Modo Imprimir: Se ha cargado el último registro. Presione ENTER para imprimirlo, o escriba otro número.",
+            System.Windows.MessageBox.Show("Modo Imprimir activado. Ingrese el número de documento de ingreso y presione ENTER.",
                                            "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -819,14 +788,26 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            var codigosFiltrados = _codigosGridList
-                .Where(c => c.ProductoId == producto.ProductoId)
-                .ToList();
+            // 🚀 FILTRADO ULTRA RÁPIDO CON TOP 500 EN LUGAR DE ALL
+            var todosLosCodigos = _codigosGridList.Where(c => c.ProductoId == producto.ProductoId);
+            int totalCodigosProducto = todosLosCodigos.Count();
 
-            dgCodigos.ItemsSource = codigosFiltrados;
+            // Solo convertimos a lista física los primeros 500 para proteger el hilo de WPF
+            var codigosVisiblesPintar = todosLosCodigos.Take(500).ToList();
 
-            int total = _codigosGridList.Count(c => c.ProductoId == producto.ProductoId);
-            lblResumenCodigos.Text = $"{codigosFiltrados.Count} / {total}";
+            dgCodigos.ItemsSource = codigosVisiblesPintar;
+
+            // Actualizamos la etiqueta con el conteo real total
+            if (totalCodigosProducto > 500)
+            {
+                lblResumenCodigos.Text = $"500 (Viendo) / {totalCodigosProducto}";
+                lblResumenCodigos.ToolTip = "La vista previa se limita a 500 ítems por rendimiento. Todos los códigos están cargados correctamente para ser guardados.";
+            }
+            else
+            {
+                lblResumenCodigos.Text = $"{totalCodigosProducto} / {totalCodigosProducto}";
+                lblResumenCodigos.ToolTip = null;
+            }
         }
 
 
@@ -964,33 +945,25 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_anularMode) return;
 
-            // 1. Activamos el modo de preparación
             _anularMode = true;
-            _printMode = false; // Por seguridad desactivamos el de impresión
+            _printMode = false;
 
-            // 2. Limpiamos y preparamos las cajas de texto
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
-            if (txtNumDocumento != null)
-            {
-                txtNumDocumento.IsReadOnly = false;
-                txtNumDocumento.IsEnabled = true;
-                txtNumDocumento.Text = string.Empty;
-                txtNumSerie.Text = "0001"; // Serie por defecto o vacía para buscar
-                txtNumDocumento.Focus();
-            }
+            // 🌟 CORREGIDO: Eliminamos la precarga de la BD. Dejamos limpio y forzamos la serie de ENTRADA.
+            PrepararCajaBusqueda();
+            txtNumSerie.Text = "0001"; // Serie fija de ingresos
 
-            // 3. Enganchamos el evento Enter para que al buscar cargue los datos
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
-            // 4. Gestionamos los estados de los botones de cabecera
             GestionarBotonesPrincipales(enEdicion: true);
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
-            MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento que desea anular y presione Enter para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento de ingreso que desea anular y presione Enter para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
         }
+
         private void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this), IsAddAction = true };
@@ -1006,6 +979,11 @@ namespace AplicativoDeAlmacen.Views
                 int idProducto = productoSelected.Id;
 
                 var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == idProducto);
+
+                // 🚀 OPTIMIZACIÓN DE MEMORIA: Pre-calcular el tamaño del lote total
+                int nuevosCodigosCount = rangosDelModal.Sum(r => r.DesdeNum == -1 ? 1 : (r.HastaNum - r.DesdeNum + 1));
+                _codigosGridList.Capacity = _codigosGridList.Count + nuevosCodigosCount; // Reservamos la RAM de golpe
+
                 if (existente != null && modal.MergeWithExisting)
                 {
                     existente.Detalle = existente.Detalle ?? new MovimientoDetalle { ProductoId = existente.ProductoId };
@@ -1016,8 +994,18 @@ namespace AplicativoDeAlmacen.Views
                     {
                         rango.productoId = idProducto;
                         _rangosProcesadosGlobal.Add(rango);
-                        for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
-                            _codigosGridList.Add(new VistaCodigoGrid { CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}", ColeccionTipo = rango.ColeccionTipo, ProductoId = idProducto });
+
+                        if (rango.DesdeNum == -1)
+                        {
+                            _codigosGridList.Add(new VistaCodigoGrid { CodigoUnique = rango.AbreviaturaBase, ColeccionTipo = rango.ColeccionTipo, ProductoId = idProducto });
+                        }
+                        else
+                        {
+                            for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                            {
+                                _codigosGridList.Add(new VistaCodigoGrid { CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}", ColeccionTipo = rango.ColeccionTipo, ProductoId = idProducto });
+                            }
+                        }
                     }
                     RefrescarGrillas();
                     dgProductos.SelectedItem = existente;
@@ -1035,7 +1023,6 @@ namespace AplicativoDeAlmacen.Views
                     Detalle = new MovimientoDetalle { ProductoId = idProducto, CantidadIngreso = modal.CantidadProductoIngresada, CostoUnitario = modal.CostoUnitarioIngresado },
                     CodigoProducto = idProducto.ToString(),
                     Descripcion = productoSelected.Descripcion,
-                    // 🌟 CORRECCIÓN: Le pasamos la unidad de medida real que el producto seleccionado del modal ya posee
                     UnidadMedida = productoSelected.UnidadMedida?.Descripcion ?? "UNIDAD",
                     ProductoId = idProducto
                 };
@@ -1045,8 +1032,18 @@ namespace AplicativoDeAlmacen.Views
                 {
                     rango.productoId = idProducto;
                     _rangosProcesadosGlobal.Add(rango);
-                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
-                        _codigosGridList.Add(new VistaCodigoGrid { CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}", ColeccionTipo = rango.ColeccionTipo, ProductoId = idProducto });
+
+                    if (rango.DesdeNum == -1)
+                    {
+                        _codigosGridList.Add(new VistaCodigoGrid { CodigoUnique = rango.AbreviaturaBase, ColeccionTipo = rango.ColeccionTipo, ProductoId = idProducto });
+                    }
+                    else
+                    {
+                        for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                        {
+                            _codigosGridList.Add(new VistaCodigoGrid { CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}", ColeccionTipo = rango.ColeccionTipo, ProductoId = idProducto });
+                        }
+                    }
                 }
                 RefrescarGrillas();
                 dgProductos.SelectedItem = nuevoProductoGrid;

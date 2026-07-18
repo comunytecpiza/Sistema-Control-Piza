@@ -120,12 +120,30 @@ namespace AplicativoDeAlmacen.Views
 
             if (dgProductosSalida.SelectedItem is VistaProductoGrid seleccionado)
             {
-                dgCodigosSalida.ItemsSource =
-                    _codigosLista.Where(x => x.ProductoId == seleccionado.ProductoId).ToList();
+                // 🚀 OPTIMIZACIÓN LOGÍSTICA: Filtrado directo en memoria sin duplicar objetos pesados (.ToList() masivo)
+                var codigosDelProducto = _codigosLista.Where(x => x.ProductoId == seleccionado.ProductoId);
+                int totalCodigosProducto = codigosDelProducto.Count();
+
+                // Truncamos la vista a 500 para liberar al motor gráfico de WPF
+                dgCodigosSalida.ItemsSource = codigosDelProducto.Take(500).ToList();
+
+                // Sincronizamos las etiquetas de conteo informativas de la UI
+                if (totalCodigosProducto > 500)
+                {
+                    lblResumenCodigos.Text = $"500 (Viendo) / {totalCodigosProducto}";
+                    lblResumenCodigos.ToolTip = "La vista previa lateral se limita a 500 ítems por rendimiento físico. El lote completo está cargado en memoria para guardado.";
+                }
+                else
+                {
+                    lblResumenCodigos.Text = $"{totalCodigosProducto} / {totalCodigosProducto}";
+                    lblResumenCodigos.ToolTip = null;
+                }
             }
             else
             {
-                dgCodigosSalida.ItemsSource = _codigosLista;
+                // Si no hay producto seleccionado, limitamos la grilla global
+                dgCodigosSalida.ItemsSource = _codigosLista.Take(500).ToList();
+                lblResumenCodigos.Text = $"500 (Viendo) / {_codigosLista.Count}";
             }
 
             dgCodigosSalida.Items.Refresh();
@@ -729,7 +747,6 @@ namespace AplicativoDeAlmacen.Views
         // ==========================================
         private async void btnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
-            // 🌟 REUTILIZACIÓN DE LA VENTANA UNIFICADA DE INGRESOS
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
             modal.IsAddAction = true;
             modal.EstadoPermitido = 3; // Salidas exige estrictamente códigos que estén "En Almacén"
@@ -745,7 +762,7 @@ namespace AplicativoDeAlmacen.Views
 
                 if (existente != null && modal.MergeWithExisting)
                 {
-                    existente.Cantidad += modal.CantidadProductoIngresada;
+                    existente.Cantidad += (int)modal.CantidadProductoIngresada;
                     existente.Detalle.CantidadSalida += modal.CantidadProductoIngresada;
                 }
                 else
@@ -764,7 +781,7 @@ namespace AplicativoDeAlmacen.Views
                         ProductoId = idProducto,
                         CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
                         Descripcion = prodData?.Descripcion ?? "Desconocido",
-                        UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD", // 🌟 Unidad de BD real
+                        UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
                         Cantidad = (int)modal.CantidadProductoIngresada,
                         Detalle = new MovimientoDetalle
                         {
@@ -775,12 +792,12 @@ namespace AplicativoDeAlmacen.Views
                     });
                 }
 
-                // Reconstrucción atómica acelerada por lotes masivos
+                this.Cursor = Cursors.Wait;
                 var ingService = new IngresoMovimientoService();
                 var listaStrings = new List<string>();
+
                 foreach (var rango in rangosDelModal)
                 {
-                    // 🌟 SOPORTE HÍBRIDO: Si es alfanumérico puro o genérico (Mochilas), DesdeNum es -1
                     if (rango.DesdeNum == -1)
                     {
                         listaStrings.Add(rango.AbreviaturaBase);
@@ -796,31 +813,31 @@ namespace AplicativoDeAlmacen.Views
 
                 var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
 
+                // 🚀 TRUCO INDUSTRIAL DE RENDIMIENTO: Desactivamos las notificaciones visuales temporales de la grilla
+                dgCodigosSalida.ItemsSource = null;
+
                 foreach (var codStr in listaStrings)
                 {
                     string norm = ingService.NormalizarCodigo(codStr);
 
                     if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
                     {
-                        if (_codigosLista.Any(x =>
-                            x.MovCodigo.CodigoCreadoId == tup.CodigoObj.Id))
-                            continue;
-
+                        // Evitamos el pesado .Any() de Linq en bucle. El detector de duplicados interno ya limpia esto.
                         string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
 
                         _codigosLista.Add(new VistaCodigoGrid
                         {
-                            MovCodigo = new MovimientoCodigo
-                            {
-                                CodigoCreadoId = tup.CodigoObj.Id
-                            },
+                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
                             CodigoUnique = tup.CodigoObj.Codigo,
                             ProductoId = idProducto,
                             ColeccionTipo = tipoColeccionReal
                         });
                     }
                 }
+
+                // Forzamos el refresco completo de la UI en un único bloque de hilos
                 RefrescarGrillas();
+                this.Cursor = Cursors.Arrow;
             }
         }
 
