@@ -11,5 +11,6 @@ public partial class MotivoProducto
 
     public string Descripcion { get; set; }
 
-    public string TipoMovimiento { get; set; }
+    public string TipoMovimiento { get; set; } = string.Empty;
+    public string TipoMovimientoId { get; set; }
 }

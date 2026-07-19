@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Threading.Tasks;
-using AplicativoDeAlmacen.Models.Models; // Aquí viven CatalogoBasico y MotivoProducto
+using AplicativoDeAlmacen.Models.Models; // Aquí viven CatalogoBasico y
+                                         // 
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection; // Para acceder a DatabaseConnection
 

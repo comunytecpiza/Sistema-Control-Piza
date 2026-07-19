@@ -37,8 +37,7 @@ namespace AplicativoDeAlmacen.Services
         // =========================================================
         // KARDEX FÍSICO (Refacturado Asíncrono y Multi-Motor)
         // =========================================================
-        public async Task<KardexFisicoReporte> GenerarKardexFisicoAsync(
-    int productoId, DateTime fechaDesde, DateTime fechaHasta)
+        public async Task<KardexFisicoReporte> GenerarKardexFisicoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta)
         {
             var reporte = new KardexFisicoReporte();
 
@@ -49,29 +48,29 @@ namespace AplicativoDeAlmacen.Services
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                SELECT
-                    m.fecha_movimiento,
-                    mp.descripcion          AS motivo,
-                    mp.tipo_movimiento,
-                    m.serie_documento,
-                    m.numero_documento,
-                    m.serie_guia,
-                    m.numero_guia,
-                    pc.razon_social,
-                    u.descripcion           AS ubicacion_desc,
-                    CASE WHEN mp.tipo_movimiento = 'entrada' AND mp.descripcion LIKE '%DEVOLUCION%' THEN md.cantidad_ingreso ELSE 0 END AS IngresoDev,
-                    CASE WHEN mp.tipo_movimiento = 'entrada' AND mp.descripcion NOT LIKE '%DEVOLUCION%' THEN md.cantidad_ingreso ELSE 0 END AS IngresoNorm,
-                    CASE WHEN mp.tipo_movimiento = 'salida' AND mp.descripcion LIKE '%DEVOLUCION%' THEN md.cantidad_salida ELSE 0 END  AS SalidaDev,
-                    CASE WHEN mp.tipo_movimiento = 'salida' AND mp.descripcion NOT LIKE '%DEVOLUCION%' THEN md.cantidad_salida ELSE 0 END  AS SalidaNorm
-                FROM movimiento_detalles md
-                INNER JOIN movimientos       m  ON md.movimiento_id      = m.id
-                INNER JOIN motivo_productos  mp ON m.motivo_producto_id  = mp.id
-                LEFT  JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                LEFT  JOIN ubicaciones       u  ON m.ubicacion_id        = u.id
-                WHERE md.producto_id       = @ProductoId
-                  AND m.fecha_movimiento  >= @FechaDesde
-                  AND m.fecha_movimiento  <= @FechaHasta
-                  AND m.estado_id        != 5 -- 🌟 CANDADO DE ORO: Ignora transacciones anuladas";
+        SELECT
+            m.fecha_movimiento,
+            mp.descripcion          AS motivo,
+            mp.tipo_movimiento,
+            m.serie_documento,
+            m.numero_documento,
+            m.serie_guia,
+            m.numero_guia,
+            pc.razon_social,
+            u.descripcion           AS ubicacion_desc,
+            CASE WHEN m.motivo_producto_id = 2 THEN md.cantidad_ingreso ELSE 0 END AS IngresoDev, -- 2 = DEVOLUCION RECIBIDA
+            CASE WHEN m.motivo_producto_id != 2 AND mp.tipo_movimiento = 'entrada' THEN md.cantidad_ingreso ELSE 0 END AS IngresoDoc,
+            CASE WHEN m.motivo_producto_id = 6 THEN md.cantidad_salida ELSE 0 END  AS SalidaDev,  -- 6 = DEVOLUCION ENTREGADA
+            CASE WHEN m.motivo_producto_id != 6 AND mp.tipo_movimiento = 'salida' THEN md.cantidad_salida ELSE 0 END  AS SalidaDoc
+        FROM movimiento_detalles md
+        INNER JOIN movimientos       m  ON md.movimiento_id      = m.id
+        INNER JOIN motivo_productos  mp ON m.motivo_producto_id  = mp.id
+        LEFT  JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+        LEFT  JOIN ubicaciones       u  ON m.ubicacion_id        = u.id
+        WHERE md.producto_id       = @ProductoId
+          AND m.fecha_movimiento  >= @FechaDesde
+          AND m.fecha_movimiento  <= @FechaHasta
+          AND m.estado_id        != 2 -- 🌟 CANDADO RECONFIGURADO: 2 = Anulado en estados_movimiento";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -107,6 +106,7 @@ namespace AplicativoDeAlmacen.Services
                             totalSalidas += item.SalidaNormal;
                             totalDevSalidas += item.SalidaDevolucion;
 
+                            // El stock final neto calcula sumando ingresos reales y restando salidas reales junto a sus respectivas devoluciones
                             saldoAcumulado += (item.IngresoNormal + item.IngresoDevolucion) - (item.SalidaNormal + item.SalidaDevolucion);
                             item.SaldoFinal = saldoAcumulado;
 
@@ -127,8 +127,7 @@ namespace AplicativoDeAlmacen.Services
         // =========================================================
         // SALDOS DE PRODUCTOS  (Soportado en SQL Server y MySQL 8.0+)
         // =========================================================
-        public async Task<List<SaldoProductoItem>> ObtenerSaldosYMovimientosAsync(
-            DateTime fechaDesde, DateTime fechaHasta)
+        public async Task<List<SaldoProductoItem>> ObtenerSaldosYMovimientosAsync(DateTime fechaDesde, DateTime fechaHasta)
         {
             var lista = new List<SaldoProductoItem>();
 
@@ -139,31 +138,29 @@ namespace AplicativoDeAlmacen.Services
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                    WITH MovimientosRango AS (
-                        SELECT
-                            md.producto_id,
-                            SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN md.cantidad_ingreso - md.cantidad_salida ELSE 0 END) AS StockInicial,
-                            SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
-                            SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
-                        FROM movimiento_detalles md
-                        INNER JOIN movimientos m ON md.movimiento_id = m.id
-                        WHERE m.estado_id != 5 -- 🌟 CANDADO ATÓMICO: Descarta por completo operaciones anuladas
-                        GROUP BY md.producto_id
-                    )
-                    SELECT
-                        ISNULL(p.abreviatura, CAST(p.id AS VARCHAR)) AS codigo,
-                        p.descripcion,
-                        ISNULL(mr.StockInicial,   0) AS StockInicial,
-                        ISNULL(mr.TotalIngresos,  0) AS TotalIngresos,
-                        ISNULL(mr.TotalSalidas,   0) AS TotalSalidas
-                    FROM productos p
-                    LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
-                    WHERE p.estado_id = 1
-                    ORDER BY p.descripcion";
+            WITH MovimientosRango AS (
+                SELECT
+                    md.producto_id,
+                    SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN md.cantidad_ingreso - md.cantidad_salida ELSE 0 END) AS StockInicial,
+                    SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
+                    SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
+                FROM movimiento_detalles md
+                INNER JOIN movimientos m ON md.movimiento_id = m.id
+                WHERE m.estado_id != 2 -- 🌟 CORRECCIÓN CANDADO: 2 = Anulado
+                GROUP BY md.producto_id
+            )
+            SELECT
+                ISNULL(p.abreviatura, CAST(p.id AS VARCHAR)) AS codigo,
+                p.descripcion,
+                ISNULL(mr.StockInicial,   0) AS StockInicial,
+                ISNULL(mr.TotalIngresos,  0) AS TotalIngresos,
+                ISNULL(mr.TotalSalidas,   0) AS TotalSalidas
+            FROM productos p
+            LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
+            WHERE p.estado_id = 1
+            ORDER BY p.descripcion";
 
-                    // CORRECCIÓN PROTECCIÓN: Traduce dinámicamente ISNULL a IFNULL y VARCHAR a CHAR para MySQL
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
-
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
 
@@ -183,7 +180,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
             }
-
             return lista;
         }
 
@@ -208,9 +204,9 @@ namespace AplicativoDeAlmacen.Services
                         COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
                         COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
                         COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
-                        CASE WHEN m.estado_id = 5 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cantidad_ingreso,
-                        CASE WHEN m.estado_id = 5 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cantidad_salida,
-                        CASE WHEN m.estado_id = 5 THEN '❌ ANULADO - ' + COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') ELSE COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') END AS registro_display
+                        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cantidad_ingreso, -- 🌟 2 = ANULADO
+                        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cantidad_salida,   -- 🌟 2 = ANULADO
+                        CASE WHEN m.estado_id = 2 THEN '❌ ANULADO - ' + COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') ELSE COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') END AS registro_display
                     FROM movimiento_detalles md
                     INNER JOIN movimientos m ON md.movimiento_id = m.id
                     LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
@@ -219,7 +215,6 @@ namespace AplicativoDeAlmacen.Services
                       AND m.fecha_movimiento >= @FechaDesde
                       AND m.fecha_movimiento <= @FechaHasta
                     ORDER BY m.fecha_movimiento ASC, m.id ASC";
-
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);

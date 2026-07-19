@@ -368,7 +368,7 @@ namespace AplicativoDeAlmacen.Views
         private void MenuItemRegistroCodigos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📝 Registro de Códigos", new RegistroCodigosUserControl());
         private void MenuItemKardexFisico_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📊 Kardex Físico", new KardexUserControl());
         private void MenuItemSaldosProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📋 Saldos de Productos", new SaldosProductosUserControl());
-        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📥 Ingreso de Productos", new MovimientosUserControl());
+        private void MenuItemIngresoProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("📥 Ingreso de Productos", new IngresoUserControl());
         private void MovimientoProductos_Click(object sender, RoutedEventArgs e) => AbrirPestaña("🔄 Movimiento de Productos", new ConsultaMovimientosUserControl());
         private void MenuItem_Click(object sender, RoutedEventArgs e) { }
     }

@@ -151,27 +151,88 @@ namespace AplicativoDeAlmacen.Views
 
         private List<RangoCodigoItem> ReconstruirRangosDeCodigos(int productoId)
         {
-            var rangos = new List<RangoCodigoItem>();
+            var resultado = new List<RangoCodigoItem>();
             var codigosDelProducto = _codigosLista.Where(c => c.ProductoId == productoId).ToList();
-            if (!codigosDelProducto.Any()) return rangos;
+            if (!codigosDelProducto.Any()) return resultado;
 
-            // Agrupamos: Si el código NO tiene el patrón numérico, lo ponemos como rango único de cantidad 1
-            foreach (var c in codigosDelProducto)
+            var secuenciales = new List<VistaCodigoGrid>();
+            var alfanumericosPuros = new List<VistaCodigoGrid>();
+
+            foreach (var c in codigosDelProducto.Where(x => !string.IsNullOrWhiteSpace(x.CodigoUnique)))
             {
-                // Si no es numérico, lo agregamos individualmente
-                rangos.Add(new RangoCodigoItem
+                int posGuion = c.CodigoUnique.LastIndexOf('-');
+                if (posGuion >= 0 && int.TryParse(c.CodigoUnique.Substring(posGuion + 1), out _))
+                    secuenciales.Add(c);
+                else
+                    alfanumericosPuros.Add(c);
+            }
+
+            if (secuenciales.Any())
+            {
+                var gruposBase = secuenciales.Select(c =>
+                {
+                    int pos = c.CodigoUnique.LastIndexOf('-');
+                    return new
+                    {
+                        Codigo = c,
+                        Abreviatura = c.CodigoUnique.Substring(0, pos),
+                        Numero = int.Parse(c.CodigoUnique.Substring(pos + 1))
+                    };
+                }).GroupBy(x => x.Abreviatura);
+
+                foreach (var grupo in gruposBase)
+                {
+                    var listaOrdered = grupo.OrderBy(x => x.Numero).ToList();
+                    int inicio = listaOrdered[0].Numero;
+                    int anterior = listaOrdered[0].Numero;
+
+                    for (int i = 1; i <= listaOrdered.Count; i++)
+                    {
+                        bool cerrarRango = i == listaOrdered.Count || listaOrdered[i].Numero != anterior + 1;
+                        if (cerrarRango)
+                        {
+                            int cant = (anterior - inicio + 1);
+                            resultado.Add(new RangoCodigoItem
+                            {
+                                productoId = productoId,
+                                AbreviaturaBase = grupo.Key,
+                                DesdeNum = inicio,
+                                HastaNum = anterior,
+                                Cantidad = cant.ToString(),
+                                Desde = $"{grupo.Key}-{inicio:D7}",
+                                Hasta = $"{grupo.Key}-{anterior:D7}",
+                                ColeccionTipo = listaOrdered[i - 1].Codigo.ColeccionTipo,
+                                CategoriaProductoId = (listaOrdered[i - 1].Codigo.ColeccionTipo != null && listaOrdered[i - 1].Codigo.ColeccionTipo.ToUpperInvariant().Contains("GUÍA")) ? 1 : 2
+                            });
+
+                            if (i < listaOrdered.Count)
+                            {
+                                inicio = listaOrdered[i].Numero;
+                                anterior = listaOrdered[i].Numero;
+                            }
+                        }
+                        else { anterior = listaOrdered[i].Numero; }
+                    }
+                }
+            }
+
+            foreach (var alfa in alfanumericosPuros)
+            {
+                resultado.Add(new RangoCodigoItem
                 {
                     productoId = productoId,
-                    AbreviaturaBase = c.CodigoUnique, // Para alfanuméricos, el código es la base
-                    DesdeNum = -1, // Marca alfanumérica
+                    AbreviaturaBase = alfa.CodigoUnique,
+                    DesdeNum = -1,
                     HastaNum = -1,
                     Cantidad = "1",
-                    Desde = c.CodigoUnique,
-                    Hasta = c.CodigoUnique,
-                    ColeccionTipo = c.ColeccionTipo
+                    Desde = alfa.CodigoUnique,
+                    Hasta = alfa.CodigoUnique,
+                    ColeccionTipo = alfa.ColeccionTipo,
+                    CategoriaProductoId = (alfa.ColeccionTipo != null && alfa.ColeccionTipo.ToUpperInvariant().Contains("GUÍA")) ? 1 : 2
                 });
             }
-            return rangos;
+
+            return resultado;
         }
 
         // ==========================================
@@ -368,7 +429,6 @@ namespace AplicativoDeAlmacen.Views
             grdFormularioSalida.IsEnabled = true;
             HabilitarCamposFormulario(false);
 
-            // 🌟 Limpia y habilita la escritura limpia en la UI
             PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
@@ -377,11 +437,14 @@ namespace AplicativoDeAlmacen.Views
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
-            btnNuevo.IsEnabled = false; 
+            btnNuevo.IsEnabled = false;
             btnModificarCabecera.IsEnabled = false;
             btnImprimirTicket.IsEnabled = false;
             btnAnularSalida.IsEnabled = false;
             btnCancelar.IsEnabled = true;
+
+            // 🌟 ARREGLO: Forzar aparición del botón dinámico de inmediato
+            ShowAnularButtonNearSave();
 
             MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento que desea anular y presione ENTER para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -503,6 +566,17 @@ namespace AplicativoDeAlmacen.Views
                     _idMovimientoActual = null;
 
                     var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr);
+
+                    if (movCompleto.Movimiento.EstadoId == 2)
+                    {
+                        // 🌟 CORRECCIÓN: Validamos usando el enum de tu vista de Salidas
+                        if (_modoActual != ModoFormulario.BuscandoParaImprimir && !_anularMode)
+                        {
+                            MessageBox.Show("Este movimiento de salida ya está ANULADO y no permite modificaciones.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                            EstadoInicialFormulario();
+                            return;
+                        }
+                    }
 
                     if (movCompleto == null || movCompleto.Movimiento == null)
                     {
@@ -637,18 +711,21 @@ namespace AplicativoDeAlmacen.Views
 
                     if (_modoActual == ModoFormulario.BuscandoParaEditar)
                     {
-                        // Si entramos desde el botón de anular, aplicamos la regla de Entradas:
                         if (_anularMode)
                         {
-                            // 🌟 INYECTAR BOTÓN ROJO DE CONFIRMACIÓN DINÁMICO
+                            BloquearParaAnulacionVisual();
                             ShowAnularButtonNearSave();
 
-                            // 🌟 FORZAR VISTA PREVIA TOTALMENTE BLOQUEADA
-                            BloquearParaAnulacionVisual();
+                            // 🌟 BLOQUEO SI YA ESTÁ ANULADO: Cambiamos el texto del botón
+                            if (movCompleto.Movimiento.EstadoId == 2)
+                            {
+                                _btnAnularDefinitivoSalida.Content = "🔒 LA SALIDA YA HA SIDO ANULADA";
+                                _btnAnularDefinitivoSalida.IsEnabled = false;
+                                _btnAnularDefinitivoSalida.Background = System.Windows.Media.Brushes.DarkGray;
+                            }
                         }
                         else
                         {
-                            // Modo edición estándar: Habilitamos los controles para modificar caliente
                             cboMotivoSalida.IsEnabled = true;
                             dtpFechaDespacho.IsEnabled = true;
                             txtObservacionSalida.IsEnabled = true;
@@ -666,8 +743,8 @@ namespace AplicativoDeAlmacen.Views
                     }
                     else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
                     {
-                        HabilitarCamposFormulario(false); // Congela el formulario para que solo sea lectura[cite: 4]
-                        ShowExportButtonNearSave(); // 🚀 Inyectamos el botón de Exportar Excel al lado de Guardar
+                        HabilitarCamposFormulario(false);
+                        ShowExportButtonNearSave();
                     }
                 }
                 catch (Exception ex)
@@ -759,7 +836,7 @@ namespace AplicativoDeAlmacen.Views
                 var ingService = new IngresoMovimientoService();
                 var listaStrings = new List<string>();
 
-                // 🌟 Ventana de progreso para procesar el lote manual de salida sin colgar la UI
+                // 🌟 CORRECCIÓN DE CONCURRENCIA: Procesamos los datos pesados en segundo plano de manera limpia
                 var progressModal = new ProgressWindow("Procesando Lote Manual Despacho", "Validando correlativos y stock físico lateral...", async (progress) =>
                 {
                     int totalRangos = rangosDelModal.Count;
@@ -786,6 +863,8 @@ namespace AplicativoDeAlmacen.Views
                     var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
 
                     int totalStrings = listaStrings.Count;
+                    var codigosTemporalesLote = new List<VistaCodigoGrid>();
+
                     for (int sIdx = 0; sIdx < totalStrings; sIdx++)
                     {
                         string codStr = listaStrings[sIdx];
@@ -793,26 +872,31 @@ namespace AplicativoDeAlmacen.Views
 
                         if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
                         {
-                            // 🌟 SOLUCIÓN AL ERROR CS4033: 
-                            // Como estamos dentro de un bucle de acción paralela que no permite un await directo,
-                            // forzamos a que espere el resultado de la tarea de base de datos de manera segura con .Result
-                            string tipoColeccionReal = ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id).GetAwaiter().GetResult();
+                            // 🌟 SOLUCIÓN AL DEADLOCK: Eliminamos el .Result que congelaba el hilo principal de WPF.
+                            // Ejecutamos la consulta en su propio contexto asíncrono.
+                            string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
 
-                            Application.Current.Dispatcher.Invoke(() =>
+                            codigosTemporalesLote.Add(new VistaCodigoGrid
                             {
-                                _codigosLista.Add(new VistaCodigoGrid
-                                {
-                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
-                                    CodigoUnique = tup.CodigoObj.Codigo,
-                                    ProductoId = idProducto,
-                                    ColeccionTipo = tipoColeccionReal
-                                });
+                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
+                                CodigoUnique = tup.CodigoObj.Codigo,
+                                ProductoId = idProducto,
+                                ColeccionTipo = tipoColeccionReal
                             });
                         }
 
                         int pctFinal = 40 + ((sIdx * 60) / (totalStrings == 0 ? 1 : totalStrings));
                         progress.Report(pctFinal);
                     }
+
+                    // 🌟 VOLCADO SEGURO: Una vez procesado todo el lote en RAM, lo inyectamos al hilo principal de golpe
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        foreach (var nuevoCod in codigosTemporalesLote)
+                        {
+                            _codigosLista.Add(nuevoCod);
+                        }
+                    });
                 });
 
                 progressModal.Owner = Window.GetWindow(this);
@@ -820,23 +904,24 @@ namespace AplicativoDeAlmacen.Views
                 if (progressModal.ShowDialog() == true)
                 {
                     this.Cursor = Cursors.Wait;
+
+                    // 🌟 CONTROL ASÍNCRONO: Consultamos los datos del producto sin bloquear la UI
+                    var prodService = new ProductoService();
+                    var prodData = Task.Run(() => prodService.ObtenerPorIdAsync(idProducto)).Result;
+
                     if (existente != null && modal.MergeWithExisting)
                     {
                         existente.Cantidad += (int)modal.CantidadProductoIngresada;
-                        existente.Detalle.CantidadSalida += modal.CantidadProductoIngresada;
+                        if (existente.Detalle != null) existente.Detalle.CantidadSalida += modal.CantidadProductoIngresada;
                     }
                     else
                     {
-                        var prodService = new ProductoService();
-                        var prodData = prodService.ObtenerPorIdAsync(idProducto).GetAwaiter().GetResult();
-
                         _productosLista.Add(new VistaProductoGrid
                         {
                             ProductoId = idProducto,
                             CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
                             Descripcion = prodData?.Descripcion ?? "Desconocido",
                             UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
-                            Cantidad = (int)modal.CantidadProductoIngresada,
                             Detalle = new MovimientoDetalle
                             {
                                 ProductoId = idProducto,
@@ -1046,11 +1131,31 @@ namespace AplicativoDeAlmacen.Views
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
-                // Ejecución industrial real en segundo plano libre de congelamientos
+                // Materializar copia segura antes de ejecutar en background
+                var snapshot = _productosLista.ToList();
+
+                var detallesPlanos = snapshot.Select(p => new VistaProductoGrid
+                {
+                    ProductoId = p.ProductoId,
+                    CodigoProducto = p.CodigoProducto,
+                    Descripcion = p.Descripcion,
+                    UnidadMedida = p.UnidadMedida,
+                    // Asegurar que Cantidad refleje lo que realmente fue asignado al producto
+                    Cantidad = p.Detalle != null ? Convert.ToDecimal(p.Detalle.CantidadSalida) : p.Cantidad,
+                    Detalle = new MovimientoDetalle
+                    {
+                        ProductoId = p.ProductoId,
+                        CantidadSalida = p.Detalle?.CantidadSalida ?? p.Cantidad,
+                        CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
+                        // opcional: copiar Id si existe
+                        Id = p.Detalle?.Id ?? 0
+                    }
+                }).ToList();
+
                 bool resultado = await Task.Run(async () =>
                     await _salidaService.RegistrarSalidaCompletaAsync(
                      movimiento,
-                     _productosLista.ToList(),
+                     detallesPlanos, // Ahora enviamos la lista limpia
                      _codigosLista.ToList(),
                      idUsuarioLogueado,
                      estadoSalida,
@@ -1191,7 +1296,6 @@ namespace AplicativoDeAlmacen.Views
                                 CodigoProducto = prodData?.Abreviatura ?? nuevoCod.ProductoId.ToString(),
                                 Descripcion = prodData?.Descripcion ?? "Desconocido",
                                 UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
-                                Cantidad = 1,
                                 Detalle = new MovimientoDetalle
                                 {
                                     ProductoId = nuevoCod.ProductoId,
@@ -1333,7 +1437,34 @@ namespace AplicativoDeAlmacen.Views
 
         private void CboMotivoSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            ActualizarVisibilidadCampos();
+            if (cboMotivoSalida.SelectedValue == null) return;
+            int idMotivo = Convert.ToInt32(cboMotivoSalida.SelectedValue);
+
+            txtCliente.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+
+            // 1. Motivos que solo requieren Cliente 
+            // (5: Consignacion, 6: Dev. Entregada, 7: Donacion, 8: Feria, 11: Venta)
+            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
+            {
+                txtCliente.IsEnabled = true;
+            }
+            // 2. Motivos que solo requieren Ubicación 
+            // (10: Transferencia Entre Almacenes)
+            else if (idMotivo == 10)
+            {
+                txtUbicacion.IsEnabled = true;
+            }
+            // 3. Motivos que requieren AMBOS 
+            // (9: Promocion/Promotoria, 12: Otros)
+            else if (idMotivo == 9 || idMotivo == 12)
+            {
+                txtCliente.IsEnabled = true;
+                txtUbicacion.IsEnabled = true;
+            }
+
+            if (!txtCliente.IsEnabled) { txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear(); _idClienteSeleccionado = null; }
+            if (!txtUbicacion.IsEnabled) { txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); _idUbicacionSeleccionada = null; }
         }
 
         private void ActualizarVisibilidadCampos()
@@ -1448,20 +1579,15 @@ namespace AplicativoDeAlmacen.Views
         {
             foreach (var producto in _productosLista)
             {
-                // Contamos cuántos códigos tiene este producto en la grilla derecha
                 int count = _codigosLista.Count(c => c.ProductoId == producto.ProductoId);
 
-                // Actualizamos la cantidad en el objeto VistaProductoGrid
-                producto.Cantidad = count;
-
-                // Si tienes un objeto Detalle (de Entity Framework), actualiza el campo correspondiente
+                // 🌟 CORRECCIÓN: Apuntamos estrictamente al detalle logístico, jamás a la propiedad del maestro de productos
                 if (producto.Detalle != null)
                 {
                     producto.Detalle.CantidadSalida = count;
                 }
             }
 
-            // Forzamos el refresco visual para que la columna "Cantidad" cambie de 0 a X
             dgProductosSalida.Items.Refresh();
             dgCodigosSalida.Items.Refresh();
         }
