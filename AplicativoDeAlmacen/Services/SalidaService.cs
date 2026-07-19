@@ -18,6 +18,8 @@ namespace AplicativoDeAlmacen.Services
     public class SalidaMovimientoService
     {
         private readonly DatabaseConnection _database;
+        // Última sentencia SQL ejecutada (para diagnóstico en caso de excepción)
+        private string? _ultimoSql;
 
         public SalidaMovimientoService()
         {
@@ -109,7 +111,41 @@ namespace AplicativoDeAlmacen.Services
         private async Task ActualizarStockProductoPorKardexAsync(int productoId, DbConnection conn, DbTransaction trans)
         {
             // 🌟 ARREGLO: Cambiamos estado_id != 5 por estado_id != 2 (tu nuevo ID de anulado).
-            // Usamos esta estructura porque ya confirmaste que tu tabla 'productos' es una tabla física normal.
+            // Algunas instalaciones tienen la columna `productos.cantidad` como columna COMPUTADA.
+            // En ese caso no se puede ejecutar un UPDATE sobre dicha columna y provocará el error mostrado.
+            // Detectamos dinámicamente si la columna es computed en SQL Server y solo intentamos el UPDATE si NO lo es.
+
+            // Si estamos en MySQL o no podemos determinarlo, intentamos ejecutar el UPDATE y dejamos que falle hacia el caller
+            // (la mayoría de instalaciones usan SQL Server donde podemos detectar con sys.columns).
+
+            bool esComputed = false;
+            try
+            {
+                if (!QueryAdapter.EsMySQL)
+                {
+                    using var cmdCheck = conn.CreateCommand();
+                    cmdCheck.Transaction = trans;
+                    cmdCheck.CommandText = @"SELECT CAST(ISNULL(MAX(CASE WHEN c.is_computed = 1 THEN 1 ELSE 0 END),0) AS INT)
+FROM sys.columns c
+INNER JOIN sys.objects o ON c.object_id = o.object_id
+WHERE o.name = 'productos' AND c.name = 'cantidad'";
+                    var res = await cmdCheck.ExecuteScalarAsync();
+                    if (res != null && res != DBNull.Value)
+                        esComputed = Convert.ToInt32(res) == 1;
+                }
+            }
+            catch
+            {
+                // Si falla la comprobación, asumimos no computada para mantener compatibilidad.
+                esComputed = false;
+            }
+
+            if (esComputed)
+            {
+                // No intentamos actualizar una columna computada; la columna se calcula desde kárdex en la DB.
+                return;
+            }
+
             string queryUpdate = @"
             UPDATE productos 
             SET cantidad = (
@@ -129,6 +165,7 @@ namespace AplicativoDeAlmacen.Services
             p.Value = productoId;
             cmd.Parameters.Add(p);
 
+            _ultimoSql = cmd.CommandText;
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -361,7 +398,7 @@ namespace AplicativoDeAlmacen.Services
             cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
             AgregarParametro(cmd, "@movId", movId);
             AgregarParametro(cmd, "@detId", detId);
-
+            _ultimoSql = cmd.CommandText;
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -381,6 +418,7 @@ namespace AplicativoDeAlmacen.Services
 
             cmd.CommandText = QueryAdapter.FormatearConsulta($"UPDATE codigos_creados SET estado_id = @estado WHERE id IN ({string.Join(",", paramNames)})");
             AgregarParametro(cmd, "@estado", nuevoEstadoId);
+            _ultimoSql = cmd.CommandText;
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -391,6 +429,7 @@ namespace AplicativoDeAlmacen.Services
             cmd.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_id = @movId AND codigo_creado_id = @codId");
             AgregarParametro(cmd, "@movId", movId);
             AgregarParametro(cmd, "@codId", codId);
+            _ultimoSql = cmd.CommandText;
             await cmd.ExecuteNonQueryAsync();
         }
 
@@ -434,6 +473,7 @@ namespace AplicativoDeAlmacen.Services
                             AND mp.tipo_movimiento_id = 2");
 
                         AgregarParametro(cmdGen, "@serie", serieParaGenerar);
+                        _ultimoSql = cmdGen.CommandText;
                         object? genRes = await cmdGen.ExecuteScalarAsync();
                         int siguienteNumero = genRes != null && genRes != DBNull.Value ? Convert.ToInt32(genRes) : 1;
 
@@ -461,6 +501,7 @@ namespace AplicativoDeAlmacen.Services
 
                     try
                     {
+                        _ultimoSql = cmdCab.CommandText;
                         movimientoIdInserted = Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
                     }
                     catch (DbException ex) when (ex.Message.Contains("PRIMARY KEY") || ex.Message.Contains("UNIQUE") || ex.ErrorCode == 2627)
@@ -484,6 +525,7 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdUpdCab, "@numeroGuia", cabecera.NumeroGuia);
                     AgregarParametro(cmdUpdCab, "@observacion", cabecera.Observacion);
                     AgregarParametro(cmdUpdCab, "@id", movimientoIdInserted);
+                    _ultimoSql = cmdUpdCab.CommandText;
                     await cmdUpdCab.ExecuteNonQueryAsync();
                 }
 
@@ -491,11 +533,12 @@ namespace AplicativoDeAlmacen.Services
                     ? await ObtenerCodigosEnMovimientoAsync(new List<int> { movimientoIdInserted }, dbConn, transaccion)
                     : new HashSet<int>();
 
-                using (var cmdTable = dbConn.CreateCommand())
+                    using (var cmdTable = dbConn.CreateCommand())
                 {
                     cmdTable.Transaction = transaccion;
                     cmdTable.CommandText = "CREATE TABLE #temp_salida_valida (id INT NOT NULL PRIMARY KEY);";
-                    await cmdTable.ExecuteNonQueryAsync();
+                        _ultimoSql = cmdTable.CommandText;
+                        await cmdTable.ExecuteNonQueryAsync();
                 }
 
                 var codigosAValidar = listaCodigos
@@ -518,6 +561,7 @@ namespace AplicativoDeAlmacen.Services
                         AgregarParametro(cmdIns, $"@id{j}", chunk[j]);
                     }
                     cmdIns.CommandText = sbIns.ToString();
+                    _ultimoSql = cmdIns.CommandText;
                     await cmdIns.ExecuteNonQueryAsync();
                 }
 
@@ -536,6 +580,7 @@ namespace AplicativoDeAlmacen.Services
                     cmdCheckStock.CommandText = QueryAdapter.FormatearConsulta(sqlCheckStock);
                     AgregarParametro(cmdCheckStock, "@movId", existingMovimientoId ?? -1);
 
+                    _ultimoSql = cmdCheckStock.CommandText;
                     using var rdrStock = await cmdCheckStock.ExecuteReaderAsync();
                     while (await rdrStock.ReadAsync())
                     {
@@ -567,6 +612,7 @@ namespace AplicativoDeAlmacen.Services
                         cmdCheck.CommandText = QueryAdapter.FormatearConsulta("SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId AND producto_id = @prodId");
                         AgregarParametro(cmdCheck, "@movId", movimientoIdInserted);
                         AgregarParametro(cmdCheck, "@prodId", item.ProductoId);
+                        _ultimoSql = cmdCheck.CommandText;
                         object? resDet = await cmdCheck.ExecuteScalarAsync();
                         if (resDet != null && resDet != DBNull.Value) idDetalle = Convert.ToInt32(resDet);
                     }
@@ -593,6 +639,7 @@ namespace AplicativoDeAlmacen.Services
                         AgregarParametro(cmdUpd, "@cant", cantidadDespachoPura); // 🌟 Entero puro aislado
                         AgregarParametro(cmdUpd, "@costo", costoUnitarioPuro);
                         AgregarParametro(cmdUpd, "@detId", idDetalle);
+                        _ultimoSql = cmdUpd.CommandText;
                         await cmdUpd.ExecuteNonQueryAsync();
 
                         string sqlLimpiar = "DELETE FROM registro_rangos WHERE movimiento_detalle_id = @detId";
@@ -600,6 +647,7 @@ namespace AplicativoDeAlmacen.Services
                         cmdLimp.Transaction = transaccion;
                         cmdLimp.CommandText = QueryAdapter.FormatearConsulta(sqlLimpiar);
                         AgregarParametro(cmdLimp, "@detId", idDetalle);
+                        _ultimoSql = cmdLimp.CommandText;
                         await cmdLimp.ExecuteNonQueryAsync();
                     }
                     else
@@ -613,6 +661,7 @@ namespace AplicativoDeAlmacen.Services
                         AgregarParametro(cmdDet, "@prodId", item.ProductoId);
                         AgregarParametro(cmdDet, "@cant", cantidadDespachoPura); // 🌟 Entero puro aislado
                         AgregarParametro(cmdDet, "@costo", costoUnitarioPuro);
+                        _ultimoSql = cmdDet.CommandText;
                         idDetalle = Convert.ToInt32(await cmdDet.ExecuteScalarAsync());
                     }
 
@@ -640,8 +689,10 @@ namespace AplicativoDeAlmacen.Services
                         var rangosReconstruidos = serviceIng.GenerarRangosDesdeCodigos(codigosProd);
                         foreach (var r in rangosReconstruidos)
                         {
-                            string sqlInsRango = @"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, cantidad, movimiento_detalle_id, created_at) 
-                                   VALUES (@pId, @cat, @abrev, @dNum, @hNum, @cant, @detId, GETDATE())";
+                            // Nota: en algunas instalaciones la columna 'cantidad' en registro_rangos es computada o derivada.
+                            // Evitamos insertarla explícitamente para no provocar errores en SQL Server.
+                            string sqlInsRango = @"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
+                                   VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, GETDATE())";
                             using var cmdR = dbConn.CreateCommand();
                             cmdR.Transaction = transaccion;
                             cmdR.CommandText = QueryAdapter.FormatearConsulta(sqlInsRango);
@@ -650,8 +701,8 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmdR, "@abrev", r.AbreviaturaBase);
                             AgregarParametro(cmdR, "@dNum", r.DesdeNum);
                             AgregarParametro(cmdR, "@hNum", r.HastaNum);
-                            AgregarParametro(cmdR, "@cant", Convert.ToInt32(r.Cantidad));
                             AgregarParametro(cmdR, "@detId", idDetalle);
+                            _ultimoSql = cmdR.CommandText;
                             await cmdR.ExecuteNonQueryAsync();
                         }
 
@@ -696,6 +747,7 @@ namespace AplicativoDeAlmacen.Services
                     cmdLimp.CommandText = QueryAdapter.FormatearConsulta(qLimpiar);
                     AgregarParametro(cmdLimp, "@movId", movimientoIdInserted);
                     for (int i = 0; i < idsDetallesActivos.Count; i++) AgregarParametro(cmdLimp, "@act" + i, idsDetallesActivos[i]);
+                    _ultimoSql = cmdLimp.CommandText;
                     await cmdLimp.ExecuteNonQueryAsync();
                 }
 
@@ -708,10 +760,12 @@ namespace AplicativoDeAlmacen.Services
                 transaccion.Commit();
                 return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 transaccion.Rollback();
-                throw;
+                var msg = ex.Message;
+                if (!string.IsNullOrEmpty(_ultimoSql)) msg += "\nÚltima SQL ejecutada:\n" + _ultimoSql;
+                throw new Exception(msg, ex);
             }
             finally
             {

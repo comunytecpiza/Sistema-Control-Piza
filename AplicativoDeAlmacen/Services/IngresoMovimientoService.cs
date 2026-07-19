@@ -678,14 +678,35 @@ namespace AplicativoDeAlmacen.Services
                             await cmdInsCheck.ExecuteNonQueryAsync();
                         }
 
-                        // 🌟 VALIDACIÓN ATÓMICA: Filtramos contra los estados de la nueva tabla estados_codigo
-                        string sqlVerificarDuplicados = @"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc
-                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id IN (3, 4)
-                        AND mc.codigo_creado_id IS NULL";
+                        int motivoId = cabecera.MotivoProductoId;
+
+                        // Si el motivo es DEVOLUCIÓN RECIBIDA (Motivo 2), el código DEBE estar en Estado 4 (Vendido/Salido).
+                        // Si el código está en Estado 3 (En Almacén) o 1 (Creado), es un error porque no ha salido.
+                        // Para otros Ingresos (Compra = 1, etc.), se bloquean los que ya están en 3 o 4.
+                        string sqlVerificarDuplicados;
+
+                        if (motivoId == 2) // 2 = DEVOLUCION RECIBIDA
+                        {
+                            // Bloquea los que NO están en estado 4 (es decir, bloquea los que están en 1 o 3)
+                            sqlVerificarDuplicados = @"
+                            SELECT cc.codigo, cc.estado_id 
+                            FROM codigos_creados cc
+                            INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                            WHERE cc.estado_id != 4
+                            AND mc.codigo_creado_id IS NULL";
+                        }
+                        else // Motivos normales de Ingreso (Compra, Transferencia, etc.)
+                        {
+                            // Bloquea los que YA están adentro (3) o ya fueron procesados (4)
+                            sqlVerificarDuplicados = @"
+                            SELECT cc.codigo, cc.estado_id 
+                            FROM codigos_creados cc
+                            INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                            WHERE cc.estado_id IN (3, 4)
+                            AND mc.codigo_creado_id IS NULL";
+                        }
 
                         using var cmdVerify = dbConn.CreateCommand();
                         cmdVerify.Transaction = transaccion;
@@ -699,17 +720,24 @@ namespace AplicativoDeAlmacen.Services
                             {
                                 string codConflicto = rdrVerify.GetString(0);
                                 int estConflicto = rdrVerify.GetInt32(1);
-                                string nombreEstado = estConflicto == 3 ? "EN ALMACÉN" : "VENDIDO/ENTREGADO";
+                                string nombreEstado = estConflicto switch
+                                {
+                                    1 => "DISPONIBLE EN TRÁNSITO",
+                                    3 => "EN ALMACÉN",
+                                    4 => "VENDIDO/ENTREGADO",
+                                    _ => $"ESTADO {estConflicto}"
+                                };
                                 listaConflictos.Add($"- {codConflicto} ({nombreEstado})");
                             }
                         }
 
                         if (listaConflictos.Any())
                         {
-                            throw new Exception("Operación Cancelada por Seguridad de Stock.\n\n" +
-                                                "Se detectaron códigos que ya cuentan con un ingreso activo en el sistema:\n" +
-                                                string.Join("\n", listaConflictos) + "\n\n" +
-                                                "Por favor, revise el detalle de ítems antes de reintentar.");
+                            string msjError = motivoId == 2
+                                ? "No se puede procesar la Devolución. Los siguientes códigos NO figuran como VENDIDOS/ENTREGADOS (Estado 4) y no pueden reingresar:\n"
+                                : "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n";
+
+                            throw new Exception(msjError + string.Join("\n", listaConflictos));
                         }
                     }
                     finally

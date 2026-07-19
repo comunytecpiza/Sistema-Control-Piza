@@ -216,24 +216,29 @@
                   GridLinesVisibility="All"
                   RowHeight="26">
 
-            <DataGrid.Resources>
-
-                <Style TargetType="DataGridColumnHeader">
-
-                    <Setter Property="Background"
-                            Value="#EED47C"/>
-
-                    <Setter Property="FontWeight"
-                            Value="SemiBold"/>
-
-                    <Setter Property="HorizontalContentAlignment"
-                            Value="Center"/>
-
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="White"/>
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#F9FAFB"/>
+                        </Trigger>
+                        <!-- Si el tipo o motivo contiene la palabra ANULADO, el motor gráfico lo opaca -->
+                        <DataTrigger Binding="{Binding IsAnulado}" Value="True">
+                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter Property="Foreground" Value="Gray"/>
+                        </DataTrigger>
+                    </Style.Triggers>
                 </Style>
+            </DataGrid.RowStyle>
 
+            <DataGrid.Resources>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#EED47C"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                </Style>
             </DataGrid.Resources>
-
-
             <DataGrid.Columns>
 
                 <DataGridTextColumn Header="Fecha" 

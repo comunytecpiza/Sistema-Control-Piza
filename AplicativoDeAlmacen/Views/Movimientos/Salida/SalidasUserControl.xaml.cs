@@ -375,6 +375,9 @@ namespace AplicativoDeAlmacen.Views
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
+            // Siempre permitir cancelar la operación para volver al estado inicial
+            btnCancelar.IsEnabled = true;
+
             MessageBox.Show("Escriba el N° de Documento y presione ENTER para cargar y modificar.", "Modo Edición", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -394,6 +397,9 @@ namespace AplicativoDeAlmacen.Views
 
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
+
+            // Permitir cancelar la vista de impresión para volver al inicio
+            btnCancelar.IsEnabled = true;
 
             MessageBox.Show("Escriba el N° de Documento y presione ENTER para ver e imprimir.", "Modo Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -567,23 +573,23 @@ namespace AplicativoDeAlmacen.Views
 
                     var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr);
 
-                    if (movCompleto.Movimiento.EstadoId == 2)
-                    {
-                        // 🌟 CORRECCIÓN: Validamos usando el enum de tu vista de Salidas
-                        if (_modoActual != ModoFormulario.BuscandoParaImprimir && !_anularMode)
-                        {
-                            MessageBox.Show("Este movimiento de salida ya está ANULADO y no permite modificaciones.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
-                            EstadoInicialFormulario();
-                            return;
-                        }
-                    }
-
                     if (movCompleto == null || movCompleto.Movimiento == null)
                     {
                         // 🌟 LIMPIEZA INMEDIATA SI NO ENCUENTRA NADA
                         MessageBox.Show("Movimiento no encontrado o no corresponde a una Salida.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Warning);
                         EstadoInicialFormulario();
                         return;
+                    }
+
+                    if (movCompleto.Movimiento.EstadoId == 2)
+                    {
+                        // 🌟 Si está anulado, solo permitimos cargar para imprimir o si estamos en modo anular (verificación posterior)
+                        if (_modoActual != ModoFormulario.BuscandoParaImprimir && !_anularMode)
+                        {
+                            MessageBox.Show("Este movimiento de salida ya está ANULADO y no permite modificaciones.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                            EstadoInicialFormulario();
+                            return;
+                        }
                     }
 
                     _idMovimientoActual = movCompleto.Movimiento.Id;
@@ -604,7 +610,11 @@ namespace AplicativoDeAlmacen.Views
                             using var cmd = ((DbConnection)conn).CreateCommand();
                             cmd.CommandText = "SELECT razon_social FROM personas_comerciales WHERE id = " + _idClienteSeleccionado;
                             var res = await cmd.ExecuteScalarAsync();
+                            // Evitar disparar el TextChanged que abre el popup de búsqueda
+                            txtCliente.TextChanged -= TxtCliente_TextChanged;
                             txtCliente.Text = res?.ToString() ?? "";
+                            txtCliente.TextChanged += TxtCliente_TextChanged;
+                            popupClientes.IsOpen = false;
                         }
                         catch { txtCliente.Text = $"ID CLIENTE: {_idClienteSeleccionado}"; }
                     }
@@ -620,7 +630,11 @@ namespace AplicativoDeAlmacen.Views
                             using var cmd = ((DbConnection)conn).CreateCommand();
                             cmd.CommandText = "SELECT descripcion FROM ubicaciones WHERE id = " + _idUbicacionSeleccionada;
                             var res = await cmd.ExecuteScalarAsync();
+                            // Evitar disparar el TextChanged que abre el popup de ubicaciones
+                            txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
                             txtUbicacion.Text = res?.ToString() ?? "";
+                            txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+                            popupUbicaciones.IsOpen = false;
                         }
                         catch { txtUbicacion.Text = $"ID UBIC: {_idUbicacionSeleccionada}"; }
                     }
@@ -736,6 +750,7 @@ namespace AplicativoDeAlmacen.Views
                             btnImportarExcel.IsEnabled = true;
                             btnEscanear.IsEnabled = true;
                             btnGrabarSalida.IsEnabled = true;
+                            // Siempre mantener Cancel activo en modos de edición/impresión/anulación
                             btnCancelar.IsEnabled = true;
 
                             ActualizarVisibilidadCampos();

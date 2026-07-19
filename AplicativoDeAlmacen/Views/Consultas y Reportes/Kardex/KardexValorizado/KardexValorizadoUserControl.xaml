@@ -73,21 +73,25 @@
 
         <Border Grid.Row="1" Background="White" BorderBrush="#BDBDBD" BorderThickness="1">
             <DataGrid x:Name="DgResumen" AutoGenerateColumns="False" SelectionMode="Single" 
-                      BorderThickness="0" Background="White" RowHeight="28" 
-                      GridLinesVisibility="All" HorizontalGridLinesBrush="#E0E0E0" VerticalGridLinesBrush="#E0E0E0"
-                      AlternatingRowBackground="#FAFAFA">
+                  BorderThickness="0" Background="White" RowHeight="28" 
+                  GridLinesVisibility="All" HorizontalGridLinesBrush="#E0E0E0" VerticalGridLinesBrush="#E0E0E0"
+                  AlternatingRowBackground="#FAFAFA">
 
-                <DataGrid.ColumnHeaderStyle>
-                    <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="#EEE8AA"/>
-                        <Setter Property="FontWeight" Value="SemiBold"/>
-                        <Setter Property="Padding" Value="5"/>
-                        <Setter Property="Foreground" Value="#000000"/>
-                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                        <Setter Property="BorderBrush" Value="#BDBDBD"/>
-                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="White"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#F9FAFB"/>
+                            </Trigger>
+                            <DataTrigger Binding="{Binding IsAnulado}" Value="True">
+                                <Setter Property="Opacity" Value="0.4" />
+                                <Setter Property="Foreground" Value="Gray"/>
+                                <Setter Property="ToolTip" Value="Este movimiento fue ANULADO y su saldo fue revertido." />
+                            </DataTrigger>
+                        </Style.Triggers>
                     </Style>
-                </DataGrid.ColumnHeaderStyle>
+                </DataGrid.RowStyle>
 
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Fecha" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="85"/>

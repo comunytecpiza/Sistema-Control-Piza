@@ -318,10 +318,15 @@ namespace AplicativoDeAlmacen.Views
                     var persona = await _service.ObtenerPorIdAsync(movimiento.PersonaComercialId.Value);
                     if (persona != null)
                     {
+                        // Evitar disparar la búsqueda/autocomplete al asignar el texto desde código
+                        txtRazonSocial.TextChanged -= TxtRazonSocial_TextChanged;
                         txtRazonSocial.Text = !string.IsNullOrEmpty(persona.RazonSocial)
                             ? persona.RazonSocial
                             : $"{persona.Nombres} {persona.ApellidoPaterno}";
                         txtDireccion.Text = persona.Direccion ?? "Sin dirección registrada";
+                        txtRazonSocial.TextChanged += TxtRazonSocial_TextChanged;
+                        // Limpiar sugerencias visuales
+                        try { lstSugerencias.ItemsSource = null; lstSugerencias.SelectedIndex = -1; } catch { }
                     }
                 }
                 catch
@@ -330,9 +335,28 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
-            txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
-            txtObservacion.Text = movimiento.Observacion ?? string.Empty;
+                txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
+                txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
+                txtObservacion.Text = movimiento.Observacion ?? string.Empty;
+
+                // Si la ubicación vino poblada, asignarla sin disparar autocompletado
+                if (movimiento.UbicacionId.HasValue)
+                {
+                    try
+                    {
+                        // UbicacionService expone métodos síncronos; obtenemos la lista y buscamos por id
+                        var todas = _ubicacionService.ObtenerTodas();
+                        var ubic = todas?.FirstOrDefault(u => u.Id == movimiento.UbicacionId.Value);
+                        if (ubic != null)
+                        {
+                            txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                            txtUbicacion.Text = ubic.Descripcion ?? string.Empty;
+                            txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+                            try { lstSugerenciasUbicacion.ItemsSource = null; lstSugerenciasUbicacion.SelectedIndex = -1; } catch { }
+                        }
+                    }
+                    catch { }
+                }
 
             _productosGridList.Clear();
             _codigosGridList.Clear();
@@ -412,6 +436,8 @@ namespace AplicativoDeAlmacen.Views
             {
                 HabilitarCamposFormulario(true);
                 GestionarBotonesPrincipales(enEdicion: true);
+                // Asegurar que siempre se pueda cancelar cuando se cargó un movimiento para editar
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
             }
             else
             {
@@ -495,6 +521,9 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
+            // Permitir cancelar en modo impresión
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
             System.Windows.MessageBox.Show("Modo Imprimir activado. Ingrese el número de documento de ingreso y presione ENTER.",
                                            "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -540,6 +569,11 @@ namespace AplicativoDeAlmacen.Views
             if (_productosGridList == null || !_productosGridList.Any())
             {
                 MessageBox.Show("Debe agregar al menos un producto antes de guardar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (txtSerieGuia.IsEnabled && (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text)))
+            {
+                MessageBox.Show("La Guía de Remisión es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -1304,40 +1338,31 @@ namespace AplicativoDeAlmacen.Views
         {
             if (cboMotivo.SelectedValue == null) return;
 
-            // Obtenemos el ID seleccionado del ComboBox de Ingresos
             int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
 
-            // Reseteamos estados visuales
+            // Reseteamos campos
             txtRazonSocial.IsEnabled = false;
             txtUbicacion.IsEnabled = false;
             txtSerieGuia.IsEnabled = false;
             txtNumeroGuia.IsEnabled = false;
 
-            // 1. Motivos de Entrada que requieren Razón Social (Compra, Devolución Recibida)
-            // ID 1: COMPRA, ID 2: DEVOLUCION RECIBIDA
+            // 1. COMPRA (ID 1) y DEVOLUCIÓN RECIBIDA (ID 2) requieren Razón Social Y Guía de Remisión
             if (idMotivo == 1 || idMotivo == 2)
             {
                 txtRazonSocial.IsEnabled = true;
+                txtSerieGuia.IsEnabled = true;  // 🌟 Habilitado para Devolución
+                txtNumeroGuia.IsEnabled = true; // 🌟 Habilitado para Devolución
             }
-            // 2. Motivos de Entrada que requieren Ubicación (Transferencia Entrada)
-            // ID 4: TRANSFERENCIA ENTRE ALMACENES
+            // 2. TRANSFERENCIA ENTRE ALMACENES (ID 4)
             else if (idMotivo == 4)
             {
                 txtUbicacion.IsEnabled = true;
             }
-            // 3. Motivos que requieren AMBOS (Otros entrada)
-            // ID 13: OTROS
+            // 3. OTROS (ID 13)
             else if (idMotivo == 13)
             {
                 txtRazonSocial.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
-            }
-            // 4. Motivos que requieren Guía de Remisión (Regla de control de carga)
-            // Ejemplo: Si el motivo 1 (Compra) siempre exige guía
-            if (idMotivo == 1)
-            {
-                txtSerieGuia.IsEnabled = true;
-                txtNumeroGuia.IsEnabled = true;
             }
         }
 

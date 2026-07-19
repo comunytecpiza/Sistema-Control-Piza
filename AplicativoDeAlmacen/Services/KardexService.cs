@@ -47,11 +47,13 @@ namespace AplicativoDeAlmacen.Services
 
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    string queryRaw = @"
+            string queryRaw = @"
         SELECT
             m.fecha_movimiento,
             mp.descripcion          AS motivo,
-            mp.tipo_movimiento,
+            -- Nota: la tabla motivo_productos almacena el tipo como entero (tipo_movimiento_id)
+            -- Convertimos a etiqueta legible aquí para evitar columnas inexistentes
+            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
             m.serie_documento,
             m.numero_documento,
             m.serie_guia,
@@ -59,9 +61,9 @@ namespace AplicativoDeAlmacen.Services
             pc.razon_social,
             u.descripcion           AS ubicacion_desc,
             CASE WHEN m.motivo_producto_id = 2 THEN md.cantidad_ingreso ELSE 0 END AS IngresoDev, -- 2 = DEVOLUCION RECIBIDA
-            CASE WHEN m.motivo_producto_id != 2 AND mp.tipo_movimiento = 'entrada' THEN md.cantidad_ingreso ELSE 0 END AS IngresoDoc,
+            CASE WHEN m.motivo_producto_id != 2 AND mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS IngresoDoc,
             CASE WHEN m.motivo_producto_id = 6 THEN md.cantidad_salida ELSE 0 END  AS SalidaDev,  -- 6 = DEVOLUCION ENTREGADA
-            CASE WHEN m.motivo_producto_id != 6 AND mp.tipo_movimiento = 'salida' THEN md.cantidad_salida ELSE 0 END  AS SalidaDoc
+            CASE WHEN m.motivo_producto_id != 6 AND mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END  AS SalidaDoc
         FROM movimiento_detalles md
         INNER JOIN movimientos       m  ON md.movimiento_id      = m.id
         INNER JOIN motivo_productos  mp ON m.motivo_producto_id  = mp.id
@@ -88,6 +90,9 @@ namespace AplicativoDeAlmacen.Services
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
+                            bool isAnulado = false;
+                            try { isAnulado = !reader.IsDBNull(reader.GetOrdinal("estado_id")) && reader.GetInt32(reader.GetOrdinal("estado_id")) == 2; } catch { isAnulado = false; }
+
                             var item = new KardexFisicoItem
                             {
                                 Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
@@ -95,19 +100,23 @@ namespace AplicativoDeAlmacen.Services
                                 Registro = $"{(reader.IsDBNull(3) ? "" : reader.GetString(3))}-{(reader.IsDBNull(4) ? "" : reader.GetString(4))}",
                                 Guia = $"{(reader.IsDBNull(5) ? "" : reader.GetString(5))}-{(reader.IsDBNull(6) ? "" : reader.GetString(6))}",
                                 RazonSocialUbicacion = !reader.IsDBNull(7) ? reader.GetString(7) : (!reader.IsDBNull(8) ? reader.GetString(8) : ""),
-                                IngresoDevolucion = reader.GetDecimal(9),
-                                IngresoNormal = reader.GetDecimal(10),
-                                SalidaDevolucion = reader.GetDecimal(11),
-                                SalidaNormal = reader.GetDecimal(12)
+                                IngresoDevolucion = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("IngresoDev")),
+                                IngresoNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("IngresoDoc")),
+                                SalidaDevolucion = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDev")),
+                                SalidaNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDoc")),
+                                IsAnulado = isAnulado
                             };
 
-                            totalIngresos += item.IngresoNormal;
-                            totalDevIngresos += item.IngresoDevolucion;
-                            totalSalidas += item.SalidaNormal;
-                            totalDevSalidas += item.SalidaDevolucion;
+                            if (!item.IsAnulado)
+                            {
+                                totalIngresos += item.IngresoNormal;
+                                totalDevIngresos += item.IngresoDevolucion;
+                                totalSalidas += item.SalidaNormal;
+                                totalDevSalidas += item.SalidaDevolucion;
 
-                            // El stock final neto calcula sumando ingresos reales y restando salidas reales junto a sus respectivas devoluciones
-                            saldoAcumulado += (item.IngresoNormal + item.IngresoDevolucion) - (item.SalidaNormal + item.SalidaDevolucion);
+                                // El stock final neto calcula sumando ingresos reales y restando salidas reales junto a sus respectivas devoluciones
+                                saldoAcumulado += (item.IngresoNormal + item.IngresoDevolucion) - (item.SalidaNormal + item.SalidaDevolucion);
+                            }
                             item.SaldoFinal = saldoAcumulado;
 
                             reporte.Detalles.Add(item);
@@ -204,9 +213,9 @@ namespace AplicativoDeAlmacen.Services
                         COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
                         COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
                         COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
-                        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cantidad_ingreso, -- 🌟 2 = ANULADO
-                        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cantidad_salida,   -- 🌟 2 = ANULADO
-                        CASE WHEN m.estado_id = 2 THEN '❌ ANULADO - ' + COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') ELSE COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') END AS registro_display
+                        COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
+                        COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
+                        m.estado_id -- 🌟 TRAEMOS EL ESTADO (1 = Activo, 2 = Anulado)
                     FROM movimiento_detalles md
                     INNER JOIN movimientos m ON md.movimiento_id = m.id
                     LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
@@ -214,7 +223,7 @@ namespace AplicativoDeAlmacen.Services
                     WHERE md.producto_id = @ProductoId
                       AND m.fecha_movimiento >= @FechaDesde
                       AND m.fecha_movimiento <= @FechaHasta
-                    ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                    ORDER BY m.created_at ASC, m.id ASC";
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -225,14 +234,19 @@ namespace AplicativoDeAlmacen.Services
                     {
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
+                            int estadoId = reader.IsDBNull(6) ? 1 : reader.GetInt32(6);
+                            bool anulado = estadoId == 2;
+
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
                                 Fecha = reader.IsDBNull(0) ? DateTime.MinValue : reader.GetDateTime(0),
-                                NumeroRegistro = reader.GetString(1),
+                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + reader.GetString(1),
                                 RazonSocialUbicacion = reader.GetString(2),
                                 NumeroGuia = reader.GetString(3),
+                                // Si está anulado, mostramos 0 para que no confunda o mantenemos los montos si quieres ver el histórico
                                 Ingreso = reader.GetDecimal(4),
-                                Salida = reader.GetDecimal(5)
+                                Salida = reader.GetDecimal(5),
+                                IsAnulado = anulado // 🌟 Asignamos la bandera bool
                             });
                         }
                     }
@@ -341,7 +355,7 @@ namespace AplicativoDeAlmacen.Services
                     cmd.CommandText = @"
                 SELECT 
                     m.fecha_movimiento, 
-                    mp.tipo_movimiento, 
+                    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento, 
                     m.serie_documento + '-' + m.numero_documento AS documento,
                     COALESCE(pc.razon_social, u.descripcion) AS razon_social,
                     md.cantidad_ingreso, md.cantidad_salida,
@@ -364,17 +378,23 @@ namespace AplicativoDeAlmacen.Services
                         decimal saldoAcumulado = 0;
                         while (await reader.ReadAsync())
                         {
+                            bool isAnulado = false;
+                            try { isAnulado = !reader.IsDBNull(reader.GetOrdinal("estado_id")) && reader.GetInt32(reader.GetOrdinal("estado_id")) == 2; } catch { isAnulado = false; }
+
                             var item = new KardexFisicoItem
                             {
                                 Fecha = reader.GetDateTime(0),
                                 Tipo = reader.GetString(1),
                                 Registro = reader.GetString(2),
                                 RazonSocialUbicacion = reader.GetString(3),
-                                IngresoNormal = reader.GetDecimal(4),
-                                SalidaNormal = reader.GetDecimal(5)
+                                IngresoNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("cantidad_ingreso")),
+                                SalidaNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("cantidad_salida")),
+                                IsAnulado = isAnulado
                             };
 
-                            saldoAcumulado += (item.IngresoNormal - item.SalidaNormal);
+                            if (!item.IsAnulado)
+                                saldoAcumulado += (item.IngresoNormal - item.SalidaNormal);
+
                             item.SaldoFinal = saldoAcumulado;
 
                             reporte.Detalles.Add(item);
@@ -420,8 +440,8 @@ namespace AplicativoDeAlmacen.Services
             return reporte;
         }
 
-        public async Task<KardexValorizadoReporte> GenerarKardexValorizadoAsync(
-    int productoId, DateTime fechaDesde, DateTime fechaHasta)
+        public async Task<KardexValorizadoReporte> GenerarKardexValorizadoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta)
+
         {
             var reporte = new KardexValorizadoReporte();
 
@@ -432,26 +452,26 @@ namespace AplicativoDeAlmacen.Services
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                SELECT
-                    m.fecha_movimiento,
-                    mp.descripcion AS motivo,
-                    mp.tipo_movimiento,
-                    COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
-                    COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-                    COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
-                    COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
-                    COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
-                    COALESCE(p.precio_unitario, 0) AS costo_base
-                FROM movimiento_detalles md
-                INNER JOIN movimientos m  ON md.movimiento_id = m.id
-                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                INNER JOIN productos p ON md.producto_id = p.id
-                LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
-                WHERE md.producto_id = @ProductoId
-                  AND m.fecha_movimiento >= @FechaDesde
-                  AND m.fecha_movimiento <= @FechaHasta
-                  AND m.estado_id != 5 -- 🌟 Filtrar anulados";
+        SELECT
+            m.fecha_movimiento,
+            mp.descripcion AS motivo,
+            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
+            COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
+            COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+            COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
+            COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
+            COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
+            COALESCE(p.precio_unitario, 0) AS costo_base,
+            m.estado_id -- 🌟 TRAEMOS EL ESTADO PARA EVALUAR LA REVERSIÓN
+        FROM movimiento_detalles md
+        INNER JOIN movimientos m  ON md.movimiento_id = m.id
+        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+        INNER JOIN productos p ON md.producto_id = p.id
+        LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+        LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+        WHERE md.producto_id = @ProductoId
+          AND m.fecha_movimiento >= @FechaDesde
+          AND m.fecha_movimiento <= @FechaHasta"; // 🌟 Eliminamos el filtro WHERE plano para dejar pasar los anulados a la grilla
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -467,6 +487,9 @@ namespace AplicativoDeAlmacen.Services
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
+                            // 🌟 Evaluamos si el estado_id corresponde a 2 (Anulado)
+                            bool isAnulado = !reader.IsDBNull(9) && reader.GetInt32(9) == 2;
+
                             var item = new KardexValorizadoItem
                             {
                                 Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
@@ -476,42 +499,53 @@ namespace AplicativoDeAlmacen.Services
                                 Guia = reader.GetString(5),
                                 IngresoFisico = reader.GetDecimal(6),
                                 SalidaFisico = reader.GetDecimal(7),
-                                CostoUnitario = reader.GetDecimal(8)
+                                CostoUnitario = reader.GetDecimal(8),
+                                IsAnulado = isAnulado // 🌟 Mapeamos la bandera para la UI
                             };
 
-                            // 🌟 REGLA DE SALVAGUARDA: Si no hay ingresos previos en la iteración, 
-                            // inicializamos el costo promedio con el costo_base del maestro de productos.
                             if (costoPromedioActual == 0 && item.CostoUnitario > 0)
                             {
                                 costoPromedioActual = item.CostoUnitario;
                             }
 
-                            if (item.IngresoFisico > 0)
+                            // 🌟 CANDADO DE REVERSIÓN: Si NO está anulado, calcula las finanzas de forma normal
+                            if (!item.IsAnulado)
                             {
-                                item.IngresoValorado = item.IngresoFisico * item.CostoUnitario;
-                                saldoFisicoAcumulado += item.IngresoFisico;
-                                saldoValorizadoAcumulado += item.IngresoValorado;
+                                if (item.IngresoFisico > 0)
+                                {
+                                    item.IngresoValorado = item.IngresoFisico * item.CostoUnitario;
+                                    saldoFisicoAcumulado += item.IngresoFisico;
+                                    saldoValorizadoAcumulado += item.IngresoValorado;
 
-                                if (saldoFisicoAcumulado > 0)
-                                    costoPromedioActual = saldoValorizadoAcumulado / saldoFisicoAcumulado;
+                                    if (saldoFisicoAcumulado > 0)
+                                        costoPromedioActual = saldoValorizadoAcumulado / saldoFisicoAcumulado;
+                                }
+                                else if (item.SalidaFisico > 0)
+                                {
+                                    item.CostoUnitario = costoPromedioActual;
+                                    item.SalidaValorado = item.SalidaFisico * costoPromedioActual;
+
+                                    saldoFisicoAcumulado -= item.SalidaFisico;
+                                    saldoValorizadoAcumulado -= item.SalidaValorado;
+                                }
+
+                                reporte.TotalIngresoFisico += item.IngresoFisico;
+                                reporte.TotalSalidaFisico += item.SalidaFisico;
+                                reporte.TotalIngresoValorado += item.IngresoValorado;
+                                reporte.TotalSalidaValorado += item.SalidaValorado;
                             }
-                            else if (item.SalidaFisico > 0)
+                            else
                             {
-                                item.CostoUnitario = costoPromedioActual;
-                                item.SalidaValorado = item.SalidaFisico * costoPromedioActual;
-
-                                saldoFisicoAcumulado -= item.SalidaFisico;
-                                saldoValorizadoAcumulado -= item.SalidaValorado;
+                                // Si está anulado, forzamos los valores del renglón a 0 para que no alteren las sumas visuales
+                                item.IngresoFisico = 0;
+                                item.SalidaFisico = 0;
+                                item.IngresoValorado = 0;
+                                item.SalidaValorado = 0;
                             }
 
                             item.CostoPromedio = costoPromedioActual;
                             item.SaldoFisico = saldoFisicoAcumulado;
                             item.SaldoValorado = saldoValorizadoAcumulado;
-
-                            reporte.TotalIngresoFisico += item.IngresoFisico;
-                            reporte.TotalSalidaFisico += item.SalidaFisico;
-                            reporte.TotalIngresoValorado += item.IngresoValorado;
-                            reporte.TotalSalidaValorado += item.SalidaValorado;
 
                             reporte.Detalles.Add(item);
                         }

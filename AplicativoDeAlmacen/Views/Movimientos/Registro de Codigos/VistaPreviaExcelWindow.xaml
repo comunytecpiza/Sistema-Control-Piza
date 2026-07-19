@@ -1,8 +1,8 @@
 ﻿<Window x:Class="AplicativoDeAlmacen.Views.VistaPreviaExcelWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Validación de Códigos Excel" Height="500" Width="450"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Background="#F3F4F6">
+        Title="Inspección de Códigos Base" Height="500" Width="550"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Background="#F8FAFC">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -11,26 +11,32 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="📋 Vista Previa de Códigos" FontSize="20" FontWeight="Bold" Foreground="#111827"/>
-        <TextBlock x:Name="TxtResumen" Grid.Row="1" Text="Analizando..." Foreground="#6B7280" Margin="0,5,0,15"/>
+        <TextBlock Text="📋 Inspección y Saneamiento de Códigos" FontSize="20" FontWeight="Bold" Foreground="#1E293B"/>
 
-        <DataGrid x:Name="DgCodigos" Grid.Row="2" AutoGenerateColumns="False" CanUserAddRows="False" Background="White" RowHeight="35">
+        <Border Grid.Row="1" Background="#F1F5F9" CornerRadius="6" Padding="12" Margin="0,10,0,15" BorderBrush="#E2E8F0" BorderThickness="1">
+            <TextBlock x:Name="TxtResumen" Text="Analizando..." FontWeight="Bold" Foreground="#475569" HorizontalAlignment="Center"/>
+        </Border>
+
+        <DataGrid x:Name="DgCodigos" Grid.Row="2" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Background="White" RowHeight="35" BorderBrush="#E2E8F0" BorderThickness="1" EnableRowVirtualization="True">
+            <DataGrid.ColumnHeaderStyle>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#F8FAFC"/>
+                    <Setter Property="Padding" Value="10,5"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                </Style>
+            </DataGrid.ColumnHeaderStyle>
+
             <DataGrid.Columns>
-                <DataGridCheckBoxColumn Binding="{Binding Incluir, UpdateSourceTrigger=PropertyChanged}" Width="40">
-                    <DataGridCheckBoxColumn.Header>
-                        <CheckBox x:Name="ChkSeleccionarTodos" IsChecked="True" Click="ChkSeleccionarTodos_Click" ToolTip="Seleccionar Todo"/>
-                    </DataGridCheckBoxColumn.Header>
-                </DataGridCheckBoxColumn>
+                <DataGridTextColumn Header="Fila" Binding="{Binding Numero}" Width="60" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Código Extraído" Binding="{Binding Codigo}" Width="*" IsReadOnly="True" FontWeight="Bold"/>
 
-                <DataGridTextColumn Header="N°" Binding="{Binding Numero}" Width="50" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Código Alfanumérico" Binding="{Binding Codigo}" Width="*" IsReadOnly="True" FontWeight="Bold"/>
-
-                <DataGridTextColumn Header="Estado" Binding="{Binding Estado}" Width="90" IsReadOnly="True">
+                <DataGridTextColumn Header="Diagnóstico" Binding="{Binding Estado}" Width="200" IsReadOnly="True">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock">
                             <Setter Property="Foreground" Value="#10B981"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding Estado}" Value="Duplicado">
+                                <DataTrigger Binding="{Binding EsValido}" Value="False">
                                     <Setter Property="Foreground" Value="#EF4444"/>
                                 </DataTrigger>
                             </Style.Triggers>
@@ -41,8 +47,8 @@
         </DataGrid>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-            <Button Content="Cancelar" Click="BtnCancelar_Click" Background="Transparent" Foreground="#6B7280" FontWeight="Bold" Margin="0,0,10,0"/>
-            <Button Content="Confirmar Selección" Click="BtnConfirmar_Click" Background="#3B82F6" Foreground="White" Padding="15,8" FontWeight="Bold" Cursor="Hand">
+            <Button Content="Cancelar" Click="BtnCancelar_Click" Background="Transparent" Foreground="#64748B" FontWeight="Bold" Margin="0,0,10,0" BorderThickness="0" Cursor="Hand" Height="40" Width="90"/>
+            <Button x:Name="BtnConfirmar" Content="Confirmar Lote" Click="BtnConfirmar_Click" Background="#3B82F6" Foreground="White" Padding="15,8" FontWeight="Bold" Cursor="Hand" Height="40" Width="180">
                 <Button.Resources>
                     <Style TargetType="Border">
                         <Setter Property="CornerRadius" Value="6"/>

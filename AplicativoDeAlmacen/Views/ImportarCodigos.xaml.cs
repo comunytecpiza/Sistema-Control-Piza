@@ -1,27 +1,28 @@
-﻿using System;
+﻿using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using ClosedXML.Excel;
+using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
-using ClosedXML.Excel;
-using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Data;
-using System.Data.Common;
-using System.IO;
-using AplicativoDeAlmacen.Models.Models;
-using static AplicativoDeAlmacen.Data.DataConnection;
-using System.Diagnostics;
 using System.Windows.Media;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class ImportarCodigos : Window
     {
         public int EstadoPermitido { get; set; } = 0;
+        public int? ProductoIdEsperado { get; set; } = null;
         public List<string> CodigosImportados { get; set; } = new List<string>();
 
         private readonly Microsoft.Win32.OpenFileDialog openFileDialog = new Microsoft.Win32.OpenFileDialog();
@@ -35,14 +36,13 @@ namespace AplicativoDeAlmacen.Views
             public int RowNumber { get; set; }
             public string CodigoRaw { get; set; }
             public string CodigoNorm { get; set; }
-            public bool Encontrado { get; set; }
             public bool EstadoValido { get; set; }
             public bool EsClonDuplicado { get; set; }
             public int? CodigoCreadoId { get; set; }
             public int? ProductoId { get; set; }
             public string ProductoDesc { get; set; }
             public int? EstadoId { get; set; }
-            public string EstadoNombre { get; set; }
+            public string ObservacionAuditoria { get; set; }
             public string TipoGuiaBD { get; set; }
         }
 
@@ -51,7 +51,22 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
         }
 
-        private List<string> LeerExcel(string ruta)
+        private void MostrarMensaje(string mensaje, string titulo, MessageBoxImage icono)
+        {
+            MessageBox.Show(mensaje, titulo, MessageBoxButton.OK, icono);
+        }
+
+        // 🌟 SANEAMIENTO PROFESIONAL DE TEXTO
+        private string LimpiarCodigo(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+            // Elimina caracteres invisibles (espacios nulos, saltos de línea, tabs) que rompen los códigos
+            string limpiado = Regex.Replace(input, @"[\u200B-\u200D\uFEFF\u00A0\t\r\n\0]", "");
+            return limpiado.Trim().ToUpperInvariant();
+        }
+
+        // 🌟 LECTURA INTELIGENTE DE EXCEL
+        private List<string> LeerExcelInteligente(string ruta)
         {
             var lista = new List<string>(60000);
             using var workbook = new XLWorkbook(ruta);
@@ -59,12 +74,26 @@ namespace AplicativoDeAlmacen.Views
             var used = ws.RangeUsed();
             if (used == null) return lista;
 
+            // Busca automáticamente la columna que tiene más filas con datos para no fallar si el código no está en la 'A'
+            int colDestino = 1;
+            int maxDatos = 0;
+            for (int c = 1; c <= used.ColumnCount(); c++)
+            {
+                int datosEnCol = ws.Column(c).CellsUsed().Count();
+                if (datosEnCol > maxDatos)
+                {
+                    maxDatos = datosEnCol;
+                    colDestino = c;
+                }
+            }
+
             foreach (var row in used.Rows())
             {
-                foreach (var cell in row.Cells())
+                var cellStr = row.Cell(colDestino).GetString();
+                string limpio = LimpiarCodigo(cellStr);
+                if (!string.IsNullOrEmpty(limpio))
                 {
-                    var codigo = cell.GetString().Trim();
-                    if (!string.IsNullOrEmpty(codigo)) lista.Add(codigo);
+                    lista.Add(limpio);
                 }
             }
             return lista;
@@ -77,24 +106,25 @@ namespace AplicativoDeAlmacen.Views
             if (openFileDialog.ShowDialog() == true)
             {
                 txtRutaArchivo.Text = openFileDialog.FileName;
-                string extension = System.IO.Path.GetExtension(openFileDialog.FileName).ToLower();
+                string extension = Path.GetExtension(openFileDialog.FileName).ToLower();
 
                 List<string> rawList = new List<string>();
                 _masterList = new List<PreviewRow>();
 
-                var loadingModal = new ProgressWindow("Procesando Archivo", "Mapeando colisiones...", async (progress) =>
+                var loadingModal = new ProgressWindow("Auditoría de Archivo", "Validando reglas y saneando datos...", async (progress) =>
                 {
-                    if (extension == ".xlsx") rawList = LeerExcel(openFileDialog.FileName);
-                    else rawList = File.ReadLines(openFileDialog.FileName).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
+                    if (extension == ".xlsx") rawList = LeerExcelInteligente(openFileDialog.FileName);
+                    else rawList = File.ReadLines(openFileDialog.FileName).Select(LimpiarCodigo).Where(x => !string.IsNullOrEmpty(x)).ToList();
 
-                    // 🚀 OBTENER DICCIONARIO ATÓMICO MULTI-RESULTADO
-                    // Nota: Asegúrate de que ObtenerCodigosPorListaAsync en tu Service use un JOIN sin 'TOP 1' o GroupBy drástico
-                    // para permitir que un mismo String normalizado extraiga múltiples filas de 'codigos_creados'
+                    var contadorOcurrenciasExcel = rawList
+                        .GroupBy(x => _serviceMovimiento.NormalizarCodigo(x), StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
                     var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(rawList);
 
-                    // Catálogo indexado de productos
                     var prodIds = lookup.Values.Where(v => v.ProductoId.HasValue).Select(v => v.ProductoId.Value).Distinct().ToList();
                     var prodMap = new Dictionary<int, string>();
+
                     if (prodIds.Any())
                     {
                         using var conn = _db.GetConnection();
@@ -118,73 +148,78 @@ namespace AplicativoDeAlmacen.Views
 
                     int total = rawList.Count;
                     int ultimoPorcentajeReportado = -1;
-                    int estadoPermitidoLocal = EstadoPermitido;
 
                     for (int i = 0; i < total; i++)
                     {
                         string raw = rawList[i];
                         string norm = _serviceMovimiento.NormalizarCodigo(raw);
 
-                        // 🌟 MULTI-MATCH: Buscamos todas las coincidencias que contengan esta cadena normalizada en el lookup
+                        bool duplicadoEnArchivo = contadorOcurrenciasExcel.ContainsKey(norm) && contadorOcurrenciasExcel[norm] > 1;
                         var listaCoincidencias = lookup.Where(x => x.Key.Equals(norm, StringComparison.OrdinalIgnoreCase)).ToList();
 
-                        if (!listaCoincidencias.Any())
+                        if (duplicadoEnArchivo)
                         {
                             _masterList.Add(new PreviewRow
                             {
                                 CodigoRaw = raw,
                                 CodigoNorm = norm,
-                                Encontrado = false,
+                                EstadoValido = false,
+                                EsClonDuplicado = true,
+                                ProductoDesc = "COLISIÓN INTERNA EN EXCEL",
+                                ObservacionAuditoria = "❌ DUPLICADO EN EXCEL",
+                                TipoGuiaBD = "N/A"
+                            });
+                        }
+                        else if (!listaCoincidencias.Any())
+                        {
+                            _masterList.Add(new PreviewRow
+                            {
+                                CodigoRaw = raw,
+                                CodigoNorm = norm,
                                 EstadoValido = false,
                                 EsClonDuplicado = false,
-                                ProductoDesc = "NO EXISTE EN INVENTARIO",
-                                EstadoNombre = "INEXISTENTE",
+                                ProductoDesc = "NO REGISTRADO",
+                                ObservacionAuditoria = "❌ CÓDIGO INEXISTENTE",
                                 TipoGuiaBD = "NINGUNO"
                             });
                         }
                         else
                         {
-                            // Es un clon real si el mismo código normalizado está asignado a más de un ProductoId único
-                            bool esClon = listaCoincidencias.Select(x => x.Value.ProductoId).Distinct().Count() > 1;
-
                             foreach (var coincidencia in listaCoincidencias)
                             {
                                 var tup = coincidencia.Value;
                                 bool isFound = tup.CodigoObj != null;
-                                bool estadoValido = isFound && (estadoPermitidoLocal == 0 || tup.CodigoObj.EstadoId == estadoPermitidoLocal);
-
                                 string prodDesc = "Desconocido";
                                 if (tup.ProductoId.HasValue) prodMap.TryGetValue(tup.ProductoId.Value, out prodDesc);
 
-                                string tipoLibro = await ObtenerColeccionTipoBDFormatoLocalAsync(tup.CodigoObj.Id);
+                                string tipoLibro = isFound ? await ObtenerColeccionTipoBDFormatoLocalAsync(tup.CodigoObj.Id) : "N/A";
+                                string motivoError = "";
+                                bool estadoValido = true;
 
-                                // 🌟 TRADUCCIÓN INTELIGENTE DE ESTADOS REGLAMENTARIOS
-                                string nombreEstadoReal = "OTRO";
-                                if (isFound)
+                                if (EstadoPermitido != 0 && tup.CodigoObj.EstadoId != EstadoPermitido)
                                 {
-                                    nombreEstadoReal = tup.CodigoObj.EstadoId switch
-                                    {
-                                        1 => "DISPONIBLE",
-                                        3 => "TIENE ENTRADA",
-                                        4 => "TIENE SALIDA",
-                                        _ => $"ESTADO {tup.CodigoObj.EstadoId}"
-                                    };
+                                    estadoValido = false; motivoError = $"❌ ESTADO INVÁLIDO ({tup.CodigoObj.EstadoId})";
                                 }
+
+                                if (ProductoIdEsperado.HasValue && tup.ProductoId != ProductoIdEsperado.Value)
+                                {
+                                    estadoValido = false; motivoError = "❌ PRODUCTO EQUIVOCADO";
+                                }
+
+                                string obsFinal = estadoValido ? "✅ OK - APTO" : motivoError;
 
                                 _masterList.Add(new PreviewRow
                                 {
                                     CodigoRaw = raw,
                                     CodigoNorm = norm,
                                     EstadoValido = estadoValido,
-                                    EsClonDuplicado = esClon, // Activará la fila en amarillo
+                                    EsClonDuplicado = false,
                                     CodigoCreadoId = isFound ? tup.CodigoObj.Id : (int?)null,
                                     ProductoId = isFound ? tup.ProductoId : (int?)null,
-                                    ProductoDesc = prodDesc ?? "CÓDIGO PLANO",
+                                    ProductoDesc = prodDesc,
                                     EstadoId = isFound ? tup.CodigoObj.EstadoId : (int?)null,
-                                    EstadoNombre = nombreEstadoReal, // Refleja el estado dinámico correcto
-                                    TipoGuiaBD = tipoLibro, // LIBRO GUÍA o LIBRO VENTA
-                                    // Si es clon colisionado, por seguridad viene desmarcado (false) para que tú decidas cuál pasa
-                                    Encontrado = estadoValido && !esClon
+                                    ObservacionAuditoria = obsFinal,
+                                    TipoGuiaBD = tipoLibro
                                 });
                             }
                         }
@@ -193,8 +228,7 @@ namespace AplicativoDeAlmacen.Views
                         if (pct > ultimoPorcentajeReportado) { ultimoPorcentajeReportado = pct; progress?.Report(pct); }
                     }
 
-                    // Priorizamos los duplicados en amarillo arriba para control directo de triaje
-                    _masterList = _masterList.OrderByDescending(x => x.EsClonDuplicado).ThenBy(x => x.ProductoDesc).ToList();
+                    _masterList = _masterList.OrderBy(x => x.EstadoValido ? 0 : 1).ThenBy(x => x.ProductoDesc).ToList();
                     int idx = 1; foreach (var row in _masterList) row.RowNumber = idx++;
                 });
 
@@ -202,11 +236,9 @@ namespace AplicativoDeAlmacen.Views
                 if (loadingModal.ShowDialog() == true)
                 {
                     txtTotalCodigos.Text = rawList.Count.ToString();
-
-                    // Sincronizar el contador dinámico de colisiones
                     int numClones = _masterList.Count(x => x.EsClonDuplicado);
-                    if (numClones > 0) { txtContadorDuplicados.Text = (numClones / 2).ToString(); btnVerDuplicados.Visibility = Visibility.Visible; }
-                    else { btnVerDuplicados.Visibility = Visibility.Collapsed; }
+                    btnVerDuplicados.Visibility = numClones > 0 ? Visibility.Visible : Visibility.Collapsed;
+                    txtContadorDuplicados.Text = numClones.ToString();
 
                     _filtrandoSoloDuplicados = false;
                     FiltrarYMostrarDatos();
@@ -223,25 +255,19 @@ namespace AplicativoDeAlmacen.Views
 
             string textBusqueda = txtBuscarCodigo.Text.Trim().ToLower();
             int filtroComboIndex = cboFiltroTipoLibro.SelectedIndex;
-
             var consulta = _masterList.AsEnumerable();
 
-            // 1. Buscador en tiempo real
             if (!string.IsNullOrEmpty(textBusqueda))
                 consulta = consulta.Where(x => x.CodigoRaw.ToLower().Contains(textBusqueda) || x.ProductoDesc.ToLower().Contains(textBusqueda));
 
-            // 2. Filtro Combo (Todos, Guía, Venta)
             if (filtroComboIndex == 1) consulta = consulta.Where(x => x.TipoGuiaBD.Contains("GUÍA"));
             else if (filtroComboIndex == 2) consulta = consulta.Where(x => x.TipoGuiaBD.Contains("VENTA"));
-
-            // 3. Aislamiento estricto de Duplicados en Amarillo
-            if (_filtrandoSoloDuplicados)
-                consulta = consulta.Where(x => x.EsClonDuplicado);
+            if (_filtrandoSoloDuplicados) consulta = consulta.Where(x => x.EsClonDuplicado);
 
             var ejecutado = consulta.ToList();
             dgDatos.ItemsSource = null;
             dgDatos.ItemsSource = ejecutado;
-            UpdateTransferButtonState(ejecutado);
+            UpdateTransferButtonState();
         }
 
         private void BtnVerDuplicados_Click(object sender, RoutedEventArgs e)
@@ -251,40 +277,59 @@ namespace AplicativoDeAlmacen.Views
             FiltrarYMostrarDatos();
         }
 
-        private void CheckBox_Click(object sender, RoutedEventArgs e)
-        {
-            if (dgDatos.ItemsSource is List<PreviewRow> actual) UpdateTransferButtonState(actual);
-        }
-
+        // 🌟 IMPORTACIÓN PARCIAL (Solo aprueba los válidos y desecha los errores)
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
-            CodigosImportados.Clear();
-            var aprobados = _masterList.Where(x => x.Encontrado).ToList(); // Pasan todos los que dejaste con el Check activo
+            int invalidos = _masterList.Count(r => !r.EstadoValido);
 
-            var transferModal = new ProgressWindow("Inyectando Lote", "Transfiriendo...", async (progress) =>
+            if (invalidos > 0)
             {
-                int total = aprobados.Count;
-                for (int i = 0; i < total; i++)
-                {
-                    CodigosImportados.Add(aprobados[i].CodigoRaw);
-                    progress.Report((i * 100) / total);
-                }
-                await Task.Delay(20);
-            });
+                var result = MessageBox.Show(
+                    $"Se detectaron {invalidos} códigos con errores o advertencias.\n\nEl sistema ignorará estos registros automáticamente.\n\n¿Desea continuar y transferir ÚNICAMENTE los códigos válidos?",
+                    "Importación Parcial Segura", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
-            transferModal.Owner = this;
-            if (transferModal.ShowDialog() == true) { this.DialogResult = true; this.Close(); }
+                if (result == MessageBoxResult.No) return;
+            }
+
+            // Seleccionamos estrictamente solo los que pasaron las validaciones
+            CodigosImportados = _masterList.Where(x => x.EstadoValido).Select(x => x.CodigoRaw).ToList();
+            this.DialogResult = true;
+            this.Close();
         }
 
-        private void UpdateTransferButtonState(IEnumerable<PreviewRow> visibleRows)
+        private void UpdateTransferButtonState()
         {
-            int approved = _masterList.Count(r => r.Encontrado);
-            btnTransferir.IsEnabled = approved > 0;
-            btnTransferir.Content = approved > 0 ? $"Transferir ({approved})" : "Transferir";
+            int total = _masterList.Count;
+            int validos = _masterList.Count(r => r.EstadoValido);
+            int invalidos = total - validos;
 
-            int valid = _masterList.Count(r => r.EstadoValido);
-            txtValidos.Text = valid.ToString();
-            txtInvalidos.Text = (_masterList.Count - valid).ToString();
+            txtValidos.Text = validos.ToString();
+            txtInvalidos.Text = invalidos.ToString();
+            btnExportInvalid.Visibility = invalidos > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            // Health Score Visual
+            if (invalidos == 0 && total > 0)
+            {
+                brdHealth.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#ECFDF5"));
+                txtHealth.Text = "🟢 100% Íntegro - Listo para importar";
+                txtHealth.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#065F46"));
+            }
+            else if (validos > 0)
+            {
+                brdHealth.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FEF3C7"));
+                txtHealth.Text = $"🟡 Parcial ({validos} aptos / {invalidos} fallidos)";
+                txtHealth.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#92400E"));
+            }
+            else
+            {
+                brdHealth.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FEF2F2"));
+                txtHealth.Text = "🔴 Archivo Inválido - Revise los errores";
+                txtHealth.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#991B1B"));
+            }
+
+            // El botón se habilita si hay AL MENOS 1 válido
+            btnTransferir.IsEnabled = validos > 0;
+            btnTransferir.Content = validos > 0 ? $"Transferir ({validos} Válidos)" : "Bloqueado";
         }
 
         private async Task<string> ObtenerColeccionTipoBDFormatoLocalAsync(int codigoCreadoId)
@@ -299,14 +344,13 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnExportInvalid_Click(object sender, RoutedEventArgs e)
         {
-            // 🌟 REGLA DE EXPORTACIÓN EXPANDIDA: Exporta tanto los duplicados clonados como los inexistentes
-            var alertas = _masterList.Where(r => r.EsClonDuplicado || !r.CodigoCreadoId.HasValue).ToList();
-            if (!alertas.Any()) return;
+            var errores = _masterList.Where(r => !r.EstadoValido).ToList();
+            if (!errores.Any()) return;
 
-            var lines = new List<string> { "Fila;Codigo;ProductoAsociado;TipoLibro;EstadoActual" };
-            foreach (var i in alertas) lines.Add($"{i.RowNumber};{i.CodigoRaw};{i.ProductoDesc};{i.TipoGuiaBD};{i.EstadoNombre}");
+            var lines = new List<string> { "Fila;Codigo;ProductoAsociado;TipoLibro;Observaciones" };
+            foreach (var i in errores) lines.Add($"{i.RowNumber};{i.CodigoRaw};{i.ProductoDesc};{i.TipoGuiaBD};{i.ObservacionAuditoria}");
 
-            string ruta = Path.Combine(Path.GetTempPath(), $"alertas_inventario_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+            string ruta = Path.Combine(Path.GetTempPath(), $"errores_importacion_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
             File.WriteAllLines(ruta, lines, Encoding.UTF8);
             Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true });
         }
