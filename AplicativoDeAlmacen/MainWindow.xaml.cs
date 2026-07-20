@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using System.Data;
+using System.IO;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Services;
@@ -17,12 +18,78 @@ namespace AplicativoDeAlmacen
 {
     public partial class MainWindow : Window
     {
+        private readonly MediaPlayer _mediaPlayer = new MediaPlayer();
+        private bool _isMuted = false;
+
         public MainWindow()
         {
             InitializeComponent();
 
-            // El sistema arranca limpio, sin overlays molestos
             LoadingOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        // ==============================================================
+        // INICIALIZACIÓN DE AUDIO Y REPRODUCCIÓN AUTOMÁTICA
+        // ==============================================================
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            CargarYReproducirAudioBienvenida();
+        }
+
+        private void CargarYReproducirAudioBienvenida()
+        {
+            try
+            {
+                // 1. Cargar el estado guardado del usuario (Si no existe, por defecto NO está muteado)
+                _isMuted = Properties.Settings.Default.AudioMuted;
+                ActualizarBotonAudioUI();
+
+                if (_isMuted) return; // Si el usuario eligió mutearlo antes, no reproducimos nada
+
+                // 2. Ruta dinámica hacia la carpeta Audio/UI/bienvenida.mp3
+                string audioPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio", "UI", "bienvenida.mp3");
+
+                if (File.Exists(audioPath))
+                {
+                    _mediaPlayer.Open(new Uri(audioPath, UriKind.Absolute));
+                    _mediaPlayer.Volume = 0.8; // Volumen al 80%
+                    _mediaPlayer.Play();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Falla silenciosa: si no hay tarjeta de sonido o falla el driver, la app abre normalmente
+                Console.WriteLine("Error al reproducir audio de bienvenida: " + ex.Message);
+            }
+        }
+
+        private void BtnAudioControl_Click(object sender, RoutedEventArgs e)
+        {
+            _isMuted = !_isMuted;
+
+            // 🌟 Guardamos la preferencia de forma permanente en el equipo
+            Properties.Settings.Default.AudioMuted = _isMuted;
+            Properties.Settings.Default.Save();
+
+            if (_isMuted)
+            {
+                _mediaPlayer.Stop();
+            }
+            else
+            {
+                CargarYReproducirAudioBienvenida();
+            }
+
+            ActualizarBotonAudioUI();
+        }
+
+        private void ActualizarBotonAudioUI()
+        {
+            if (BtnAudioControl.Template.FindName("TxtIconoAudio", BtnAudioControl) is TextBlock iconText)
+            {
+                iconText.Text = _isMuted ? "🔇" : "🔊";
+            }
+            BtnAudioControl.Opacity = _isMuted ? 0.5 : 1.0;
         }
 
         // ==============================================================
@@ -32,9 +99,8 @@ namespace AplicativoDeAlmacen
         {
             if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
             {
-                e.Handled = true; // Evita el menú contextual normal de Windows
+                e.Handled = true;
 
-                // Abre el modal secreto para configurar la IP del servidor de BD
                 var configWindow = new ConfiguracionWindow();
                 configWindow.ShowDialog();
             }
@@ -50,9 +116,8 @@ namespace AplicativoDeAlmacen
 
         private async Task ValidateUserAndRedirectAsync()
         {
-            // 🌟 1. LIMPIEZA DE ENTRADAS
-            string username = UsernameTextBox.Text.Trim(); // El usuario sí se limpia
-            string password = PasswordBox.Password;        // ⚠️ NUNCA le hagas .Trim() a la contraseña
+            string username = UsernameTextBox.Text.Trim();
+            string password = PasswordBox.Password;
 
             if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
             {
@@ -75,7 +140,6 @@ namespace AplicativoDeAlmacen
             {
                 Usuario? usuarioLogueado = null;
 
-                // 🌟 2. CONSULTA BLINDADA (HILO SECUNDARIO)
                 await Task.Run(() =>
                 {
                     using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
@@ -84,10 +148,8 @@ namespace AplicativoDeAlmacen
 
                         using (IDbCommand cmd = conn.CreateCommand())
                         {
-                            // Consulta exacta, solo traemos lo necesario
                             cmd.CommandText = "SELECT id, username, nombres, password, rol_usuario_id, estado FROM usuarios WHERE username = @username";
 
-                            // Creación del parámetro Anti-Inyección SQL
                             var pUsername = cmd.CreateParameter();
                             pUsername.ParameterName = "@username";
                             pUsername.Value = username;
@@ -99,7 +161,6 @@ namespace AplicativoDeAlmacen
                                 {
                                     string? storedPassword = reader["password"]?.ToString();
 
-                                    // 🌟 3. VERIFICACIÓN ESTRICTA DE CONTRASEÑA
                                     if (storedPassword == password)
                                     {
                                         usuarioLogueado = new Usuario
@@ -113,7 +174,6 @@ namespace AplicativoDeAlmacen
                                     }
                                     else
                                     {
-                                        // Bandera de contraseña incorrecta
                                         usuarioLogueado = new Usuario { Id = -1 };
                                     }
                                 }
@@ -122,7 +182,6 @@ namespace AplicativoDeAlmacen
                     }
                 });
 
-                // 🌟 4. VALIDACIONES FINALES EN LA UI
                 if (usuarioLogueado == null)
                 {
                     MessageBox.Show("El usuario ingresado no existe en la base de datos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -137,7 +196,9 @@ namespace AplicativoDeAlmacen
                 }
                 else
                 {
-                    // Login Exitoso
+                    // Al ingresar con éxito detendremos el audio si seguía sonando
+                    _mediaPlayer.Stop();
+
                     var service = new UsuarioService();
                     SesionSistema.UsuarioActual = usuarioLogueado;
                     SesionSistema.PermisosActuales = await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
@@ -147,7 +208,6 @@ namespace AplicativoDeAlmacen
 
                     new Views.MainShell(nombre, esAdmin).Show();
 
-                    // Usamos Close() para destruir la ventana de Login completamente y liberar memoria
                     this.Close();
                 }
             }
@@ -169,7 +229,7 @@ namespace AplicativoDeAlmacen
         {
             if (ConfigManager.ExisteConfiguracion() && !string.IsNullOrWhiteSpace(UsernameTextBox.Text))
             {
-                string user = UsernameTextBox.Text.Trim(); // Limpiamos espacios extra al buscar
+                string user = UsernameTextBox.Text.Trim();
 
                 try
                 {
@@ -181,7 +241,6 @@ namespace AplicativoDeAlmacen
 
                             using (IDbCommand cmd = conn.CreateCommand())
                             {
-                                // Consulta blindada anti-inyección
                                 cmd.CommandText = "SELECT nombres FROM usuarios WHERE username = @username";
 
                                 var pUsername = cmd.CreateParameter();
@@ -191,7 +250,6 @@ namespace AplicativoDeAlmacen
 
                                 var result = cmd.ExecuteScalar();
 
-                                // Actualizamos la UI de forma segura
                                 Application.Current.Dispatcher.Invoke(() =>
                                 {
                                     NameTextBox.Text = result?.ToString() ?? "";
@@ -202,7 +260,7 @@ namespace AplicativoDeAlmacen
                 }
                 catch
                 {
-                    // Falla silenciosa: Si se cae la red mientras tipea, no queremos molestar al usuario con errores
+                    // Falla silenciosa
                 }
             }
             else
@@ -266,8 +324,6 @@ namespace AplicativoDeAlmacen
             panel.Children.Insert(index, newElement);
         }
 
-        private void Window_Loaded(object sender, RoutedEventArgs e) { }
-
         private void BtnReintentar_Click(object sender, RoutedEventArgs e)
         {
             LoadingOverlay.Visibility = Visibility.Collapsed;
@@ -278,12 +334,9 @@ namespace AplicativoDeAlmacen
             if (MessageBox.Show("¿Está seguro que desea salir del sistema?", "Salir",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
+                _mediaPlayer.Stop();
                 Application.Current.Shutdown();
             }
         }
     }
-    // ==============================================================
-    // LÓGICA DE CIERRE DE APLICACIÓN
-    // ==============================================================
-    
 }

@@ -4,9 +4,10 @@
         Title="Control de Almacén Piza" Height="650" Width="1100" 
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized" 
+        Loaded="Window_Loaded"
         PreviewMouseRightButtonDown="Window_PreviewMouseRightButtonDown"
         FontFamily="Segoe UI">
-    
+
     <Window.Resources>
         <Style TargetType="TextBox">
             <Setter Property="FontSize" Value="15"/>
@@ -96,6 +97,7 @@
     </Window.Resources>
 
     <Grid>
+        <!-- FONDO CON GRADIENTE -->
         <Border>
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
@@ -116,6 +118,26 @@
             </Border>
         </Border>
 
+        <!-- 🔊 BOTÓN FLOTANTE DE CONTROL DE AUDIO (ESQUINA SUPERIOR DERECHA) -->
+        <Button x:Name="BtnAudioControl" 
+                Click="BtnAudioControl_Click" 
+                HorizontalAlignment="Right" VerticalAlignment="Top" 
+                Margin="0,25,25,0" Width="45" Height="45" 
+                Background="#33000000" BorderBrush="#66FFFFFF" BorderThickness="1" 
+                Cursor="Hand" ToolTip="Activar / Silenciar audio de bienvenida">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}" 
+                            BorderBrush="{TemplateBinding BorderBrush}" 
+                            BorderThickness="{TemplateBinding BorderThickness}" 
+                            CornerRadius="22.5">
+                        <TextBlock x:Name="TxtIconoAudio" Text="🔊" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
+
+        <!-- CARD DE LOGIN -->
         <Border Background="White" CornerRadius="20" Padding="45,40"
                 VerticalAlignment="Center" HorizontalAlignment="Center" Width="420">
             <Border.Effect>
@@ -159,18 +181,21 @@
                 </StackPanel>
 
                 <Button x:Name="IngresarButton" Click="IngresarButton_Click" Content="INGRESAR AL SISTEMA" 
-                        Style="{StaticResource BtnPrincipal}" Height="50" Margin="0,0,0,10"/> <Button Content="SALIR DE LA APLICACIÓN" 
-                Click="BtnSalir_Click" 
-                Background="Transparent" 
-                Foreground="#6B7280" 
-                FontWeight="SemiBold" 
-                FontSize="14" 
-                Cursor="Hand" 
-                Height="40" 
-        BorderThickness="0"/>
+                        Style="{StaticResource BtnPrincipal}" Height="50" Margin="0,0,0,10"/>
+
+                <Button Content="SALIR DE LA APLICACIÓN" 
+                        Click="BtnSalir_Click" 
+                        Background="Transparent" 
+                        Foreground="#6B7280" 
+                        FontWeight="SemiBold" 
+                        FontSize="14" 
+                        Cursor="Hand" 
+                        Height="40" 
+                        BorderThickness="0"/>
             </StackPanel>
         </Border>
 
+        <!-- OVERLAY DE CARGA -->
         <Grid x:Name="LoadingOverlay" Background="#F9FAFB" Panel.ZIndex="100" Visibility="Visible">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
 

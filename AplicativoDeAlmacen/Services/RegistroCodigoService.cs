@@ -200,7 +200,16 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        public async Task GuardarCodigosTransactionAsync(int coleccionId, int productoId, int cantidad, string desde, string hasta, int categoriaId, IProgress<int> progress = null)
+        public async Task GuardarCodigosTransactionAsync(
+    int coleccionId,
+    int productoId,
+    int cantidad,
+    string desde,
+    string hasta,
+    int categoriaId,
+    int usuarioId, // 🌟 AUDITORÍA: Recibe el ID del usuario logueado
+    string origenRegistro = "SECUENCIAL", // 🌟 AUDITORÍA: 'SECUENCIAL' o 'EXCEL'
+    IProgress<int> progress = null)
         {
             using (var conn = _database.GetConnection())
             {
@@ -221,6 +230,7 @@ namespace AplicativoDeAlmacen.Services
                         string bloqueoSQLServer = QueryAdapter.EsMySQL ? "" : "WITH (UPDLOCK, HOLDLOCK)";
                         string bloqueoMySQL = QueryAdapter.EsMySQL ? "FOR UPDATE" : "";
 
+                        // Verificación de concurrencia
                         string queryVerif = $@"
                     SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@pref) + 1, {lenFunc}(codigo)) AS {castType}))
                     FROM codigos_creados cc {bloqueoSQLServer}
@@ -245,8 +255,13 @@ namespace AplicativoDeAlmacen.Services
                             }
                         }
 
-                        // 1. GUARDAR REGISTRO MAESTRO
-                        string queryRegistro = "INSERT INTO registro_codigos (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id) VALUES (@cId, @pId, @cant, @des, @has, @catId);";
+                        // 🌟 1. GUARDAR REGISTRO MAESTRO CON DATOS DE AUDITORÍA
+                        string queryRegistro = @"
+                    INSERT INTO registro_codigos 
+                    (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
+                    VALUES 
+                    (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, @createdAt);";
+
                         string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
                         int registroId;
@@ -254,6 +269,7 @@ namespace AplicativoDeAlmacen.Services
                         {
                             cmd.Transaction = transaction;
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryRegistro + selectId);
+
                             AgregarParametro(cmd, "@cId", coleccionId);
                             AgregarParametro(cmd, "@pId", productoId);
                             AgregarParametro(cmd, "@cant", cantidad);
@@ -261,15 +277,20 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmd, "@has", hasta);
                             AgregarParametro(cmd, "@catId", categoriaId);
 
+                            // 🚀 CAMPOS DE AUDITORÍA INYECTADOS
+                            AgregarParametro(cmd, "@uId", usuarioId);
+                            AgregarParametro(cmd, "@origen", origenRegistro);
+                            AgregarParametro(cmd, "@createdAt", DateTime.Now); // 🕒 Fecha y Hora exacta
+
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        // 2. INSERCION EN BLOQUE INDUSTRIAL
+                        // 2. INSERCIÓN EN BLOQUE DE CÓDIGOS INDIVIDUALES
                         int batchSize = 1000;
                         for (int i = 0; i < cantidad; i += batchSize)
                         {
                             int currentBatch = Math.Min(batchSize, cantidad - i);
-                            var queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES ");
+                            var queryBuilder = new StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES ");
 
                             using (var cmd = dbConn.CreateCommand())
                             {
@@ -280,7 +301,6 @@ namespace AplicativoDeAlmacen.Services
                                     int idx = i + j;
                                     string paramCod = $"@cod{idx}";
 
-                                    // 🌟 RE-DECLARACIÓN ADAPTADA DE LA CADENA SERIALIZADA
                                     string codigoGenerado = lastDashIndex >= 0 ? $"{prefijo}{(desdeInt + idx):D7}" : $"{prefijo}-{idx}";
                                     codigoGenerado = codigoGenerado.Replace("'", "-");
 

@@ -12,6 +12,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public string NumeroGuia { get; set; }
         public decimal Ingreso { get; set; }
         public decimal Salida { get; set; }
+        public bool IsAnulado { get;  set; }
     }
 
     public class ConsultaCodigoItem

@@ -11,34 +11,21 @@ namespace AplicativoDeAlmacen.Models
 {
     public class VistaProductoGrid
     {
-        // 🌟 SOLUCIÓN 1: Inicializar la propiedad para que nazca con un objeto vacío y nunca sea null
         public MovimientoDetalle Detalle { get; set; } = new MovimientoDetalle();
 
-        public string CodigoProducto { get; set; }     // Para la columna "Código"
-        public string Descripcion { get; set; }        // Para la columna "Descripción"
-        public string UnidadMedida { get; set; }       // Para la columna "U. Medida"
+        public string CodigoProducto { get; set; }
+        public string Descripcion { get; set; }
+        public string UnidadMedida { get; set; }
+        public int ProductoId { get; set; }
 
+        // 🌟 SOLUCIÓN: Separamos la lógica.
+        // La cantidad de la grilla debe ser solo una propiedad de lectura/escritura 
+        // que NO gatilla cambios automáticos en el objeto Detalle.
         private decimal _cantidad;
         public decimal Cantidad
         {
             get => _cantidad;
-            set
-            {
-                _cantidad = value;
-
-                // 🌟 SOLUCIÓN 2: Preguntar si existe antes de tocarlo
-                if (Detalle != null)
-                {
-                    // Nota: Si usas la misma clase para Ingreso y Salida, es más seguro 
-                    // simplemente actualizar ambos o el que ya tenga valor.
-                    if (Detalle.CantidadSalida > 0)
-                        Detalle.CantidadSalida = value;
-                    else
-                        Detalle.CantidadIngreso = value;
-                }
-            }
+            set => _cantidad = value; // Solo setea el valor en memoria de la grilla
         }
-
-        public int ProductoId { get; set; }
     }
 }

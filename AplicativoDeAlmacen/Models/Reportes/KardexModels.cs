@@ -20,6 +20,8 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal SalidaDevolucion { get; set; }
 
         public decimal SaldoFinal { get; set; }
+        // Indica si el movimiento fue anulado (para visualización y exclusión de totales)
+        public bool IsAnulado { get; set; }
     }
 
 
@@ -61,6 +63,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal IngresoValorado { get; set; }
         public decimal SalidaValorado { get; set; }
         public decimal SaldoValorado { get; set; }
+        public bool IsAnulado { get; set; }
     }
     public class KardexValorizadoReporte
     {

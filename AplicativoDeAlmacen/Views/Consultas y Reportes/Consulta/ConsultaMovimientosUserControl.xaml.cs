@@ -49,13 +49,12 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Row.Item is ConsultaMovimientoItem movimiento)
             {
-                // 🌟 Ahora esto funcionará porque el query ya le inyectó "ANULADO"
-                if (movimiento.NumeroRegistro != null && movimiento.NumeroRegistro.Contains("ANULADO"))
+                if (movimiento.IsAnulado || (movimiento.NumeroRegistro != null && movimiento.NumeroRegistro.Contains("ANULADO")))
                 {
                     e.Row.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"));
                     e.Row.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
                     e.Row.FontStyle = FontStyles.Italic;
-                    e.Row.ToolTip = "Esta operación fue ANULADA.";
+                    e.Row.ToolTip = "Esta operación fue ANULADA y sus saldos fueron ignorados.";
                 }
                 else
                 {
@@ -311,15 +310,13 @@ namespace AplicativoDeAlmacen.Views
                 var listaFinal = movimientos.ToList();
                 MovimientosDataGrid.ItemsSource = listaFinal;
 
-                // 🌟 CORRECCIÓN MATEMÁTICA: Sumamos SOLO los movimientos que NO estén anulados
-                // Buscamos si el comprobante contiene la etiqueta de anulado o validamos su estado
-                TxtTotalIngreso.Text = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Ingreso).ToString("N2");
-                TxtTotalSalida.Text = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Salida).ToString("N2");
+                // 🌟 CALCULAMOS TOTALES IGNORANDO LAS FILAS ANULADAS (Como en Valorizado)
+                decimal totalEntradas = listaFinal.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Ingreso);
+                decimal totalSalidas = listaFinal.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Salida);
 
-                // Calcular Ventas Netas del tercer cuadro de tu pie de página
-                decimal entradas = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Ingreso);
-                decimal salidas = listaFinal.Where(m => !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Salida);
-                TxtTotalVendidos.Text = (entradas - salidas).ToString("N2");
+                TxtTotalIngreso.Text = totalEntradas.ToString("N2");
+                TxtTotalSalida.Text = totalSalidas.ToString("N2");
+                TxtTotalVendidos.Text = totalSalidas.ToString("N2"); // Ventas Netas
 
                 _todosLosCodigos = reporte.Codigos;
                 CodigosDataGrid.ItemsSource = null;
@@ -338,9 +335,25 @@ namespace AplicativoDeAlmacen.Views
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
             {
-                var codigos = _todosLosCodigos.Where(c => c.NumeroRegistro == movimiento.NumeroRegistro).ToList();
+                // 🌟 Normalizamos el comprobante eliminando la etiqueta de anulación para cruzar con la tabla de códigos
+                string registroLimpio = movimiento.NumeroRegistro?
+                    .Replace("❌ ANULADO - ", "")
+                    .Trim() ?? string.Empty;
+
+                var codigos = _todosLosCodigos
+                    .Where(c => c.NumeroRegistro == registroLimpio || c.NumeroRegistro == movimiento.NumeroRegistro)
+                    .ToList();
+
                 CodigosDataGrid.ItemsSource = codigos;
-                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos en esta operación";
+
+                if (movimiento.IsAnulado || movimiento.NumeroRegistro.Contains("ANULADO"))
+                {
+                    TxtTotalCodigos.Text = $"⚠️ [ANULADO] Se registran {codigos.Count} códigos en el historial de esta operación.";
+                }
+                else
+                {
+                    TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos en esta operación";
+                }
             }
         }
 

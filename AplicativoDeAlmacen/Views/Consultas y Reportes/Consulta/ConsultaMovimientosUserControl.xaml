@@ -143,6 +143,22 @@
                     </Border>
 
                     <DataGrid x:Name="MovimientosDataGrid" SelectionChanged="MovimientosDataGrid_SelectionChanged" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="38" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC">
+
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#F1F5F9"/>
+                                    </Trigger>
+                                    <!-- 🌟 EVALUACIÓN DE OPACIDAD POR PROPIEDAD ISANULADO -->
+                                    <DataTrigger Binding="{Binding IsAnulado}" Value="True">
+                                        <Setter Property="Opacity" Value="0.4" />
+                                        <Setter Property="Foreground" Value="Gray"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
                                 <Setter Property="Background" Value="#F1F5F9"/>

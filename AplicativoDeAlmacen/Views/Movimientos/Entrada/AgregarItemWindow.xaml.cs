@@ -7,34 +7,26 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace AplicativoDeAlmacen.Views
 {
     public partial class AgregarItemWindow : Window
     {
-        // Indica que la ventana fue abierta desde la acción "Agregar Ítem" (nuevo producto)
-        // Cuando es true, no permitimos hacer "merge" con un producto ya existente — eso debe hacerse desde Modificar.
         public bool IsAddAction { get; set; } = false;
+        public int EstadoPermitido { get; set; } = 1; // 1 = COMPRA, 4 = DEVOLUCIÓN/VENTA
 
-        // Estado permitido para los códigos cuando se asignan rangos desde este formulario.
-        // Debe ser establecido por el flujo que abre esta ventana según el motivo seleccionado
-        // (1 = COMPRA, otro => 4). Por defecto 1 para compatibilidad.
-        public int EstadoPermitido { get; set; } = 1;
-
-        // Cuando se abre la ventana en modo edición, permitimos saltar la validación de duplicados
         public bool IsEdit { get; set; } = false;
         public int? OriginalProductoId { get; set; } = null;
-        // Si verdadero, indica que el usuario quiere añadir los códigos al producto ya existente
         public bool MergeWithExisting { get; private set; } = false;
 
-        public decimal CantidadProductoIngresada { get; set; }
+        public int CantidadProductoIngresada { get; set; }
         public decimal CostoUnitarioIngresado { get; set; }
         public bool FueGrabado { get; private set; } = false;
 
         private readonly ProductoService _productoService;
         public Producto _productoSeleccionado = null;
         public ObservableCollection<RangoCodigoItem> ListaRangosAgregados { get; private set; }
-        // Esta lista servirá de "espejo" para saber qué ya se registró en el padre
         public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; }
 
         public AgregarItemWindow()
@@ -44,16 +36,16 @@ namespace AplicativoDeAlmacen.Views
             _productoService = new ProductoService();
             ListaRangosAgregados = new ObservableCollection<RangoCodigoItem>();
 
-            // Vincular la colección al DataGrid para evitar operaciones sobre la vista
+            ListaRangosAgregados.CollectionChanged += (s, e) => RecalcularCantidadTotalEnVivo();
             dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
-
-            // Permitir editar al hacer doble click en una fila
             dgDetalleCodigos.MouseDoubleClick += DgDetalleCodigos_MouseDoubleClick;
 
             txtProducto.TextChanged += TxtProducto_TextChanged;
             lstSugerenciasProductos.SelectionChanged += LstSugerenciasProductos_SelectionChanged;
 
-            // LÓGICA DE BÚSQUEDA EN TIEMPO REAL PARA DETALLE DE CÓDIGOS ÚNICOS
+            // 🌟 La caja de cantidad SIEMPRE permanece editable para el operador
+            txtCantidad.IsReadOnly = false;
+
             txtBuscarRangoInterno.TextChanged += (s, e) =>
             {
                 string filtro = txtBuscarRangoInterno.Text.Trim().ToLower();
@@ -72,9 +64,18 @@ namespace AplicativoDeAlmacen.Views
             };
         }
 
-        /// <summary>
-        /// Inicializa la ventana para edición de un producto ya agregado.
-        /// </summary>
+        private void RecalcularCantidadTotalEnVivo()
+        {
+            if (ListaRangosAgregados != null && ListaRangosAgregados.Any())
+            {
+                int sumaTotal = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
+                txtCantidad.Text = sumaTotal.ToString();
+            }
+            else
+            {
+                txtCantidad.Text = "0";
+            }
+        }
         public void InitializeForEdit(VistaProductoGrid item, List<RangoCodigoItem> rangos)
         {
             if (item == null) return;
@@ -87,11 +88,10 @@ namespace AplicativoDeAlmacen.Views
                 Id = item.ProductoId,
                 Descripcion = item.Descripcion,
                 PrecioUnitario = item.Detalle?.CostoUnitario,
-                // 🌟 Mapeamos la unidad para que los métodos de guardado la reconozcan
                 UnidadMedida = new UnidadMedida { Descripcion = item.UnidadMedida }
             };
 
-            if (rangos != null)
+            if (rangos != null && rangos.Any())
             {
                 var primera = rangos.FirstOrDefault();
                 if (primera != null && !string.IsNullOrWhiteSpace(primera.AbreviaturaBase))
@@ -101,10 +101,7 @@ namespace AplicativoDeAlmacen.Views
             }
 
             txtProducto.Text = _productoSeleccionado.Descripcion;
-
-            // 🌟 CORRECCIÓN: Reflejamos la unidad real que tenía en el padre
             txtUMedida.Text = !string.IsNullOrWhiteSpace(item.UnidadMedida) ? item.UnidadMedida.ToUpperInvariant() : "UNIDAD";
-
             txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
 
             ListaRangosAgregados.Clear();
@@ -157,22 +154,18 @@ namespace AplicativoDeAlmacen.Views
             }
 
             int totalCantidadRangos = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0);
-            txtCantidad.Text = totalCantidadRangos > 0 ? totalCantidadRangos.ToString() : (item.Detalle?.CantidadIngreso ?? 0m).ToString("0");
+            txtCantidad.Text = totalCantidadRangos > 0 ? totalCantidadRangos.ToString() : (item.Detalle?.CantidadIngreso ?? 0).ToString("0");
 
-            dgDetalleCodigos.ItemsSource = null;
-            dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
-
+            txtCantidad.IsReadOnly = false; // 🔓 Siempre permite la edición libre
             txtProducto.IsEnabled = false;
-            txtCantidad.IsReadOnly = false;
         }
 
-        #region MOTOR DE BÚSQUEDA PREDICTIVA
+        #region BUSCADOR DE PRODUCTOS
 
         private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             string textoBusqueda = txtProducto.Text.Trim();
 
-            // Si el usuario borra el texto o escribe menos de 2 letras, cerramos las sugerencias
             if (textoBusqueda.Length < 2)
             {
                 popupProductos.IsOpen = false;
@@ -181,7 +174,6 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                // Solo busca si no se ha seleccionado ya ese producto exacto
                 if (_productoSeleccionado == null || _productoSeleccionado.Descripcion != txtProducto.Text)
                 {
                     List<Producto> listaFiltrada = await _productoService.BuscarProductosPorTextoAsync(textoBusqueda);
@@ -189,7 +181,7 @@ namespace AplicativoDeAlmacen.Views
                     if (listaFiltrada.Count > 0)
                     {
                         lstSugerenciasProductos.ItemsSource = listaFiltrada;
-                        popupProductos.IsOpen = true; // Despliega el panel flotante
+                        popupProductos.IsOpen = true;
                     }
                     else
                     {
@@ -199,7 +191,7 @@ namespace AplicativoDeAlmacen.Views
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error en la consulta predictiva: {ex.Message}", "Error de Búsqueda", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error al buscar el producto:\n{ex.Message}", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -207,12 +199,9 @@ namespace AplicativoDeAlmacen.Views
         {
             if (lstSugerenciasProductos.SelectedItem is Producto producto)
             {
-                // Inyectamos el producto seleccionado en los controles correspondientes
                 _productoSeleccionado = producto;
                 txtProducto.Text = producto.Descripcion;
 
-                // 🌟 CORRECCIÓN MAESTRA: Respetamos la Unidad de Medida real de la Base de Datos
-                // Si el objeto UnidadMedida o su descripción vienen nulos, usamos "UNIDAD" como respaldo seguro.
                 txtUMedida.Text = (producto.UnidadMedida != null && !string.IsNullOrWhiteSpace(producto.UnidadMedida.Descripcion))
                     ? producto.UnidadMedida.Descripcion.ToUpperInvariant()
                     : "UNIDAD";
@@ -221,110 +210,97 @@ namespace AplicativoDeAlmacen.Views
                     ? producto.PrecioUnitario.Value.ToString("F2")
                     : "0.00";
 
-                popupProductos.IsOpen = false; // Cerramos el buscador predictivo
-                lstSugerenciasProductos.SelectedIndex = -1; // Reseteamos la selección de la lista
+                if (string.IsNullOrWhiteSpace(producto.Abreviatura))
+                {
+                    ListaRangosAgregados.Clear();
+                    dgDetalleCodigos.IsEnabled = false;
+                    txtBuscarRangoInterno.IsEnabled = false;
+                }
+                else
+                {
+                    dgDetalleCodigos.IsEnabled = true;
+                    txtBuscarRangoInterno.IsEnabled = true;
+                }
+
+                popupProductos.IsOpen = false;
+                lstSugerenciasProductos.SelectedIndex = -1;
             }
         }
 
         #endregion
 
-        #region GESTIÓN DE RANGOS MASIVOS Y GRABADO
+        #region ASIGNACIÓN Y MODIFICACIÓN DE RANGOS
 
         private void BtnAgregarRangoCodigo_Click(object sender, RoutedEventArgs e)
         {
-            // 1. Validar producto seleccionado
             if (_productoSeleccionado == null)
             {
-                MessageBox.Show("Por favor, seleccione un producto antes de agregar códigos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, seleccione un producto antes de agregar códigos.", "Selección Requerida", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // 🌟 BLOQUEO PARA PRODUCTOS GENÉRICOS (Mochilas, Cuadernos)
-            bool esProductoSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura); // Ajusta a la propiedad que defina si tiene prefijo
-            if (esProductoSinCodigo)
+            if (string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura))
             {
-                MessageBox.Show("Este producto es de tipo genérico/otros y no requiere la asignación de códigos.", "Producto sin Códigos", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Este producto es genérico (sin series de códigos).", "Producto Genérico", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // 2. Validar cantidad esperada
             if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
             {
-                MessageBox.Show("Ingrese una cantidad válida de unidades.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Ingrese primero la cantidad de unidades arriba.", "Cantidad Vacía", MessageBoxButton.OK, MessageBoxImage.Warning);
+                txtCantidad.Focus();
                 return;
             }
 
-            // 3. EXTRAER los datos de la colección enlazada a la grilla
             List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>(ListaRangosAgregados);
-
-            // 4. Calcular el total acumulado usando la lista extraída
-            int totalCodigosYaAgregados = 0;
-            foreach (var rango in listaDeRangosActual)
-            {
-                if (int.TryParse(rango.Cantidad, out int cantRango))
-                {
-                    totalCodigosYaAgregados += cantRango;
-                }
-            }
-
-            if (totalCodigosYaAgregados >= cantidadCodigosEsperados)
-            {
-                MessageBox.Show("Ya ha registrado el total de códigos indicado.", "Lotes Completos", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
+            int totalCodigosYaAgregados = listaDeRangosActual.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
             int cantidadFaltantePorAsignar = cantidadCodigosEsperados - totalCodigosYaAgregados;
 
-            // 5. LLAMAR A LA VENTANA usando la lista en lugar del control DataGrid
+            if (cantidadFaltantePorAsignar <= 0)
+            {
+                MessageBox.Show($"Ya ha asignado el total de la cantidad digitada ({cantidadCodigosEsperados} unidades).", "Lote Completo", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             try
             {
                 AsignarCodigoWindow ventanaCodigo = new AsignarCodigoWindow(
-                    listaDeRangosActual, // <--- Aquí pasas la lista de tipo List<RangoCodigoItem>
+                    listaDeRangosActual,
                     _productoSeleccionado.Abreviatura,
                     _productoSeleccionado.Id,
                     cantidadFaltantePorAsignar
-                );
-
-                ventanaCodigo.EstadoPermitido = this.EstadoPermitido;
-                ventanaCodigo.Owner = this;
+                )
+                {
+                    EstadoPermitido = this.EstadoPermitido,
+                    Owner = this
+                };
 
                 if (ventanaCodigo.ShowDialog() == true && ventanaCodigo.FueConfirmado)
                 {
-                    RangoCodigoItem nuevoRango = ventanaCodigo.RangoProcesado;
+                    // 🛡️ BLOQUEO DE SEGURIDAD CONTRA CLICS EN FALSO
+                    this.Cursor = Cursors.Wait;
+                    btnGrabar.IsEnabled = false; // Bloquea guardar mientras procesa el cambio
 
+                    RangoCodigoItem nuevoRango = ventanaCodigo.RangoProcesado;
                     if (nuevoRango != null)
                     {
-                        // Validar duplicidad antes de agregar
-                        bool yaExiste = false;
-                        foreach (var existente in ListaRangosAgregados)
-                        {
-                            if (existente.DesdeNum == nuevoRango.DesdeNum &&
-                                existente.HastaNum == nuevoRango.HastaNum &&
-                                existente.CategoriaProductoId == nuevoRango.CategoriaProductoId)
-                            {
-                                yaExiste = true;
-                                break;
-                            }
-                        }
-
-                        if (yaExiste)
-                        {
-                            MessageBox.Show("Este rango ya ha sido agregado a la lista.", "Rango Duplicado", MessageBoxButton.OK, MessageBoxImage.Warning);
-                            return;
-                        }
-
-                        // Si no existe, procedemos a agregar a la colección enlazada
                         ListaRangosAgregados.Add(nuevoRango);
-
-                        // Bloqueo de controles
-                        txtCantidad.IsReadOnly = true;
-                        if (txtProducto != null) txtProducto.IsEnabled = false;
                     }
+
+                    // ⚡ REFRESCO INSTANTÁNEO FORZADO
+                    dgDetalleCodigos.Items.Refresh();
+                    RecalcularCantidadTotalEnVivo();
+
+                    // Liberamos el bloqueo de inmediato
+                    btnGrabar.IsEnabled = true;
+                    this.Cursor = Cursors.Arrow;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                this.Cursor = Cursors.Arrow;
+                btnGrabar.IsEnabled = true;
+                MessageBox.Show($"Error al abrir la ventana de códigos:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -332,120 +308,69 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_productoSeleccionado == null || string.IsNullOrWhiteSpace(txtProducto.Text))
             {
-                MessageBox.Show("Por favor, seleccione un producto válido antes de grabar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, seleccione un producto antes de guardar.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // Validar duplicados excepto si estamos editando el mismo producto
-            if (ListaProductosExistentesEnPadre != null)
+            if (!int.TryParse(txtCantidad.Text.Trim(), out int cantidadDeclarada) || cantidadDeclarada <= 0)
             {
-                bool existe = ListaProductosExistentesEnPadre.Exists(p => p.ProductoId == _productoSeleccionado.Id);
-                if (existe && !(IsEdit && OriginalProductoId == _productoSeleccionado.Id))
-                {
-                    if (IsAddAction)
-                    {
-                        MessageBox.Show("Este producto ya existe en la lista. Use 'Modificar' para agregar códigos a un producto ya registrado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-
-                    if (ListaRangosAgregados.Count > 0)
-                    {
-                        MergeWithExisting = true;
-                    }
-                    else
-                    {
-                        MessageBox.Show("Este producto ya existe.", "Aviso");
-                        return;
-                    }
-                }
-            }
-
-            if (!decimal.TryParse(txtCantidad.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal cantidadPaquetesDeclarados) || cantidadPaquetesDeclarados <= 0)
-            {
-                MessageBox.Show("Cantidad de paquetes inválida. Debe ser mayor a 0.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Ingrese una cantidad válida mayor a 0.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (!decimal.TryParse(txtCUnitario.Text.Trim().Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal costoValido))
             {
-                MessageBox.Show("Por favor, ingrese un costo unitario válido.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Ingrese un costo unitario válido.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 🌟 LÓGICA DE ESCALABILIDAD (EL NÚCLEO DEL ARREGLO)
-            // Evaluamos si es un producto genérico (ej. Mochila) que NO lleva códigos (Prefijo/Abreviatura nula)
             bool esProductoSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura);
 
-            if (esProductoSinCodigo)
+            if (!esProductoSinCodigo)
             {
-                // Es un producto sin códigos: Asignamos valores directos y omitimos la evaluación de la grilla
-                CantidadProductoIngresada = cantidadPaquetesDeclarados;
-                CostoUnitarioIngresado = costoValido;
-            }
-            else
-            {
-                // Es un producto serializado (Libros): Exigimos validación estricta
                 if (ListaRangosAgregados.Count == 0)
                 {
-                    MessageBox.Show("Los productos con código (libros) requieren que registre al menos un rango en la tabla.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Este producto utiliza códigos únicos. Debe presionar '➕ Agregar Rango' para asignar los códigos.", "Códigos Requeridos", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
-                // REGLA DE ORO: La cantidad de filas en la grilla debe ser idéntica a la cantidad declarada
-                int totalCodigosUnicosRegistrados = 0;
-                foreach (var rango in ListaRangosAgregados)
-                {
-                    if (int.TryParse(rango.Cantidad, out int cantidadDelRango))
-                    {
-                        totalCodigosUnicosRegistrados += cantidadDelRango;
-                    }
-                }
+                int totalCodigosUnicosRegistrados = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
 
-                if ((int)cantidadPaquetesDeclarados != totalCodigosUnicosRegistrados)
+                // 🌟 VALIDACIÓN AMIGABLE DE DESCUADRE:
+                if (cantidadDeclarada != totalCodigosUnicosRegistrados)
                 {
-                    MessageBox.Show($"Inconsistencia de Códigos Únicos ❌\n\n" +
-                                    $"En la cantidad del producto indicó: {cantidadPaquetesDeclarados} unidades.\n" +
-                                    $"Sin embargo, la suma de los códigos en los rangos agregados es de: {totalCodigosUnicosRegistrados} códigos.\n\n" +
-                                    $"Por favor, configure los rangos para que la cantidad total de códigos coincida exactamente con la cantidad de productos a ingresar.",
-                                    "Error de Cuadrante", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(
+                        $"⚠️ Inconsistencia en la Cantidad:\n\n" +
+                        $"• Cantidad indicada arriba: {cantidadDeclarada} unidades.\n" +
+                        $"• Suma de códigos abajo: {totalCodigosUnicosRegistrados} códigos.\n\n" +
+                        $"Por favor, modifique o elimine el rango en la lista de abajo para que sume exactamente {cantidadDeclarada}.",
+                        "Diferencia de Unidades",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
                     return;
                 }
-
-                CantidadProductoIngresada = cantidadPaquetesDeclarados;
-                CostoUnitarioIngresado = costoValido;
             }
+
+            CantidadProductoIngresada = cantidadDeclarada;
+            CostoUnitarioIngresado = costoValido;
 
             FueGrabado = true;
             this.DialogResult = true;
-            this.Close(); // 🌟 Cerramos el modal de forma correcta
+            this.Close();
         }
 
         private void BtnEliminarRango_Click(object sender, RoutedEventArgs e)
         {
             if (dgDetalleCodigos.SelectedItem is RangoCodigoItem rangoSeleccionado)
             {
-                var confirmacion = MessageBox.Show("¿Está seguro de que desea eliminar este rango de códigos?",
-                                                   "Confirmar Eliminación",
-                                                   MessageBoxButton.YesNo,
-                                                   MessageBoxImage.Question);
-
-                if (confirmacion == MessageBoxResult.Yes)
+                if (MessageBox.Show("¿Desea quitar este rango de la lista?", "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                 {
                     ListaRangosAgregados.Remove(rangoSeleccionado);
-
-                    if (ListaRangosAgregados.Count == 0)
-                    {
-                        txtCantidad.IsReadOnly = false;
-                        txtProducto.IsEnabled = true;
-                    }
                 }
             }
             else
             {
-                MessageBox.Show("Por favor, seleccione una fila de la grilla para eliminar.",
-                                "Selección necesaria",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Information);
+                MessageBox.Show("Seleccione la fila que desea eliminar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
@@ -456,74 +381,62 @@ namespace AplicativoDeAlmacen.Views
             this.Close();
         }
 
-        private void BtnModificarRango_Click(object sender, RoutedEventArgs e)
-        {
-            EditarRangoSeleccionado();
-        }
+        private void BtnModificarRango_Click(object sender, RoutedEventArgs e) { EditarRangoSeleccionado(); }
 
         private void DgDetalleCodigos_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (dgDetalleCodigos.SelectedItem is RangoCodigoItem)
-            {
-                EditarRangoSeleccionado();
-            }
+            if (dgDetalleCodigos.SelectedItem is RangoCodigoItem) EditarRangoSeleccionado();
         }
 
         private void EditarRangoSeleccionado()
         {
             if (dgDetalleCodigos.SelectedItem is not RangoCodigoItem rangoSeleccionado)
             {
-                MessageBox.Show("Por favor, seleccione un rango de la tabla para modificar.",
-                                "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Seleccione el rango que desea modificar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            if (!int.TryParse(txtCantidad.Text, out int cantidadCodigosEsperados) || cantidadCodigosEsperados <= 0)
-            {
-                MessageBox.Show("Ingrese una cantidad válida de unidades antes de modificar un rango.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
+            int.TryParse(txtCantidad.Text, out int cantidadTotalArriba);
             List<RangoCodigoItem> listaDeRangosActual = new List<RangoCodigoItem>(ListaRangosAgregados);
 
-            int totalCodigosYaAgregados = 0;
-            int cantidadDelItemSeleccionado = 0;
-            foreach (var rango in listaDeRangosActual)
-            {
-                if (int.TryParse(rango.Cantidad, out int cantRango))
-                {
-                    totalCodigosYaAgregados += cantRango;
-                }
-
-                if (ReferenceEquals(rango, rangoSeleccionado) && int.TryParse(rango.Cantidad, out int cantSel))
-                {
-                    cantidadDelItemSeleccionado = cantSel;
-                }
-            }
-
-            int cantidadFaltantePorAsignar = cantidadCodigosEsperados - (totalCodigosYaAgregados - cantidadDelItemSeleccionado);
-            if (cantidadFaltantePorAsignar < 0) cantidadFaltantePorAsignar = 0;
+            int sumaOtrosRangos = listaDeRangosActual.Where(r => r != rangoSeleccionado).Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
+            int disponibleParaEsteRango = cantidadTotalArriba - sumaOtrosRangos;
 
             try
             {
-                AsignarCodigoWindow ventanaEdicion = new AsignarCodigoWindow(listaDeRangosActual, rangoSeleccionado, cantidadFaltantePorAsignar);
-                ventanaEdicion.EstadoPermitido = this.EstadoPermitido;
-                ventanaEdicion.Owner = this;
+                AsignarCodigoWindow ventanaEdicion = new AsignarCodigoWindow(listaDeRangosActual, rangoSeleccionado, disponibleParaEsteRango > 0 ? disponibleParaEsteRango : 0)
+                {
+                    EstadoPermitido = this.EstadoPermitido,
+                    Owner = this
+                };
 
                 if (ventanaEdicion.ShowDialog() == true && ventanaEdicion.FueConfirmado)
                 {
-                    RangoCodigoItem rangoModificado = ventanaEdicion.RangoProcesado;
+                    // 🛡️ BLOQUEO DE SEGURIDAD CONTRA CLICS EN FALSO
+                    this.Cursor = Cursors.Wait;
+                    btnGrabar.IsEnabled = false; // Evita que guarden a medias
 
+                    RangoCodigoItem rangoModificado = ventanaEdicion.RangoProcesado;
                     int index = ListaRangosAgregados.IndexOf(rangoSeleccionado);
                     if (index >= 0)
                     {
                         ListaRangosAgregados[index] = rangoModificado;
                     }
+
+                    // ⚡ REFRESCO INSTANTÁNEO FORZADO EN MEMORIA
+                    dgDetalleCodigos.Items.Refresh();
+                    RecalcularCantidadTotalEnVivo();
+
+                    // Restauramos los controles al instante
+                    btnGrabar.IsEnabled = true;
+                    this.Cursor = Cursors.Arrow;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al intentar editar el rango: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                this.Cursor = Cursors.Arrow;
+                btnGrabar.IsEnabled = true;
+                MessageBox.Show($"Error al editar el rango:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

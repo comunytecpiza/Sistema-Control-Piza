@@ -10,26 +10,28 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="ViewModels\ViewModels\**" />
+    <EmbeddedResource Remove="ViewModels\ViewModels\**" />
+    <None Remove="ViewModels\ViewModels\**" />
+    <Page Remove="ViewModels\ViewModels\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Remove="fondo-opcional.jpg" />
     <None Remove="Videos\fondo-video.mp4" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="icon-almacen.ico" />
-    <Content Include="Images\logo.png">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Videos\fondo-video.mp4">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="FontAwesomeInstaller\" />
     <Folder Include="Helpers\" />
     <Folder Include="Icon\" />
-    <Folder Include="Helpers\" />
-    <Folder Include="ViewModels\ViewModels\" />
+    <Folder Include="Images\" />
+    <Folder Include="Videos\" />
+    <Folder Include="ViewModels\" />
     <Folder Include="Views\Elementos Visuales\" />
   </ItemGroup>
 
@@ -57,13 +59,24 @@
 
   <ItemGroup>
     <Resource Include="fondo-opcional.jpg" />
-    <Resource Include="Icon\catalogos.png" />
-    <Resource Include="Icon\movimientos.png" />
-    <Resource Include="Icon\procesos.png" />
-    <Resource Include="Icon\reportes.png" />
-    <Resource Include="Icon\salir.png" />
-    <Resource Include="Images\ingreso-almacen.jpg" />
-    <Resource Include="Images\usuario.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Settings.Designer.cs">
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Audio\UI\bienvenida.mp3">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
   </ItemGroup>
 
 </Project>

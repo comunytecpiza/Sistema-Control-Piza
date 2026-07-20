@@ -332,7 +332,7 @@
                                     <DataGridTextColumn Header="Código" Binding="{Binding CodigoProducto}" Width="90"/>
                                     <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
                                     <DataGridTextColumn Header="U. Medida" Binding="{Binding UnidadMedida}" Width="90"/>
-                                    <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="90"/>
+                                    <DataGridTextColumn Header="Cantidad" Binding="{Binding Detalle.CantidadSalida}" Width="90"/>
                                     <DataGridTextColumn Header="C. Unitario" Width="110">
                                         <DataGridTextColumn.Binding>
                                             <Binding Path="Detalle.CostoUnitario" StringFormat="N2" TargetNullValue="0.00" FallbackValue="0.00"/>
