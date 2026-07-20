@@ -18,11 +18,6 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Foreground" Value="#2D3748"/>
             <Setter Property="Background" Value="White"/>
-            <Style.Resources>
-                <Style TargetType="Border">
-                    <Setter Property="CornerRadius" Value="6"/>
-                </Style>
-            </Style.Resources>
         </Style>
 
         <Style x:Key="ModernListBoxItemStyle" TargetType="ListBoxItem">
@@ -80,11 +75,13 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
+                <!-- FILTRO POR LOCALIDAD -->
                 <StackPanel Margin="0,0,0,20">
                     <TextBlock Text="Seleccionar Localidad" Style="{StaticResource FormLabelStyle}"/>
                     <ComboBox x:Name="LocalidadComboBox" SelectionChanged="LocalidadComboBox_SelectionChanged" MaxWidth="400" HorizontalAlignment="Left" Width="400"/>
                 </StackPanel>
 
+                <!-- LISTA DE ZONAS -->
                 <ListBox x:Name="ZonasListBox" Grid.Row="1" BorderThickness="0" Background="Transparent" 
                          ItemContainerStyle="{StaticResource ModernListBoxItemStyle}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="-5,0,-5,0" Padding="5">
                     <ListBox.ItemTemplate>
@@ -97,27 +94,44 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
+                <!-- BOTONES DE ACCIÓN -->
                 <Border Grid.Row="2" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,20,0,0" Margin="0,10,0,0">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="+ Agregar Zona" Click="AgregarZona_Click" Width="140" Height="40" Margin="0,0,12,0" 
-                                Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
-                            <Button.Resources>
-                                <Style TargetType="Border">
-                                    <Setter Property="CornerRadius" Value="6"/>
-                                </Style>
-                            </Button.Resources>
-                        </Button>
+                        <Button Content="+ Agregar Zona" Click="AgregarZona_Click" Width="140" Height="40" Margin="0,0,10,0" 
+                                Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+
+                        <Button Content="✏️ Editar Zona" Click="EditarZona_Click" Width="140" Height="40" Margin="0,0,10,0" 
+                                Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+
                         <Button Content="🗑️ Eliminar" Click="EliminarZona_Click" Width="120" Height="40" 
-                                Background="#EF4444" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand">
-                            <Button.Resources>
-                                <Style TargetType="Border">
-                                    <Setter Property="CornerRadius" Value="6"/>
-                                </Style>
-                            </Button.Resources>
-                        </Button>
+                                Background="#EF4444" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
                     </StackPanel>
                 </Border>
             </Grid>
         </Border>
+
+        <!-- 🌟 MODAL PRO DE AGREGAR / EDITAR -->
+        <Grid x:Name="ModalBackground" Visibility="Collapsed" Background="#80000000" Grid.RowSpan="2" Margin="-25">
+            <Border Background="White" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="25" ShadowDepth="5" Opacity="0.3" Direction="270"/>
+                </Border.Effect>
+
+                <StackPanel>
+                    <TextBlock x:Name="ModalTitle" Text="Nueva Zona" FontSize="22" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,15" TextAlignment="Center"/>
+                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
+
+                    <TextBlock Text="Descripción de la Zona:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                    <TextBox x:Name="DescripcionTextBox" Margin="0,0,0,25" Height="38" FontSize="14" Padding="10,8"/>
+
+                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancelar" Click="CancelarModal_Click" Background="#6B7280" Foreground="White" FontWeight="SemiBold" Margin="0,0,10,0" Width="100" Height="38"/>
+                        <Button Content="Guardar" Click="GuardarZona_Click" Background="#3B82F6" Foreground="White" FontWeight="SemiBold" Width="120" Height="38"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

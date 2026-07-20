@@ -222,19 +222,25 @@ namespace AplicativoDeAlmacen.Services
             return set;
         }
 
-        public async Task<bool> TieneMovimientosPosterioresAsync(int codigoId, DateTime fechaEdicion, DbConnection conn, DbTransaction trans)
+        public async Task<bool> TieneMovimientosPosterioresAsync(int codigoId, int movimientoActualId, DateTime fechaEdicion, DbConnection conn, DbTransaction trans)
         {
             string query = @"
-            SELECT COUNT(*) 
-            FROM movimiento_codigos mc
-            JOIN movimientos m ON mc.movimiento_id = m.id
-            WHERE mc.codigo_creado_id = @codId 
-            AND m.fecha_movimiento > @fechaEdicion";
+        SELECT COUNT(*) 
+        FROM movimiento_codigos mc WITH (NOLOCK)
+        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+        WHERE mc.codigo_creado_id = @codId 
+          AND m.estado_id = 1 -- Solo movimientos activos
+          AND (
+              m.fecha_movimiento > @fechaEdicion 
+              OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
+          )";
 
             using var cmd = conn.CreateCommand();
             cmd.Transaction = trans;
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
             AgregarParametro(cmd, "@codId", codigoId);
+            AgregarParametro(cmd, "@movId", movimientoActualId);
             AgregarParametro(cmd, "@fechaEdicion", fechaEdicion);
 
             var result = await cmd.ExecuteScalarAsync();
@@ -556,11 +562,28 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 // Limpieza de códigos descartados al modificar (pasan nuevamente a Estado 3)
+                // 🛡️ BARRERA DE SEGURIDAD EN EDICIÓN DE SALIDAS:
+                // Impide quitar códigos que ya registraron Devoluciones u Operaciones posteriores
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
                 foreach (var codId in codigosAEliminar)
                 {
-                    bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
-                    if (tieneFuturo) throw new Exception($"El código ID {codId} no puede eliminarse porque tiene movimientos posteriores.");
+                    bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, movimientoIdInserted, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+
+                    if (tieneFuturo)
+                    {
+                        // 🌟 Leemos la etiqueta del código para dar una alerta ejecutiva clara
+                        string codigoTexto = "";
+                        using (var cmdName = dbConn.CreateCommand())
+                        {
+                            cmdName.Transaction = transaccion;
+                            cmdName.CommandText = QueryAdapter.FormatearConsulta("SELECT codigo FROM codigos_creados WHERE id = @cId");
+                            AgregarParametro(cmdName, "@cId", codId);
+                            var resName = await cmdName.ExecuteScalarAsync();
+                            if (resName != null) codigoTexto = resName.ToString()!;
+                        }
+
+                        throw new Exception($"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\nEl código '{codigoTexto}' no puede ser retirado de esta salida porque ya cuenta con un reingreso o devolución posterior registrada.");
+                    }
 
                     int estadoAnterior = await ObtenerEstadoAnteriorAsync(codId, movimientoIdInserted, dbConn, transaccion);
                     await ActualizarEstadoCodigo(codId, estadoAnterior, dbConn, transaccion);
@@ -579,9 +602,7 @@ namespace AplicativoDeAlmacen.Services
             catch (Exception ex)
             {
                 transaccion.Rollback();
-                var msg = ex.Message;
-                if (!string.IsNullOrEmpty(_ultimoSql)) msg += "\nÚltima SQL ejecutada:\n" + _ultimoSql;
-                throw new Exception(msg, ex);
+                throw new Exception(ex.Message, ex);
             }
         }
 

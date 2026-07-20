@@ -257,13 +257,15 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<MotivoProducto>> ObtenerMotivosProductosAsync()
         {
             var lista = new List<MotivoProducto>();
+
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 FILTRO POR ID: 1 es estrictamente para ENTRADAS
-                string query = @"SELECT id, descripcion FROM motivo_productos 
+                // 🌟 CORREGIDO: Se usa tipo_movimiento_id = 1 (1 = Entradas)
+                string query = @"SELECT id, descripcion 
+                         FROM motivo_productos 
                          WHERE tipo_movimiento_id = 1 
                          ORDER BY descripcion ASC";
 
@@ -274,11 +276,12 @@ namespace AplicativoDeAlmacen.Services
                     {
                         while (await reader.ReadAsync())
                         {
-                            lista.Add(new MotivoProducto
+                            var motivo = new MotivoProducto
                             {
                                 Id = reader.GetInt32(reader.GetOrdinal("id")),
                                 Descripcion = reader.GetString(reader.GetOrdinal("descripcion"))
-                            });
+                            };
+                            lista.Add(motivo);
                         }
                     }
                 }
@@ -672,7 +675,7 @@ namespace AplicativoDeAlmacen.Services
                             }
 
                             // 2. Conexión libre: verificamos si tiene salidas registradas o posteriores
-                            bool tienePosteriores = await TieneMovimientosPosterioresAsync(codIdAnterior, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+                            bool tienePosteriores = await TieneMovimientosPosterioresAsync(codIdAnterior, movimientoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
 
                             // 3. Excepción ejecutiva amigable para la interfaz
                             if (estadoActual == 4 || tienePosteriores)
@@ -853,8 +856,39 @@ namespace AplicativoDeAlmacen.Services
                     for (int i = 0; i < codigosAInsertar.Count; i += bulkSize)
                     {
                         var batch = codigosAInsertar.Skip(i).Take(bulkSize).ToList();
+
+                        // Re-vinculamos los códigos al movimiento
                         await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, batch, dbConn, transaccion);
-                        await ActualizarEstadoCodigosMasivoAsync(batch, 3, dbConn, transaccion);
+
+                        if (existingMovimientoId.HasValue)
+                        {
+                            foreach (var codId in batch)
+                            {
+                                // 1. Verificamos si tiene movimientos posteriores (compara fecha e ID de movimiento)
+                                bool tieneSalidaPosterior = await TieneMovimientosPosterioresAsync(codId, movimientoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+
+                                // 2. Leemos su estado actual en la base de datos
+                                int estadoActualBD = 0;
+                                using (var cmdSt = dbConn.CreateCommand())
+                                {
+                                    cmdSt.Transaction = transaccion;
+                                    cmdSt.CommandText = QueryAdapter.FormatearConsulta("SELECT estado_id FROM codigos_creados WHERE id = @codId");
+                                    AgregarParametro(cmdSt, "@codId", codId);
+                                    object resSt = await cmdSt.ExecuteScalarAsync();
+                                    if (resSt != null && resSt != DBNull.Value) estadoActualBD = Convert.ToInt32(resSt);
+                                }
+
+                                // 🛡️ PROTECCIÓN DE SALIDAS: Solo pasa a Estado 3 si NO tiene salidas posteriores Y NO está en Estado 4
+                                if (!tieneSalidaPosterior && estadoActualBD != 4)
+                                {
+                                    await ActualizarEstadoCodigo(codId, 3, dbConn, transaccion);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            await ActualizarEstadoCodigosMasivoAsync(batch, 3, dbConn, transaccion);
+                        }
                     }
                 }
 
@@ -1697,20 +1731,25 @@ namespace AplicativoDeAlmacen.Services
             return rangos.Where(x => x.productoId == productoId).ToList();
         }
 
-        public async Task<bool> TieneMovimientosPosterioresAsync(int codigoId, DateTime fechaEdicion, DbConnection conn, DbTransaction trans)
+        public async Task<bool> TieneMovimientosPosterioresAsync(int codigoId, int movimientoActualId, DateTime fechaEdicion, DbConnection conn, DbTransaction trans)
         {
             string query = @"
         SELECT COUNT(*) 
-        FROM movimiento_codigos mc
-        JOIN movimientos m ON mc.movimiento_id = m.id
+        FROM movimiento_codigos mc WITH (NOLOCK)
+        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
         WHERE mc.codigo_creado_id = @codId 
-        AND m.fecha_movimiento > @fechaEdicion";
+          AND m.estado_id = 1
+          AND (
+              m.fecha_movimiento > @fechaEdicion 
+              OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
+          )";
 
             using var cmd = conn.CreateCommand();
             cmd.Transaction = trans;
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
             AgregarParametro(cmd, "@codId", codigoId);
+            AgregarParametro(cmd, "@movId", movimientoActualId);
             AgregarParametro(cmd, "@fechaEdicion", fechaEdicion);
 
             var result = await cmd.ExecuteScalarAsync();

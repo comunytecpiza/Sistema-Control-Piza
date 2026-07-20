@@ -28,22 +28,17 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<Coleccion>> ObtenerTodosAsync()
         {
             var lista = new List<Coleccion>();
-
             using var conn = _database.GetConnection();
             await ((DbConnection)conn).OpenAsync();
 
             string query = @"
-                SELECT c.id,
-                       c.ano,
-                       c.estado_id,
-                       e.nombre AS estado_nombre
+                SELECT c.id, c.ano, c.estado_id, e.nombre AS estado_nombre
                 FROM colecciones c
                 LEFT JOIN estados e ON c.estado_id = e.id
                 ORDER BY c.ano DESC";
 
             using var cmd = conn.CreateCommand();
             cmd.CommandText = query;
-
             using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
 
             while (await ((DbDataReader)reader).ReadAsync())
@@ -51,22 +46,14 @@ namespace AplicativoDeAlmacen.Services
                 lista.Add(new Coleccion
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
-
-                    Ano = reader.IsDBNull(reader.GetOrdinal("ano"))
-                        ? null
-                        : reader.GetInt32(reader.GetOrdinal("ano")),
-
+                    Ano = reader.IsDBNull(reader.GetOrdinal("ano")) ? null : reader.GetInt32(reader.GetOrdinal("ano")),
                     EstadoId = reader.GetInt32(reader.GetOrdinal("estado_id")),
-
                     Estado = new Estado
                     {
-                        Nombre = reader.IsDBNull(reader.GetOrdinal("estado_nombre"))
-                            ? "DESCONOCIDO"
-                            : reader.GetString(reader.GetOrdinal("estado_nombre"))
+                        Nombre = reader.IsDBNull(reader.GetOrdinal("estado_nombre")) ? "DESCONOCIDO" : reader.GetString(reader.GetOrdinal("estado_nombre"))
                     }
                 });
             }
-
             return lista;
         }
 
@@ -75,18 +62,7 @@ namespace AplicativoDeAlmacen.Services
             using var conn = _database.GetConnection();
             await ((DbConnection)conn).OpenAsync();
 
-            string query = @"
-                INSERT INTO colecciones
-                (
-                    ano,
-                    estado_id
-                )
-                VALUES
-                (
-                    @Ano,
-                    @EstadoId
-                )";
-
+            string query = "INSERT INTO colecciones (ano, estado_id) VALUES (@Ano, @EstadoId)";
             using var cmd = conn.CreateCommand();
             cmd.CommandText = query;
 
@@ -96,37 +72,65 @@ namespace AplicativoDeAlmacen.Services
             await ((DbCommand)cmd).ExecuteNonQueryAsync();
         }
 
-        public async Task<List<Estado>> ObtenerEstadosAsync()
+        public async Task ActualizarAsync(Coleccion c)
         {
-            var lista = new List<Estado>();
-
             using var conn = _database.GetConnection();
             await ((DbConnection)conn).OpenAsync();
 
-            string query = @"
-                SELECT id, nombre
-                FROM estados
-                ORDER BY
-                CASE WHEN nombre = 'Activo' THEN 0 ELSE 1 END,
-                nombre";
+            string query = "UPDATE colecciones SET ano = @Ano, estado_id = @EstadoId WHERE id = @Id";
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
 
+            AgregarParametro(cmd, "@Id", c.Id);
+            AgregarParametro(cmd, "@Ano", c.Ano);
+            AgregarParametro(cmd, "@EstadoId", c.EstadoId);
+
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
+        }
+
+        public async Task EliminarAsync(int id)
+        {
+            using var conn = _database.GetConnection();
+            await ((DbConnection)conn).OpenAsync();
+
+            // 🛡️ Integridad Referencial: Verificar si está vinculada a códigos
+            string checkQuery = "SELECT COUNT(*) FROM registro_codigos WHERE coleccion_id = @Id";
+            using (var checkCmd = conn.CreateCommand())
+            {
+                checkCmd.CommandText = checkQuery;
+                AgregarParametro(checkCmd, "@Id", id);
+                int uso = Convert.ToInt32(await ((DbCommand)checkCmd).ExecuteScalarAsync());
+
+                if (uso > 0)
+                {
+                    throw new Exception($"No se puede eliminar esta colección porque se encuentra asociada a {uso} registro(s) de códigos de producción.");
+                }
+            }
+
+            string query = "DELETE FROM colecciones WHERE id = @Id";
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+            AgregarParametro(cmd, "@Id", id);
+
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
+        }
+
+        public async Task<List<Estado>> ObtenerEstadosAsync()
+        {
+            var lista = new List<Estado>();
+            using var conn = _database.GetConnection();
+            await ((DbConnection)conn).OpenAsync();
+
+            string query = "SELECT id, nombre FROM estados ORDER BY CASE WHEN nombre = 'Activo' THEN 0 ELSE 1 END, nombre";
             using var cmd = conn.CreateCommand();
             cmd.CommandText = query;
 
             using var reader = await ((DbCommand)cmd).ExecuteReaderAsync();
-
             while (await ((DbDataReader)reader).ReadAsync())
             {
-                lista.Add(new Estado
-                {
-                    Id = reader.GetInt32(0),
-                    Nombre = reader.GetString(1)
-                });
+                lista.Add(new Estado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
             }
-
             return lista;
         }
-
-
     }
 }

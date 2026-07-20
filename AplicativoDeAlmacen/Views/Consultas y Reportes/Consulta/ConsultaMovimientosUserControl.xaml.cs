@@ -335,15 +335,22 @@ namespace AplicativoDeAlmacen.Views
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
             {
-                // 🌟 Normalizamos el comprobante eliminando la etiqueta de anulación para cruzar con la tabla de códigos
                 string registroLimpio = movimiento.NumeroRegistro?
                     .Replace("❌ ANULADO - ", "")
                     .Trim() ?? string.Empty;
 
+                // 🌟 Determinamos si la fila seleccionada es Entrada o Salida
+                bool esIngreso = movimiento.Ingreso > 0;
+                string tipoBuscado = esIngreso ? "ENTRADA" : "SALIDA";
+
+                // 🛡️ FILTRADO EXACTO: Comprobante + Tipo de Movimiento
                 var codigos = _todosLosCodigos
-                    .Where(c => c.NumeroRegistro == registroLimpio || c.NumeroRegistro == movimiento.NumeroRegistro)
+                    .Where(c => (c.NumeroRegistro.Equals(registroLimpio, StringComparison.OrdinalIgnoreCase) ||
+                                c.NumeroRegistro.Equals(movimiento.NumeroRegistro, StringComparison.OrdinalIgnoreCase))
+                                && c.TipoMovimiento == tipoBuscado)
                     .ToList();
 
+                CodigosDataGrid.ItemsSource = null;
                 CodigosDataGrid.ItemsSource = codigos;
 
                 if (movimiento.IsAnulado || movimiento.NumeroRegistro.Contains("ANULADO"))

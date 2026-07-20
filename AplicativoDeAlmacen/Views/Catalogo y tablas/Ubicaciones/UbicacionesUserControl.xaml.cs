@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using AplicativoDeAlmacen.Models.Models;
@@ -20,13 +21,13 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             _ubicacionService = new UbicacionService();
 
-            // Usamos Loaded para asegurar que el control esté cargado
-            this.Loaded += (s, e) => {
+            this.Loaded += async (s, e) => {
                 ConfigurarFormatosCombos();
-                CargarUbicaciones();
+                await CargarCombosMaestrosAsync();
+                await CargarUbicacionesAsync();
             };
 
-            EventBus.OnUbicacionesChanged += () => Application.Current.Dispatcher.InvokeAsync(CargarUbicaciones);
+            EventBus.OnUbicacionesChanged += () => Application.Current.Dispatcher.InvokeAsync(CargarUbicacionesAsync);
         }
 
         private void ConfigurarFormatosCombos()
@@ -37,123 +38,83 @@ namespace AplicativoDeAlmacen.Views
             CmbProvincia.DisplayMemberPath = "Nombre";
             CmbDistrito.DisplayMemberPath = "Nombre";
             CmbEstado.DisplayMemberPath = "Nombre";
+            CmbFiltroTipoUbicacion.DisplayMemberPath = "Nombre";
         }
 
-        private void CargarUbicaciones()
+        private async Task CargarCombosMaestrosAsync()
         {
             try
             {
-                _listadoCompletoUbicaciones = _ubicacionService.ObtenerTodas();
-                UbicacionesDataGrid.ItemsSource = _listadoCompletoUbicaciones;
+                var tipos = await _ubicacionService.ObtenerTiposUbicacionAsync();
+
+                // Agregar opción "TODOS LOS TIPOS" al filtro
+                var listaFiltro = new List<TipoUbicacion> { new TipoUbicacion { Id = 0, Nombre = "--- TODOS LOS TIPOS ---" } };
+                listaFiltro.AddRange(tipos);
+
+                CmbFiltroTipoUbicacion.ItemsSource = listaFiltro;
+                CmbFiltroTipoUbicacion.SelectedIndex = 0;
+
+                CmbTipoUbicacion.ItemsSource = tipos;
+                CmbLocalidad.ItemsSource = await _ubicacionService.ObtenerLocalidadesAsync();
+                CmbDepartamento.ItemsSource = await _ubicacionService.ObtenerDepartamentosAsync();
+                CmbEstado.ItemsSource = await _ubicacionService.ObtenerEstadosAsync();
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error al cargar maestros: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private void AsignarDatosAlFormulario(Ubicacion u)
+        private async Task CargarUbicacionesAsync()
         {
-            TxtDescripcion.Text = u.Descripcion;
-            TxtDireccion.Text = u.Direccion;
-
-            // Buscamos e igualamos por ID el objeto de la lista del Combo para marcarlo como Seleccionado
-            CmbTipoUbicacion.SelectedItem = CmbTipoUbicacion.Items.Cast<TipoUbicacion>().FirstOrDefault(x => x.Id == u.TipoUbicacion.Id);
-            CmbLocalidad.SelectedItem = CmbLocalidad.Items.Cast<Localidad>().FirstOrDefault(x => x.Id == u.Localidad.Id);
-            CmbEstado.SelectedItem = CmbEstado.Items.Cast<Estado>().FirstOrDefault(x => x.Id == u.Estado.Id);
-
-            // Cargar cascada de ubigeo validando objetos existentes
-            if (u.Departamento != null)
+            try
             {
-                CmbDepartamento.SelectedItem = CmbDepartamento.Items.Cast<Departamento>().FirstOrDefault(x => x.Id == u.Departamento.Id);
-                CmbProvincia.ItemsSource = _ubicacionService.ObtenerProvincias(u.Departamento.Id);
-
-                if (u.Provincia != null)
-                {
-                    CmbProvincia.SelectedItem = CmbProvincia.Items.Cast<Provincia>().FirstOrDefault(x => x.Id == u.Provincia.Id);
-                    CmbDistrito.ItemsSource = _ubicacionService.ObtenerDistritos(u.Provincia.Id);
-
-                    if (u.Distrito != null)
-                    {
-                        CmbDistrito.SelectedItem = CmbDistrito.Items.Cast<Distrito>().FirstOrDefault(x => x.Id == u.Distrito.Id);
-                    }
-                }
+                _listadoCompletoUbicaciones = await _ubicacionService.ObtenerTodasAsync();
+                AplicarFiltros();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al cargar las ubicaciones: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private void CmbDepartamento_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void AplicarFiltros()
+        {
+            string busqueda = BuscarTextBox.Text.ToLower().Trim();
+            int tipoIdSeleccionado = (CmbFiltroTipoUbicacion.SelectedItem is TipoUbicacion tu) ? tu.Id : 0;
+
+            var resultado = _listadoCompletoUbicaciones.Where(u =>
+                (tipoIdSeleccionado == 0 || (u.TipoUbicacion != null && u.TipoUbicacion.Id == tipoIdSeleccionado)) &&
+                (string.IsNullOrWhiteSpace(busqueda) ||
+                 u.Id.ToString().Contains(busqueda) ||
+                 (u.Descripcion != null && u.Descripcion.ToLower().Contains(busqueda)) ||
+                 (u.Direccion != null && u.Direccion.ToLower().Contains(busqueda)) ||
+                 (u.Localidad?.Nombre != null && u.Localidad.Nombre.ToLower().Contains(busqueda)) ||
+                 (u.Departamento?.Nombre != null && u.Departamento.Nombre.ToLower().Contains(busqueda))
+                )
+            ).ToList();
+
+            UbicacionesDataGrid.ItemsSource = resultado;
+        }
+
+        private void BuscarTextBox_TextChanged(object sender, TextChangedEventArgs e) => AplicarFiltros();
+
+        private void CmbFiltroTipoUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e) => AplicarFiltros();
+
+        private async void CmbDepartamento_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (CmbDepartamento.SelectedItem is Departamento dep)
             {
-                CmbProvincia.ItemsSource = _ubicacionService.ObtenerProvincias(dep.Id);
+                CmbProvincia.ItemsSource = await _ubicacionService.ObtenerProvinciasAsync(dep.Id);
                 CmbDistrito.ItemsSource = null;
             }
         }
 
-        private void CmbProvincia_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void CmbProvincia_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (CmbProvincia.SelectedItem is Provincia prov)
             {
-                CmbDistrito.ItemsSource = _ubicacionService.ObtenerDistritos(prov.Id);
-            }
-        }
-
-        private void BtnGuardarUbicacion_Click(object sender, RoutedEventArgs e)
-        {
-            if (!ValidarCampos()) return;
-
-            try
-            {
-                var u = _ubicacionActual ?? new Ubicacion();
-                u.Descripcion = TxtDescripcion.Text;
-                u.Direccion = TxtDireccion.Text;
-
-                // Capturamos el objeto seleccionado completo y lo asignamos a la propiedad de la Ubicación
-                u.TipoUbicacion = (TipoUbicacion)CmbTipoUbicacion.SelectedItem;
-                u.Localidad = (Localidad)CmbLocalidad.SelectedItem;
-                u.Estado = (Estado)CmbEstado.SelectedItem;
-
-                u.Departamento = CmbDepartamento.SelectedItem as Departamento;
-                u.Provincia = CmbProvincia.SelectedItem as Provincia;
-                u.Distrito = CmbDistrito.SelectedItem as Distrito;
-
-                if (_ubicacionActual == null)
-                    _ubicacionService.Insertar(u);
-                else
-                    _ubicacionService.Actualizar(u);
-
-                UbicacionModal.Visibility = Visibility.Collapsed;
-                CargarUbicaciones();
-                EventBus.NotificarUbicacionesChanged();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error al guardar: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private bool ValidarCampos()
-        {
-            if (CmbTipoUbicacion.SelectedItem == null || CmbLocalidad.SelectedItem == null || CmbEstado.SelectedItem == null)
-            {
-                MessageBox.Show("Por favor, rellene los campos de objetos obligatorios.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
-            return true;
-        }
-
-        private void CargarCombosMaestros()
-        {
-            try
-            {
-                CmbTipoUbicacion.ItemsSource = _ubicacionService.ObtenerTiposUbicacion();
-                CmbLocalidad.ItemsSource = _ubicacionService.ObtenerLocalidades();
-                CmbDepartamento.ItemsSource = _ubicacionService.ObtenerDepartamentos();
-                CmbEstado.ItemsSource = _ubicacionService.ObtenerEstados();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Error al cargar combos: " + ex.Message);
+                CmbDistrito.ItemsSource = await _ubicacionService.ObtenerDistritosAsync(prov.Id);
             }
         }
 
@@ -161,72 +122,171 @@ namespace AplicativoDeAlmacen.Views
         {
             _ubicacionActual = null;
             ModalTitle.Text = "Nueva Ubicación";
-            LimpiarCamposUbicacion();
-            CargarCombosMaestros();
+            LimpiarCamposModal();
             UbicacionModal.Visibility = Visibility.Visible;
         }
 
-        private void EditarUbicacionButton_Click(object sender, RoutedEventArgs e)
+        private async void EditarUbicacionButton_Click(object sender, RoutedEventArgs e)
         {
-            _ubicacionActual = UbicacionesDataGrid.SelectedItem as Ubicacion;
-            if (_ubicacionActual != null)
+            if (UbicacionesDataGrid.SelectedItem is not Ubicacion seleccionada)
             {
-                ModalTitle.Text = "Editar Ubicación";
-                CargarCombosMaestros();
-                AsignarDatosAlFormulario(_ubicacionActual);
-                UbicacionModal.Visibility = Visibility.Visible;
+                MessageBox.Show(
+                    "Seleccione una ubicación para editar.",
+                    "Aviso",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            _ubicacionActual = seleccionada;
+
+            ModalTitle.Text = "Editar Ubicación";
+
+            // Textos
+            TxtDescripcion.Text = seleccionada.Descripcion ?? "";
+            TxtDireccion.Text = seleccionada.Direccion ?? "";
+
+            // Limpiar selección
+            CmbProvincia.ItemsSource = null;
+            CmbDistrito.ItemsSource = null;
+
+            // Combos simples
+            CmbTipoUbicacion.SelectedValue = seleccionada.TipoUbicacion?.Id;
+            CmbLocalidad.SelectedValue = seleccionada.Localidad?.Id;
+            CmbEstado.SelectedValue = seleccionada.Estado?.Id;
+
+            // Departamento
+            if (seleccionada.Departamento != null)
+            {
+                CmbDepartamento.SelectedValue = seleccionada.Departamento.Id;
+
+                var provincias = await _ubicacionService.ObtenerProvinciasAsync(seleccionada.Departamento.Id);
+                CmbProvincia.ItemsSource = provincias;
+
+                if (seleccionada.Provincia != null)
+                {
+                    CmbProvincia.SelectedValue = seleccionada.Provincia.Id;
+
+                    var distritos = await _ubicacionService.ObtenerDistritosAsync(seleccionada.Provincia.Id);
+                    CmbDistrito.ItemsSource = distritos;
+
+                    if (seleccionada.Distrito != null)
+                    {
+                        CmbDistrito.SelectedValue = seleccionada.Distrito.Id;
+                    }
+                }
+            }
+
+            UbicacionModal.Visibility = Visibility.Visible;
+        }
+
+        private async void EliminarUbicacionButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (UbicacionesDataGrid.SelectedItem is Ubicacion seleccionada)
+            {
+                var confirm = MessageBox.Show($"¿Está seguro de eliminar la ubicación \"{seleccionada.Descripcion}\"?", "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (confirm != MessageBoxResult.Yes) return;
+
+                try
+                {
+                    await _ubicacionService.EliminarAsync(seleccionada.Id);
+                    MessageBox.Show("Ubicación eliminada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await CargarUbicacionesAsync();
+                    EventBus.NotificarUbicacionesChanged();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Restricción de Kárdex", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             }
             else
             {
-                MessageBox.Show("Seleccione una fila primero.");
+                MessageBox.Show("Por favor, seleccione una ubicación para eliminar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
-        private void LimpiarCamposUbicacion()
+        private async void BtnGuardarUbicacion_Click(object sender, RoutedEventArgs e)
         {
-            TxtDescripcion.Text = string.Empty; TxtDireccion.Text = string.Empty;
-            CmbTipoUbicacion.SelectedIndex = -1; CmbLocalidad.SelectedIndex = -1;
-            CmbDepartamento.SelectedIndex = -1; CmbProvincia.ItemsSource = null;
-            CmbDistrito.ItemsSource = null; CmbEstado.SelectedIndex = -1;
+            if (string.IsNullOrWhiteSpace(TxtDescripcion.Text))
+            {
+                MessageBox.Show("Ingrese el nombre de la ubicación.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (CmbTipoUbicacion.SelectedItem == null)
+            {
+                MessageBox.Show("Seleccione un Tipo de Ubicación.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                var u = _ubicacionActual ?? new Ubicacion();
+                u.Descripcion = TxtDescripcion.Text;
+                u.Direccion = TxtDireccion.Text;
+
+                u.TipoUbicacion = (TipoUbicacion)CmbTipoUbicacion.SelectedItem;
+                u.Localidad = CmbLocalidad.SelectedItem as Localidad;
+                u.Estado = CmbEstado.SelectedItem as Estado;
+
+                u.Departamento = CmbDepartamento.SelectedItem as Departamento;
+                u.Provincia = CmbProvincia.SelectedItem as Provincia;
+                u.Distrito = CmbDistrito.SelectedItem as Distrito;
+
+                if (_ubicacionActual == null)
+                {
+                    await _ubicacionService.InsertarAsync(u);
+                    MessageBox.Show("Ubicación registrada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    await _ubicacionService.ActualizarAsync(u);
+                    MessageBox.Show("Ubicación actualizada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+
+                UbicacionModal.Visibility = Visibility.Collapsed;
+                await CargarUbicacionesAsync();
+                EventBus.NotificarUbicacionesChanged();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al guardar la ubicación: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void LimpiarCamposModal()
+        {
+            TxtDescripcion.Clear();
+            TxtDireccion.Clear();
+            CmbTipoUbicacion.SelectedIndex = -1;
+            CmbLocalidad.SelectedIndex = -1;
+            CmbDepartamento.SelectedIndex = -1;
+            CmbProvincia.ItemsSource = null;
+            CmbDistrito.ItemsSource = null;
+            CmbEstado.SelectedIndex = -1;
         }
 
         private void BtnCancelarUbicacion_Click(object sender, RoutedEventArgs e) => UbicacionModal.Visibility = Visibility.Collapsed;
-
-        private void BuscarTextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            string b = BuscarTextBox.Text.ToLower().Trim();
-            if (string.IsNullOrWhiteSpace(b)) UbicacionesDataGrid.ItemsSource = _listadoCompletoUbicaciones;
-            else
-            {
-                UbicacionesDataGrid.ItemsSource = _listadoCompletoUbicaciones.Where(x =>
-                    x.Id.ToString().Contains(b) ||
-                    (x.Descripcion != null && x.Descripcion.ToLower().Contains(b)) ||
-                    (x.Localidad?.Nombre != null && x.Localidad.Nombre.ToLower().Contains(b))
-                ).ToList();
-            }
-        }
 
         private void BtnSeries_Click(object sender, RoutedEventArgs e)
         {
             if (UbicacionesDataGrid.SelectedItem is Ubicacion ubicacionSeleccionada)
             {
-                // 🌟 VALIDACIÓN EXACTA A TU SISTEMA ANTERIOR 🌟
                 if (ubicacionSeleccionada.TipoUbicacion == null ||
                    !ubicacionSeleccionada.TipoUbicacion.Nombre.ToUpper().Contains("PUNTO DE VENTA"))
                 {
-                    MessageBox.Show("Solamente manejan series las ubicaciones que son PUNTOS DE VENTA, verifique...!",
-                                    "Mensaje al usuario", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Solamente manejan series las ubicaciones que son PUNTOS DE VENTA.",
+                                    "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
-                // Si pasa la validación, abrimos la ventana de series
                 SeriesUbicacionWindow modalSeries = new SeriesUbicacionWindow(ubicacionSeleccionada);
                 modalSeries.Owner = Window.GetWindow(this);
                 modalSeries.ShowDialog();
             }
             else
             {
-                MessageBox.Show("Por favor, seleccione una ubicación de la lista para configurar sus series.",
+                MessageBox.Show("Por favor, seleccione una ubicación para configurar sus series.",
                                 "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }

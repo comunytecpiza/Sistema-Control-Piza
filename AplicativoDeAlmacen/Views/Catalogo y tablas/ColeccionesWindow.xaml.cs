@@ -13,6 +13,7 @@ namespace AplicativoDeAlmacen.Views
     {
         private readonly ColeccionService _coleccionService;
         private ObservableCollection<Coleccion> colecciones = new ObservableCollection<Coleccion>();
+        private Coleccion? coleccionActual;
 
         public ColeccionesUserControl()
         {
@@ -36,11 +37,7 @@ namespace AplicativoDeAlmacen.Views
                 EstadoComboBox.DisplayMemberPath = "Nombre";
                 EstadoComboBox.SelectedValuePath = "Id";
 
-                // Seleccionamos el primero por defecto (que gracias a tu SQL será "Activo")
-                if (estados.Any())
-                {
-                    EstadoComboBox.SelectedIndex = 0;
-                }
+                if (estados.Any()) EstadoComboBox.SelectedIndex = 0;
             }
             catch (Exception ex)
             {
@@ -55,10 +52,7 @@ namespace AplicativoDeAlmacen.Views
                 colecciones.Clear();
                 var listaDb = await _coleccionService.ObtenerTodosAsync();
 
-                foreach (var item in listaDb)
-                {
-                    colecciones.Add(item);
-                }
+                foreach (var item in listaDb) colecciones.Add(item);
 
                 ColeccionesDataGrid.ItemsSource = colecciones;
             }
@@ -81,37 +75,65 @@ namespace AplicativoDeAlmacen.Views
 
         private void AgregarColeccion_Click(object sender, RoutedEventArgs e)
         {
-            int siguienteAno;
+            coleccionActual = null;
+            ModalTitle.Text = "Nueva Colección";
 
-            // Verificamos si hay colecciones que SÍ tengan un año asignado (no nulo)
-            if (colecciones.Any(c => c.Ano.HasValue))
+            int siguienteAno = colecciones.Any(c => c.Ano.HasValue)
+                ? colecciones.Where(c => c.Ano.HasValue).Max(c => c.Ano!.Value) + 1
+                : DateTime.Now.Year;
+
+            AnoTextBox.Text = siguienteAno.ToString();
+            if (EstadoComboBox.Items.Count > 0) EstadoComboBox.SelectedIndex = 0;
+
+            ModalBackground.Visibility = Visibility.Visible;
+        }
+
+        private void EditarColeccion_Click(object sender, RoutedEventArgs e)
+        {
+            if (ColeccionesDataGrid.SelectedItem is Coleccion seleccionada)
             {
-                // Obtenemos el año mínimo asegurándonos de extraer el valor exacto (.Value)
-                siguienteAno = colecciones.Where(c => c.Ano.HasValue).Min(c => c.Ano.Value);
+                coleccionActual = seleccionada;
+                ModalTitle.Text = "Editar Colección";
+                AnoTextBox.Text = seleccionada.Ano?.ToString() ?? "";
+                EstadoComboBox.SelectedValue = seleccionada.EstadoId;
 
-                while (colecciones.Any(c => c.Ano == siguienteAno))
+                ModalBackground.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione una colección para editar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private async void EliminarColeccion_Click(object sender, RoutedEventArgs e)
+        {
+            if (ColeccionesDataGrid.SelectedItem is Coleccion seleccionada)
+            {
+                var confirmacion = MessageBox.Show($"¿Está seguro de eliminar la colección del año {seleccionada.Ano}?", "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (confirmacion != MessageBoxResult.Yes) return;
+
+                try
                 {
-                    siguienteAno++;
+                    await _coleccionService.EliminarAsync(seleccionada.Id);
+                    MessageBox.Show("Colección eliminada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await CargarColeccionesAsync();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Restricción de Kárdex", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             else
             {
-                // Si la lista está vacía o todas tienen el año nulo, usamos el año actual
-                siguienteAno = DateTime.Now.Year;
+                MessageBox.Show("Por favor, seleccione una colección para eliminar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
             }
-
-            AnoTextBox.Text = siguienteAno.ToString();
-
-            if (EstadoComboBox.Items.Count > 0)
-                EstadoComboBox.SelectedIndex = 0;
-
-            ModalBackground.Visibility = Visibility.Visible;
         }
-        private async void Agregar_Click(object sender, RoutedEventArgs e)
+
+        private async void Guardar_Click(object sender, RoutedEventArgs e)
         {
             if (int.TryParse(AnoTextBox.Text, out int ano) && EstadoComboBox.SelectedValue is int estadoId)
             {
-                if (colecciones.Any(c => c.Ano == ano))
+                if ((coleccionActual == null || coleccionActual.Ano != ano) && colecciones.Any(c => c.Ano == ano))
                 {
                     MessageBox.Show($"Ya existe una colección para el año {ano}.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
@@ -119,14 +141,23 @@ namespace AplicativoDeAlmacen.Views
 
                 try
                 {
-                    var nuevaColeccion = new Coleccion
+                    var item = new Coleccion
                     {
+                        Id = coleccionActual?.Id ?? 0,
                         Ano = ano,
                         EstadoId = estadoId
                     };
 
-                    await _coleccionService.InsertarAsync(nuevaColeccion);
-                    MessageBox.Show("Colección agregada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    if (coleccionActual == null)
+                    {
+                        await _coleccionService.InsertarAsync(item);
+                        MessageBox.Show("Colección registrada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        await _coleccionService.ActualizarAsync(item);
+                        MessageBox.Show("Colección actualizada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
 
                     ModalBackground.Visibility = Visibility.Collapsed;
                     await CargarColeccionesAsync();

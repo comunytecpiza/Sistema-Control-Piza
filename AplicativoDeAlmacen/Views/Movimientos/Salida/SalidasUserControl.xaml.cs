@@ -1217,7 +1217,8 @@ namespace AplicativoDeAlmacen.Views
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error crítico al grabar salida:\n\n{ex.Message}", "Error de Persistencia", MessageBoxButton.OK, MessageBoxImage.Error);
+                string mensaje = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                MessageBox.Show(mensaje, "Restricción de Kárdex", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {

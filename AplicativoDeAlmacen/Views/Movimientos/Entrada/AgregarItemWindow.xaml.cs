@@ -36,7 +36,7 @@ namespace AplicativoDeAlmacen.Views
             _productoService = new ProductoService();
             ListaRangosAgregados = new ObservableCollection<RangoCodigoItem>();
 
-            ListaRangosAgregados.CollectionChanged += (s, e) => RecalcularCantidadTotalEnVivo();
+            
             dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
             dgDetalleCodigos.MouseDoubleClick += DgDetalleCodigos_MouseDoubleClick;
 
@@ -66,14 +66,16 @@ namespace AplicativoDeAlmacen.Views
 
         private void RecalcularCantidadTotalEnVivo()
         {
+            // 🛡️ REGLA: Si el usuario ya digitó una cantidad manual mayor a 0 (ej. 10), NO la pisamos.
+            if (int.TryParse(txtCantidad.Text, out int actual) && actual > 0)
+            {
+                return;
+            }
+
             if (ListaRangosAgregados != null && ListaRangosAgregados.Any())
             {
                 int sumaTotal = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
                 txtCantidad.Text = sumaTotal.ToString();
-            }
-            else
-            {
-                txtCantidad.Text = "0";
             }
         }
         public void InitializeForEdit(VistaProductoGrid item, List<RangoCodigoItem> rangos)
@@ -153,10 +155,11 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            int totalCantidadRangos = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0);
-            txtCantidad.Text = totalCantidadRangos > 0 ? totalCantidadRangos.ToString() : (item.Detalle?.CantidadIngreso ?? 0).ToString("0");
+            // 🌟 Mantiene la cantidad original del item sin ser pisada por los rangos parciales
+            decimal cantidadOriginal = item.Detalle != null ? (item.Detalle.CantidadIngreso > 0 ? item.Detalle.CantidadIngreso : item.Detalle.CantidadSalida) : item.Cantidad;
+            txtCantidad.Text = cantidadOriginal > 0 ? Convert.ToInt32(cantidadOriginal).ToString() : ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0).ToString();
 
-            txtCantidad.IsReadOnly = false; // 🔓 Siempre permite la edición libre
+            txtCantidad.IsReadOnly = false;
             txtProducto.IsEnabled = false;
         }
 
@@ -334,20 +337,27 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
+                // 🌟 SUMA TOTAL DE CÓDIGOS AGREGADOS ABAJO EN LA TABLA
                 int totalCodigosUnicosRegistrados = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
 
-                // 🌟 VALIDACIÓN AMIGABLE DE DESCUADRE:
+                // 🛡️ CANDADO DE DESCUADRE (Compara Cantidad General vs Suma de Rangos):
                 if (cantidadDeclarada != totalCodigosUnicosRegistrados)
                 {
+                    string detalleDiferencia = cantidadDeclarada < totalCodigosUnicosRegistrados
+                        ? $"Tiene MÁS CÓDIGOS en la lista ({totalCodigosUnicosRegistrados}) de los indicados en la Cantidad General ({cantidadDeclarada})."
+                        : $"Tiene MENOS CÓDIGOS en la lista ({totalCodigosUnicosRegistrados}) de los indicados en la Cantidad General ({cantidadDeclarada}).";
+
                     MessageBox.Show(
-                        $"⚠️ Inconsistencia en la Cantidad:\n\n" +
-                        $"• Cantidad indicada arriba: {cantidadDeclarada} unidades.\n" +
+                        $"⚠️ Descuadre en la Cantidad General:\n\n" +
+                        $"{detalleDiferencia}\n\n" +
+                        $"• Cantidad General arriba: {cantidadDeclarada} unidades.\n" +
                         $"• Suma de códigos abajo: {totalCodigosUnicosRegistrados} códigos.\n\n" +
-                        $"Por favor, modifique o elimine el rango en la lista de abajo para que sume exactamente {cantidadDeclarada}.",
-                        "Diferencia de Unidades",
+                        $"Por favor, corrija la Cantidad General arriba o ajuste las series en la lista para que coincidan exactamente.",
+                        "Inconsistencia de Unidades",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
-                    return;
+
+                    return; // 🛑 Cancela el guardado
                 }
             }
 

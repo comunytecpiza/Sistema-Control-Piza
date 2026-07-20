@@ -196,7 +196,7 @@ namespace AplicativoDeAlmacen.Services
         // CONSULTA DE MOVIMIENTOS DETALLADOS (Esquema Corregido)
         // =========================================================
         public async Task<ConsultaMovimientoReporte> ConsultarMovimientosDetalladosAsync(
-            int productoId, DateTime fechaDesde, DateTime fechaHasta)
+    int productoId, DateTime fechaDesde, DateTime fechaHasta)
         {
             var reporte = new ConsultaMovimientoReporte();
 
@@ -204,26 +204,27 @@ namespace AplicativoDeAlmacen.Services
             {
                 await ((DbConnection)conn).OpenAsync();
 
-                // 1. TABLA IZQUIERDA — Movimientos del producto en el rango
+                // 1. TABLA IZQUIERDA — Movimientos del producto en el rango (Incluyendo estado_id como columna 6)
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-                    SELECT
-                        m.fecha_movimiento,
-                        COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
-                        COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-                        COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
-                        COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
-                        COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
-                        m.estado_id -- 🌟 TRAEMOS EL ESTADO (1 = Activo, 2 = Anulado)
-                    FROM movimiento_detalles md
-                    INNER JOIN movimientos m ON md.movimiento_id = m.id
-                    LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-                    LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
-                    WHERE md.producto_id = @ProductoId
-                      AND m.fecha_movimiento >= @FechaDesde
-                      AND m.fecha_movimiento <= @FechaHasta
-                    ORDER BY m.created_at ASC, m.id ASC";
+            SELECT
+                m.fecha_movimiento,
+                COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
+                COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+                COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
+                COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
+                COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
+                m.estado_id -- 🌟 COLUMNA 6 AGREGADA CORRECTAMENTE
+            FROM movimiento_detalles md
+            INNER JOIN movimientos m ON md.movimiento_id = m.id
+            LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+            LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+            WHERE md.producto_id = @ProductoId
+              AND m.fecha_movimiento >= @FechaDesde
+              AND m.fecha_movimiento <= @FechaHasta
+            ORDER BY m.created_at ASC, m.id ASC";
+
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -235,7 +236,7 @@ namespace AplicativoDeAlmacen.Services
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
                             int estadoId = reader.IsDBNull(6) ? 1 : reader.GetInt32(6);
-                            bool anulado = estadoId == 2;
+                            bool anulado = (estadoId == 2);
 
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
@@ -243,34 +244,35 @@ namespace AplicativoDeAlmacen.Services
                                 NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + reader.GetString(1),
                                 RazonSocialUbicacion = reader.GetString(2),
                                 NumeroGuia = reader.GetString(3),
-                                // Si está anulado, mostramos 0 para que no confunda o mantenemos los montos si quieres ver el histórico
                                 Ingreso = reader.GetDecimal(4),
                                 Salida = reader.GetDecimal(5),
-                                IsAnulado = anulado // 🌟 Asignamos la bandera bool
+                                IsAnulado = anulado
                             });
                         }
                     }
                 }
 
-                // 2. TABLA DERECHA — Códigos físicos movilizados
-                // Se eliminó el "catch" silencioso. El ORDER BY se corrigió al alias 'codigo'
+                // 2. TABLA DERECHA — Códigos físicos por movimiento
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
+                    // 🌟 TABLA DERECHA EN KardexService.cs
                     string queryRaw = @"
-                        SELECT DISTINCT
-                            COALESCE(cc.codigo, 'N/A') AS codigo,
-                            COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo, -- AQUÍ ESTÁ EL CAMBIO
-                            COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS numero_registro
-                        FROM movimiento_detalles md
-                        INNER JOIN movimientos          m   ON md.movimiento_id         = m.id
-                        INNER JOIN movimiento_codigos   mc  ON mc.movimiento_detalle_id = md.id
-                        INNER JOIN codigos_creados      cc  ON mc.codigo_creado_id      = cc.id
-                        INNER JOIN registro_codigos     rc  ON cc.registro_codigo_id    = rc.id
-                        LEFT JOIN categoria_producto    cat ON rc.categoria_producto_id = cat.id -- CAMBIO: Unimos con categoría
-                        WHERE md.producto_id      = @ProductoId
-                          AND m.fecha_movimiento >= @FechaDesde
-                          AND m.fecha_movimiento <= @FechaHasta
-                        ORDER BY codigo ASC";
+                    SELECT DISTINCT
+                        COALESCE(cc.codigo, 'N/A') AS codigo,
+                        COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
+                        COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS numero_registro,
+                        CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov -- 🌟 CLAVE
+                    FROM movimiento_detalles md
+                    INNER JOIN movimientos          m   ON md.movimiento_id         = m.id
+                    INNER JOIN motivo_productos     mp  ON m.motivo_producto_id     = mp.id
+                    INNER JOIN movimiento_codigos   mc  ON mc.movimiento_detalle_id = md.id
+                    INNER JOIN codigos_creados      cc  ON mc.codigo_creado_id      = cc.id
+                    INNER JOIN registro_codigos     rc  ON cc.registro_codigo_id    = rc.id
+                    LEFT JOIN categoria_producto    cat ON rc.categoria_producto_id = cat.id
+                    WHERE md.producto_id      = @ProductoId
+                      AND m.fecha_movimiento >= @FechaDesde
+                      AND m.fecha_movimiento <= @FechaHasta
+                    ORDER BY codigo ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -286,7 +288,8 @@ namespace AplicativoDeAlmacen.Services
                             {
                                 Codigo = reader.GetString(0),
                                 ColeccionTipo = reader.GetString(1),
-                                NumeroRegistro = reader.GetString(2) // NUEVO: Extraemos el puente
+                                NumeroRegistro = reader.GetString(2),
+                                TipoMovimiento = reader.GetString(3) // 🌟 Asegúrate que la clase ConsultaCodigoItem tenga esta propiedad
                             });
                         }
                     }

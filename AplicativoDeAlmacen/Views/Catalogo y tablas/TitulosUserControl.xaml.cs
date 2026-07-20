@@ -138,9 +138,35 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+        private async void EliminarTitulo_Click(object sender, RoutedEventArgs e)
+        {
+            if (TitulosDataGrid.SelectedItem is TituloCurso seleccionado)
+            {
+                var confirm = MessageBox.Show($"¿Está seguro de eliminar el título \"{seleccionado.Nombre}\"?", "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (confirm != MessageBoxResult.Yes) return;
+
+                try
+                {
+                    await _tituloService.EliminarAsync(seleccionado.Id);
+                    MessageBox.Show("Título eliminado con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await CargarTitulosAsync();
+                    EventBus.NotificarTitulosChanged();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Restricción de Eliminación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione un título para eliminar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
         private void Cancelar_Click(object sender, RoutedEventArgs e)
         {
             ModalBackground.Visibility = Visibility.Collapsed;
         }
+
+
     }
 }

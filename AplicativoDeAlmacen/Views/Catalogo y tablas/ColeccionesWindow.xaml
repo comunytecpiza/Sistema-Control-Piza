@@ -1,8 +1,7 @@
 <UserControl x:Class="AplicativoDeAlmacen.Views.ColeccionesUserControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#F3F4F6"
-             FontFamily="Segoe UI">
+             Background="#F3F4F6" FontFamily="Segoe UI">
 
     <UserControl.Resources>
         <Style TargetType="Button">
@@ -48,8 +47,9 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="📚 Colecciones" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+        <TextBlock Text="📚 Gestión de Colecciones" FontSize="26" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
 
+        <!-- BARRA DE ACCIONES -->
         <Grid Grid.Row="1" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -62,14 +62,17 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="+ Agregar Colección" Click="AgregarColeccion_Click" Background="#10B981" MinWidth="150"/>
+                <Button Content="+ Agregar Colección" Click="AgregarColeccion_Click" Background="#10B981" Margin="0,0,10,0" MinWidth="150"/>
+                <Button Content="✏️ Editar" Click="EditarColeccion_Click" Background="#F59E0B" Margin="0,0,10,0" MinWidth="110"/>
+                <Button Content="🗑️ Eliminar" Click="EliminarColeccion_Click" Background="#EF4444" MinWidth="110"/>
             </StackPanel>
         </Grid>
 
+        <!-- DATA GRID -->
         <Border Grid.Row="2" CornerRadius="8" Background="White" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
             <DataGrid x:Name="ColeccionesDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
                       Background="Transparent" BorderThickness="0" 
-                      RowHeight="35" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
+                      RowHeight="38" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
                 <DataGrid.Resources>
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="#F9FAFB"/>
@@ -81,34 +84,36 @@
                     </Style>
                 </DataGrid.Resources>
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Cód." Binding="{Binding Id}" Width="80"/>
+                    <DataGridTextColumn Header="Cód." Binding="{Binding Id}" Width="100"/>
                     <DataGridTextColumn Header="AÑO DE COLECCIÓN" Binding="{Binding Ano}" Width="*"/>
-                    <DataGridTextColumn Header="ESTADO" Binding="{Binding Estado.Nombre}" Width="150"/>
+                    <DataGridTextColumn Header="ESTADO" Binding="{Binding Estado.Nombre}" Width="180"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
 
+        <!-- MODAL CON EL NAME AGREGADO -->
         <Grid x:Name="ModalBackground" Visibility="Collapsed" Background="#80000000" Grid.RowSpan="3" Margin="-20">
-            <Border Background="White" Width="350" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
+            <Border Background="White" Width="380" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="30">
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="25" ShadowDepth="5" Opacity="0.3" Direction="270"/>
                 </Border.Effect>
 
                 <StackPanel>
-                    <TextBlock Text="Nueva Colección" FontSize="22" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,15" TextAlignment="Center"/>
+                    <!-- 🌟 x:Name="ModalTitle" AGREGADO PARA ELIMINAR EL ERROR CS0103 -->
+                    <TextBlock x:Name="ModalTitle" Text="Nueva Colección" FontSize="22" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,15" TextAlignment="Center"/>
                     <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
 
                     <TextBlock Text="AÑO:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                    <TextBox x:Name="AnoTextBox" Margin="0,0,0,15" Height="30" FontSize="15" HorizontalContentAlignment="Center"/>
+                    <TextBox x:Name="AnoTextBox" Margin="0,0,0,15" Height="32" FontSize="15" HorizontalContentAlignment="Center"/>
 
                     <TextBlock Text="ESTADO:" Foreground="#4B5563" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                    <ComboBox x:Name="EstadoComboBox" Margin="0,0,0,25" Height="30" FontSize="15"/>
+                    <ComboBox x:Name="EstadoComboBox" Margin="0,0,0,25" Height="32" FontSize="15"/>
 
                     <Border Height="1" Background="#E5E7EB" Margin="0,0,0,20"/>
 
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="Cancelar" Click="Cancelar_Click" Background="#6B7280" Margin="0,0,10,0" Width="100"/>
-                        <Button Content="+ Agregar" Click="Agregar_Click" Background="#3B82F6" Width="120"/>
+                        <Button Content="Guardar" Click="Guardar_Click" Background="#3B82F6" Width="120"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

@@ -152,5 +152,30 @@ namespace AplicativoDeAlmacen.Views
         {
             AddEditUnidadModal.Visibility = Visibility.Collapsed;
         }
+
+        private async void DeleteUnidadButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (UnidadGrid.SelectedItem is UnidadMedida seleccionada)
+            {
+                var confirm = MessageBox.Show($"¿Está seguro de eliminar la unidad \"{seleccionada.Descripcion}\"?", "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (confirm != MessageBoxResult.Yes) return;
+
+                try
+                {
+                    await _unidadService.EliminarAsync(seleccionada.Id);
+                    MessageBox.Show("Unidad de medida eliminada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await CargarUnidadesAsync();
+                    EventBus.NotificarUnidadesMedidaChanged();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Restricción de Kárdex", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Por favor, seleccione una unidad para eliminar.", "Información", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
     }
 }

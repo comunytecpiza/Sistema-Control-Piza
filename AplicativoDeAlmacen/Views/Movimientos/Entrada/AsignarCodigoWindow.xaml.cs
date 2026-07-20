@@ -177,20 +177,29 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
+                // 🌟 Formateamos el prefijo de búsqueda según la categoría seleccionada (G = Guía, V = Venta)
+                string baseLimpia = abreviaturaRaw.Trim();
+                string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
+                string prefijoBuscado = $"{baseLimpia}{separador}";
+
                 string query = @"
-                    SELECT COUNT(*)
-                    FROM codigos_creados cc WITH (NOLOCK)
-                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                    WHERE rc.producto_id = @productoId
-                      AND cc.estado_id = @estadoPermitido
-                      AND ISNUMERIC(RIGHT(cc.codigo, 7)) = 1
-                      AND CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+            SELECT COUNT(*)
+            FROM codigos_creados cc WITH (NOLOCK)
+            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+            WHERE rc.producto_id = @productoId
+              AND cc.estado_id = @estadoPermitido
+              AND rc.categoria_producto_id = @categoriaId
+              AND cc.codigo LIKE @prefijoPattern
+              AND ISNUMERIC(RIGHT(cc.codigo, 7)) = 1
+              AND CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                 AgregarParametro(cmd, "@productoId", productoId);
                 AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
+                AgregarParametro(cmd, "@categoriaId", categoriaId);
+                AgregarParametro(cmd, "@prefijoPattern", prefijoBuscado + "%");
                 AgregarParametro(cmd, "@desde", desde);
                 AgregarParametro(cmd, "@hasta", hasta);
 

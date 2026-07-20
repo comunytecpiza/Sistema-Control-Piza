@@ -162,5 +162,33 @@ namespace AplicativoDeAlmacen.Services
 
             return lista;
         }
+
+
+        public async Task EliminarAsync(int id)
+        {
+            using var conn = _database.GetConnection();
+            await ((DbConnection)conn).OpenAsync();
+
+            // 🛡️ Validar si está en uso en productos antes de borrar
+            string checkQuery = "SELECT COUNT(*) FROM productos WHERE titulo_curso_id = @Id";
+            using (var checkCmd = conn.CreateCommand())
+            {
+                checkCmd.CommandText = checkQuery;
+                AgregarParametro(checkCmd, "@Id", id);
+                int uso = Convert.ToInt32(await ((DbCommand)checkCmd).ExecuteScalarAsync());
+
+                if (uso > 0)
+                {
+                    throw new Exception($"No se puede eliminar este título porque está asociado a {uso} producto(s).");
+                }
+            }
+
+            string query = "DELETE FROM titulo_curso WHERE id = @Id";
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+            AgregarParametro(cmd, "@Id", id);
+
+            await ((DbCommand)cmd).ExecuteNonQueryAsync();
+        }
     }
 }
