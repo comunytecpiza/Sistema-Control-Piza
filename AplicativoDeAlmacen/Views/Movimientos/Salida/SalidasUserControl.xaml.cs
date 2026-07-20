@@ -44,8 +44,15 @@ namespace AplicativoDeAlmacen.Views
         private enum ModoFormulario { Ninguno, Nuevo, BuscandoParaEditar, BuscandoParaImprimir }
         private ModoFormulario _modoActual = ModoFormulario.Ninguno;
 
+
+        private readonly DatabaseConnection _database; // ¡Debe estar declarado aquí!
+
+      
+        
         public SalidasUserControl()
         {
+
+            _database = new DatabaseConnection(); // ¡Debe estar inicializado aquí!
             InitializeComponent();
             _salidaService = new SalidaMovimientoService();
             _reporteService = new ReporteExcelService();
@@ -60,6 +67,15 @@ namespace AplicativoDeAlmacen.Views
 
             EstadoInicialFormulario();
             CargarComboMotivosSalida();
+        }
+
+        // Helper local para agregar parámetros a comandos DbCommand
+        private void AgregarParametro(DbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? System.DBNull.Value;
+            cmd.Parameters.Add(p);
         }
 
         // ==========================================
@@ -1532,14 +1548,83 @@ namespace AplicativoDeAlmacen.Views
                 EstadoInicialFormulario();
             }
         }
+        public async Task<List<PersonaComercial>> BuscarClientesAsync(string filtro)
+        {
+            var lista = new List<PersonaComercial>();
 
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"SELECT id, razon_social, direccion 
+                         FROM personas_comerciales 
+                         WHERE razon_social LIKE @filtro AND estado_id = 1
+                         ORDER BY razon_social ASC";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@filtro", "%" + filtro + "%");
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new PersonaComercial
+                            {
+                                Id = reader.GetInt32(reader.GetOrdinal("id")),
+                                RazonSocial = reader.GetString(reader.GetOrdinal("razon_social")),
+                                Direccion = reader.IsDBNull(reader.GetOrdinal("direccion")) ? string.Empty : reader.GetString(reader.GetOrdinal("direccion"))
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
+        public async Task<List<Ubicacion>> BuscarUbicacionesAsync(string filtro)
+        {
+            var lista = new List<Ubicacion>();
+
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"SELECT id, descripcion, direccion 
+                                 FROM ubicaciones 
+                                 WHERE descripcion LIKE @filtro AND estado_id = 1
+                                 ORDER BY descripcion ASC";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@filtro", "%" + filtro + "%");
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new Ubicacion
+                            {
+                                Id = reader.GetInt32(reader.GetOrdinal("id")),
+                                Descripcion = reader.GetString(reader.GetOrdinal("descripcion")),
+                                Direccion = reader.IsDBNull(reader.GetOrdinal("direccion")) ? string.Empty : reader.GetString(reader.GetOrdinal("direccion"))
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
         // Buscadores
         private async void TxtCliente_TextChanged(object sender, TextChangedEventArgs e)
         {
             string filtro = txtCliente.Text.Trim();
             if (filtro.Length >= 2)
             {
-                _listaClientes = await _salidaService.BuscarClientesAsync(filtro);
+                _listaClientes = await BuscarClientesAsync(filtro);
                 lstClientes.ItemsSource = _listaClientes;
                 popupClientes.IsOpen = _listaClientes.Count > 0;
             }
@@ -1551,7 +1636,7 @@ namespace AplicativoDeAlmacen.Views
             string filtro = txtUbicacion.Text.Trim();
             if (filtro.Length >= 2)
             {
-                _listaUbicaciones = await _salidaService.BuscarUbicacionesAsync(filtro);
+                _listaUbicaciones = await BuscarUbicacionesAsync(filtro);
                 lstUbicaciones.ItemsSource = _listaUbicaciones;
                 popupUbicaciones.IsOpen = _listaUbicaciones.Count > 0;
             }
@@ -1671,5 +1756,8 @@ namespace AplicativoDeAlmacen.Views
                 lblResumenCodigos.Text = $"{filtrados.Count} (Encontrados) / {todosLosCodigosDelProducto.Count}";
             }
         }
+
+
+
     }
 }

@@ -2,14 +2,15 @@
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using System;
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
 using static AplicativoDeAlmacen.Data.DataConnection;
-using System.Collections.ObjectModel;
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -602,7 +603,7 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        public async Task<bool> RegistrarMovimientoCompletoAsync(Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos, int ubicacionId, int? existingMovimientoId = null, IProgress<int> progress = null)
+        public async Task<bool> RegistrarMovimientoCompletoAsync(Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos, int ubicacionId, int? existingMovimientoId = null, IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
@@ -615,11 +616,72 @@ namespace AplicativoDeAlmacen.Services
             {
                 movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, dbConn, transaccion);
 
-                var codigosPreviosEnBD = existingMovimientoId.HasValue
-                    ? await ObtenerCodigosEnMovimientoAsync(new List<int> { existingMovimientoId.Value })
-                    : new HashSet<int>();
+                // 🌟 1. Obtener los IDs reales de códigos que pertenecían a este movimiento previo
+                var codigosPreviosEnBD = new HashSet<int>();
+                if (existingMovimientoId.HasValue)
+                {
+                    using var cmdPrev = dbConn.CreateCommand();
+                    cmdPrev.Transaction = transaccion;
+                    cmdPrev.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId");
+                    AgregarParametro(cmdPrev, "@movId", existingMovimientoId.Value);
+                    using var rdrPrev = await cmdPrev.ExecuteReaderAsync();
+                    while (await rdrPrev.ReadAsync())
+                    {
+                        if (!rdrPrev.IsDBNull(0)) codigosPreviosEnBD.Add(rdrPrev.GetInt32(0));
+                    }
+                }
 
                 var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());
+
+                // 🌟 2. BARRERA DE SEGURIDAD PREVENTIVA (Detección de recortes con salidas/despachos)
+                if (existingMovimientoId.HasValue && codigosPreviosEnBD.Any())
+                {
+                    var idsNuevosMendados = new HashSet<int>();
+                    foreach (var item in productos)
+                    {
+                        if (rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
+                        {
+                            foreach (var r in rangosProd)
+                            {
+                                var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
+                                foreach (var t in encontrados) idsNuevosMendados.Add(t.CodigoObj.Id);
+                            }
+                        }
+                    }
+
+                    foreach (var codIdAnterior in codigosPreviosEnBD)
+                    {
+                        if (!idsNuevosMendados.Contains(codIdAnterior))
+                        {
+                            string codigoTxt = string.Empty;
+                            int estadoActual = 0;
+
+                            // 1. Leemos los datos y CERRAMOS el lector de inmediato para liberarlo de la conexión SQL
+                            using (var cmdEstadoCheck = dbConn.CreateCommand())
+                            {
+                                cmdEstadoCheck.Transaction = transaccion;
+                                cmdEstadoCheck.CommandText = QueryAdapter.FormatearConsulta("SELECT cc.codigo, cc.estado_id FROM codigos_creados cc WHERE cc.id = @codId");
+                                AgregarParametro(cmdEstadoCheck, "@codId", codIdAnterior);
+
+                                using var rdrSt = await cmdEstadoCheck.ExecuteReaderAsync();
+                                if (await rdrSt.ReadAsync())
+                                {
+                                    codigoTxt = rdrSt.GetString(0);
+                                    estadoActual = rdrSt.GetInt32(1);
+                                }
+                            }
+
+                            // 2. Conexión libre: verificamos si tiene salidas registradas o posteriores
+                            bool tienePosteriores = await TieneMovimientosPosterioresAsync(codIdAnterior, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+
+                            // 3. Excepción ejecutiva amigable para la interfaz
+                            if (estadoActual == 4 || tienePosteriores)
+                            {
+                                throw new Exception($"⚠️ No se puede guardar el cambio.\n\nEl código '{codigoTxt}' ya fue vendido o despachado en un documento posterior.\n\nSi necesita modificar este ingreso, primero debe anular o modificar las salidas asociadas a este código.");
+                            }
+                        }
+                    }
+                }
 
                 int totalCodigos = rangos.Sum(r => r.DesdeNum == -1 ? 1 : (r.HastaNum - r.DesdeNum + 1));
                 if (totalCodigos == 0) totalCodigos = 1;
@@ -679,33 +741,27 @@ namespace AplicativoDeAlmacen.Services
                         }
 
                         int motivoId = cabecera.MotivoProductoId;
-
-                        // Si el motivo es DEVOLUCIÓN RECIBIDA (Motivo 2), el código DEBE estar en Estado 4 (Vendido/Salido).
-                        // Si el código está en Estado 3 (En Almacén) o 1 (Creado), es un error porque no ha salido.
-                        // Para otros Ingresos (Compra = 1, etc.), se bloquean los que ya están en 3 o 4.
                         string sqlVerificarDuplicados;
 
                         if (motivoId == 2) // 2 = DEVOLUCION RECIBIDA
                         {
-                            // Bloquea los que NO están en estado 4 (es decir, bloquea los que están en 1 o 3)
                             sqlVerificarDuplicados = @"
-                            SELECT cc.codigo, cc.estado_id 
-                            FROM codigos_creados cc
-                            INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                            WHERE cc.estado_id != 4
-                            AND mc.codigo_creado_id IS NULL";
+                        SELECT cc.codigo, cc.estado_id 
+                        FROM codigos_creados cc
+                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                        WHERE cc.estado_id NOT IN (4) 
+                        AND mc.codigo_creado_id IS NULL";
                         }
-                        else // Motivos normales de Ingreso (Compra, Transferencia, etc.)
+                        else
                         {
-                            // Bloquea los que YA están adentro (3) o ya fueron procesados (4)
                             sqlVerificarDuplicados = @"
-                            SELECT cc.codigo, cc.estado_id 
-                            FROM codigos_creados cc
-                            INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                            WHERE cc.estado_id IN (3, 4)
-                            AND mc.codigo_creado_id IS NULL";
+                        SELECT cc.codigo, cc.estado_id 
+                        FROM codigos_creados cc
+                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                        WHERE cc.estado_id IN (3, 4)
+                        AND mc.codigo_creado_id IS NULL";
                         }
 
                         using var cmdVerify = dbConn.CreateCommand();
@@ -753,14 +809,23 @@ namespace AplicativoDeAlmacen.Services
                 {
                     int detalleId = await UpsertMovimientoDetalleAsync(movimientoId, item, dbConn, transaccion);
 
+                    // 🌟 3. LIMPIEZA TOTAL EN BD: Eliminar rangos y códigos antiguos de este detalle en modo edición
                     if (existingMovimientoId.HasValue)
                     {
-                        using (var cmdDel = dbConn.CreateCommand())
+                        using (var cmdDelR = dbConn.CreateCommand())
                         {
-                            cmdDel.Transaction = transaccion;
-                            cmdDel.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_detalle_id = @detId");
-                            AgregarParametro(cmdDel, "@detId", detalleId);
-                            await cmdDel.ExecuteNonQueryAsync();
+                            cmdDelR.Transaction = transaccion;
+                            cmdDelR.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM registro_rangos WHERE movimiento_detalle_id = @detId");
+                            AgregarParametro(cmdDelR, "@detId", detalleId);
+                            await cmdDelR.ExecuteNonQueryAsync();
+                        }
+
+                        using (var cmdDelC = dbConn.CreateCommand())
+                        {
+                            cmdDelC.Transaction = transaccion;
+                            cmdDelC.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_detalle_id = @detId");
+                            AgregarParametro(cmdDelC, "@detId", detalleId);
+                            await cmdDelC.ExecuteNonQueryAsync();
                         }
                     }
 
@@ -775,7 +840,6 @@ namespace AplicativoDeAlmacen.Services
 
                         foreach (var t in encontrados)
                         {
-                            if (!codigosPreviosEnBD.Contains(t.CodigoObj.Id)) todosLosCodigosAValidar.Add(t.CodigoObj.Id);
                             codigosAInsertar.Add(t.CodigoObj.Id);
                             nuevosCodigosIds.Add(t.CodigoObj.Id);
                         }
@@ -785,30 +849,21 @@ namespace AplicativoDeAlmacen.Services
                         if (nuevoPorcentaje > ultimoPorcentajeReportado) { ultimoPorcentajeReportado = nuevoPorcentaje; progress?.Report(nuevoPorcentaje); }
                     }
 
-                    // 🌟 Mantenemos la lógica de bloques (Batching)
                     const int bulkSize = 1000;
                     for (int i = 0; i < codigosAInsertar.Count; i += bulkSize)
                     {
-                        // Tomamos el lote de 1,000
                         var batch = codigosAInsertar.Skip(i).Take(bulkSize).ToList();
-
-                        // Insertamos solo este lote
                         await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, batch, dbConn, transaccion);
-
-                        // Actualizamos el estado solo de este lote
                         await ActualizarEstadoCodigosMasivoAsync(batch, 3, dbConn, transaccion);
                     }
                 }
 
+                // 🌟 4. Reversión/Limpieza de códigos que fueron descartados en la edición
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
                 if (codigosAEliminar.Any())
                 {
                     foreach (var codId in codigosAEliminar)
                     {
-                        bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
-                        if (tieneFuturo)
-                            throw new Exception($"Operación rechazazada: El código ID {codId} cuenta con transacciones logísticas posteriores.");
-
                         int estadoAnterior = await ObtenerEstadoAnteriorAsync(codId, movimientoId, dbConn, transaccion);
                         await ActualizarEstadoCodigo(codId, estadoAnterior, dbConn, transaccion);
                     }
@@ -821,7 +876,7 @@ namespace AplicativoDeAlmacen.Services
                         using var cmdDel = dbConn.CreateCommand();
                         cmdDel.Transaction = transaccion;
                         cmdDel.CommandText = queryDel;
-                        var p = cmdDel.CreateParameter(); p.ParameterName = "@movId"; p.Value = movimientoId; cmdDel.Parameters.Add(p);
+                        AgregarParametro(cmdDel, "@movId", movimientoId);
                         await cmdDel.ExecuteNonQueryAsync();
                     }
                 }
@@ -831,13 +886,14 @@ namespace AplicativoDeAlmacen.Services
                 {
                     await ActualizarStockProductoPorKardexAsync(pid, dbConn, transaccion);
                 }
+
                 transaccion.Commit();
                 return true;
             }
             catch (Exception ex)
             {
                 transaccion.Rollback();
-                throw new Exception($"Falla en la persistencia del Kárdex: {ex.Message}");
+                throw new Exception(ex.Message, ex);
             }
         }
 
@@ -910,19 +966,17 @@ namespace AplicativoDeAlmacen.Services
             if (desde == -1)
             {
                 string queryPack = @"
-        SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id
-        FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
-        INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
-        WHERE rc.producto_id = @productoId
-          AND rc.categoria_producto_id = @categoriaId
-          AND cc.codigo = @codigoExacto";
+            SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id
+            FROM codigos_creados cc WITH (NOLOCK)
+            INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
+            WHERE rc.producto_id = @productoId
+              AND cc.codigo = @codigoExacto";
 
                 using var cmdPack = conn.CreateCommand();
                 cmdPack.Transaction = trans;
                 cmdPack.CommandText = QueryAdapter.FormatearConsulta(queryPack);
 
                 AgregarParametro(cmdPack, "@productoId", productoId);
-                AgregarParametro(cmdPack, "@categoriaId", categoriaId);
                 AgregarParametro(cmdPack, "@codigoExacto", baseLimpia);
 
                 using var readerPack = await cmdPack.ExecuteReaderAsync();
@@ -943,85 +997,37 @@ namespace AplicativoDeAlmacen.Services
                 return resultados;
             }
 
-            string sqlCrearTabla = "CREATE TABLE #temp_rango_busqueda (codigo_buscado VARCHAR(50) NOT NULL PRIMARY KEY);";
-            using (var cmdTable = conn.CreateCommand())
-            {
-                cmdTable.Transaction = trans;
-                cmdTable.CommandText = sqlCrearTabla;
-                await cmdTable.ExecuteNonQueryAsync();
-            }
-
-            try
-            {
-                int totalCodigos = hasta - desde + 1;
-                const int batchSize = 1000;
-
-                for (int i = 0; i < totalCodigos; i += batchSize)
-                {
-                    int chunk = Math.Min(batchSize, totalCodigos - i);
-                    var sbInsert = new System.Text.StringBuilder("INSERT INTO #temp_rango_busqueda (codigo_buscado) VALUES ");
-                    using var cmdIns = conn.CreateCommand();
-                    cmdIns.Transaction = trans;
-
-                    for (int j = 0; j < chunk; j++)
-                    {
-                        int correlativo = desde + i + j;
-                        string parametroNombre = $"@p{j}";
-                        sbInsert.Append($"({parametroNombre})");
-                        if (j < chunk - 1) sbInsert.Append(",");
-
-                        AgregarParametro(cmdIns, parametroNombre, $"{baseLimpia}-{correlativo:D7}");
-                    }
-
-                    cmdIns.CommandText = sbInsert.ToString();
-                    await cmdIns.ExecuteNonQueryAsync();
-                }
-
-                // 🌟 ARREGLO: Quitamos el servicio de C# y hacemos LEFT JOIN a la tabla productos para validar la Abreviatura dinámicamente
-                string queryMaster = @"
-        SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id
-        FROM #temp_rango_busqueda tmp
-        INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) ON cc.codigo = tmp.codigo_buscado
+            // Búsqueda directa sobre codigos_creados filtrados por producto_id y rango de correlativo final
+            string queryMaster = @"
+        SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id,
+               CAST(RIGHT(cc.codigo, 7) AS INT) as seq
+        FROM codigos_creados cc WITH (NOLOCK)
         INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
-        INNER JOIN productos p ON rc.producto_id = p.id
-        WHERE rc.producto_id = @productoId";
+        WHERE rc.producto_id = @productoId
+          AND ISNUMERIC(RIGHT(cc.codigo, 7)) = 1
+          AND CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
 
-                using var cmdQuery = conn.CreateCommand();
-                cmdQuery.Transaction = trans;
-                cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
-                AgregarParametro(cmdQuery, "@productoId", productoId);
+            using var cmdQuery = conn.CreateCommand();
+            cmdQuery.Transaction = trans;
+            cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
+            AgregarParametro(cmdQuery, "@productoId", productoId);
+            AgregarParametro(cmdQuery, "@desde", desde);
+            AgregarParametro(cmdQuery, "@hasta", hasta);
 
-                using var reader = await cmdQuery.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    string codigoRaw = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
-                    string codigoNorm = NormalizarCodigo(codigoRaw);
-
-                    if (codigoNorm.Length >= 7)
-                    {
-                        string colaStr = codigoNorm.Substring(codigoNorm.Length - 7);
-                        if (int.TryParse(colaStr, out int seq))
-                        {
-                            resultados.Add((
-                                new CodigoCreado
-                                {
-                                    Id = reader.GetInt32(0),
-                                    RegistroCodigoId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
-                                    Codigo = codigoRaw,
-                                    EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
-                                    EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
-                                },
-                                seq));
-                        }
-                    }
-                }
-            }
-            finally
+            using var reader = await cmdQuery.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
             {
-                using var cmdDrop = conn.CreateCommand();
-                cmdDrop.Transaction = trans;
-                cmdDrop.CommandText = "DROP TABLE IF EXISTS #temp_rango_busqueda;";
-                await cmdDrop.ExecuteNonQueryAsync();
+                resultados.Add((
+                    new CodigoCreado
+                    {
+                        Id = reader.GetInt32(0),
+                        RegistroCodigoId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                        Codigo = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                        EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
+                        EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
+                    },
+                    reader.GetInt32(5)
+                ));
             }
 
             return resultados;

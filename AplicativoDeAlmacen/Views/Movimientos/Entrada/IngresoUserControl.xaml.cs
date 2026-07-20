@@ -571,11 +571,6 @@ namespace AplicativoDeAlmacen.Views
                 MessageBox.Show("Debe agregar al menos un producto antes de guardar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            if (txtSerieGuia.IsEnabled && (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text)))
-            {
-                MessageBox.Show("La Guía de Remisión es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
 
             try
             {
@@ -583,6 +578,9 @@ namespace AplicativoDeAlmacen.Views
                 btnGrabar.IsEnabled = false;
                 btnCancelar.IsEnabled = false;
                 Cursor = Cursors.Wait;
+
+                // 🌟 RECONSTRUCCIÓN ATÓMICA: Forzamos la regeneración de rangos desde los códigos que están en la grilla
+                _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
 
                 var solicitud = CrearSolicitudMovimiento();
 
@@ -601,7 +599,7 @@ namespace AplicativoDeAlmacen.Views
                 });
 
                 bool resultado = await Task.Run(async () =>
-                await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
+                    await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
                         solicitud.Movimiento,
                         solicitud.Productos.ToList(),
                         _rangosProcesadosGlobal.ToList(),
@@ -631,7 +629,7 @@ namespace AplicativoDeAlmacen.Views
             catch (Exception ex)
             {
                 string detalleError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
-                MessageBox.Show($"Error al guardar movimiento:\n{detalleError}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error al guardar movimiento:\n{detalleError}", "Error de Validación de Kárdex", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
@@ -866,31 +864,6 @@ namespace AplicativoDeAlmacen.Views
                     .ToList();
             }
 
-            foreach (var r in rangosExistentes)
-            {
-                if (r.DesdeNum == -1 || !r.AbreviaturaBase.Contains("-") && r.DesdeNum == 0)
-                {
-                    r.DesdeNum = -1;
-                    r.HastaNum = -1;
-                    r.Cantidad = "1";
-                    r.Desde = r.AbreviaturaBase;
-                    r.Hasta = r.AbreviaturaBase;
-                }
-                else
-                {
-                    int cantCalculada = (r.HastaNum - r.DesdeNum + 1);
-                    r.Cantidad = (string.IsNullOrEmpty(r.Cantidad) || r.Cantidad == "0") ? cantCalculada.ToString() : r.Cantidad;
-                    r.Desde = $"{r.AbreviaturaBase}-{r.DesdeNum:D7}";
-                    r.Hasta = $"{r.AbreviaturaBase}-{r.HastaNum:D7}";
-                }
-
-                if (string.IsNullOrEmpty(r.ColeccionTipo))
-                {
-                    string tipoDeducido = (r.CategoriaProductoId == 1) ? "LIBRO GUÍA" : "LIBRO VENTA";
-                    r.ColeccionTipo = $"C2026 / {tipoDeducido}";
-                }
-            }
-
             var modal = new AgregarItemWindow
             {
                 Owner = System.Windows.Window.GetWindow(this)
@@ -904,13 +877,14 @@ namespace AplicativoDeAlmacen.Views
                 seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
                 seleccionado.Cantidad = (int)seleccionado.Detalle.CantidadIngreso;
 
-                _rangosProcesadosGlobal.RemoveAll(r => r.productoId == seleccionado.ProductoId);
+                // 🌟 REEMPLAZO LIMPIO: Borramos los códigos previos del producto y ponemos los nuevos que aprobó el modal
                 _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
-
-                _rangosProcesadosGlobal.AddRange(modal.ListaRangosAgregados);
 
                 var nuevosCodigos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(modal.ListaRangosAgregados.ToList());
                 _codigosGridList.AddRange(nuevosCodigos);
+
+                // Regeneramos el mapa global de rangos
+                _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
 
                 dgProductos.CommitEdit(DataGridEditingUnit.Row, true);
                 RefrescarGrillas();
