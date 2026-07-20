@@ -44,7 +44,7 @@ namespace AplicativoDeAlmacen.Views
         private Button _btnAnularNearSave = null;
         private bool _isUpdatingFromSelection = false;
         private int? _personaComercialIdSeleccionada = null;
-        private const int UBICACION_ID_SELECCIONADA = 1; // ID Fijo de Almacén Central
+        private int? _ubicacionIdSeleccionada = null; // ID Fijo de Almacén Central
         private bool _isRegistrandoMovimiento = false;
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
@@ -671,7 +671,7 @@ namespace AplicativoDeAlmacen.Views
                     SerieDocumento = txtNumSerie.Text.Trim(),
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
-                    UbicacionId = UBICACION_ID_SELECCIONADA,
+                    UbicacionId = _ubicacionIdSeleccionada ?? 1,
                     UsuarioId = 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
                     SerieGuia = txtSerieGuia.Text.Trim(),
@@ -1338,6 +1338,14 @@ namespace AplicativoDeAlmacen.Views
                 txtRazonSocial.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
             }
+            else if (idMotivo == 3)
+            {
+                txtRazonSocial.IsEnabled = true;
+                txtUbicacion.IsEnabled = true;
+                txtSerieGuia.IsEnabled = true;  // 🌟 Habilitado para Devolución
+                txtNumeroGuia.IsEnabled = true;// <-- HABILITAMOS EL CONTROL DE UBICACIÓN
+            }
+            
         }
 
         private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
@@ -1373,7 +1381,17 @@ namespace AplicativoDeAlmacen.Views
 
         private void LstSugerenciasUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (lstSugerenciasUbicacion.SelectedItem is Ubicacion itemSeleccionado) { txtUbicacion.Text = itemSeleccionado.Descripcion; txtCodigoUbicacion.Text = itemSeleccionado.Id.ToString(); popupUbicacion.IsOpen = false; }
+            if (lstSugerenciasUbicacion.SelectedItem is Ubicacion ubicacionSeleccionada)
+            {
+                txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                txtUbicacion.Text = ubicacionSeleccionada.Descripcion;
+                txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+
+                // GUARDAMOS EL ID SELECCIONADO
+                _ubicacionIdSeleccionada = ubicacionSeleccionada.Id;
+
+                lstSugerenciasUbicacion.ItemsSource = null;
+            }
         }
 
         private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
