@@ -252,9 +252,9 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string query = @"SELECT id, descripcion, tipo_movimiento 
-                 FROM motivo_productos 
-                 WHERE tipo_movimiento = 'entrada' OR id = 4 -- 🌟 AGREGADO PARA PERMITIR DEVOLUCIONES
-                 ORDER BY descripcion ASC";
+                                 FROM motivo_productos 
+                                 WHERE tipo_movimiento = 'entrada' 
+                                 ORDER BY descripcion ASC";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -313,11 +313,11 @@ namespace AplicativoDeAlmacen.Services
 
                 // 2. Obtenemos el número máximo registrado para esa serie específica
                 string queryMaxNum = @"
-                SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0)
-                FROM movimientos m
-                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                WHERE m.serie_documento = @serie 
-                AND mp.tipo_movimiento = 'entrada'"; // 🌟 LA CLAVE: Filtrar solo salidas
+                    SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0)
+                    FROM movimientos m
+                    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                    WHERE m.serie_documento = @serie 
+                    AND mp.tipo_movimiento = 'salida'"; // 🌟 LA CLAVE: Filtrar solo salidas
 
                 int ultimoNumero = 0;
                 using (var cmdNum = dbConn.CreateCommand())
@@ -381,14 +381,8 @@ namespace AplicativoDeAlmacen.Services
             }
 
 
-            string queryLock = @"
-            SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
-            FROM movimientos m WITH (TABLOCKX, HOLDLOCK) 
-            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-            WHERE m.serie_documento = @serie
-            AND mp.tipo_movimiento = 'entrada'"; // 🌟 FILTRA POR TIPO DE MOVIMIENTO
+            string queryLock = "SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 FROM movimientos WITH (TABLOCKX, HOLDLOCK) WHERE serie_documento = @serie";
             int nuevoNumero;
-            
 
             using (var cmdLock = conn.CreateCommand())
             {
@@ -425,15 +419,11 @@ namespace AplicativoDeAlmacen.Services
             }
             catch (DbException ex) when (ex.Message.Contains("PRIMARY KEY") || ex.Message.Contains("UNIQUE") || ex.ErrorCode == 2627)
             {
+                // 🚨 Si otra transacción ganó el número en el mismo instante, lanzamos un aviso controlado para que el usuario reintente
                 throw new Exception("Conflicto de Concurrencia: Otro usuario registró un movimiento simultáneamente con el mismo correlativo. Por favor, intente guardar el documento nuevamente.");
             }
-            catch (Exception ex)
-            {
-                // 🌟 Relanzar cualquier otra excepción para que no se pierda
-                throw new Exception($"Error al guardar la cabecera del movimiento: {ex.Message}", ex);
-            }
 
-
+            
         }
 
         private async Task<int> UpsertMovimientoDetalleAsync(int movId, VistaProductoGrid item, DbConnection conn, DbTransaction trans)
@@ -714,12 +704,12 @@ namespace AplicativoDeAlmacen.Services
 
                         // Cruzamos la tabla temporal contra el índice maestro buscando duplicados activos
                         string sqlVerificarDuplicados = @"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc
-                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id IN (3, 4)
-                        AND mc.codigo_creado_id IS NULL";
+                SELECT cc.codigo, cc.estado_id 
+                FROM codigos_creados cc
+                INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                WHERE cc.estado_id IN (3, 4)
+                AND mc.codigo_creado_id IS NULL";
 
                         using var cmdVerify = dbConn.CreateCommand();
                         cmdVerify.Transaction = transaccion;
@@ -1350,7 +1340,6 @@ namespace AplicativoDeAlmacen.Services
                     int cantidad = grupo.Count();
 
                     // Insertar detalle
-
                     int detalleIdInserted = 0;
                     string queryDetalle = $@"
                         INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
@@ -1404,21 +1393,12 @@ namespace AplicativoDeAlmacen.Services
                                 AgregarParametro(cmdCheck, "@id", codigoId);
                                 object st = await cmdCheck.ExecuteScalarAsync();
                                 int estadoActual = st == null || st == DBNull.Value ? 0 : Convert.ToInt32(st);
-                                if (estadoActual == 1 || estadoActual == 4)
+                                if (estadoActual == 1)
                                 {
+                                    // No comprobamos pertenencia aquí porque, al insertar la relación
+                                    // acabamos de añadirlo al movimiento; asumimos que si estaba en estado 1
+                                    // es un código "nuevo" y debe marcarse como ingresado.
                                     shouldUpdateState = true;
-                                }
-
-                                if (shouldUpdateState)
-                                {
-                                    using (var cmdUpd = dbConn.CreateCommand())
-                                    {
-                                        cmdUpd.Transaction = transaccion;
-                                        // 🌟 SIEMPRE pasamos a estado 3 (En Almacén) sin importar si venía de 1 o 4
-                                        cmdUpd.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = 3 WHERE id = @id");
-                                        AgregarParametro(cmdUpd, "@id", codigoId);
-                                        await cmdUpd.ExecuteNonQueryAsync();
-                                    }
                                 }
                             }
                             catch { shouldUpdateState = false; }
