@@ -1475,20 +1475,17 @@ namespace AplicativoDeAlmacen.Views
             txtCliente.IsEnabled = false;
             txtUbicacion.IsEnabled = false;
 
-            // 1. Motivos que solo requieren Cliente 
-            // (5: Consignacion, 6: Dev. Entregada, 7: Donacion, 8: Feria, 11: Venta)
+            // 1. Motivos de solo Cliente (5: Consignación, 6: Dev. Entregada, 7: Donación, 8: Feria, 11: Venta)
             if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
             {
                 txtCliente.IsEnabled = true;
             }
-            // 2. Motivos que solo requieren Ubicación 
-            // (10: Transferencia Entre Almacenes)
+            // 2. Transferencia Entre Almacenes (10)
             else if (idMotivo == 10)
             {
                 txtUbicacion.IsEnabled = true;
             }
-            // 3. Motivos que requieren AMBOS 
-            // (9: Promocion/Promotoria, 12: Otros)
+            // 🌟 3. PROMOTORÍA / PROMOCIÓN (9) u OTROS (12): Requieren Cliente Y Ubicación
             else if (idMotivo == 9 || idMotivo == 12)
             {
                 txtCliente.IsEnabled = true;
@@ -1667,7 +1664,7 @@ namespace AplicativoDeAlmacen.Views
                 txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
                 txtUbicacion.Text = ub.Descripcion;
                 txtCodigoUbicacion.Text = ub.Id.ToString();
-                txtDireccionUbicacion.Text = ub.Direccion;
+                txtDireccionUbicacion.Text = string.IsNullOrWhiteSpace(ub.Direccion) ? "Sin dirección registrada" : ub.Direccion; // 🌟 CARGA DIRECCIÓN
                 _idUbicacionSeleccionada = ub.Id;
                 popupUbicaciones.IsOpen = false;
                 lstUbicaciones.SelectedIndex = -1;

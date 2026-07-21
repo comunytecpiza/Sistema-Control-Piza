@@ -6,7 +6,7 @@
     <UserControl.Resources>
         <Style x:Key="RightAlignStyle" TargetType="DataGridCell">
             <Setter Property="TextBlock.TextAlignment" Value="Right"/>
-            <Setter Property="Padding" Value="0,0,15,0"/>
+            <Setter Property="Padding" Value="0,0,10,0"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
         <Style x:Key="IngresoStyle" TargetType="DataGridCell" BasedOn="{StaticResource RightAlignStyle}">
@@ -15,6 +15,10 @@
         </Style>
         <Style x:Key="SalidaStyle" TargetType="DataGridCell" BasedOn="{StaticResource RightAlignStyle}">
             <Setter Property="Foreground" Value="#DC2626"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style x:Key="SaldoStyle" TargetType="DataGridCell" BasedOn="{StaticResource RightAlignStyle}">
+            <Setter Property="Foreground" Value="#2563EB"/>
             <Setter Property="FontWeight" Value="Bold"/>
         </Style>
     </UserControl.Resources>
@@ -26,12 +30,9 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="📋 Auditoría de Movimientos y Códigos" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+        <TextBlock Text="📦 Movimiento por Producto" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
 
         <Border Grid.Row="1" Background="White" CornerRadius="12" Padding="20" Margin="0,0,0,15" BorderBrush="#E5E7EB" BorderThickness="1">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="15" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.06"/>
-            </Border.Effect>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -41,7 +42,7 @@
                 <WrapPanel VerticalAlignment="Center">
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Producto Maestro:" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
-                        <ComboBox x:Name="CboProductos" Width="300" Height="40" IsEditable="True" 
+                        <ComboBox x:Name="CboProductos" Width="280" Height="40" IsEditable="True" 
                                   StaysOpenOnEdit="True" IsTextSearchEnabled="False"
                                   DisplayMemberPath="Descripcion" TextSearch.TextPath="Descripcion"
                                   SelectionChanged="CboProductos_SelectionChanged" FontSize="14" BorderBrush="#CBD5E1" 
@@ -51,8 +52,8 @@
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Fechas (Desde / Hasta)" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
                         <StackPanel Orientation="Horizontal">
-                            <DatePicker x:Name="DpDesde" Width="140" Height="40" Margin="0,0,10,0"/>
-                            <DatePicker x:Name="DpHasta" Width="140" Height="40"/>
+                            <DatePicker x:Name="DpDesde" Width="120" Height="40" Margin="0,0,10,0"/>
+                            <DatePicker x:Name="DpHasta" Width="120" Height="40"/>
                         </StackPanel>
                     </StackPanel>
 
@@ -60,77 +61,63 @@
                         <TextBlock Text="Filtros Extra (Autocompletado):" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
 
-                            <CheckBox x:Name="ChkRazonSocial" Content="Razón Social:" Margin="0,0,10,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
-                            <Grid Margin="0,0,20,0">
-                                <TextBox x:Name="TxtRazonSocial" Width="180" Height="36" IsEnabled="False" 
+                            <CheckBox x:Name="ChkRazonSocial" Content="Razón Social:" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
+                            <Grid Margin="0,0,15,0">
+                                <TextBox x:Name="TxtRazonSocial" Width="150" Height="36" IsEnabled="False" 
                                          VerticalContentAlignment="Center" Padding="5,0" BorderBrush="#CBD5E1"
                                          TextChanged="TxtRazonSocial_TextChanged"/>
                                 <Popup x:Name="PopupRazonSocial" PlacementTarget="{Binding ElementName=TxtRazonSocial}" StaysOpen="False" AllowsTransparency="True">
-                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Margin="0,2,0,0">
-                                        <Border.Effect>
-                                            <DropShadowEffect BlurRadius="5" ShadowDepth="2" Opacity="0.1"/>
-                                        </Border.Effect>
-                                        <ListBox x:Name="LstRazonSocial" Width="180" MaxHeight="150" BorderThickness="0" 
+                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4">
+                                        <ListBox x:Name="LstRazonSocial" Width="150" MaxHeight="150" BorderThickness="0" 
                                                  DisplayMemberPath="RazonSocial" 
                                                  SelectionChanged="LstRazonSocial_SelectionChanged"/>
                                     </Border>
                                 </Popup>
                             </Grid>
 
-                            <CheckBox x:Name="ChkUbicacion" Content="Ubicación:" Margin="0,0,10,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
-                            <Grid>
-                                <TextBox x:Name="TxtUbicacion" Width="180" Height="36" IsEnabled="False" 
+                            <CheckBox x:Name="ChkUbicacion" Content="Ubicación:" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
+                            <Grid Margin="0,0,15,0">
+                                <TextBox x:Name="TxtUbicacion" Width="150" Height="36" IsEnabled="False" 
                                          VerticalContentAlignment="Center" Padding="5,0" BorderBrush="#CBD5E1"
                                          TextChanged="TxtUbicacion_TextChanged"/>
                                 <Popup x:Name="PopupUbicacion" PlacementTarget="{Binding ElementName=TxtUbicacion}" StaysOpen="False" AllowsTransparency="True">
-                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Margin="0,2,0,0">
-                                        <Border.Effect>
-                                            <DropShadowEffect BlurRadius="5" ShadowDepth="2" Opacity="0.1"/>
-                                        </Border.Effect>
-                                        <ListBox x:Name="LstUbicacion" Width="180" MaxHeight="150" BorderThickness="0" 
+                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4">
+                                        <ListBox x:Name="LstUbicacion" Width="150" MaxHeight="150" BorderThickness="0" 
                                                  DisplayMemberPath="Descripcion" 
                                                  SelectionChanged="LstUbicacion_SelectionChanged"/>
                                     </Border>
                                 </Popup>
                             </Grid>
 
+                            <CheckBox x:Name="ChkMostrarAnulados" Content="Mostrar Anulados" VerticalAlignment="Center" Foreground="#DC2626" FontWeight="Bold" Click="ChkMostrarAnulados_Click"/>
                         </StackPanel>
                     </StackPanel>
 
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Tipo de Operación:" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="15,0" Height="40">
+                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="10,0" Height="40">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <RadioButton x:Name="RbGuia" Content="Solo Guías" Margin="0,0,15,0" Foreground="#334155" VerticalAlignment="Center" PreviewKeyDown="Filtros_PreviewKeyDown" Click="RbFiltro_Click"/>
-                                <RadioButton x:Name="RbVenta" Content="Solo Ventas" Margin="0,0,15,0" Foreground="#334155" VerticalAlignment="Center" PreviewKeyDown="Filtros_PreviewKeyDown" Click="RbFiltro_Click"/>
-                                <RadioButton x:Name="RbTodos" Content="Todos" IsChecked="True" Foreground="#334155" VerticalAlignment="Center" FontWeight="Bold" PreviewKeyDown="Filtros_PreviewKeyDown" Click="RbFiltro_Click"/>
+                                <RadioButton x:Name="RbGuia" Content="Solo Guías" Margin="0,0,10,0" Foreground="#334155" VerticalAlignment="Center" Click="RbFiltro_Click"/>
+                                <RadioButton x:Name="RbVenta" Content="Solo Ventas" Margin="0,0,10,0" Foreground="#334155" VerticalAlignment="Center" Click="RbFiltro_Click"/>
+                                <RadioButton x:Name="RbTodos" Content="Todos" IsChecked="True" Foreground="#334155" VerticalAlignment="Center" FontWeight="Bold" Click="RbFiltro_Click"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </WrapPanel>
 
-                <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="20,0,0,10">
-                    <Button x:Name="BtnEjecutar" Content="🚀 Ejecutar Consulta" Height="45" Width="180" Margin="0,0,10,10" Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="14" BorderThickness="0" Cursor="Hand" Click="BtnEjecutar_Click">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="6"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
+                <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="10,0,0,10">
+                    <Button x:Name="BtnEjecutar" Content="🚀 Ejecutar Consulta" Height="45" Width="160" Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="14" BorderThickness="0" Cursor="Hand" Click="BtnEjecutar_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="6.5*"/>
-                <ColumnDefinition Width="3.5*"/>
+                <ColumnDefinition Width="6.8*"/>
+                <ColumnDefinition Width="3.2*"/>
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="White" CornerRadius="12" Margin="0,0,15,0" ClipToBounds="True">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.05"/>
-                </Border.Effect>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -142,18 +129,17 @@
                         <TextBlock Text="📋 Libro de Movimientos Contables" Foreground="White" FontWeight="Bold" FontSize="15"/>
                     </Border>
 
-                    <DataGrid x:Name="MovimientosDataGrid" SelectionChanged="MovimientosDataGrid_SelectionChanged" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="38" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC">
-
+                    <DataGrid x:Name="MovimientosDataGrid" SelectionChanged="MovimientosDataGrid_SelectionChanged" MouseDoubleClick="MovimientosDataGrid_MouseDoubleClick" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="38" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow">
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Background" Value="#F1F5F9"/>
                                     </Trigger>
-                                    <!-- 🌟 EVALUACIÓN DE OPACIDAD POR PROPIEDAD ISANULADO -->
                                     <DataTrigger Binding="{Binding IsAnulado}" Value="True">
-                                        <Setter Property="Opacity" Value="0.4" />
-                                        <Setter Property="Foreground" Value="Gray"/>
+                                        <Setter Property="Background" Value="#FEF2F2" />
+                                        <Setter Property="Foreground" Value="#DC2626"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -164,18 +150,31 @@
                                 <Setter Property="Background" Value="#F1F5F9"/>
                                 <Setter Property="Foreground" Value="#475569"/>
                                 <Setter Property="FontWeight" Value="Bold"/>
-                                <Setter Property="Padding" Value="10,12"/>
+                                <Setter Property="Padding" Value="8,10"/>
                                 <Setter Property="BorderBrush" Value="#E2E8F0"/>
                                 <Setter Property="BorderThickness" Value="0,0,0,2"/>
                             </Style>
                         </DataGrid.ColumnHeaderStyle>
+
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="FECHA" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="90"/>
-                            <DataGridTextColumn Header="COMPROBANTE" Binding="{Binding NumeroRegistro}" Width="120"/>
-                            <DataGridTextColumn Header="GUÍA" Binding="{Binding NumeroGuia}" Width="110"/>
+                            <!-- 0 -->
+                            <DataGridTextColumn Header="FECHA" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="85"/>
+                            <!-- 1 -->
+                            <DataGridTextColumn Header="COMPROBANTE" Binding="{Binding NumeroRegistro}" Width="110"/>
+                            <!-- 2 -->
+                            <DataGridTextColumn Header="GUÍA" Binding="{Binding NumeroGuia}" Width="100"/>
+                            <!-- 3 -->
                             <DataGridTextColumn Header="ENTIDAD / UBICACIÓN" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
-                            <DataGridTextColumn Header="ENTRAN" Binding="{Binding Ingreso, StringFormat=N2}" Width="90" CellStyle="{StaticResource IngresoStyle}"/>
-                            <DataGridTextColumn Header="SALEN" Binding="{Binding Salida, StringFormat=N2}" Width="90" CellStyle="{StaticResource SalidaStyle}"/>
+
+                            <!-- 🌟 ORDEN LOGÍSTICO PERFECTO CON ANCHOS AMPLIOS QUE NO SE CORTAN -->
+                            <!-- 4 (Salidas/Entregado) -->
+                            <DataGridTextColumn Header="ENTREGADO" Binding="{Binding Salida, StringFormat=N2}" Width="110" CellStyle="{StaticResource SalidaStyle}"/>
+
+                            <!-- 5 (Entradas/Devoluciones) -->
+                            <DataGridTextColumn Header="DEVOLUCIÓN" Binding="{Binding Ingreso, StringFormat=N2}" Width="110" CellStyle="{StaticResource IngresoStyle}"/>
+
+                            <!-- 6 (Saldo en Poder) -->
+                            <DataGridTextColumn Header="TOTAL EN PODER" Binding="{Binding SaldoAcumulado, StringFormat=N2}" Width="125" Visibility="Collapsed" CellStyle="{StaticResource SaldoStyle}"/>
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -187,23 +186,23 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <Border Grid.Column="0" Background="#ECFDF5" BorderBrush="#34D399" BorderThickness="1" CornerRadius="8" Padding="15,10" Margin="0,0,10,0">
+                            <Border Grid.Column="0" Background="#FEF2F2" BorderBrush="#F87171" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,10,0">
                                 <StackPanel>
-                                    <TextBlock Text="Total Entradas" Foreground="#065F46" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
-                                    <TextBlock x:Name="TxtTotalIngreso" Text="0.00" Foreground="#047857" FontWeight="Black" FontSize="20"/>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Grid.Column="1" Background="#FEF2F2" BorderBrush="#F87171" BorderThickness="1" CornerRadius="8" Padding="15,10" Margin="0,0,10,0">
-                                <StackPanel>
-                                    <TextBlock Text="Total Salidas" Foreground="#991B1B" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="LblCard1" Text="Total Salidas" Foreground="#991B1B" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
                                     <TextBlock x:Name="TxtTotalSalida" Text="0.00" Foreground="#B91C1C" FontWeight="Black" FontSize="20"/>
                                 </StackPanel>
                             </Border>
 
-                            <Border Grid.Column="2" Background="#EFF6FF" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="8" Padding="15,10">
+                            <Border Grid.Column="1" Background="#ECFDF5" BorderBrush="#34D399" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,10,0">
                                 <StackPanel>
-                                    <TextBlock Text="Ventas Netas" Foreground="#3730A3" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="LblCard2" Text="Total Devoluciones" Foreground="#065F46" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="TxtTotalIngreso" Text="0.00" Foreground="#047857" FontWeight="Black" FontSize="20"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2" Background="#EFF6FF" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                                <StackPanel>
+                                    <TextBlock x:Name="LblCard3" Text="Saldo Pendiente en Poder" Foreground="#3730A3" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
                                     <TextBlock x:Name="TxtTotalVendidos" Text="0.00" Foreground="#4338CA" FontWeight="Black" FontSize="20"/>
                                 </StackPanel>
                             </Border>
@@ -213,9 +212,6 @@
             </Border>
 
             <Border Grid.Column="1" Background="White" CornerRadius="12" ClipToBounds="True">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.05"/>
-                </Border.Effect>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -223,30 +219,20 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Border Background="#4338CA" Padding="20,12">
+                    <Border Background="#4338CA" Padding="15,12">
                         <TextBlock Text="🏷️ Códigos de la Operación" Foreground="White" FontWeight="Bold" FontSize="15"/>
                     </Border>
 
                     <DataGrid x:Name="CodigosDataGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="35" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9">
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#F1F5F9"/>
-                                <Setter Property="Foreground" Value="#475569"/>
-                                <Setter Property="FontWeight" Value="Bold"/>
-                                <Setter Property="Padding" Value="10,12"/>
-                                <Setter Property="BorderBrush" Value="#E2E8F0"/>
-                                <Setter Property="BorderThickness" Value="0,0,0,2"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="CÓDIGO QR / FÍSICO" Binding="{Binding Codigo}" Width="*" FontWeight="SemiBold" Foreground="#334155"/>
                             <DataGridTextColumn Header="TIPO" Binding="{Binding ColeccionTipo}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <Border Grid.Row="2" Background="#F8FAFC" Padding="15" BorderBrush="#E2E8F0" BorderThickness="0,2,0,0">
+                    <Border Grid.Row="2" Background="#F8FAFC" Padding="10" BorderBrush="#E2E8F0" BorderThickness="0,2,0,0">
                         <Border Background="#EEF2FF" CornerRadius="8" Padding="10,8" HorizontalAlignment="Center">
-                            <TextBlock x:Name="TxtTotalCodigos" Text="Seleccione un movimiento" FontWeight="Bold" Foreground="#4F46E5" FontSize="13"/>
+                            <TextBlock x:Name="TxtTotalCodigos" Text="Seleccione un movimiento" FontWeight="Bold" Foreground="#4F46E5" FontSize="12"/>
                         </Border>
                     </Border>
                 </Grid>

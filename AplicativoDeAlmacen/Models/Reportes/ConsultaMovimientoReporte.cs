@@ -13,6 +13,8 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal Ingreso { get; set; }
         public decimal Salida { get; set; }
         public bool IsAnulado { get;  set; }
+        public decimal SaldoAcumulado { get; set; }
+
     }
 
     public class ConsultaCodigoItem

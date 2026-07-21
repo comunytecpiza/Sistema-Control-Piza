@@ -196,7 +196,7 @@ namespace AplicativoDeAlmacen.Services
         // CONSULTA DE MOVIMIENTOS DETALLADOS (Esquema Corregido)
         // =========================================================
         public async Task<ConsultaMovimientoReporte> ConsultarMovimientosDetalladosAsync(
-    int productoId, DateTime fechaDesde, DateTime fechaHasta)
+    int productoId, DateTime fechaDesde, DateTime fechaHasta, string? razonSocial = null, string? ubicacion = null)
         {
             var reporte = new ConsultaMovimientoReporte();
 
@@ -204,7 +204,7 @@ namespace AplicativoDeAlmacen.Services
             {
                 await ((DbConnection)conn).OpenAsync();
 
-                // 1. TABLA IZQUIERDA — Movimientos del producto en el rango (Incluyendo estado_id como columna 6)
+                // 1. TABLA IZQUIERDA — Movimientos filtrados correctamente desde SQL
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
@@ -215,21 +215,37 @@ namespace AplicativoDeAlmacen.Services
                 COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
                 COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
                 COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
-                m.estado_id -- 🌟 COLUMNA 6 AGREGADA CORRECTAMENTE
+                m.estado_id,
+                m.motivo_producto_id,
+                mp.tipo_movimiento_id
             FROM movimiento_detalles md
             INNER JOIN movimientos m ON md.movimiento_id = m.id
+            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
             LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
             LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
             WHERE md.producto_id = @ProductoId
               AND m.fecha_movimiento >= @FechaDesde
-              AND m.fecha_movimiento <= @FechaHasta
-            ORDER BY m.created_at ASC, m.id ASC";
+              AND m.fecha_movimiento <= @FechaHasta";
+
+                    if (!string.IsNullOrWhiteSpace(razonSocial))
+                        queryRaw += " AND pc.razon_social LIKE @RazonSocial";
+
+                    if (!string.IsNullOrWhiteSpace(ubicacion))
+                        queryRaw += " AND u.descripcion LIKE @Ubicacion";
+
+                    queryRaw += " ORDER BY m.created_at ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+
+                    if (!string.IsNullOrWhiteSpace(razonSocial))
+                        AgregarParametro(cmd, "@RazonSocial", "%" + razonSocial.Trim() + "%");
+
+                    if (!string.IsNullOrWhiteSpace(ubicacion))
+                        AgregarParametro(cmd, "@Ubicacion", "%" + ubicacion.Trim() + "%");
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
@@ -252,33 +268,47 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // 2. TABLA DERECHA — Códigos físicos por movimiento
+                // 2. TABLA DERECHA — Códigos físicos
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    // 🌟 TABLA DERECHA EN KardexService.cs
                     string queryRaw = @"
-                    SELECT DISTINCT
-                        COALESCE(cc.codigo, 'N/A') AS codigo,
-                        COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
-                        COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS numero_registro,
-                        CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov -- 🌟 CLAVE
-                    FROM movimiento_detalles md
-                    INNER JOIN movimientos          m   ON md.movimiento_id         = m.id
-                    INNER JOIN motivo_productos     mp  ON m.motivo_producto_id     = mp.id
-                    INNER JOIN movimiento_codigos   mc  ON mc.movimiento_detalle_id = md.id
-                    INNER JOIN codigos_creados      cc  ON mc.codigo_creado_id      = cc.id
-                    INNER JOIN registro_codigos     rc  ON cc.registro_codigo_id    = rc.id
-                    LEFT JOIN categoria_producto    cat ON rc.categoria_producto_id = cat.id
-                    WHERE md.producto_id      = @ProductoId
-                      AND m.fecha_movimiento >= @FechaDesde
-                      AND m.fecha_movimiento <= @FechaHasta
-                    ORDER BY codigo ASC";
+            SELECT DISTINCT
+                COALESCE(cc.codigo, 'N/A') AS codigo,
+                COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
+                COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS numero_registro,
+                CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
+            FROM movimiento_detalles md
+            INNER JOIN movimientos          m   ON md.movimiento_id         = m.id
+            INNER JOIN motivo_productos     mp  ON m.motivo_producto_id     = mp.id
+            INNER JOIN movimiento_codigos   mc  ON mc.movimiento_detalle_id = md.id
+            INNER JOIN codigos_creados      cc  ON mc.codigo_creado_id      = cc.id
+            INNER JOIN registro_codigos     rc  ON cc.registro_codigo_id    = rc.id
+            LEFT JOIN categoria_producto    cat ON rc.categoria_producto_id = cat.id
+            LEFT JOIN personas_comerciales pc  ON m.persona_comercial_id   = pc.id
+            LEFT JOIN ubicaciones          u   ON m.ubicacion_id          = u.id
+            WHERE md.producto_id      = @ProductoId
+              AND m.fecha_movimiento >= @FechaDesde
+              AND m.fecha_movimiento <= @FechaHasta";
+
+                    if (!string.IsNullOrWhiteSpace(razonSocial))
+                        queryRaw += " AND pc.razon_social LIKE @RazonSocial";
+
+                    if (!string.IsNullOrWhiteSpace(ubicacion))
+                        queryRaw += " AND u.descripcion LIKE @Ubicacion";
+
+                    queryRaw += " ORDER BY codigo ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+
+                    if (!string.IsNullOrWhiteSpace(razonSocial))
+                        AgregarParametro(cmd, "@RazonSocial", "%" + razonSocial.Trim() + "%");
+
+                    if (!string.IsNullOrWhiteSpace(ubicacion))
+                        AgregarParametro(cmd, "@Ubicacion", "%" + ubicacion.Trim() + "%");
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
@@ -289,7 +319,7 @@ namespace AplicativoDeAlmacen.Services
                                 Codigo = reader.GetString(0),
                                 ColeccionTipo = reader.GetString(1),
                                 NumeroRegistro = reader.GetString(2),
-                                TipoMovimiento = reader.GetString(3) // 🌟 Asegúrate que la clase ConsultaCodigoItem tenga esta propiedad
+                                TipoMovimiento = reader.GetString(3)
                             });
                         }
                     }
