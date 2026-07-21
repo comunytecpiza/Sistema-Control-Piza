@@ -193,6 +193,15 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
+                    <DataGridTextColumn Header="FECHA REGISTRO" Binding="{Binding CreatedAt, StringFormat=dd/MM/yyyy HH:mm}" Width="1.5*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Foreground" Value="#4B5563"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    
                     <DataGridTemplateColumn Header="ACCIONES" Width="110">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>

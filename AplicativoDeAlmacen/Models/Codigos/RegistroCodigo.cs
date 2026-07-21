@@ -14,7 +14,7 @@ public partial class RegistroCodigo
     public string Desde { get; set; }
     public string Hasta { get; set; }
     public int CategoriaProductoId { get; set; }
-
+    public DateTime? CreatedAt { get; set; }
     // Objetos anidados para la vista
     public Producto Producto { get; set; } = new Producto();
     public CategoriaProducto CategoriaProducto { get; set; } = new CategoriaProducto();

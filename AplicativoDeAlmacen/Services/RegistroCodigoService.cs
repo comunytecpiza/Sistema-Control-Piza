@@ -124,16 +124,18 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
+                // 🌟 Agregamos rc.created_at a la consulta SQL
                 string query = @"SELECT rc.id, 
-                                        (SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id) AS cantidad_real, 
-                                        rc.desde, rc.hasta, p.descripcion AS producto_desc, 
-                                        p.abreviatura, um.descripcion AS unidad_medida_desc, cp.nombre AS categoria_nombre
-                                 FROM registro_codigos rc
-                                 INNER JOIN productos p ON rc.producto_id = p.id
-                                 INNER JOIN unidad_medida um ON p.unidad_medida_id = um.id
-                                 INNER JOIN categoria_producto cp ON rc.categoria_producto_id = cp.id
-                                 WHERE rc.coleccion_id = @coleccionId AND rc.categoria_producto_id = @categoriaId
-                                 ORDER BY rc.desde DESC";
+                                (SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id) AS cantidad_real, 
+                                rc.desde, rc.hasta, p.descripcion AS producto_desc, 
+                                p.abreviatura, um.descripcion AS unidad_medida_desc, cp.nombre AS categoria_nombre,
+                                rc.created_at
+                         FROM registro_codigos rc
+                         INNER JOIN productos p ON rc.producto_id = p.id
+                         INNER JOIN unidad_medida um ON p.unidad_medida_id = um.id
+                         INNER JOIN categoria_producto cp ON rc.categoria_producto_id = cp.id
+                         WHERE rc.coleccion_id = @coleccionId AND rc.categoria_producto_id = @categoriaId
+                         ORDER BY rc.created_at DESC, rc.id DESC"; // 🌟 Ordenado por fecha de creación
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -157,7 +159,8 @@ namespace AplicativoDeAlmacen.Services
                                     Abreviatura = reader.IsDBNull(5) ? null : reader["abreviatura"] as string,
                                     UnidadMedida = new UnidadMedida { Descripcion = reader["unidad_medida_desc"] as string }
                                 },
-                                CategoriaProducto = new CategoriaProducto { Nombre = reader["categoria_nombre"] as string }
+                                CategoriaProducto = new CategoriaProducto { Nombre = reader["categoria_nombre"] as string },
+                                CreatedAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8) // 🌟 Asignamos la fecha leída
                             });
                         }
                     }
