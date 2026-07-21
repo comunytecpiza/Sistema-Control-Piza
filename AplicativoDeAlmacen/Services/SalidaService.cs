@@ -518,23 +518,28 @@ namespace AplicativoDeAlmacen.Services
                     var codigosProd = listaCodigos.Where(c => c.ProductoId == item.ProductoId).ToList();
                     if (codigosProd.Any())
                     {
+                        var todosLosCodigosDelDetalle = new List<int>();
                         var codigosNuevosParaInsertar = new List<int>();
+
                         foreach (var cod in codigosProd)
                         {
-                            nuevosCodigosIds.Add(cod.MovCodigo.CodigoCreadoId);
-                            if (!codigosPreviosEnBD.Contains(cod.MovCodigo.CodigoCreadoId))
+                            int cId = cod.MovCodigo.CodigoCreadoId;
+                            nuevosCodigosIds.Add(cId);
+                            todosLosCodigosDelDetalle.Add(cId);
+
+                            if (!codigosPreviosEnBD.Contains(cId))
                             {
-                                codigosNuevosParaInsertar.Add(cod.MovCodigo.CodigoCreadoId);
+                                codigosNuevosParaInsertar.Add(cId);
                             }
                         }
 
-                        // Reconstrucción atómica de rangos para la tabla `registro_rangos`
+                        // 1. Reconstrucción de rangos
                         var serviceIng = new IngresoMovimientoService();
                         var rangosReconstruidos = serviceIng.GenerarRangosDesdeCodigos(codigosProd);
                         foreach (var r in rangosReconstruidos)
                         {
                             string sqlInsRango = @"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                                                   VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, GETDATE())";
+                               VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, GETDATE())";
                             using var cmdR = dbConn.CreateCommand();
                             cmdR.Transaction = transaccion;
                             cmdR.CommandText = QueryAdapter.FormatearConsulta(sqlInsRango);
@@ -544,20 +549,18 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmdR, "@dNum", r.DesdeNum);
                             AgregarParametro(cmdR, "@hNum", r.HastaNum);
                             AgregarParametro(cmdR, "@detId", idDetalle);
-                            _ultimoSql = cmdR.CommandText;
                             await cmdR.ExecuteNonQueryAsync();
                         }
 
-                        const int insertBatchSize = 1000;
-                        for (int i = 0; i < codigosNuevosParaInsertar.Count; i += insertBatchSize)
+                        // 2. Insertamos en movimiento_codigos solo los nuevos vinculados
+                        if (codigosNuevosParaInsertar.Any())
                         {
-                            var batch = codigosNuevosParaInsertar.Skip(i).Take(insertBatchSize).ToList();
-                            await InsertarMovimientoCodigosSalidaMasivoAsync(movimientoIdInserted, idDetalle, batch, dbConn, transaccion);
-
-                            // Si es devolución a proveedor (Motivo 10) pasa a 1, de lo contrario a 4 (Vendido)
-                            int estadoDestinoCodigo = (cabecera.MotivoProductoId == 10) ? 1 : 4;
-                            await ActualizarEstadoCodigosMasivoAsync(batch, estadoDestinoCodigo, dbConn, transaccion);
+                            await InsertarMovimientoCodigosSalidaMasivoAsync(movimientoIdInserted, idDetalle, codigosNuevosParaInsertar, dbConn, transaccion);
                         }
+
+                        // 🌟 3. GARANTÍA DE ESTADO 4: TODOS los códigos de la salida activa (1 al 5) pasan a Estado 4 (o 1 si motivo es 10)
+                        int estadoDestinoCodigo = (cabecera.MotivoProductoId == 10) ? 1 : 4;
+                        await ActualizarEstadoCodigosMasivoAsync(todosLosCodigosDelDetalle, estadoDestinoCodigo, dbConn, transaccion);
                     }
                 }
 

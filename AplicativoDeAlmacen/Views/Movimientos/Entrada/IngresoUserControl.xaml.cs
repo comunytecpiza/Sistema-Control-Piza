@@ -44,7 +44,12 @@ namespace AplicativoDeAlmacen.Views
         private Button _btnAnularNearSave = null;
         private bool _isUpdatingFromSelection = false;
         private int? _personaComercialIdSeleccionada = null;
-        private int? _ubicacionIdSeleccionada = null; // ID Fijo de Almacén Central
+
+        
+
+        private int? _idUbicacionSeleccionada = null;
+        private const int UBICACION_ID_SELECCIONADA = 1;
+
         private bool _isRegistrandoMovimiento = false;
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
@@ -136,6 +141,29 @@ namespace AplicativoDeAlmacen.Views
             finally { this.Cursor = Cursors.Arrow; }
         }
 
+        // 🌟 Método público para cargar directamente el documento al abrir la pestaña
+        public async void CargarDocumentoParaConsulta(string serie, string numero)
+        {
+            try
+            {
+                _printMode = true; // Activamos el modo impresión/consulta por defecto
+                this.Cursor = Cursors.Wait;
+
+                txtNumSerie.Text = serie;
+                txtNumDocumento.Text = numero;
+
+                // Ejecutamos la carga completa que ya tienes programada
+                await LoadMovimientoBySerieNumeroAsync(serie, numero);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar el documento automáticamente: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+        }
         // ==========================================
         // LÓGICA DE CARGA (EDITAR E IMPRIMIR)
         // ==========================================
@@ -288,12 +316,10 @@ namespace AplicativoDeAlmacen.Views
             var movimiento = movimientoComp.Movimiento;
             _currentMovimientoId = movimiento.Id;
 
-            // 🌟 ARREGLO: Control estricto de estados según el modo en el que está la vista
             if (movimiento.EstadoId == 2) // 2 = ANULADO
             {
                 if (!_printMode && !_anularMode)
                 {
-                    // Si está intentando cargar desde "Editar", le denegamos el acceso directo
                     MessageBox.Show("Este movimiento ya está ANULADO y no permite modificaciones.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
                     EstablecerEstadoInicial();
                     return;
@@ -307,6 +333,14 @@ namespace AplicativoDeAlmacen.Views
 
             txtNumSerie.Text = movimiento.SerieDocumento;
             txtNumDocumento.Text = movimiento.NumeroDocumento;
+
+            // 🌟 1. ASEGURAR QUE EL COMBOBOX DE MOTIVOS CARGUE LAS PROPIEDADES ANTES DE SELECCIONAR
+            if (cboMotivo.ItemsSource == null)
+            {
+                cboMotivo.ItemsSource = await _serviceMovimiento.ObtenerMotivosProductosAsync();
+                cboMotivo.DisplayMemberPath = "Descripcion";
+                cboMotivo.SelectedValuePath = "Id";
+            }
             cboMotivo.SelectedValue = movimiento.MotivoProductoId;
 
             _personaComercialIdSeleccionada = movimiento.PersonaComercialId;
@@ -318,14 +352,12 @@ namespace AplicativoDeAlmacen.Views
                     var persona = await _service.ObtenerPorIdAsync(movimiento.PersonaComercialId.Value);
                     if (persona != null)
                     {
-                        // Evitar disparar la búsqueda/autocomplete al asignar el texto desde código
                         txtRazonSocial.TextChanged -= TxtRazonSocial_TextChanged;
                         txtRazonSocial.Text = !string.IsNullOrEmpty(persona.RazonSocial)
                             ? persona.RazonSocial
                             : $"{persona.Nombres} {persona.ApellidoPaterno}";
                         txtDireccion.Text = persona.Direccion ?? "Sin dirección registrada";
                         txtRazonSocial.TextChanged += TxtRazonSocial_TextChanged;
-                        // Limpiar sugerencias visuales
                         try { lstSugerencias.ItemsSource = null; lstSugerencias.SelectedIndex = -1; } catch { }
                     }
                 }
@@ -335,28 +367,27 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-                txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
-                txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
-                txtObservacion.Text = movimiento.Observacion ?? string.Empty;
+            txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
+            txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
+            txtObservacion.Text = movimiento.Observacion ?? string.Empty;
 
-                // Si la ubicación vino poblada, asignarla sin disparar autocompletado
-                if (movimiento.UbicacionId.HasValue)
+            if (movimiento.UbicacionId.HasValue)
+            {
+                try
                 {
-                    try
+                    var todas = _ubicacionService.ObtenerTodas();
+                    var ubic = todas?.FirstOrDefault(u => u.Id == movimiento.UbicacionId.Value);
+                    if (ubic != null)
                     {
-                        // UbicacionService expone métodos síncronos; obtenemos la lista y buscamos por id
-                        var todas = _ubicacionService.ObtenerTodas();
-                        var ubic = todas?.FirstOrDefault(u => u.Id == movimiento.UbicacionId.Value);
-                        if (ubic != null)
-                        {
-                            txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
-                            txtUbicacion.Text = ubic.Descripcion ?? string.Empty;
-                            txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
-                            try { lstSugerenciasUbicacion.ItemsSource = null; lstSugerenciasUbicacion.SelectedIndex = -1; } catch { }
-                        }
+                        txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                        txtUbicacion.Text = ubic.Descripcion ?? string.Empty;
+                        txtDireccionUbicacion.Text = string.IsNullOrWhiteSpace(ubic.Direccion) ? "Sin dirección registrada" : ubic.Direccion;
+                        txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+                        try { lstSugerenciasUbicacion.ItemsSource = null; lstSugerenciasUbicacion.SelectedIndex = -1; } catch { }
                     }
-                    catch { }
                 }
+                catch { }
+            }
 
             _productosGridList.Clear();
             _codigosGridList.Clear();
@@ -418,13 +449,12 @@ namespace AplicativoDeAlmacen.Views
             dgCodigos.ItemsSource = null;
             dgCodigos.ItemsSource = _codigosGridList;
 
-            // 🌟 EVALUACIÓN FINAL DE LA UI SEGÚN EL MODO DE CARGA
+            // 🌟 2. EVALUACIÓN ESTRICTA DEL MODO IMPRESIÓN PARA BLOQUEAR Y OPACAR CORRECTAMENTE
             if (_anularMode)
             {
                 BloquearParaAnulacionVisual();
                 ShowAnularButtonNearSave();
 
-                // Si el documento ya estaba anulado previamente en la BD, cambiamos el comportamiento del botón rojo
                 if (movimiento.EstadoId == 2)
                 {
                     _btnAnularNearSave.Content = "🔒 EL MOVIMIENTO YA HA SIDO ANULADO";
@@ -432,17 +462,18 @@ namespace AplicativoDeAlmacen.Views
                     _btnAnularNearSave.Background = System.Windows.Media.Brushes.DarkGray;
                 }
             }
-            else if (!_printMode)
+            else if (_printMode)
             {
-                HabilitarCamposFormulario(true);
-                GestionarBotonesPrincipales(enEdicion: true);
-                // Asegurar que siempre se pueda cancelar cuando se cargó un movimiento para editar
-                if (btnCancelar != null) btnCancelar.IsEnabled = true;
+                // 🔒 LLAMADA AL BLOQUEO DE IMPRESIÓN (Apaga botones y deshabilita edición)
+                BloquearParaImpresion();
+                ShowPrintButtonNearSave();
             }
             else
             {
-                BloquearParaImpresion();
-                ShowPrintButtonNearSave();
+                HabilitarCamposFormulario(true);
+                GestionarBotonesPrincipales(enEdicion: true);
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
+                CboMotivo_SelectionChanged(cboMotivo, null);
             }
         }
 
@@ -561,9 +592,9 @@ namespace AplicativoDeAlmacen.Views
                 MessageBox.Show("La Ubicación es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            if (txtSerieGuia.IsEnabled && (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text)))
+            if (txtSerieGuia.IsEnabled && (!string.IsNullOrWhiteSpace(txtSerieGuia.Text) && string.IsNullOrWhiteSpace(txtNumeroGuia.Text)))
             {
-                MessageBox.Show("La Guía de Remisión es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Si ingresa una serie de guía, debe colocar el número correspondiente.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             if (_productosGridList == null || !_productosGridList.Any())
@@ -671,7 +702,14 @@ namespace AplicativoDeAlmacen.Views
                     SerieDocumento = txtNumSerie.Text.Trim(),
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
+
                     UbicacionId = _ubicacionIdSeleccionada ?? 1,
+
+
+                    // 🌟 CAMBIO CLAVE: Guarda la ubicación seleccionada en pantalla; si es nula, usa Almacén Central (1)
+                    UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
+
+
                     UsuarioId = 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
                     SerieGuia = txtSerieGuia.Text.Trim(),
@@ -726,17 +764,30 @@ namespace AplicativoDeAlmacen.Views
 
         private void BloquearParaImpresion()
         {
-            if (dgProductos != null) dgProductos.IsReadOnly = true;
-            if (dgCodigos != null) dgCodigos.IsReadOnly = true;
+            if (dgProductos != null) { dgProductos.IsEnabled = true; dgProductos.IsReadOnly = true; }
+            if (dgCodigos != null) { dgCodigos.IsEnabled = true; dgCodigos.IsReadOnly = true; }
+
+            // Deshabilitar todas las acciones de edición de cabecera y detalle
+            dtpFechaRecepcion.IsEnabled = false;
+            cboMotivo.IsEnabled = false;
+            txtRazonSocial.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+            txtSerieGuia.IsEnabled = false;
+            txtNumeroGuia.IsEnabled = false;
+            txtObservacion.IsEnabled = false;
 
             btnAgregar.IsEnabled = false;
+            btnEditar.IsEnabled = false;
             btnModificar.IsEnabled = false;
             btnEliminar.IsEnabled = false;
             btnImportar.IsEnabled = false;
             btnAgregarProducto.IsEnabled = false;
+            btnEscanear.IsEnabled = false;
             btnImprimir.IsEnabled = false;
-            btnCancelar.IsEnabled = true;
             btnGrabar.IsEnabled = false;
+
+            // El botón Cancelar siempre se mantiene activo para poder salir
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
         }
 
         private void TxtBuscarCodigo_TextChanged(object sender, TextChangedEventArgs e)
@@ -1314,30 +1365,31 @@ namespace AplicativoDeAlmacen.Views
 
             int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
 
-            // Reseteamos campos
-            txtRazonSocial.IsEnabled = false;
-            txtUbicacion.IsEnabled = false;
-            txtSerieGuia.IsEnabled = false;
-            txtNumeroGuia.IsEnabled = false;
+            // Si estamos en modo de solo lectura / impresión, mantenemos todo bloqueado
+            if (_printMode || _anularMode) return;
 
-            // 1. COMPRA (ID 1) y DEVOLUCIÓN RECIBIDA (ID 2) requieren Razón Social Y Guía de Remisión
+            txtRazonSocial.IsEnabled = true;
+            txtUbicacion.IsEnabled = true;
+            txtSerieGuia.IsEnabled = true;
+            txtNumeroGuia.IsEnabled = true;
+
+            // 🟢 Motivo 1 (Compra) / Motivo 2 (Devolución Recibida): Requiere Razón Social
             if (idMotivo == 1 || idMotivo == 2)
             {
                 txtRazonSocial.IsEnabled = true;
-                txtSerieGuia.IsEnabled = true;  // 🌟 Habilitado para Devolución
-                txtNumeroGuia.IsEnabled = true; // 🌟 Habilitado para Devolución
             }
-            // 2. TRANSFERENCIA ENTRE ALMACENES (ID 4)
+            // 🔵 Motivo 4 (Transferencia entre Almacenes): Requiere Ubicación de Destino
             else if (idMotivo == 4)
             {
                 txtUbicacion.IsEnabled = true;
             }
-            // 3. OTROS (ID 13)
-            else if (idMotivo == 13)
+            // 🟣 Promotoría / Promoción / Otros (Devoluciones de Promotora): Requiere Ubicación (y Razón Social opcional si aplica)
+            else
             {
-                txtRazonSocial.IsEnabled = true;
+                txtRazonSocial.IsEnabled = false; // 👈 Evita que exija razón social en devoluciones de almacén/promotoría
                 txtUbicacion.IsEnabled = true;
             }
+
             else if (idMotivo == 3)
             {
                 txtRazonSocial.IsEnabled = true;
@@ -1346,6 +1398,24 @@ namespace AplicativoDeAlmacen.Views
                 txtNumeroGuia.IsEnabled = true;// <-- HABILITAMOS EL CONTROL DE UBICACIÓN
             }
             
+
+
+            // Limpiamos los IDs e insumos si el campo no está activo
+            if (!txtRazonSocial.IsEnabled)
+            {
+                txtRazonSocial.Clear();
+                txtCodigoRazonSocial.Clear();
+                txtDireccion.Clear();
+                _personaComercialIdSeleccionada = null;
+            }
+
+            if (!txtUbicacion.IsEnabled)
+            {
+                txtUbicacion.Clear();
+                txtCodigoUbicacion.Clear();
+                txtDireccionUbicacion.Clear();
+            }
+
         }
 
         private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
@@ -1381,6 +1451,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void LstSugerenciasUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+
             if (lstSugerenciasUbicacion.SelectedItem is Ubicacion ubicacionSeleccionada)
             {
                 txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
@@ -1391,6 +1462,18 @@ namespace AplicativoDeAlmacen.Views
                 _ubicacionIdSeleccionada = ubicacionSeleccionada.Id;
 
                 lstSugerenciasUbicacion.ItemsSource = null;
+
+            if (lstSugerenciasUbicacion.SelectedItem is Ubicacion itemSeleccionado)
+            {
+                txtUbicacion.Text = itemSeleccionado.Descripcion;
+                txtCodigoUbicacion.Text = itemSeleccionado.Id.ToString();
+                txtDireccionUbicacion.Text = string.IsNullOrWhiteSpace(itemSeleccionado.Direccion) ? "Sin dirección registrada" : itemSeleccionado.Direccion;
+
+                // 🌟 CAMBIO CLAVE: Almacenamos el ID seleccionado para persistirlo en SQL
+                _idUbicacionSeleccionada = itemSeleccionado.Id;
+
+                popupUbicacion.IsOpen = false;
+
             }
         }
 

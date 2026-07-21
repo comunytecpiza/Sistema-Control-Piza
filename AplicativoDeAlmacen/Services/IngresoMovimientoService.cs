@@ -746,25 +746,25 @@ namespace AplicativoDeAlmacen.Services
                         int motivoId = cabecera.MotivoProductoId;
                         string sqlVerificarDuplicados;
 
-                        if (motivoId == 2) // 2 = DEVOLUCION RECIBIDA
+                        if (motivoId != 1) // 🟢 Aplica a DEVOLUCIÓN RECIBIDA, PROMOTORÍA, REINGRESOS, ETC.
                         {
                             sqlVerificarDuplicados = @"
                         SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc
+                        FROM codigos_creados cc WITH (NOLOCK)
                         INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
                         LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id NOT IN (4) 
-                        AND mc.codigo_creado_id IS NULL";
+                        WHERE cc.estado_id != 4 
+                          AND mc.codigo_creado_id IS NULL";
                         }
-                        else
+                        else // 🔵 Motivo 1 = COMPRA (Ingreso Inicial)
                         {
                             sqlVerificarDuplicados = @"
                         SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc
+                        FROM codigos_creados cc WITH (NOLOCK)
                         INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
                         LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
                         WHERE cc.estado_id IN (3, 4)
-                        AND mc.codigo_creado_id IS NULL";
+                          AND mc.codigo_creado_id IS NULL";
                         }
 
                         using var cmdVerify = dbConn.CreateCommand();
@@ -792,9 +792,9 @@ namespace AplicativoDeAlmacen.Services
 
                         if (listaConflictos.Any())
                         {
-                            string msjError = motivoId == 2
-                                ? "No se puede procesar la Devolución. Los siguientes códigos NO figuran como VENDIDOS/ENTREGADOS (Estado 4) y no pueden reingresar:\n"
-                                : "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n";
+                            string msjError = motivoId != 1
+                                ? "No se puede procesar la Devolución/Reingreso. Los siguientes códigos NO figuran como VENDIDOS/DESPACHADOS (Estado 4) para poder reingresar:\n\n"
+                                : "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n\n";
 
                             throw new Exception(msjError + string.Join("\n", listaConflictos));
                         }

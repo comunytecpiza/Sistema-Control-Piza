@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Ubicaciones;
-using System.Windows.Media;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -16,8 +15,6 @@ namespace AplicativoDeAlmacen.Views
     {
         private readonly KardexService _kardexService;
         private readonly ProductoService _productoService;
-
-        // Servicios reales que me pasaste
         private readonly PersonaComercialService _personaService;
         private readonly UbicacionService _ubicacionService;
 
@@ -28,6 +25,7 @@ namespace AplicativoDeAlmacen.Views
 
         private List<ConsultaCodigoItem> _todosLosCodigos;
         private List<Producto> _todosLosProductos = new List<Producto>();
+        private List<ConsultaMovimientoItem> _todosLosMovimientosRaw = new List<ConsultaMovimientoItem>();
 
         public ConsultaMovimientosUserControl()
         {
@@ -38,44 +36,23 @@ namespace AplicativoDeAlmacen.Views
             _ubicacionService = new UbicacionService();
 
             _todosLosCodigos = new List<ConsultaCodigoItem>();
-            MovimientosDataGrid.LoadingRow += MovimientosDataGrid_LoadingRow;
+
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
             DpHasta.SelectedDate = DateTime.Today;
 
             Loaded += Control_Loaded;
         }
 
-        private void MovimientosDataGrid_LoadingRow(object sender, DataGridRowEventArgs e)
-        {
-            if (e.Row.Item is ConsultaMovimientoItem movimiento)
-            {
-                if (movimiento.IsAnulado || (movimiento.NumeroRegistro != null && movimiento.NumeroRegistro.Contains("ANULADO")))
-                {
-                    e.Row.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"));
-                    e.Row.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
-                    e.Row.FontStyle = FontStyles.Italic;
-                    e.Row.ToolTip = "Esta operación fue ANULADA y sus saldos fueron ignorados.";
-                }
-                else
-                {
-                    e.Row.Background = Brushes.White;
-                    e.Row.Foreground = Brushes.Black;
-                    e.Row.FontStyle = FontStyles.Normal;
-                    e.Row.ToolTip = null;
-                }
-            }
-        }
         private async void Control_Loaded(object sender, RoutedEventArgs e)
         {
             try
             {
-                // Cargar RAM solo para Productos (es más rápido así para el maestro)
                 var dbProductos = await _productoService.ObtenerTodosAsync();
                 _todosLosProductos = dbProductos.ToList();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al cargar los catálogos base: " + ex.Message);
+                MessageBox.Show("Error al cargar productos: " + ex.Message);
             }
 
             var txtProd = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
@@ -98,6 +75,45 @@ namespace AplicativoDeAlmacen.Views
 
             TxtUbicacion.IsEnabled = ChkUbicacion.IsChecked == true;
             if (ChkUbicacion.IsChecked == false) TxtUbicacion.Text = string.Empty;
+
+            AjustarModoPerspectivaUI();
+        }
+
+        private void ChkMostrarAnulados_Click(object sender, RoutedEventArgs e)
+        {
+            RefrescarVistaMovimientos();
+        }
+
+        private void AjustarModoPerspectivaUI()
+        {
+            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+                                    (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
+
+            if (MovimientosDataGrid.Columns.Count >= 7)
+            {
+                if (hayFiltroEntidad)
+                {
+                    // Perspectiva de la Promotora / Cliente
+                    MovimientosDataGrid.Columns[4].Header = "ENTREGADO"; // Columna Salida
+                    MovimientosDataGrid.Columns[5].Header = "DEVOLUCIÓN"; // Columna Ingreso
+                    MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible; // Total en Poder
+
+                    LblCard1.Text = "Total Entregado (Salidas)";
+                    LblCard2.Text = "Total Devoluciones";
+                    LblCard3.Text = "Saldo Pendiente en Poder";
+                }
+                else
+                {
+                    // Perspectiva del Almacén Central
+                    MovimientosDataGrid.Columns[4].Header = "SALEN";
+                    MovimientosDataGrid.Columns[5].Header = "ENTRAN";
+                    MovimientosDataGrid.Columns[6].Visibility = Visibility.Collapsed;
+
+                    LblCard1.Text = "Total Salidas";
+                    LblCard2.Text = "Total Entradas";
+                    LblCard3.Text = "Stock Actual en Almacén";
+                }
+            }
         }
 
         private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -106,19 +122,10 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (CboProductos.IsDropDownOpen || PopupRazonSocial.IsOpen || PopupUbicacion.IsOpen) return;
                 e.Handled = true;
-
                 BtnEjecutar_Click(BtnEjecutar, null);
-
-                
             }
         }
 
-
-
-
-        // ====================================================================
-        // BÚSQUEDA DE PRODUCTOS (Se mantiene en RAM)
-        // ====================================================================
         private void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (_estaSeleccionando) return;
@@ -167,37 +174,26 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // ====================================================================
-        // MAGIA DEL COMPAÑERO: RAZÓN SOCIAL (Con PersonaComercialService)
-        // ====================================================================
         private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (!TxtRazonSocial.IsEnabled || _isUpdatingFromSelection) return;
-
             string textoBusqueda = TxtRazonSocial.Text.Trim();
 
             if (textoBusqueda.Length >= 2)
             {
                 try
                 {
-                    // Usa el método async que tienes en tu PersonaComercialService
                     var sugerencias = await _personaService.BuscarPorRazonSocialAsync(textoBusqueda);
                     if (sugerencias != null && sugerencias.Count > 0)
                     {
                         LstRazonSocial.ItemsSource = sugerencias;
                         PopupRazonSocial.IsOpen = true;
                     }
-                    else
-                    {
-                        PopupRazonSocial.IsOpen = false;
-                    }
+                    else PopupRazonSocial.IsOpen = false;
                 }
                 catch { PopupRazonSocial.IsOpen = false; }
             }
-            else
-            {
-                PopupRazonSocial.IsOpen = false;
-            }
+            else PopupRazonSocial.IsOpen = false;
         }
 
         private void LstRazonSocial_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -205,51 +201,36 @@ namespace AplicativoDeAlmacen.Views
             if (LstRazonSocial.SelectedItem is PersonaComercial personaSeleccionada)
             {
                 _isUpdatingFromSelection = true;
-
-                // Asignamos el texto al TextBox y cerramos el popup
                 TxtRazonSocial.Text = !string.IsNullOrEmpty(personaSeleccionada.RazonSocial)
                                         ? personaSeleccionada.RazonSocial
                                         : $"{personaSeleccionada.Nombres} {personaSeleccionada.ApellidoPaterno}";
-
                 PopupRazonSocial.IsOpen = false;
                 LstRazonSocial.SelectedIndex = -1;
-
                 _isUpdatingFromSelection = false;
+                AjustarModoPerspectivaUI();
             }
         }
 
-        // ====================================================================
-        // MAGIA DEL COMPAÑERO: UBICACIÓN (Con UbicacionService)
-        // ====================================================================
         private async void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (!TxtUbicacion.IsEnabled || _isUpdatingFromSelection) return;
-
             string textoBusqueda = TxtUbicacion.Text.Trim();
 
             if (textoBusqueda.Length >= 2)
             {
                 try
                 {
-                    // 🌟 SOLUCIÓN: Usamos el método síncrono que tienes, pero sin congelar la UI
                     var sugerencias = await Task.Run(() => _ubicacionService.BuscarUbicaciones(textoBusqueda));
-
                     if (sugerencias != null && sugerencias.Count > 0)
                     {
                         LstUbicacion.ItemsSource = sugerencias;
                         PopupUbicacion.IsOpen = true;
                     }
-                    else
-                    {
-                        PopupUbicacion.IsOpen = false;
-                    }
+                    else PopupUbicacion.IsOpen = false;
                 }
                 catch { PopupUbicacion.IsOpen = false; }
             }
-            else
-            {
-                PopupUbicacion.IsOpen = false;
-            }
+            else PopupUbicacion.IsOpen = false;
         }
 
         private void LstUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -257,19 +238,14 @@ namespace AplicativoDeAlmacen.Views
             if (LstUbicacion.SelectedItem is Ubicacion ubiSeleccionada)
             {
                 _isUpdatingFromSelection = true;
-
                 TxtUbicacion.Text = ubiSeleccionada.Descripcion;
-
                 PopupUbicacion.IsOpen = false;
                 LstUbicacion.SelectedIndex = -1;
-
                 _isUpdatingFromSelection = false;
+                AjustarModoPerspectivaUI();
             }
         }
 
-        // ====================================================================
-        // EJECUCIÓN DINÁMICA
-        // ====================================================================
         private void RbFiltro_Click(object sender, RoutedEventArgs e)
         {
             if (_productoSeleccionadoId != 0 && this.IsLoaded) BtnEjecutar_Click(BtnEjecutar, null);
@@ -292,37 +268,20 @@ namespace AplicativoDeAlmacen.Views
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(_productoSeleccionadoId, desde, hasta);
-                var movimientos = reporte.Movimientos.AsEnumerable();
+                string? filtroRazon = ChkRazonSocial.IsChecked == true ? TxtRazonSocial.Text : null;
+                string? filtroUbicacion = ChkUbicacion.IsChecked == true ? TxtUbicacion.Text : null;
 
-                if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
-                    movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtRazonSocial.Text.ToLower()));
+                // 🌟 BÚSQUEDA 100% FILTRADA EN SQL (No se mezclan Imprentas ni Almacenes extra)
+                var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(
+                    _productoSeleccionadoId, desde, hasta, filtroRazon, filtroUbicacion);
 
-                if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text))
-                    movimientos = movimientos.Where(m => m.RazonSocialUbicacion.ToLower().Contains(TxtUbicacion.Text.ToLower()));
-
-                if (RbGuia != null && RbGuia.IsChecked == true) movimientos = movimientos.Where(m => m.NumeroRegistro.Contains("-") || string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
-                else if (RbVenta != null && RbVenta.IsChecked == true)
-                {
-                    movimientos = movimientos.Where(m => !m.NumeroRegistro.Contains("-") && !string.IsNullOrWhiteSpace(m.NumeroRegistro.Replace("-", "")));
-                }
-
-                var listaFinal = movimientos.ToList();
-                MovimientosDataGrid.ItemsSource = listaFinal;
-
-                // 🌟 CALCULAMOS TOTALES IGNORANDO LAS FILAS ANULADAS (Como en Valorizado)
-                decimal totalEntradas = listaFinal.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Ingreso);
-                decimal totalSalidas = listaFinal.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO")).Sum(m => m.Salida);
-
-                TxtTotalIngreso.Text = totalEntradas.ToString("N2");
-                TxtTotalSalida.Text = totalSalidas.ToString("N2");
-                TxtTotalVendidos.Text = totalSalidas.ToString("N2"); // Ventas Netas
-
+                _todosLosMovimientosRaw = reporte.Movimientos;
                 _todosLosCodigos = reporte.Codigos;
-                CodigosDataGrid.ItemsSource = null;
-                TxtTotalCodigos.Text = "Seleccione un movimiento para auditar códigos";
+
+                AjustarModoPerspectivaUI();
+                RefrescarVistaMovimientos();
             }
-            catch (Exception ex) { MessageBox.Show("Error al ejecutar auditoría: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
+            catch (Exception ex) { MessageBox.Show("Error al ejecutar consulta: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
             finally
             {
                 _isCargando = false;
@@ -331,6 +290,139 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+        private void RefrescarVistaMovimientos()
+        {
+            var movimientos = _todosLosMovimientosRaw.AsEnumerable();
+
+            // 1. FILTRO ANULADOS (Ocultos por defecto)
+            bool mostrarAnulados = ChkMostrarAnulados.IsChecked == true;
+            if (!mostrarAnulados)
+            {
+                movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
+            }
+
+            // 🌟 2. FILTRO DE TIPO DE OPERACIÓN CORREGIDO
+            if (RbGuia != null && RbGuia.IsChecked == true)
+            {
+                // Solo Guías: Considera documentos donde se registró una Guía de Remisión válida
+                movimientos = movimientos.Where(m =>
+                    !string.IsNullOrWhiteSpace(m.NumeroGuia) &&
+                    !m.NumeroGuia.Equals("0000-0000000") &&
+                    !m.NumeroGuia.Equals("000-0000000"));
+            }
+            else if (RbVenta != null && RbVenta.IsChecked == true)
+            {
+                // Solo Ventas / Documentos Directos: Sin guía de remisión asociada
+                movimientos = movimientos.Where(m =>
+                    string.IsNullOrWhiteSpace(m.NumeroGuia) ||
+                    m.NumeroGuia.Equals("0000-0000000") ||
+                    m.NumeroGuia.Equals("000-0000000"));
+            }
+
+            var listaFinal = movimientos.ToList();
+
+            // 3. MATEMÁTICA LÓGICA Y POSITIVA PARA PROMOTORAS (SALIDAS - DEVOLUCIONES)
+            decimal saldoAcumulado = 0;
+            foreach (var item in listaFinal)
+            {
+                if (!item.IsAnulado)
+                {
+                    saldoAcumulado += (item.Salida - item.Ingreso);
+                }
+                item.SaldoAcumulado = saldoAcumulado;
+            }
+
+            MovimientosDataGrid.ItemsSource = null;
+            MovimientosDataGrid.ItemsSource = listaFinal;
+
+            // 4. RESUMEN DE TARJETAS
+            decimal totalDevoluciones = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Ingreso);
+            decimal totalEntregado = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Salida);
+
+            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+                                    (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
+
+            if (hayFiltroEntidad)
+            {
+                TxtTotalSalida.Text = totalEntregado.ToString("N2");    // Columna Roja: Lo que le diste
+                TxtTotalIngreso.Text = totalDevoluciones.ToString("N2"); // Columna Verde: Lo que devolvió
+                TxtTotalVendidos.Text = (totalEntregado - totalDevoluciones).ToString("N2"); // Columna Azul: En su poder (Positivo)
+            }
+            else
+            {
+                TxtTotalSalida.Text = totalEntregado.ToString("N2");    // Salidas del Almacén
+                TxtTotalIngreso.Text = totalDevoluciones.ToString("N2"); // Entradas al Almacén
+                TxtTotalVendidos.Text = (totalDevoluciones - totalEntregado).ToString("N2"); // Stock del Almacén
+            }
+
+            CodigosDataGrid.ItemsSource = null;
+            TxtTotalCodigos.Text = "Seleccione un movimiento para auditar";
+        }
+
+        // 🌟 Muestra los códigos que le quedan actualmente en su poder al hacer clic en la tarjeta de saldo
+        private void CardSaldoEnPoder_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (_productoSeleccionadoId == 0) return;
+
+            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+                                    (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
+
+            string entidadSeleccionada = hayFiltroEntidad
+                ? (!string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text : TxtRazonSocial.Text)
+                : "ALMACÉN CENTRAL";
+
+            // Lógica inteligente: 
+            // Si es una entidad (Promotora), filtramos los códigos que salieron hacia ella 
+            // y que no figuran en ningún movimiento de devolución posterior.
+            // O de forma práctica para tu inventario físico con los datos que ya cargó el reporte:
+
+            var codigosEnPoder = _todosLosCodigos
+                .GroupBy(c => c.Codigo)
+                .Where(g => g.Count() % 2 != 0) // Si un código tiene salidas impares sin contraparte de devolución equilibrada
+                .Select(g => g.First())
+                .ToList();
+
+            CodigosDataGrid.ItemsSource = null;
+            CodigosDataGrid.ItemsSource = codigosEnPoder;
+
+            TxtTotalCodigos.Text = $"📦 Hay {codigosEnPoder.Count} códigos físicos pendientes en poder de: {entidadSeleccionada}";
+        }
+        
+        private void MovimientosDataGrid_SelectedCellsChanged(object sender, SelectedCellsChangedEventArgs e)
+        {
+            if (MovimientosDataGrid.CurrentCell.Column != null)
+            {
+                int columnIndex = MovimientosDataGrid.Columns.IndexOf(MovimientosDataGrid.CurrentCell.Column);
+
+                // Si la columna seleccionada es la 6 (TOTAL EN PODER)
+                if (columnIndex == 6 && MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem itemSeleccionado)
+                {
+                    MostrarCodigosPendientesEnPoder();
+                }
+            }
+        }
+
+        private void MostrarCodigosPendientesEnPoder()
+        {
+            if (_productoSeleccionadoId == 0) return;
+
+            // Obtenemos todos los códigos que salieron (Salidas/Entregados) menos los que ya volvieron (Devoluciones)
+            // Agrupamos por código físico para ver su balance actual
+            var balanceCodigos = _todosLosCodigos
+                .GroupBy(c => c.Codigo)
+                .Select(g => new {
+                    CodigoItem = g.First(),
+                    // Si el código tiene un número impar de movimientos o su última operación fue salida sin retorno
+                    UltimoMovimiento = g.OrderByDescending(x => x.NumeroRegistro).FirstOrDefault()
+                })
+                .Where(x => x.UltimoMovimiento != null && x.UltimoMovimiento.TipoMovimiento == "SALIDA")
+                .Select(x => x.CodigoItem)
+                .ToList();
+
+            CodigosDataGrid.ItemsSource = null;
+            CodigosDataGrid.ItemsSource = balanceCodigos;
+            TxtTotalCodigos.Text = $"📦 Hay {balanceCodigos.Count} códigos físicos pendientes en su poder.";
+        }
         private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
@@ -339,11 +431,9 @@ namespace AplicativoDeAlmacen.Views
                     .Replace("❌ ANULADO - ", "")
                     .Trim() ?? string.Empty;
 
-                // 🌟 Determinamos si la fila seleccionada es Entrada o Salida
                 bool esIngreso = movimiento.Ingreso > 0;
                 string tipoBuscado = esIngreso ? "ENTRADA" : "SALIDA";
 
-                // 🛡️ FILTRADO EXACTO: Comprobante + Tipo de Movimiento
                 var codigos = _todosLosCodigos
                     .Where(c => (c.NumeroRegistro.Equals(registroLimpio, StringComparison.OrdinalIgnoreCase) ||
                                 c.NumeroRegistro.Equals(movimiento.NumeroRegistro, StringComparison.OrdinalIgnoreCase))
@@ -355,15 +445,46 @@ namespace AplicativoDeAlmacen.Views
 
                 if (movimiento.IsAnulado || movimiento.NumeroRegistro.Contains("ANULADO"))
                 {
-                    TxtTotalCodigos.Text = $"⚠️ [ANULADO] Se registran {codigos.Count} códigos en el historial de esta operación.";
+                    TxtTotalCodigos.Text = $"⚠️ [ANULADO] {codigos.Count} códigos en esta operación.";
                 }
                 else
                 {
-                    TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos en esta operación";
+                    TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos";
                 }
             }
         }
 
+        private void MovimientosDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem seleccionado)
+            {
+                string registroLimpio = seleccionado.NumeroRegistro?.Replace("❌ ANULADO - ", "").Trim() ?? string.Empty;
+                var partes = registroLimpio.Split('-');
+
+                if (partes.Length >= 2)
+                {
+                    string serie = partes[0];
+                    string numero = partes[1];
+                    bool esSalida = seleccionado.Salida > 0;
+
+                    var mainShell = Application.Current.Windows.OfType<MainShell>().FirstOrDefault();
+                    if (mainShell == null) return;
+
+                    if (esSalida)
+                    {
+                        var salidasControl = new SalidasUserControl();
+                        mainShell.AbrirPestaña($"Salida {serie}-{numero} (Consulta)", salidasControl);
+                        salidasControl.CargarDocumentoParaConsulta(serie, numero); // 🌟 Carga automática
+                    }
+                    else
+                    {
+                        var ingresoControl = new IngresoUserControl();
+                        mainShell.AbrirPestaña($"Ingreso {serie}-{numero} (Consulta)", ingresoControl);
+                        ingresoControl.CargarDocumentoParaConsulta(serie, numero); // 🌟 Carga automática
+                    }
+                }
+            }
+        }
         private bool _isFormattingDate = false;
         private void ConfigurarMascaraFecha(DatePicker dp)
         {

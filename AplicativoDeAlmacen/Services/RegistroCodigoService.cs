@@ -201,15 +201,15 @@ namespace AplicativoDeAlmacen.Services
         }
 
         public async Task GuardarCodigosTransactionAsync(
-    int coleccionId,
-    int productoId,
-    int cantidad,
-    string desde,
-    string hasta,
-    int categoriaId,
-    int usuarioId, // 🌟 AUDITORÍA: Recibe el ID del usuario logueado
-    string origenRegistro = "SECUENCIAL", // 🌟 AUDITORÍA: 'SECUENCIAL' o 'EXCEL'
-    IProgress<int> progress = null)
+        int coleccionId,
+        int productoId,
+        int cantidad,
+        string desde,
+        string hasta,
+        int categoriaId,
+        int usuarioId,
+        string origenRegistro,
+        IProgress<int> progress = null)
         {
             using (var conn = _database.GetConnection())
             {
@@ -224,43 +224,12 @@ namespace AplicativoDeAlmacen.Services
                         int desdeInt = lastDashIndex >= 0 ? int.Parse(desde.Substring(lastDashIndex + 1)) : 0;
                         string prefijo = lastDashIndex >= 0 ? desde.Substring(0, lastDashIndex + 1) : desde;
 
-                        string lenFunc = QueryAdapter.EsMySQL ? "LENGTH" : "LEN";
-                        string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
-
-                        string bloqueoSQLServer = QueryAdapter.EsMySQL ? "" : "WITH (UPDLOCK, HOLDLOCK)";
-                        string bloqueoMySQL = QueryAdapter.EsMySQL ? "FOR UPDATE" : "";
-
-                        // Verificación de concurrencia
-                        string queryVerif = $@"
-                    SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@pref) + 1, {lenFunc}(codigo)) AS {castType}))
-                    FROM codigos_creados cc {bloqueoSQLServer}
-                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                    WHERE rc.producto_id = @pId AND rc.categoria_producto_id = @catId
-                    {bloqueoMySQL}";
-
-                        using (var cmdVerif = dbConn.CreateCommand())
-                        {
-                            cmdVerif.Transaction = transaction;
-                            cmdVerif.CommandText = QueryAdapter.FormatearConsulta(queryVerif);
-                            AgregarParametro(cmdVerif, "@pref", prefijo);
-                            AgregarParametro(cmdVerif, "@pId", productoId);
-                            AgregarParametro(cmdVerif, "@catId", categoriaId);
-
-                            object resultVerif = await cmdVerif.ExecuteScalarAsync();
-                            int maxActual = (resultVerif != DBNull.Value && resultVerif != null) ? Convert.ToInt32(resultVerif) : 0;
-
-                            if (desdeInt > 0 && maxActual >= desdeInt)
-                            {
-                                throw new Exception($"¡Colisión detectada!\n\nOtro operador en otra sede acaba de registrar códigos para este producto.\n\nEl sistema intentaba registrar desde el código {desdeInt}, pero la base de datos ya va en el {maxActual}.\n\nPor favor, cancele esta ventana y vuelva a seleccionar el producto para obtener el rango actualizado.");
-                            }
-                        }
-
-                        // 🌟 1. GUARDAR REGISTRO MAESTRO CON DATOS DE AUDITORÍA
+                        // 🌟 INSERCIÓN DIRECTA USANDO ORIGEN_REGISTRO PARA EL NOMBRE DEL ARCHIVO O 'SECUENCIAL'
                         string queryRegistro = @"
-                    INSERT INTO registro_codigos 
-                    (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
-                    VALUES 
-                    (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, @createdAt);";
+                        INSERT INTO registro_codigos 
+                        (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
+                        VALUES 
+                        (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, @createdAt);";
 
                         string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
@@ -277,15 +246,15 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmd, "@has", hasta);
                             AgregarParametro(cmd, "@catId", categoriaId);
 
-                            // 🚀 CAMPOS DE AUDITORÍA INYECTADOS
-                            AgregarParametro(cmd, "@uId", usuarioId);
-                            AgregarParametro(cmd, "@origen", origenRegistro);
-                            AgregarParametro(cmd, "@createdAt", DateTime.Now); // 🕒 Fecha y Hora exacta
+                            // 🚀 AUDITORÍA INTEGRADA
+                            AgregarParametro(cmd, "@uId", usuarioId > 0 ? usuarioId : 1);
+                            AgregarParametro(cmd, "@origen", string.IsNullOrWhiteSpace(origenRegistro) ? "SECUENCIAL" : origenRegistro);
+                            AgregarParametro(cmd, "@createdAt", DateTime.Now);
 
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        // 2. INSERCIÓN EN BLOQUE DE CÓDIGOS INDIVIDUALES
+                        // 2. INSERCIÓN EN BLOQUE DE CÓDIGOS INDIVIDUALES (Tu lógica intacta)
                         int batchSize = 1000;
                         for (int i = 0; i < cantidad; i += batchSize)
                         {
