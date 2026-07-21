@@ -44,12 +44,8 @@ namespace AplicativoDeAlmacen.Views
         private Button _btnAnularNearSave = null;
         private bool _isUpdatingFromSelection = false;
         private int? _personaComercialIdSeleccionada = null;
-
-        
-
         private int? _idUbicacionSeleccionada = null;
-        private const int UBICACION_ID_SELECCIONADA = 1;
-
+        private const int UBICACION_ID_SELECCIONADA = 1; // ID Fijo de Almacén Central
         private bool _isRegistrandoMovimiento = false;
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
@@ -141,29 +137,6 @@ namespace AplicativoDeAlmacen.Views
             finally { this.Cursor = Cursors.Arrow; }
         }
 
-        // 🌟 Método público para cargar directamente el documento al abrir la pestaña
-        public async void CargarDocumentoParaConsulta(string serie, string numero)
-        {
-            try
-            {
-                _printMode = true; // Activamos el modo impresión/consulta por defecto
-                this.Cursor = Cursors.Wait;
-
-                txtNumSerie.Text = serie;
-                txtNumDocumento.Text = numero;
-
-                // Ejecutamos la carga completa que ya tienes programada
-                await LoadMovimientoBySerieNumeroAsync(serie, numero);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al cargar el documento automáticamente: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                this.Cursor = Cursors.Arrow;
-            }
-        }
         // ==========================================
         // LÓGICA DE CARGA (EDITAR E IMPRIMIR)
         // ==========================================
@@ -333,14 +306,6 @@ namespace AplicativoDeAlmacen.Views
 
             txtNumSerie.Text = movimiento.SerieDocumento;
             txtNumDocumento.Text = movimiento.NumeroDocumento;
-
-            // 🌟 1. ASEGURAR QUE EL COMBOBOX DE MOTIVOS CARGUE LAS PROPIEDADES ANTES DE SELECCIONAR
-            if (cboMotivo.ItemsSource == null)
-            {
-                cboMotivo.ItemsSource = await _serviceMovimiento.ObtenerMotivosProductosAsync();
-                cboMotivo.DisplayMemberPath = "Descripcion";
-                cboMotivo.SelectedValuePath = "Id";
-            }
             cboMotivo.SelectedValue = movimiento.MotivoProductoId;
 
             _personaComercialIdSeleccionada = movimiento.PersonaComercialId;
@@ -449,7 +414,7 @@ namespace AplicativoDeAlmacen.Views
             dgCodigos.ItemsSource = null;
             dgCodigos.ItemsSource = _codigosGridList;
 
-            // 🌟 2. EVALUACIÓN ESTRICTA DEL MODO IMPRESIÓN PARA BLOQUEAR Y OPACAR CORRECTAMENTE
+            // 🌟 EVALUACIÓN ESTRICTA Y EXCLUSIVA SEGÚN EL MODO ACTIVO
             if (_anularMode)
             {
                 BloquearParaAnulacionVisual();
@@ -464,15 +429,18 @@ namespace AplicativoDeAlmacen.Views
             }
             else if (_printMode)
             {
-                // 🔒 LLAMADA AL BLOQUEO DE IMPRESIÓN (Apaga botones y deshabilita edición)
+                // 🔒 GARANTÍA: Bloquea 100% controles y tablas para evitar edición involuntaria
                 BloquearParaImpresion();
                 ShowPrintButtonNearSave();
             }
             else
             {
+                // ✏️ MODO EDICIÓN NORMAL
                 HabilitarCamposFormulario(true);
                 GestionarBotonesPrincipales(enEdicion: true);
                 if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+                // Reevaluar visibilidad de Razón Social / Ubicación según el motivo cargado
                 CboMotivo_SelectionChanged(cboMotivo, null);
             }
         }
@@ -703,12 +671,8 @@ namespace AplicativoDeAlmacen.Views
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
 
-                    UbicacionId = _ubicacionIdSeleccionada ?? 1,
-
-
                     // 🌟 CAMBIO CLAVE: Guarda la ubicación seleccionada en pantalla; si es nula, usa Almacén Central (1)
                     UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
-
 
                     UsuarioId = 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
@@ -1390,16 +1354,6 @@ namespace AplicativoDeAlmacen.Views
                 txtUbicacion.IsEnabled = true;
             }
 
-            else if (idMotivo == 3)
-            {
-                txtRazonSocial.IsEnabled = true;
-                txtUbicacion.IsEnabled = true;
-                txtSerieGuia.IsEnabled = true;  // 🌟 Habilitado para Devolución
-                txtNumeroGuia.IsEnabled = true;// <-- HABILITAMOS EL CONTROL DE UBICACIÓN
-            }
-            
-
-
             // Limpiamos los IDs e insumos si el campo no está activo
             if (!txtRazonSocial.IsEnabled)
             {
@@ -1415,7 +1369,6 @@ namespace AplicativoDeAlmacen.Views
                 txtCodigoUbicacion.Clear();
                 txtDireccionUbicacion.Clear();
             }
-
         }
 
         private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
@@ -1451,18 +1404,6 @@ namespace AplicativoDeAlmacen.Views
 
         private void LstSugerenciasUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-
-            if (lstSugerenciasUbicacion.SelectedItem is Ubicacion ubicacionSeleccionada)
-            {
-                txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
-                txtUbicacion.Text = ubicacionSeleccionada.Descripcion;
-                txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
-
-                // GUARDAMOS EL ID SELECCIONADO
-                _ubicacionIdSeleccionada = ubicacionSeleccionada.Id;
-
-                lstSugerenciasUbicacion.ItemsSource = null;
-
             if (lstSugerenciasUbicacion.SelectedItem is Ubicacion itemSeleccionado)
             {
                 txtUbicacion.Text = itemSeleccionado.Descripcion;
@@ -1473,10 +1414,31 @@ namespace AplicativoDeAlmacen.Views
                 _idUbicacionSeleccionada = itemSeleccionado.Id;
 
                 popupUbicacion.IsOpen = false;
-
             }
         }
+        // 🌟 Método público para cargar directamente el documento al abrir la pestaña
+        public async void CargarDocumentoParaConsulta(string serie, string numero)
+        {
+            try
+            {
+                _printMode = true; // Activamos el modo impresión/consulta por defecto
+                this.Cursor = Cursors.Wait;
 
+                txtNumSerie.Text = serie;
+                txtNumDocumento.Text = numero;
+
+                // Ejecutamos la carga completa que ya tienes programada
+                await LoadMovimientoBySerieNumeroAsync(serie, numero);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar el documento automáticamente: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+        }
         private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (sender is DependencyObject dep)

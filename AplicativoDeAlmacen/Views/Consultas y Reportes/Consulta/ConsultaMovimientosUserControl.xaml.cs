@@ -91,29 +91,145 @@ namespace AplicativoDeAlmacen.Views
 
             if (MovimientosDataGrid.Columns.Count >= 7)
             {
+                var ingresoStyle = (Style)FindResource("IngresoStyle"); // Verde
+                var salidaStyle = (Style)FindResource("SalidaStyle");   // Rojo
+
+                var colSalida = MovimientosDataGrid.Columns[4] as DataGridTextColumn;
+                var colIngreso = MovimientosDataGrid.Columns[5] as DataGridTextColumn;
+
                 if (hayFiltroEntidad)
                 {
-                    // Perspectiva de la Promotora / Cliente
-                    MovimientosDataGrid.Columns[4].Header = "ENTREGADO"; // Columna Salida
-                    MovimientosDataGrid.Columns[5].Header = "DEVOLUCIÓN"; // Columna Ingreso
+                    // 🟢 MODO ESPECÍFICO (Promotora / Cliente)
+                    if (colSalida != null)
+                    {
+                        colSalida.Header = "ENVIADO";
+                        colSalida.CellStyle = salidaStyle; // Rojo para Salida/Entregado
+                        colSalida.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
+                    }
+                    if (colIngreso != null)
+                    {
+                        colIngreso.Header = "DEVUELTO";
+                        colIngreso.CellStyle = ingresoStyle; // Verde para Devolución
+                        colIngreso.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
+                    }
+
                     MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible; // Total en Poder
 
+                    // Nombres de Tarjetas
                     LblCard1.Text = "Total Entregado (Salidas)";
                     LblCard2.Text = "Total Devoluciones";
                     LblCard3.Text = "Saldo Pendiente en Poder";
+
+                    // Colores Tarjeta 1 (Entregado -> Rojo)
+                    Card1.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FEF2F2"));
+                    Card1.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F87171"));
+                    LblCard1.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#991B1B"));
+                    TxtTotalIngreso.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B91C1C"));
+
+                    // Colores Tarjeta 2 (Devolución -> Verde)
+                    Card2.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#ECFDF5"));
+                    Card2.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#34D399"));
+                    LblCard2.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#065F46"));
+                    TxtTotalSalida.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#047857"));
+
+                    Card3.Visibility = Visibility.Visible;
                 }
                 else
                 {
-                    // Perspectiva del Almacén Central
-                    MovimientosDataGrid.Columns[4].Header = "SALEN";
-                    MovimientosDataGrid.Columns[5].Header = "ENTRAN";
+                    // 🔵 MODO GENERAL (Almacén Central)
+                    if (colSalida != null)
+                    {
+                        colSalida.Header = "INGRESO";
+                        colSalida.CellStyle = ingresoStyle; // Verde para Entrada
+                        colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
+                    }
+                    if (colIngreso != null)
+                    {
+                        colIngreso.Header = "SALIDA";
+                        colIngreso.CellStyle = salidaStyle; // Rojo para Salida
+                        colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
+                    }
+
                     MovimientosDataGrid.Columns[6].Visibility = Visibility.Collapsed;
 
-                    LblCard1.Text = "Total Salidas";
-                    LblCard2.Text = "Total Entradas";
-                    LblCard3.Text = "Stock Actual en Almacén";
+                    // Nombres de Tarjetas
+                    LblCard1.Text = "Total Entradas";
+                    LblCard2.Text = "Total Salidas";
+                    LblCard3.Text = string.Empty;
+
+                    // Colores Tarjeta 1 (Entrada -> Verde)
+                    Card1.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#ECFDF5"));
+                    Card1.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#34D399"));
+                    LblCard1.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#065F46"));
+                    TxtTotalIngreso.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#047857"));
+
+                    // Colores Tarjeta 2 (Salida -> Rojo)
+                    Card2.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FEF2F2"));
+                    Card2.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F87171"));
+                    LblCard2.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#991B1B"));
+                    TxtTotalSalida.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B91C1C"));
+
+                    Card3.Visibility = Visibility.Collapsed;
                 }
             }
+        }
+
+        private void RefrescarVistaMovimientos()
+        {
+            var movimientos = _todosLosMovimientosRaw.AsEnumerable();
+
+            // 1. Filtro Anulados
+            bool mostrarAnulados = ChkMostrarAnulados.IsChecked == true;
+            if (!mostrarAnulados)
+            {
+                movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
+            }
+
+            // 2. Filtros de Entidad (Razón Social o Ubicación)
+            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+                                    (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
+
+            var listaFinal = movimientos.ToList();
+
+            // 3. Cálculo de Saldo Acumulado
+            decimal saldoAcumulado = 0;
+            foreach (var item in listaFinal)
+            {
+                if (!item.IsAnulado)
+                {
+                    if (hayFiltroEntidad)
+                    {
+                        saldoAcumulado += (item.Salida - item.Ingreso);
+                    }
+                }
+                item.SaldoAcumulado = hayFiltroEntidad ? saldoAcumulado : 0;
+            }
+
+            MovimientosDataGrid.ItemsSource = null;
+            MovimientosDataGrid.ItemsSource = listaFinal;
+
+            // 4. Actualización de Valores en Tarjetas
+            decimal totalIngresos = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Ingreso);
+            decimal totalSalidas = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Salida);
+
+            if (hayFiltroEntidad)
+            {
+                TxtTotalIngreso.Text = totalSalidas.ToString("N2");  // Total Entregado
+                TxtTotalSalida.Text = totalIngresos.ToString("N2");  // Total Devoluciones
+                TxtTotalVendidos.Text = (totalSalidas - totalIngresos).ToString("N2");
+            }
+            else
+            {
+                TxtTotalIngreso.Text = totalIngresos.ToString("N2"); // Total Entradas
+                TxtTotalSalida.Text = totalSalidas.ToString("N2");   // Total Salidas
+                TxtTotalVendidos.Text = "---";
+            }
+
+            // 5. Ajustar colores y perspectivas visuales
+            AjustarModoPerspectivaUI();
+
+            CodigosDataGrid.ItemsSource = null;
+            TxtTotalCodigos.Text = "Seleccione un movimiento para auditar";
         }
 
         private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -248,7 +364,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void RbFiltro_Click(object sender, RoutedEventArgs e)
         {
-            if (_productoSeleccionadoId != 0 && this.IsLoaded) BtnEjecutar_Click(BtnEjecutar, null);
+            // 🌟 Permitimos que selecciones libremente la opción sin ejecutar nada aún.
+            // La consulta se lanzará únicamente cuando presiones el botón "🚀 Ejecutar Consulta".
         }
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
@@ -263,6 +380,7 @@ namespace AplicativoDeAlmacen.Views
             if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Consultando..."; }
             Mouse.OverrideCursor = Cursors.Wait;
 
+
             try
             {
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
@@ -271,9 +389,19 @@ namespace AplicativoDeAlmacen.Views
                 string? filtroRazon = ChkRazonSocial.IsChecked == true ? TxtRazonSocial.Text : null;
                 string? filtroUbicacion = ChkUbicacion.IsChecked == true ? TxtUbicacion.Text : null;
 
-                // 🌟 BÚSQUEDA 100% FILTRADA EN SQL (No se mezclan Imprentas ni Almacenes extra)
+                // 🌟 EVALUAR EL ID DE CATEGORÍA SEGÚN EL RADIOBUTTON
+                int? categoriaIdFiltro = null;
+                if (RbGuia != null && RbGuia.IsChecked == true)
+                {
+                    categoriaIdFiltro = 1; // 1 = Libros Guía
+                }
+                else if (RbVenta != null && RbVenta.IsChecked == true)
+                {
+                    categoriaIdFiltro = 2; // 2 = Libros Venta
+                }
+                // 🌟 CONSULTA CON LA CATEGORÍA A NIVEL DE CÓDIGOS DE BASE DE DATOS
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(
-                    _productoSeleccionadoId, desde, hasta, filtroRazon, filtroUbicacion);
+                    _productoSeleccionadoId, desde, hasta, filtroRazon, filtroUbicacion, categoriaIdFiltro);
 
                 _todosLosMovimientosRaw = reporte.Movimientos;
                 _todosLosCodigos = reporte.Codigos;
@@ -290,74 +418,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private void RefrescarVistaMovimientos()
-        {
-            var movimientos = _todosLosMovimientosRaw.AsEnumerable();
-
-            // 1. FILTRO ANULADOS (Ocultos por defecto)
-            bool mostrarAnulados = ChkMostrarAnulados.IsChecked == true;
-            if (!mostrarAnulados)
-            {
-                movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
-            }
-
-            // 🌟 2. FILTRO DE TIPO DE OPERACIÓN CORREGIDO
-            if (RbGuia != null && RbGuia.IsChecked == true)
-            {
-                // Solo Guías: Considera documentos donde se registró una Guía de Remisión válida
-                movimientos = movimientos.Where(m =>
-                    !string.IsNullOrWhiteSpace(m.NumeroGuia) &&
-                    !m.NumeroGuia.Equals("0000-0000000") &&
-                    !m.NumeroGuia.Equals("000-0000000"));
-            }
-            else if (RbVenta != null && RbVenta.IsChecked == true)
-            {
-                // Solo Ventas / Documentos Directos: Sin guía de remisión asociada
-                movimientos = movimientos.Where(m =>
-                    string.IsNullOrWhiteSpace(m.NumeroGuia) ||
-                    m.NumeroGuia.Equals("0000-0000000") ||
-                    m.NumeroGuia.Equals("000-0000000"));
-            }
-
-            var listaFinal = movimientos.ToList();
-
-            // 3. MATEMÁTICA LÓGICA Y POSITIVA PARA PROMOTORAS (SALIDAS - DEVOLUCIONES)
-            decimal saldoAcumulado = 0;
-            foreach (var item in listaFinal)
-            {
-                if (!item.IsAnulado)
-                {
-                    saldoAcumulado += (item.Salida - item.Ingreso);
-                }
-                item.SaldoAcumulado = saldoAcumulado;
-            }
-
-            MovimientosDataGrid.ItemsSource = null;
-            MovimientosDataGrid.ItemsSource = listaFinal;
-
-            // 4. RESUMEN DE TARJETAS
-            decimal totalDevoluciones = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Ingreso);
-            decimal totalEntregado = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Salida);
-
-            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
-                                    (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
-
-            if (hayFiltroEntidad)
-            {
-                TxtTotalSalida.Text = totalEntregado.ToString("N2");    // Columna Roja: Lo que le diste
-                TxtTotalIngreso.Text = totalDevoluciones.ToString("N2"); // Columna Verde: Lo que devolvió
-                TxtTotalVendidos.Text = (totalEntregado - totalDevoluciones).ToString("N2"); // Columna Azul: En su poder (Positivo)
-            }
-            else
-            {
-                TxtTotalSalida.Text = totalEntregado.ToString("N2");    // Salidas del Almacén
-                TxtTotalIngreso.Text = totalDevoluciones.ToString("N2"); // Entradas al Almacén
-                TxtTotalVendidos.Text = (totalDevoluciones - totalEntregado).ToString("N2"); // Stock del Almacén
-            }
-
-            CodigosDataGrid.ItemsSource = null;
-            TxtTotalCodigos.Text = "Seleccione un movimiento para auditar";
-        }
+        
 
         // 🌟 Muestra los códigos que le quedan actualmente en su poder al hacer clic en la tarjeta de saldo
         private void CardSaldoEnPoder_Click(object sender, MouseButtonEventArgs e)

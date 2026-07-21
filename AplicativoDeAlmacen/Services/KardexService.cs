@@ -196,7 +196,12 @@ namespace AplicativoDeAlmacen.Services
         // CONSULTA DE MOVIMIENTOS DETALLADOS (Esquema Corregido)
         // =========================================================
         public async Task<ConsultaMovimientoReporte> ConsultarMovimientosDetalladosAsync(
-    int productoId, DateTime fechaDesde, DateTime fechaHasta, string? razonSocial = null, string? ubicacion = null)
+    int productoId,
+    DateTime fechaDesde,
+    DateTime fechaHasta,
+    string? razonSocial = null,
+    string? ubicacion = null,
+    int? categoriaProductoId = null) // 🌟 NUEVO PARÁMETRO
         {
             var reporte = new ConsultaMovimientoReporte();
 
@@ -204,36 +209,44 @@ namespace AplicativoDeAlmacen.Services
             {
                 await ((DbConnection)conn).OpenAsync();
 
-                // 1. TABLA IZQUIERDA — Movimientos filtrados correctamente desde SQL
+                // 1. TABLA IZQUIERDA — Movimientos filtrados con la Categoría del Lote de Códigos
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
-            SELECT
-                m.fecha_movimiento,
-                COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
-                COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-                COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
-                COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
-                COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
-                m.estado_id,
-                m.motivo_producto_id,
-                mp.tipo_movimiento_id
-            FROM movimiento_detalles md
-            INNER JOIN movimientos m ON md.movimiento_id = m.id
-            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-            LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-            LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
-            WHERE md.producto_id = @ProductoId
-              AND m.fecha_movimiento >= @FechaDesde
-              AND m.fecha_movimiento <= @FechaHasta";
-
+                    SELECT DISTINCT
+                        m.id, -- 🌟 SOLUCIÓN SQL SERVER: Agregar m.id a la selección para permitir ORDER BY m.id
+                        m.fecha_movimiento,
+                        COALESCE(m.serie_documento, '') + '-' + COALESCE(m.numero_documento, '') AS registro,
+                        COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+                        COALESCE(m.serie_guia, '000') + '-' + COALESCE(m.numero_guia, '0000000') AS guia,
+                        COALESCE(md.cantidad_ingreso, 0) AS cantidad_ingreso,
+                        COALESCE(md.cantidad_salida, 0) AS cantidad_salida,
+                        m.estado_id,
+                        m.motivo_producto_id,
+                        mp.tipo_movimiento_id,
+                        rc.categoria_producto_id
+                    FROM movimiento_detalles md
+                    INNER JOIN movimientos m ON md.movimiento_id = m.id
+                    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                    LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+                    LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+                    LEFT JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
+                    LEFT JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id
+                    LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    WHERE md.producto_id = @ProductoId
+                      AND m.fecha_movimiento >= @FechaDesde
+                      AND m.fecha_movimiento <= @FechaHasta";
                     if (!string.IsNullOrWhiteSpace(razonSocial))
                         queryRaw += " AND pc.razon_social LIKE @RazonSocial";
 
                     if (!string.IsNullOrWhiteSpace(ubicacion))
                         queryRaw += " AND u.descripcion LIKE @Ubicacion";
 
-                    queryRaw += " ORDER BY m.created_at ASC, m.id ASC";
+                    // 🌟 FILTRO DINÁMICO DESDE LA BASE DE DATOS PARA GUÍA/VENTA
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        queryRaw += " AND (rc.categoria_producto_id = @CategoriaId OR rc.categoria_producto_id IS NULL)";
+
+                    queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -247,21 +260,34 @@ namespace AplicativoDeAlmacen.Services
                     if (!string.IsNullOrWhiteSpace(ubicacion))
                         AgregarParametro(cmd, "@Ubicacion", "%" + ubicacion.Trim() + "%");
 
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        AgregarParametro(cmd, "@CategoriaId", categoriaProductoId.Value);
+
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
-                            int estadoId = reader.IsDBNull(6) ? 1 : reader.GetInt32(6);
+                            // 🌟 ÍNDICES CORREGIDOS TRAS AGREGAR m.id EN LA POSICIÓN 0
+                            // 0 = m.id
+                            // 1 = m.fecha_movimiento
+                            // 2 = registro
+                            // 3 = razon_ubicacion
+                            // 4 = guia
+                            // 5 = cantidad_ingreso
+                            // 6 = cantidad_salida
+                            // 7 = m.estado_id
+
+                            int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
                             bool anulado = (estadoId == 2);
 
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
-                                Fecha = reader.IsDBNull(0) ? DateTime.MinValue : reader.GetDateTime(0),
-                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + reader.GetString(1),
-                                RazonSocialUbicacion = reader.GetString(2),
-                                NumeroGuia = reader.GetString(3),
-                                Ingreso = reader.GetDecimal(4),
-                                Salida = reader.GetDecimal(5),
+                                Fecha = reader.IsDBNull(1) ? DateTime.MinValue : reader.GetDateTime(1),
+                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + reader.GetString(2),
+                                RazonSocialUbicacion = reader.GetString(3),
+                                NumeroGuia = reader.GetString(4),
+                                Ingreso = reader.GetDecimal(5),
+                                Salida = reader.GetDecimal(6),
                                 IsAnulado = anulado
                             });
                         }
@@ -296,6 +322,9 @@ namespace AplicativoDeAlmacen.Services
                     if (!string.IsNullOrWhiteSpace(ubicacion))
                         queryRaw += " AND u.descripcion LIKE @Ubicacion";
 
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        queryRaw += " AND rc.categoria_producto_id = @CategoriaId";
+
                     queryRaw += " ORDER BY codigo ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
@@ -309,6 +338,9 @@ namespace AplicativoDeAlmacen.Services
 
                     if (!string.IsNullOrWhiteSpace(ubicacion))
                         AgregarParametro(cmd, "@Ubicacion", "%" + ubicacion.Trim() + "%");
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        AgregarParametro(cmd, "@CategoriaId", categoriaProductoId.Value);
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {

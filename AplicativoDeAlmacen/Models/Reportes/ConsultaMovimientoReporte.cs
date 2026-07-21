@@ -14,6 +14,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal Salida { get; set; }
         public bool IsAnulado { get;  set; }
         public decimal SaldoAcumulado { get; set; }
+        public int CategoriaProductoId { get; set; }
 
     }
 

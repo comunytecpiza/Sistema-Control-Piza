@@ -1756,6 +1756,7 @@ namespace AplicativoDeAlmacen.Services
             return result != null && Convert.ToInt32(result) > 0;
         }
 
+
         public async Task<int> ObtenerEstadoAnteriorAsync(int codigoId, int movimientoActualId, DbConnection conn, DbTransaction trans)
         {
             string query = @"
