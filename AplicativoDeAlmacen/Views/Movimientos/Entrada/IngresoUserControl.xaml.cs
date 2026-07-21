@@ -137,6 +137,29 @@ namespace AplicativoDeAlmacen.Views
             finally { this.Cursor = Cursors.Arrow; }
         }
 
+        // 🌟 Método público para cargar directamente el documento al abrir la pestaña
+        public async void CargarDocumentoParaConsulta(string serie, string numero)
+        {
+            try
+            {
+                _printMode = true; // Activamos el modo impresión/consulta por defecto
+                this.Cursor = Cursors.Wait;
+
+                txtNumSerie.Text = serie;
+                txtNumDocumento.Text = numero;
+
+                // Ejecutamos la carga completa que ya tienes programada
+                await LoadMovimientoBySerieNumeroAsync(serie, numero);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar el documento automáticamente: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+        }
         // ==========================================
         // LÓGICA DE CARGA (EDITAR E IMPRIMIR)
         // ==========================================
@@ -306,6 +329,14 @@ namespace AplicativoDeAlmacen.Views
 
             txtNumSerie.Text = movimiento.SerieDocumento;
             txtNumDocumento.Text = movimiento.NumeroDocumento;
+
+            // 🌟 1. ASEGURAR QUE EL COMBOBOX DE MOTIVOS CARGUE LAS PROPIEDADES ANTES DE SELECCIONAR
+            if (cboMotivo.ItemsSource == null)
+            {
+                cboMotivo.ItemsSource = await _serviceMovimiento.ObtenerMotivosProductosAsync();
+                cboMotivo.DisplayMemberPath = "Descripcion";
+                cboMotivo.SelectedValuePath = "Id";
+            }
             cboMotivo.SelectedValue = movimiento.MotivoProductoId;
 
             _personaComercialIdSeleccionada = movimiento.PersonaComercialId;
@@ -414,7 +445,7 @@ namespace AplicativoDeAlmacen.Views
             dgCodigos.ItemsSource = null;
             dgCodigos.ItemsSource = _codigosGridList;
 
-            // 🌟 EVALUACIÓN ESTRICTA Y EXCLUSIVA SEGÚN EL MODO ACTIVO
+            // 🌟 2. EVALUACIÓN ESTRICTA DEL MODO IMPRESIÓN PARA BLOQUEAR Y OPACAR CORRECTAMENTE
             if (_anularMode)
             {
                 BloquearParaAnulacionVisual();
@@ -429,18 +460,15 @@ namespace AplicativoDeAlmacen.Views
             }
             else if (_printMode)
             {
-                // 🔒 GARANTÍA: Bloquea 100% controles y tablas para evitar edición involuntaria
+                // 🔒 LLAMADA AL BLOQUEO DE IMPRESIÓN (Apaga botones y deshabilita edición)
                 BloquearParaImpresion();
                 ShowPrintButtonNearSave();
             }
             else
             {
-                // ✏️ MODO EDICIÓN NORMAL
                 HabilitarCamposFormulario(true);
                 GestionarBotonesPrincipales(enEdicion: true);
                 if (btnCancelar != null) btnCancelar.IsEnabled = true;
-
-                // Reevaluar visibilidad de Razón Social / Ubicación según el motivo cargado
                 CboMotivo_SelectionChanged(cboMotivo, null);
             }
         }

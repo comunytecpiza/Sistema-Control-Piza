@@ -359,6 +359,70 @@ namespace AplicativoDeAlmacen.Views
             TxtTotalCodigos.Text = "Seleccione un movimiento para auditar";
         }
 
+        // 🌟 Muestra los códigos que le quedan actualmente en su poder al hacer clic en la tarjeta de saldo
+        private void CardSaldoEnPoder_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (_productoSeleccionadoId == 0) return;
+
+            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+                                    (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
+
+            string entidadSeleccionada = hayFiltroEntidad
+                ? (!string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text : TxtRazonSocial.Text)
+                : "ALMACÉN CENTRAL";
+
+            // Lógica inteligente: 
+            // Si es una entidad (Promotora), filtramos los códigos que salieron hacia ella 
+            // y que no figuran en ningún movimiento de devolución posterior.
+            // O de forma práctica para tu inventario físico con los datos que ya cargó el reporte:
+
+            var codigosEnPoder = _todosLosCodigos
+                .GroupBy(c => c.Codigo)
+                .Where(g => g.Count() % 2 != 0) // Si un código tiene salidas impares sin contraparte de devolución equilibrada
+                .Select(g => g.First())
+                .ToList();
+
+            CodigosDataGrid.ItemsSource = null;
+            CodigosDataGrid.ItemsSource = codigosEnPoder;
+
+            TxtTotalCodigos.Text = $"📦 Hay {codigosEnPoder.Count} códigos físicos pendientes en poder de: {entidadSeleccionada}";
+        }
+        
+        private void MovimientosDataGrid_SelectedCellsChanged(object sender, SelectedCellsChangedEventArgs e)
+        {
+            if (MovimientosDataGrid.CurrentCell.Column != null)
+            {
+                int columnIndex = MovimientosDataGrid.Columns.IndexOf(MovimientosDataGrid.CurrentCell.Column);
+
+                // Si la columna seleccionada es la 6 (TOTAL EN PODER)
+                if (columnIndex == 6 && MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem itemSeleccionado)
+                {
+                    MostrarCodigosPendientesEnPoder();
+                }
+            }
+        }
+
+        private void MostrarCodigosPendientesEnPoder()
+        {
+            if (_productoSeleccionadoId == 0) return;
+
+            // Obtenemos todos los códigos que salieron (Salidas/Entregados) menos los que ya volvieron (Devoluciones)
+            // Agrupamos por código físico para ver su balance actual
+            var balanceCodigos = _todosLosCodigos
+                .GroupBy(c => c.Codigo)
+                .Select(g => new {
+                    CodigoItem = g.First(),
+                    // Si el código tiene un número impar de movimientos o su última operación fue salida sin retorno
+                    UltimoMovimiento = g.OrderByDescending(x => x.NumeroRegistro).FirstOrDefault()
+                })
+                .Where(x => x.UltimoMovimiento != null && x.UltimoMovimiento.TipoMovimiento == "SALIDA")
+                .Select(x => x.CodigoItem)
+                .ToList();
+
+            CodigosDataGrid.ItemsSource = null;
+            CodigosDataGrid.ItemsSource = balanceCodigos;
+            TxtTotalCodigos.Text = $"📦 Hay {balanceCodigos.Count} códigos físicos pendientes en su poder.";
+        }
         private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
@@ -401,13 +465,26 @@ namespace AplicativoDeAlmacen.Views
                 {
                     string serie = partes[0];
                     string numero = partes[1];
+                    bool esSalida = seleccionado.Salida > 0;
 
-                    // Notificación o Apertura del movimiento
-                    MessageBox.Show($"Abriendo documento de movimiento {serie}-{numero}...", "Abrir Movimiento", MessageBoxButton.OK, MessageBoxImage.Information);
+                    var mainShell = Application.Current.Windows.OfType<MainShell>().FirstOrDefault();
+                    if (mainShell == null) return;
+
+                    if (esSalida)
+                    {
+                        var salidasControl = new SalidasUserControl();
+                        mainShell.AbrirPestaña($"Salida {serie}-{numero} (Consulta)", salidasControl);
+                        salidasControl.CargarDocumentoParaConsulta(serie, numero); // 🌟 Carga automática
+                    }
+                    else
+                    {
+                        var ingresoControl = new IngresoUserControl();
+                        mainShell.AbrirPestaña($"Ingreso {serie}-{numero} (Consulta)", ingresoControl);
+                        ingresoControl.CargarDocumentoParaConsulta(serie, numero); // 🌟 Carga automática
+                    }
                 }
             }
         }
-
         private bool _isFormattingDate = false;
         private void ConfigurarMascaraFecha(DatePicker dp)
         {

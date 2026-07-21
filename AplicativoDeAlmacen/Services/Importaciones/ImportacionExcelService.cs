@@ -97,7 +97,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             return duplicados;
         }
 
-        public async Task GuardarCodigosImportadosTransactionAsync(int coleccionId, int productoId, int categoriaId, List<string> codigosValidos, IProgress<int> progress = null)
+        public async Task GuardarCodigosImportadosTransactionAsync(int coleccionId, int productoId, int categoriaId, List<string> codigosValidos, int usuarioActivoId, string nombreArchivoExcel, IProgress<int>? progress = null)
         {
             if (!codigosValidos.Any())
                 throw new Exception("No hay códigos para guardar.");
@@ -115,12 +115,13 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.Transaction = trans;
+                    // Insertamos también el origen_registro para rastrear el nombre del archivo de importación
                     cmd.CommandText = @"
                 INSERT INTO registro_codigos
-                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta)
+                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta, origen_registro)
                 OUTPUT INSERTED.id
                 VALUES
-                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta)";
+                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta, @origen)";
 
                     AgregarParametro(cmd, "@coleccion", coleccionId);
                     AgregarParametro(cmd, "@producto", productoId);
@@ -128,6 +129,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                     AgregarParametro(cmd, "@cantidad", codigosValidos.Count);
                     AgregarParametro(cmd, "@desde", codigosValidos.First());
                     AgregarParametro(cmd, "@hasta", codigosValidos.Last());
+                    AgregarParametro(cmd, "@origen", nombreArchivoExcel ?? string.Empty);
 
                     loteId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                 }

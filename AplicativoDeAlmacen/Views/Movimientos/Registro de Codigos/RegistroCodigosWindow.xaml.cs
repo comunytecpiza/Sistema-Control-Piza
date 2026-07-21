@@ -485,16 +485,20 @@ namespace AplicativoDeAlmacen.Views
                 {
                     var importService = new ImportacionExcelService();
 
-                    var progressModal = new ProgressWindow("Guardando Lote Limpio", "Insertando registros auditados en la base de datos...", async (progress) =>
+                    // Capturamos el nombre limpio del archivo (ej. "lote_julio.xlsx") para enviarlo al origen
+                    string nombreArchivoExcel = System.IO.Path.GetFileName(TxtRutaArchivo.Text);
+                    int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+
+                    var progressModal = new ProgressWindow("Guardando Lote Limpio", "Insertando registros auditados...", async (progress) =>
                     {
-                        await importService.GuardarCodigosImportadosTransactionAsync(coleccionId, productoId, categoriaId, _codigosImportados, progress);
+                        // Si tu servicio de Excel procesa esto, asegúrate de pasarle el nombre de archivo a origen_registro
+                        await importService.GuardarCodigosImportadosTransactionAsync(coleccionId, productoId, categoriaId, _codigosImportados, usuarioActivoId, nombreArchivoExcel, progress);
                     });
 
                     progressModal.Owner = Window.GetWindow(this);
-
                     if (progressModal.ShowDialog() == true)
                     {
-                        MessageBox.Show($"¡Éxito! Se registraron {_codigosImportados.Count} códigos correctamente en el inventario.", "Proceso Completado", MessageBoxButton.OK, MessageBoxImage.Information);
+                        MessageBox.Show($"¡Éxito! Se registraron {_codigosImportados.Count} códigos correctamente.", "Proceso Completado", MessageBoxButton.OK, MessageBoxImage.Information);
                         ModalAgregar.Visibility = Visibility.Collapsed;
                         await CargarGridAsync(coleccionId, categoriaId);
                         EventBus.NotificarRegistroCodigosChanged();
@@ -502,14 +506,13 @@ namespace AplicativoDeAlmacen.Views
                 }
                 else
                 {
-                    // Lógica secuencial normal...
                     if (string.IsNullOrWhiteSpace(TxtCantidad.Text)) return;
                     int cantidad = int.Parse(TxtCantidad.Text);
                     string desde = TxtDesde.Text;
                     string hasta = TxtHasta.Text;
 
-                    int usuarioActivoId = 1;
-                    string modoOrigen = "SECUENCIAL";
+                    int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+                    string modoOrigen = "SECUENCIAL"; // Como es secuencial, guardará explícitamente "SECUENCIAL"
 
                     var progressModal = new ProgressWindow("Generando Secuencia", "Creando e insertando lote secuencial...", async (progress) =>
                     {
@@ -518,7 +521,6 @@ namespace AplicativoDeAlmacen.Views
                     });
 
                     progressModal.Owner = Window.GetWindow(this);
-
                     if (progressModal.ShowDialog() == true)
                     {
                         MessageBox.Show("Códigos generados y sincronizados correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);

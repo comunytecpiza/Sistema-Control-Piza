@@ -129,7 +129,7 @@
                         <TextBlock Text="📋 Libro de Movimientos Contables" Foreground="White" FontWeight="Bold" FontSize="15"/>
                     </Border>
 
-                    <DataGrid x:Name="MovimientosDataGrid" SelectionChanged="MovimientosDataGrid_SelectionChanged" MouseDoubleClick="MovimientosDataGrid_MouseDoubleClick" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="38" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC">
+                    <DataGrid x:Name="MovimientosDataGrid" SelectionChanged="MovimientosDataGrid_SelectionChanged" SelectedCellsChanged="MovimientosDataGrid_SelectedCellsChanged" MouseDoubleClick="MovimientosDataGrid_MouseDoubleClick" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="38" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC">
                         <DataGrid.RowStyle>
                             <Style TargetType="DataGridRow">
                                 <Style.Triggers>
@@ -200,7 +200,8 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border Grid.Column="2" Background="#EFF6FF" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                            <Border Grid.Column="2" Background="#EFF6FF" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="8" Padding="12,10" 
+                                Cursor="Hand" MouseLeftButtonUp="CardSaldoEnPoder_Click" ToolTip="Haz clic aquí para ver la lista exacta de códigos físicos que aún tiene en su poder.">
                                 <StackPanel>
                                     <TextBlock x:Name="LblCard3" Text="Saldo Pendiente en Poder" Foreground="#3730A3" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
                                     <TextBlock x:Name="TxtTotalVendidos" Text="0.00" Foreground="#4338CA" FontWeight="Black" FontSize="20"/>

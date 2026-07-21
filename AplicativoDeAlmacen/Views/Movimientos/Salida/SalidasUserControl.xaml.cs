@@ -82,6 +82,155 @@ namespace AplicativoDeAlmacen.Views
         // UTILIDADES Y REFRESCO VISUAL
         // ==========================================
 
+
+        public async void CargarDocumentoParaConsulta(string serie, string numero)
+        {
+            try
+            {
+                _modoActual = ModoFormulario.BuscandoParaImprimir;
+                this.Cursor = Cursors.Wait;
+
+                txtSerieSalida.Text = serie;
+                txtNumeroSalida.Text = numero;
+
+                if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
+
+                var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numero);
+                if (movCompleto == null || movCompleto.Movimiento == null)
+                {
+                    MessageBox.Show("No se encontró el movimiento de salida especificado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                _idMovimientoActual = movCompleto.Movimiento.Id;
+                dtpFechaDespacho.SelectedDate = movCompleto.Movimiento.FechaMovimiento?.ToDateTime(TimeOnly.MinValue);
+                cboMotivoSalida.SelectedValue = movCompleto.Movimiento.MotivoProductoId;
+                txtSerieGuia.Text = movCompleto.Movimiento.SerieGuia;
+                txtNumeroGuia.Text = movCompleto.Movimiento.NumeroGuia;
+                txtObservacionSalida.Text = movCompleto.Movimiento.Observacion;
+
+                // 1. Cargar Cliente
+                if (movCompleto.Movimiento.PersonaComercialId.HasValue)
+                {
+                    _idClienteSeleccionado = movCompleto.Movimiento.PersonaComercialId;
+                    try
+                    {
+                        using var conn = _database.GetConnection();
+                        await ((DbConnection)conn).OpenAsync();
+                        using var cmd = ((DbConnection)conn).CreateCommand();
+                        cmd.CommandText = "SELECT razon_social, direccion FROM personas_comerciales WHERE id = " + _idClienteSeleccionado;
+                        using var rdr = await cmd.ExecuteReaderAsync();
+                        if (await rdr.ReadAsync())
+                        {
+                            txtCliente.Text = rdr.IsDBNull(0) ? "" : rdr.GetString(0);
+                            txtDireccionCliente.Text = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                            txtCodigoCliente.Text = _idClienteSeleccionado.Value.ToString("D6");
+                        }
+                    }
+                    catch { }
+                }
+
+                // 2. Cargar Ubicación (¡Aquí estaba el fallo de la primera imagen!)
+                if (movCompleto.Movimiento.UbicacionId.HasValue)
+                {
+                    _idUbicacionSeleccionada = movCompleto.Movimiento.UbicacionId;
+                    try
+                    {
+                        using var conn = _database.GetConnection();
+                        await ((DbConnection)conn).OpenAsync();
+                        using var cmd = ((DbConnection)conn).CreateCommand();
+                        cmd.CommandText = "SELECT descripcion, direccion FROM ubicaciones WHERE id = " + _idUbicacionSeleccionada;
+                        using var rdr = await cmd.ExecuteReaderAsync();
+                        if (await rdr.ReadAsync())
+                        {
+                            txtUbicacion.Text = rdr.IsDBNull(0) ? "" : rdr.GetString(0);
+                            txtDireccionUbicacion.Text = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                            txtCodigoUbicacion.Text = _idUbicacionSeleccionada.Value.ToString();
+                        }
+                    }
+                    catch { }
+                }
+
+                _productosLista.Clear();
+                _codigosLista.Clear();
+
+                // 3. Cargar Códigos y Productos en Bloque (Igual al buscador por Enter)
+                var todosLosCodigosPlanos = new List<(int DetId, int CodId, string CodString)>();
+                using (var conn = _database.GetConnection())
+                {
+                    await ((DbConnection)conn).OpenAsync();
+                    using (var cmd = ((DbConnection)conn).CreateCommand())
+                    {
+                        cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+                    SELECT mc.movimiento_detalle_id, cc.id, cc.codigo 
+                    FROM movimiento_codigos mc 
+                    INNER JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id 
+                    WHERE mc.movimiento_id = @movId");
+
+                        var p = cmd.CreateParameter(); p.ParameterName = "@movId"; p.Value = _idMovimientoActual.Value; cmd.Parameters.Add(p);
+
+                        using var rdr = await cmd.ExecuteReaderAsync();
+                        while (await rdr.ReadAsync())
+                        {
+                            todosLosCodigosPlanos.Add((rdr.GetInt32(0), rdr.GetInt32(1), rdr.GetString(2)));
+                        }
+                    }
+                }
+
+                var lookupCodigos = todosLosCodigosPlanos.ToLookup(x => x.DetId);
+                var prodService = new ProductoService();
+
+                foreach (var det in movCompleto.Detalles)
+                {
+                    var prodData = await prodService.ObtenerPorIdAsync(det.ProductoId);
+
+                    var vistaProd = new VistaProductoGrid
+                    {
+                        Detalle = det,
+                        ProductoId = det.ProductoId,
+                        CodigoProducto = prodData?.Abreviatura ?? det.ProductoId.ToString(),
+                        Descripcion = prodData?.Descripcion ?? "Desconocido",
+                        Cantidad = Convert.ToInt32(det.CantidadSalida),
+                        UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD"
+                    };
+                    _productosLista.Add(vistaProd);
+
+                    if (lookupCodigos.Contains(det.Id))
+                    {
+                        foreach (var c in lookupCodigos[det.Id])
+                        {
+                            string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(c.CodId);
+
+                            _codigosLista.Add(new VistaCodigoGrid
+                            {
+                                ProductoId = det.ProductoId,
+                                CodigoUnique = c.CodString,
+                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = c.CodId },
+                                ColeccionTipo = tipoColeccionReal
+                            });
+                        }
+                    }
+                }
+
+                RefrescarGrillas();
+
+                // 4. Bloquear interfaz en modo consulta/impresión
+                HabilitarCamposFormulario(false);
+                ShowExportButtonNearSave();
+
+                txtNumeroSalida.IsReadOnly = true;
+                txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar la salida automáticamente: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+        }
+
         // 🌟 Método clave para obtener la etiqueta REAL (Venta o Guía) desde la BD
         private async Task<string> ObtenerColeccionTipoBDAsync(int codigoCreadoId)
         {
