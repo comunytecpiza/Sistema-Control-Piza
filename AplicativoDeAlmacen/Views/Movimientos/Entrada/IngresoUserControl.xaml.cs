@@ -471,6 +471,10 @@ namespace AplicativoDeAlmacen.Views
                 txtNumDocumento.IsEnabled = false;
 
                 cboMotivo.SelectedValue = 1;
+
+                // 🌟 FORZAMOS LA EVALUACIÓN DE CAMPOS SEGÚN EL MOTIVO SELECCIONADO
+                CboMotivo_SelectionChanged(cboMotivo, null);
+
                 cboMotivo.Focus();
             }
             catch (Exception ex)
@@ -546,29 +550,63 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_isRegistrandoMovimiento) return;
 
+            if (cboMotivo.SelectedValue == null)
+            {
+                MessageBox.Show("Debe seleccionar un Motivo de Salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
+
+            // 1. Validaciones por Motivo de Salida
+            // 🔴 IDs 5, 6, 7, 8, 11 -> Exigen Razón Social obligatoria
+            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
+            {
+                if (string.IsNullOrWhiteSpace(txtRazonSocial.Text) || !_personaComercialIdSeleccionada.HasValue)
+                {
+                    MessageBox.Show("Para este motivo es obligatorio seleccionar la Razón Social de destino.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            // 🔵 ID 10 -> Exige Ubicación / Almacén de Destino
+            else if (idMotivo == 10)
+            {
+                if (string.IsNullOrWhiteSpace(txtUbicacion.Text) || !_idUbicacionSeleccionada.HasValue)
+                {
+                    MessageBox.Show("Para una Transferencia es obligatorio seleccionar la Ubicación / Almacén de destino.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            // 🟣 IDs 9, 12 -> Regla Flexible (Requiere al menos Razón Social O Ubicación)
+            else if (idMotivo == 9 || idMotivo == 12)
+            {
+                bool tieneRazonSocial = !string.IsNullOrWhiteSpace(txtRazonSocial.Text) && _personaComercialIdSeleccionada.HasValue;
+                bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
+
+                if (!tieneRazonSocial && !tieneUbicacion)
+                {
+                    MessageBox.Show("Para este motivo debe seleccionar al menos una Razón Social O una Ubicación de destino.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+
+            // 2. Validación de Serie y Guía / Comprobante
+            if (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text))
+            {
+                MessageBox.Show("Debe ingresar la Serie y el Número de Guía o Comprobante.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // 3. Validación de Tabla de Productos
+            if (_productosGridList == null || !_productosGridList.Any())
+            {
+                MessageBox.Show("Debe agregar al menos un producto antes de registrar la salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             if (_currentMovimientoId.HasValue)
             {
                 _productosGridList = _serviceMovimiento.MergeDuplicateProducts(_productosGridList.ToList());
-            }
-            if (txtRazonSocial.IsEnabled && string.IsNullOrWhiteSpace(txtRazonSocial.Text))
-            {
-                MessageBox.Show("La Razón Social es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            if (txtUbicacion.IsEnabled && string.IsNullOrWhiteSpace(txtUbicacion.Text))
-            {
-                MessageBox.Show("La Ubicación es obligatoria para este motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            if (txtSerieGuia.IsEnabled && (!string.IsNullOrWhiteSpace(txtSerieGuia.Text) && string.IsNullOrWhiteSpace(txtNumeroGuia.Text)))
-            {
-                MessageBox.Show("Si ingresa una serie de guía, debe colocar el número correspondiente.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            if (_productosGridList == null || !_productosGridList.Any())
-            {
-                MessageBox.Show("Debe agregar al menos un producto antes de guardar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
             }
 
             try
@@ -675,6 +713,7 @@ namespace AplicativoDeAlmacen.Views
                     UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
 
                     UsuarioId = 1,
+
                     PersonaComercialId = _personaComercialIdSeleccionada,
                     SerieGuia = txtSerieGuia.Text.Trim(),
                     NumeroGuia = txtNumeroGuia.Text.Trim(),
@@ -1348,39 +1387,38 @@ namespace AplicativoDeAlmacen.Views
 
             int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
 
-            // Si estamos en modo de solo lectura / impresión, mantenemos todo bloqueado
             if (_printMode || _anularMode) return;
 
-            txtRazonSocial.IsEnabled = true;
-            txtUbicacion.IsEnabled = true;
             txtSerieGuia.IsEnabled = true;
             txtNumeroGuia.IsEnabled = true;
 
-            // 🟢 Motivo 1 (Compra) / Motivo 2 (Devolución Recibida): Requiere Razón Social
+            // 🔴 MOTIVO 1 (COMPRA) e ID 2 (DEVOLUCIÓN RECIBIDA) -> Exigen Razón Social, BLOQUEAN Ubicación
             if (idMotivo == 1 || idMotivo == 2)
             {
                 txtRazonSocial.IsEnabled = true;
                 txtUbicacion.IsEnabled = false;
             }
-            // 🔵 Motivo 4 (Transferencia entre Almacenes): Requiere Ubicación de Destino
+            // 🔵 MOTIVO 4 (TRANSFERENCIA) -> Exige Ubicación, BLOQUEA Razón Social
             else if (idMotivo == 4)
             {
+                txtRazonSocial.IsEnabled = false;
                 txtUbicacion.IsEnabled = true;
             }
-            // 🟣 Promotoría / Promoción / Otros (Devoluciones de Promotora): Requiere Ubicación (y Razón Social opcional si aplica)
+            // 🟣 MOTIVO 3 (PROMOTORÍA) e ID 13 (OTROS) -> Permiten ambos (Flexible)
             else
             {
-                txtRazonSocial.IsEnabled = false; // 👈 Evita que exija razón social en devoluciones de almacén/promotoría
+                txtRazonSocial.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
             }
 
-            // Limpiamos los IDs e insumos si el campo no está activo
+            // 🧹 Limpieza de cajas y cierre de desplegables si se deshabilita el campo
             if (!txtRazonSocial.IsEnabled)
             {
                 txtRazonSocial.Clear();
                 txtCodigoRazonSocial.Clear();
                 txtDireccion.Clear();
                 _personaComercialIdSeleccionada = null;
+                if (popupSugerencias != null) popupSugerencias.IsOpen = false;
             }
 
             if (!txtUbicacion.IsEnabled)
@@ -1388,6 +1426,8 @@ namespace AplicativoDeAlmacen.Views
                 txtUbicacion.Clear();
                 txtCodigoUbicacion.Clear();
                 txtDireccionUbicacion.Clear();
+                _idUbicacionSeleccionada = null;
+                if (popupUbicacion != null) popupUbicacion.IsOpen = false;
             }
         }
 
@@ -1415,11 +1455,27 @@ namespace AplicativoDeAlmacen.Views
 
         private void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (!txtUbicacion.IsEnabled) return;
+            // 🛡️ Si Ubicación no está habilitada para este motivo, oculta el desplegable y sale
+            if (!txtUbicacion.IsEnabled || _isUpdatingFromSelection)
+            {
+                if (popupUbicacion != null) popupUbicacion.IsOpen = false;
+                return;
+            }
+
             string busqueda = txtUbicacion.Text;
-            if (string.IsNullOrWhiteSpace(busqueda)) { popupUbicacion.IsOpen = false; return; }
+            if (string.IsNullOrWhiteSpace(busqueda))
+            {
+                popupUbicacion.IsOpen = false;
+                return;
+            }
+
             var resultados = _ubicacionService.BuscarUbicaciones(busqueda);
-            if (resultados != null && resultados.Count > 0) { lstSugerenciasUbicacion.ItemsSource = resultados; popupUbicacion.IsOpen = true; } else popupUbicacion.IsOpen = false;
+            if (resultados != null && resultados.Count > 0)
+            {
+                lstSugerenciasUbicacion.ItemsSource = resultados;
+                popupUbicacion.IsOpen = true;
+            }
+            else popupUbicacion.IsOpen = false;
         }
 
         private void LstSugerenciasUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -485,14 +485,21 @@ namespace AplicativoDeAlmacen.Views
                 {
                     var importService = new ImportacionExcelService();
 
-                    // Capturamos el nombre limpio del archivo (ej. "lote_julio.xlsx") para enviarlo al origen
                     string nombreArchivoExcel = System.IO.Path.GetFileName(TxtRutaArchivo.Text);
+
+                    // 🌟 CAPTURAMOS EL USUARIO DE LA SESIÓN ACTUAL (Si es nulo, respaldo a 1)
                     int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
 
                     var progressModal = new ProgressWindow("Guardando Lote Limpio", "Insertando registros auditados...", async (progress) =>
                     {
-                        // Si tu servicio de Excel procesa esto, asegúrate de pasarle el nombre de archivo a origen_registro
-                        await importService.GuardarCodigosImportadosTransactionAsync(coleccionId, productoId, categoriaId, _codigosImportados, usuarioActivoId, nombreArchivoExcel, progress);
+                        await importService.GuardarCodigosImportadosTransactionAsync(
+                            coleccionId,
+                            productoId,
+                            categoriaId,
+                            _codigosImportados,
+                            usuarioActivoId, // 👈 PASAMOS EL USUARIO EN SESIÓN
+                            nombreArchivoExcel,
+                            progress);
                     });
 
                     progressModal.Owner = Window.GetWindow(this);

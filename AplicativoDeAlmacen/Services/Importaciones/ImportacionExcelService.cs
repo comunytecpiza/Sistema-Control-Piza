@@ -97,7 +97,14 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             return duplicados;
         }
 
-        public async Task GuardarCodigosImportadosTransactionAsync(int coleccionId, int productoId, int categoriaId, List<string> codigosValidos, int usuarioActivoId, string nombreArchivoExcel, IProgress<int>? progress = null)
+        public async Task GuardarCodigosImportadosTransactionAsync(
+    int coleccionId,
+    int productoId,
+    int categoriaId,
+    List<string> codigosValidos,
+    int usuarioActivoId,
+    string nombreArchivoExcel,
+    IProgress<int>? progress = null)
         {
             if (!codigosValidos.Any())
                 throw new Exception("No hay códigos para guardar.");
@@ -111,17 +118,20 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             try
             {
                 int loteId;
+                string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.Transaction = trans;
-                    // Insertamos también el origen_registro para rastrear el nombre del archivo de importación
-                    cmd.CommandText = @"
+
+                    // 🌟 INSERCIÓN CON REGISTRO DE USUARIO_ID Y ORIGEN DEL EXCEL
+                    string queryRegistro = @"
                 INSERT INTO registro_codigos
-                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta, origen_registro)
-                OUTPUT INSERTED.id
+                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta, usuario_id, origen_registro, created_at)
                 VALUES
-                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta, @origen)";
+                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta, @usuario, @origen, GETDATE());" + selectId;
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRegistro);
 
                     AgregarParametro(cmd, "@coleccion", coleccionId);
                     AgregarParametro(cmd, "@producto", productoId);
@@ -129,13 +139,15 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                     AgregarParametro(cmd, "@cantidad", codigosValidos.Count);
                     AgregarParametro(cmd, "@desde", codigosValidos.First());
                     AgregarParametro(cmd, "@hasta", codigosValidos.Last());
-                    AgregarParametro(cmd, "@origen", nombreArchivoExcel ?? string.Empty);
+
+                    // 🚀 AUDITORÍA: Asienta el usuario de la sesión actual
+                    AgregarParametro(cmd, "@usuario", usuarioActivoId > 0 ? usuarioActivoId : 1);
+                    AgregarParametro(cmd, "@origen", string.IsNullOrWhiteSpace(nombreArchivoExcel) ? "EXCEL" : nombreArchivoExcel);
 
                     loteId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                 }
 
-                // 🌟 SE CORRIGIÓ EL FLUJO: Se eliminó el foreach individual que duplicaba el procesamiento.
-                // Ahora todo corre bajo la arquitectura limpia de bloques industriales.
+                // 🌟 INSERCIÓN EN BLOQUES DE CÓDIGOS INDIVIDUALES EN CODIGOS_CREADOS
                 int total = codigosValidos.Count;
                 const int insertBatchSize = 1000;
 
@@ -156,7 +168,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         AgregarParametro(cmdInsert, $"@cod{idx}", codigosValidos[idx]);
                     }
 
-                    cmdInsert.CommandText = queryBuilder.ToString();
+                    cmdInsert.CommandText = QueryAdapter.FormatearConsulta(queryBuilder.ToString());
                     await cmdInsert.ExecuteNonQueryAsync();
 
                     int pct = ((i + currentBatchCount) * 100) / total;

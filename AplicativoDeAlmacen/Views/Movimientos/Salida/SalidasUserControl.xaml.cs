@@ -17,6 +17,7 @@ using static AplicativoDeAlmacen.Data.DataConnection;
 using AplicativoDeAlmacen.Models.Facturación;
 using System.Windows.Media;
 using AplicativoDeAlmacen.Services.Reportes;
+using AplicativoDeAlmacen.Core;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -1289,6 +1290,7 @@ namespace AplicativoDeAlmacen.Views
                     UbicacionId = txtUbicacion.IsEnabled ? _idUbicacionSeleccionada : null,
                     PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : null,
                     MotivoProductoId = (int)cboMotivoSalida.SelectedValue,
+                    UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1, // 🌟 CAPTURA DE USUARIO EN SESIÓN
                     Observacion = txtObservacionSalida.Text,
                     SerieGuia = txtSerieGuia.Text,
                     NumeroGuia = txtNumeroGuia.Text,
@@ -1332,12 +1334,14 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }).ToList();
 
+                int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+
                 bool resultado = await Task.Run(async () =>
                     await _salidaService.RegistrarSalidaCompletaAsync(
                      movimiento,
-                     detallesPlanos, // Ahora enviamos la lista limpia
+                     detallesPlanos,
                      _codigosLista.ToList(),
-                     idUsuarioLogueado,
+                     usuarioActivoId, // 👈 AHORA PASA EL USUARIO EN SESIÓN REAL
                      estadoSalida,
                      _idMovimientoActual,
                      progress)

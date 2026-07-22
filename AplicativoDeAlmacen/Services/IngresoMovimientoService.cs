@@ -399,7 +399,7 @@ namespace AplicativoDeAlmacen.Services
 
             // 🌟 CAMBIO: El Insert de la cabecera ahora asienta con estado_id = 1 (PROCESADO de la tabla estados_movimiento)
             string qCab = $@"INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
-                     VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, 1, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
+                VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, @usuarioId, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
 
             using var cmdCab = conn.CreateCommand();
             cmdCab.Transaction = trans;
@@ -410,6 +410,7 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmdCab, "@numero", nuevoNumero.ToString("D7"));
             AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
             AgregarParametro(cmdCab, "@ubicacionId", ubicacionId);
+            AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId);
             AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
             AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
@@ -746,7 +747,19 @@ namespace AplicativoDeAlmacen.Services
                         int motivoId = cabecera.MotivoProductoId;
                         string sqlVerificarDuplicados;
 
-                        if (motivoId != 1) // 🟢 Aplica a DEVOLUCIÓN RECIBIDA, PROMOTORÍA, REINGRESOS, ETC.
+                        // 🔵 1. MOTIVO 4 = TRANSFERENCIA (Acepta tanto Estado 4 como Estado 5)
+                        if (motivoId == 4)
+                        {
+                            sqlVerificarDuplicados = @"
+                        SELECT cc.codigo, cc.estado_id 
+                        FROM codigos_creados cc WITH (NOLOCK)
+                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                        WHERE cc.estado_id NOT IN (4, 5) 
+                          AND mc.codigo_creado_id IS NULL";
+                        }
+                        // 🟢 2. DEVOLUCIÓN RECIBIDA (2), PROMOTORÍA (3), OTROS (13) -> Exigen estrictamente Estado 4
+                        else if (motivoId != 1)
                         {
                             sqlVerificarDuplicados = @"
                         SELECT cc.codigo, cc.estado_id 
@@ -756,7 +769,8 @@ namespace AplicativoDeAlmacen.Services
                         WHERE cc.estado_id != 4 
                           AND mc.codigo_creado_id IS NULL";
                         }
-                        else // 🔵 Motivo 1 = COMPRA (Ingreso Inicial)
+                        // 🟡 3. MOTIVO 1 = COMPRA (Ingreso Inicial -> Solo códigos en Estado 1)
+                        else
                         {
                             sqlVerificarDuplicados = @"
                         SELECT cc.codigo, cc.estado_id 
@@ -781,9 +795,10 @@ namespace AplicativoDeAlmacen.Services
                                 int estConflicto = rdrVerify.GetInt32(1);
                                 string nombreEstado = estConflicto switch
                                 {
-                                    1 => "DISPONIBLE EN TRÁNSITO",
-                                    3 => "EN ALMACÉN",
-                                    4 => "VENDIDO/ENTREGADO",
+                                    1 => "CREADO / DISPONIBLE PARA INGRESO",
+                                    3 => "DISPONIBLE EN ALMACÉN",
+                                    4 => "SALIÓ DE ALMACÉN",
+                                    5 => "EN TRÁNSITO / TRANSFERIDO",
                                     _ => $"ESTADO {estConflicto}"
                                 };
                                 listaConflictos.Add($"- {codConflicto} ({nombreEstado})");
@@ -792,9 +807,19 @@ namespace AplicativoDeAlmacen.Services
 
                         if (listaConflictos.Any())
                         {
-                            string msjError = motivoId != 1
-                                ? "No se puede procesar la Devolución/Reingreso. Los siguientes códigos NO figuran como VENDIDOS/DESPACHADOS (Estado 4) para poder reingresar:\n\n"
-                                : "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n\n";
+                            string msjError;
+                            if (motivoId == 4)
+                            {
+                                msjError = "No se puede procesar la Transferencia. Los siguientes códigos NO están en Salida (Estado 4) ni En Tránsito (Estado 5):\n\n";
+                            }
+                            else if (motivoId != 1)
+                            {
+                                msjError = "No se puede procesar la Devolución/Reingreso. Los siguientes códigos NO figuran como VENDIDOS/DESPACHADOS (Estado 4) para poder reingresar:\n\n";
+                            }
+                            else
+                            {
+                                msjError = "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n\n";
+                            }
 
                             throw new Exception(msjError + string.Join("\n", listaConflictos));
                         }
