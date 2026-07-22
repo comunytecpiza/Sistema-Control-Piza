@@ -1162,7 +1162,23 @@ namespace AplicativoDeAlmacen.Views
         private async void BtnImportar_Click(object sender, RoutedEventArgs e)
         {
             var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
-            try { win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4; } catch { win.EstadoPermitido = 1; }
+
+
+            if (_codigosGridList != null && _codigosGridList.Any())
+            {
+                win.CodigosYaAgregadosEnMovimiento = _codigosGridList
+                    .Select(c => c.CodigoUnique)
+                    .Where(c => !string.IsNullOrEmpty(c))
+                    .ToList();
+            }
+            try
+            {
+                win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4;
+            }
+            catch
+            {
+                win.EstadoPermitido = 1;
+            }
 
             if (win.ShowDialog() != true) return;
 
@@ -1244,7 +1260,10 @@ namespace AplicativoDeAlmacen.Views
                 {
                     MessageBox.Show($"Error al enlazar la grilla principal: {ex.Message}", "Error Interno", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
-                using (this.Cursor = Cursors.Arrow) { }
+                finally
+                {
+                    this.Cursor = Cursors.Arrow;
+                }
             }
             else if (loadingTransfer.ErrorResult != null)
             {
@@ -1341,6 +1360,7 @@ namespace AplicativoDeAlmacen.Views
             if (idMotivo == 1 || idMotivo == 2)
             {
                 txtRazonSocial.IsEnabled = true;
+                txtUbicacion.IsEnabled = false;
             }
             // 🔵 Motivo 4 (Transferencia entre Almacenes): Requiere Ubicación de Destino
             else if (idMotivo == 4)

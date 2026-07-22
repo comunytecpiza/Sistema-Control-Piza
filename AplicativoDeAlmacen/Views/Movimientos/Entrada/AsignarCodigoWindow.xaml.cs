@@ -238,6 +238,44 @@ namespace AplicativoDeAlmacen.Views
             }
 
             int categoriaId = rbLibroGuia.IsChecked == true ? 1 : 2;
+
+            // 🛡️ CANDADO DE DUPLICIDAD LOCAL (Revisa la lista de la grilla en memoria)
+            if (_itemsEnGrilla != null)
+            {
+                foreach (var itemObj in _itemsEnGrilla)
+                {
+                    if (itemObj is RangoCodigoItem rangoExistente)
+                    {
+                        // Si estamos editando, ignoramos el mismo item que estamos modificando
+                        if (this.EsModoEdicion && _itemEnEdicion != null && _itemEnEdicion == rangoExistente)
+                            continue;
+
+                        // Solo comparamos si pertenecen a la misma categoría (Guía con Guía, Venta con Venta)
+                        if (rangoExistente.CategoriaProductoId == categoriaId)
+                        {
+                            int exDesde = rangoExistente.DesdeNum;
+                            int exHasta = rangoExistente.HastaNum;
+
+                            // Evalúa intersección matemática de rangos [intDesde, intHasta] vs [exDesde, exHasta]
+                            bool hayCruce = (intDesde <= exHasta) && (intHasta >= exDesde);
+
+                            if (hayCruce)
+                            {
+                                MessageBox.Show(
+                                    $"⚠️ Rango Duplicado o Solapado:\n\n" +
+                                    $"El rango ingresado ({intDesde} al {intHasta}) se cruza con una serie que ya agregó previamente a la lista:\n" +
+                                    $"• Serie existente: del {exDesde} al {exHasta}\n\n" +
+                                    $"Por favor, ingrese un rango que no contenga códigos repetidos.",
+                                    "Serie de Códigos Duplicada",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Warning);
+                                return; // 🛑 Bloquea el guardado
+                            }
+                        }
+                    }
+                }
+            }
+
             string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
             string baseLimpia = _abreviaturaProducto.Trim();
 

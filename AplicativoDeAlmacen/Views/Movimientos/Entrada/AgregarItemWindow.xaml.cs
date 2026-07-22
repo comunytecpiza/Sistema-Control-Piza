@@ -1,4 +1,5 @@
-﻿using AplicativoDeAlmacen.Models;
+﻿using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using System;
@@ -8,6 +9,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -63,6 +65,40 @@ namespace AplicativoDeAlmacen.Views
                 }
             };
         }
+
+        private async Task CargarStockActualProductoAsync(int productoId)
+        {
+            try
+            {
+                using var conn = new DatabaseConnection().GetConnection();
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"
+            SELECT ISNULL(SUM(cantidad_ingreso - cantidad_salida), 0)
+            FROM movimiento_detalles md WITH (NOLOCK)
+            INNER JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id
+            WHERE md.producto_id = @productoId AND m.estado_id != 2";
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                var param = cmd.CreateParameter();
+                param.ParameterName = "@productoId";
+                param.Value = productoId;
+                cmd.Parameters.Add(param);
+
+                object result = await cmd.ExecuteScalarAsync();
+                decimal stock = (result != null && result != DBNull.Value) ? Convert.ToDecimal(result) : 0m;
+
+                txtStockDisponible.Text = Convert.ToInt32(stock).ToString();
+            }
+            catch
+            {
+                txtStockDisponible.Text = "0";
+            }
+        }
+
 
         private void RecalcularCantidadTotalEnVivo()
         {
@@ -198,7 +234,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private void LstSugerenciasProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void LstSugerenciasProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (lstSugerenciasProductos.SelectedItem is Producto producto)
             {
@@ -212,6 +248,9 @@ namespace AplicativoDeAlmacen.Views
                 txtCUnitario.Text = producto.PrecioUnitario.HasValue
                     ? producto.PrecioUnitario.Value.ToString("F2")
                     : "0.00";
+
+                // 🌟 CONSULTAR STOCK EN VIVO
+                await CargarStockActualProductoAsync(producto.Id);
 
                 if (string.IsNullOrWhiteSpace(producto.Abreviatura))
                 {

@@ -460,6 +460,43 @@ namespace AplicativoDeAlmacen.Views
                 {
                     MostrarCodigosPendientesEnPoder();
                 }
+                // Si el usuario hace clic en las columnas de INGRESO (4) o SALIDA (5) sin cambiar la fila,
+                // refrescamos la lista de códigos para reflejar el tipo actual (ENTRADA/SALIDA).
+                else if ((columnIndex == 4 || columnIndex == 5) && MovimientosDataGrid.CurrentItem is ConsultaMovimientoItem current)
+                {
+                    MostrarCodigosParaMovimiento(current);
+                }
+            }
+        }
+
+        // Se factoriza la lógica para mostrar códigos de un movimiento específico
+        private void MostrarCodigosParaMovimiento(ConsultaMovimientoItem movimiento)
+        {
+            if (movimiento == null) return;
+
+            string registroLimpio = movimiento.NumeroRegistro?
+                .Replace("❌ ANULADO - ", "")
+                .Trim() ?? string.Empty;
+
+            bool esIngreso = movimiento.Ingreso > 0;
+            string tipoBuscado = esIngreso ? "ENTRADA" : "SALIDA";
+
+            var codigos = _todosLosCodigos
+                .Where(c => (c.NumeroRegistro.Equals(registroLimpio, StringComparison.OrdinalIgnoreCase) ||
+                            c.NumeroRegistro.Equals(movimiento.NumeroRegistro, StringComparison.OrdinalIgnoreCase))
+                            && c.TipoMovimiento == tipoBuscado)
+                .ToList();
+
+            CodigosDataGrid.ItemsSource = null;
+            CodigosDataGrid.ItemsSource = codigos;
+
+            if (movimiento.IsAnulado || movimiento.NumeroRegistro.Contains("ANULADO"))
+            {
+                TxtTotalCodigos.Text = $"⚠️ [ANULADO] {codigos.Count} códigos en esta operación.";
+            }
+            else
+            {
+                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos";
             }
         }
 
@@ -488,30 +525,7 @@ namespace AplicativoDeAlmacen.Views
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
             {
-                string registroLimpio = movimiento.NumeroRegistro?
-                    .Replace("❌ ANULADO - ", "")
-                    .Trim() ?? string.Empty;
-
-                bool esIngreso = movimiento.Ingreso > 0;
-                string tipoBuscado = esIngreso ? "ENTRADA" : "SALIDA";
-
-                var codigos = _todosLosCodigos
-                    .Where(c => (c.NumeroRegistro.Equals(registroLimpio, StringComparison.OrdinalIgnoreCase) ||
-                                c.NumeroRegistro.Equals(movimiento.NumeroRegistro, StringComparison.OrdinalIgnoreCase))
-                                && c.TipoMovimiento == tipoBuscado)
-                    .ToList();
-
-                CodigosDataGrid.ItemsSource = null;
-                CodigosDataGrid.ItemsSource = codigos;
-
-                if (movimiento.IsAnulado || movimiento.NumeroRegistro.Contains("ANULADO"))
-                {
-                    TxtTotalCodigos.Text = $"⚠️ [ANULADO] {codigos.Count} códigos en esta operación.";
-                }
-                else
-                {
-                    TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos";
-                }
+                MostrarCodigosParaMovimiento(movimiento);
             }
         }
 
