@@ -1,4 +1,5 @@
-﻿using AplicativoDeAlmacen.Data;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
@@ -709,10 +710,10 @@ namespace AplicativoDeAlmacen.Views
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
 
-                    // 🌟 CAMBIO CLAVE: Guarda la ubicación seleccionada en pantalla; si es nula, usa Almacén Central (1)
                     UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
 
-                    UsuarioId = 1,
+                    // 🌟 CAPTURA DINÁMICA DE LA SESIÓN DE USUARIO ACTUAL
+                    UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1,
 
                     PersonaComercialId = _personaComercialIdSeleccionada,
                     SerieGuia = txtSerieGuia.Text.Trim(),

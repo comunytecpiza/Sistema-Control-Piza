@@ -1282,6 +1282,8 @@ namespace AplicativoDeAlmacen.Views
                 btnCancelar.IsEnabled = false;
                 this.Cursor = Cursors.Wait;
 
+                int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+
                 var movimiento = new Movimiento
                 {
                     SerieDocumento = txtSerieSalida.Text,
@@ -1290,7 +1292,10 @@ namespace AplicativoDeAlmacen.Views
                     UbicacionId = txtUbicacion.IsEnabled ? _idUbicacionSeleccionada : null,
                     PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : null,
                     MotivoProductoId = (int)cboMotivoSalida.SelectedValue,
-                    UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1, // 🌟 CAPTURA DE USUARIO EN SESIÓN
+
+                    // 🌟 ASIGNAMOS EL USUARIO DE LA SESIÓN EN LA CABECERA
+                    UsuarioId = usuarioActivoId,
+
                     Observacion = txtObservacionSalida.Text,
                     SerieGuia = txtSerieGuia.Text,
                     NumeroGuia = txtNumeroGuia.Text,
@@ -1334,14 +1339,14 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }).ToList();
 
-                int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+
 
                 bool resultado = await Task.Run(async () =>
                     await _salidaService.RegistrarSalidaCompletaAsync(
                      movimiento,
                      detallesPlanos,
                      _codigosLista.ToList(),
-                     usuarioActivoId, // 👈 AHORA PASA EL USUARIO EN SESIÓN REAL
+                     usuarioActivoId, // 👈 ENVIAMOS EL ID DE LA SESIÓN AL SERVICIO
                      estadoSalida,
                      _idMovimientoActual,
                      progress)
