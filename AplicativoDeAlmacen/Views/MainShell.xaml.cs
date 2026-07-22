@@ -41,13 +41,11 @@ namespace AplicativoDeAlmacen.Views
             this.isAdmin = isAdmin;
             EventBus.OnRolesPermisosChanged += EventBus_OnRolesPermisosChanged;
 
-            // Llamada sin errores al mensaje de bienvenida
             SetupWelcomeMessage(userNames);
             StartClock();
 
-            // Cargar los almacenes permitidos en el ComboBox de la barra inferior
+            // 🌟 1. CONFIGURAR EL COMBOBOX DE ALMACENES EN LA BARRA INFERIOR
             CboAlmacenBarra.ItemsSource = SesionSistema.AlmacenesPermitidos;
-
             CboAlmacenBarra.SelectionChanged -= CboAlmacenBarra_SelectionChanged;
             if (SesionSistema.AlmacenActual != null)
             {
@@ -60,6 +58,17 @@ namespace AplicativoDeAlmacen.Views
                 CboAlmacenBarra.IsEnabled = false;
             }
 
+            // 🌟 2. PINTAR EL MENÚ SUPERIOR DINÁMICO BASADO EN LOS PERMISOS DEL LOGIN
+            try
+            {
+                ConstruirMenuDinamico();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"ERROR AL CONSTRUIR MENÚ:\n{ex.Message}", "Debug Menú", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+
+            MostrarBienvenida(userNames, isAdmin);
             CargarNotasLocales();
         }
 

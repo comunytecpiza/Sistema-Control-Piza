@@ -201,11 +201,12 @@ namespace AplicativoDeAlmacen
                     // Al ingresar con éxito detendremos el audio si seguía sonando
                     _mediaPlayer.Stop();
 
+                    // 🌟 1. CARGAR PERMISOS DESDE LA BASE DE DATOS SEGÚN SU ROL
                     var service = new UsuarioService();
                     SesionSistema.UsuarioActual = usuarioLogueado;
                     SesionSistema.PermisosActuales = await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
 
-                    // 🌟 1. CONSULTAR LOS ALMACENES PERMITIDOS PARA ESTE USUARIO
+                    // 🌟 2. CONSULTAR ESTRICTAMENTE LOS ALMACENES ASIGNADOS A ESTE USUARIO EN BD
                     var almacenesPermitidos = new List<Almacen>();
                     await Task.Run(() =>
                     {
@@ -215,7 +216,7 @@ namespace AplicativoDeAlmacen
                             using (IDbCommand cmd = conn.CreateCommand())
                             {
                                 cmd.CommandText = @"
-                    SELECT a.id, a.nombre, a.codigo, a.direccion, ua.es_predeterminado 
+                    SELECT a.id, a.nombre, a.codigo, a.direccion, ua.es_predeterminado, a.estado_id 
                     FROM usuario_almacenes ua
                     INNER JOIN almacenes a ON ua.almacen_id = a.id
                     WHERE ua.usuario_id = @uId AND a.estado_id = 1";
@@ -235,6 +236,7 @@ namespace AplicativoDeAlmacen
                                             Nombre = reader["nombre"]?.ToString() ?? "",
                                             Codigo = reader["codigo"]?.ToString() ?? "",
                                             Direccion = reader["direccion"]?.ToString() ?? "",
+                                            EstadoId = Convert.ToInt32(reader["estado_id"]),
                                             EsPredeterminado = Convert.ToBoolean(reader["es_predeterminado"])
                                         });
                                     }
@@ -243,22 +245,23 @@ namespace AplicativoDeAlmacen
                         }
                     });
 
+                    // 🛡️ VALIDACIÓN ESTRICTA: Si no tiene almacenes en la BD, no se le inventa nada y se bloquea el acceso.
                     if (!almacenesPermitidos.Any())
                     {
-                        MessageBox.Show("Su usuario no tiene ningún almacén asignado. Contacte al administrador.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                        MessageBox.Show("Acceso Denegado: Su usuario no tiene ningún almacén activo asignado en el sistema. Contacte al administrador.",
+                                        "Sin Sede Asignada", MessageBoxButton.OK, MessageBoxImage.Stop);
                         LoadingOverlay.Visibility = Visibility.Collapsed;
                         return;
                     }
 
-                    // 🌟 2. ASIGNAR ALMACÉN ACTIVO EN SESIÓN
-                    // Si tiene uno predeterminado o solo 1 asignado, se selecciona solo. Si tiene varios, puedes seleccionar el predeterminado.
+                    // 🌟 3. SELECCIÓN DINÁMICA DEL ALMACÉN (Busca el marcado como predeterminado en BD, sino toma el primero disponible)
                     SesionSistema.AlmacenesPermitidos = almacenesPermitidos;
                     SesionSistema.AlmacenActual = almacenesPermitidos.FirstOrDefault(a => a.EsPredeterminado) ?? almacenesPermitidos.First();
 
                     string nombre = usuarioLogueado.Nombres;
-                    bool esAdmin = usuarioLogueado.RolUsuarioId == 1;
+                    bool esAdmin = usuarioLogueado.RolUsuarioId == 1; // O la validación de rol que maneje tu sistema
 
-                    // Abrimos el MainShell pasando el nombre y el almacén correspondiente
+                    // 🌟 4. ABRIR EL MAINSHELL CON SUS PERMISOS Y ALMACENES REALES
                     new Views.MainShell(nombre, esAdmin).Show();
 
                     this.Close();

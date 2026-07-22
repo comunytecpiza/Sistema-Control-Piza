@@ -224,7 +224,21 @@
                       Width="240" Height="30" FontSize="13" FontWeight="SemiBold"
                       Background="#374151" Foreground="White" BorderBrush="#4B5563"
                       VerticalContentAlignment="Center"
-                      ToolTip="Cambiar de almacén activo"/>
+                      ToolTip="Cambiar de almacén activo">
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem">
+                                <Setter Property="Background" Value="#374151"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Padding" Value="8,4"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsHighlighted" Value="True">
+                                        <Setter Property="Background" Value="#4F46E5"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
