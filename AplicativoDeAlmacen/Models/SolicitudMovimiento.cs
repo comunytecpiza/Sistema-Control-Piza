@@ -17,6 +17,6 @@ namespace AplicativoDeAlmacen.Models
 
         public int? MovimientoId { get; set; }
 
-
+        //asdasdasd
     }
 }
