@@ -13,4 +13,6 @@ namespace AplicativoDeAlmacen.Models.UI
         public string ColorEtiqueta { get; set; } // Ej: "#EF4444" para urgente
         public bool IsBold { get; set; }
     }
+
+    
 }

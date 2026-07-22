@@ -13,6 +13,7 @@ using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Almacen;
 
 namespace AplicativoDeAlmacen
 {
@@ -148,6 +149,7 @@ namespace AplicativoDeAlmacen
 
                         using (IDbCommand cmd = conn.CreateCommand())
                         {
+                            // 🌟 Aseguramos traer id, username, nombres, password, rol_usuario_id, estado
                             cmd.CommandText = "SELECT id, username, nombres, password, rol_usuario_id, estado FROM usuarios WHERE username = @username";
 
                             var pUsername = cmd.CreateParameter();
@@ -203,9 +205,60 @@ namespace AplicativoDeAlmacen
                     SesionSistema.UsuarioActual = usuarioLogueado;
                     SesionSistema.PermisosActuales = await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
 
+                    // 🌟 1. CONSULTAR LOS ALMACENES PERMITIDOS PARA ESTE USUARIO
+                    var almacenesPermitidos = new List<Almacen>();
+                    await Task.Run(() =>
+                    {
+                        using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
+                        {
+                            conn.Open();
+                            using (IDbCommand cmd = conn.CreateCommand())
+                            {
+                                cmd.CommandText = @"
+                    SELECT a.id, a.nombre, a.codigo, a.direccion, ua.es_predeterminado 
+                    FROM usuario_almacenes ua
+                    INNER JOIN almacenes a ON ua.almacen_id = a.id
+                    WHERE ua.usuario_id = @uId AND a.estado_id = 1";
+
+                                var pUId = cmd.CreateParameter();
+                                pUId.ParameterName = "@uId";
+                                pUId.Value = usuarioLogueado.Id;
+                                cmd.Parameters.Add(pUId);
+
+                                using (IDataReader reader = cmd.ExecuteReader())
+                                {
+                                    while (reader.Read())
+                                    {
+                                        almacenesPermitidos.Add(new Almacen
+                                        {
+                                            Id = Convert.ToInt32(reader["id"]),
+                                            Nombre = reader["nombre"]?.ToString() ?? "",
+                                            Codigo = reader["codigo"]?.ToString() ?? "",
+                                            Direccion = reader["direccion"]?.ToString() ?? "",
+                                            EsPredeterminado = Convert.ToBoolean(reader["es_predeterminado"])
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    if (!almacenesPermitidos.Any())
+                    {
+                        MessageBox.Show("Su usuario no tiene ningún almacén asignado. Contacte al administrador.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                        return;
+                    }
+
+                    // 🌟 2. ASIGNAR ALMACÉN ACTIVO EN SESIÓN
+                    // Si tiene uno predeterminado o solo 1 asignado, se selecciona solo. Si tiene varios, puedes seleccionar el predeterminado.
+                    SesionSistema.AlmacenesPermitidos = almacenesPermitidos;
+                    SesionSistema.AlmacenActual = almacenesPermitidos.FirstOrDefault(a => a.EsPredeterminado) ?? almacenesPermitidos.First();
+
                     string nombre = usuarioLogueado.Nombres;
                     bool esAdmin = usuarioLogueado.RolUsuarioId == 1;
 
+                    // Abrimos el MainShell pasando el nombre y el almacén correspondiente
                     new Views.MainShell(nombre, esAdmin).Show();
 
                     this.Close();

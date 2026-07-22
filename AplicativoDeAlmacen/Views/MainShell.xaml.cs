@@ -21,6 +21,8 @@ using Growl = HandyControl.Controls.Growl;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
+using AplicativoDeAlmacen.Models.Almacen;
+using AplicativoDeAlmacen.Models.UI;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -38,28 +40,52 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             this.isAdmin = isAdmin;
             EventBus.OnRolesPermisosChanged += EventBus_OnRolesPermisosChanged;
+
+            // Llamada sin errores al mensaje de bienvenida
             SetupWelcomeMessage(userNames);
             StartClock();
 
-            // 1. Si es Admin maestro pero por alguna razón no tiene lista de permisos, cargamos un acceso temporal
-            if (SesionSistema.UsuarioActual?.RolUsuarioId == 1 && (SesionSistema.PermisosActuales == null || !SesionSistema.PermisosActuales.Any()))
+            // Cargar los almacenes permitidos en el ComboBox de la barra inferior
+            CboAlmacenBarra.ItemsSource = SesionSistema.AlmacenesPermitidos;
+
+            CboAlmacenBarra.SelectionChanged -= CboAlmacenBarra_SelectionChanged;
+            if (SesionSistema.AlmacenActual != null)
             {
-                // Aquí podrías forzar la carga de todos los módulos para el super admin si tu servicio devuelve lista vacía
+                CboAlmacenBarra.SelectedValue = SesionSistema.AlmacenActual.Id;
+            }
+            CboAlmacenBarra.SelectionChanged += CboAlmacenBarra_SelectionChanged;
+
+            if (SesionSistema.AlmacenesPermitidos.Count <= 1)
+            {
+                CboAlmacenBarra.IsEnabled = false;
             }
 
-            try
-            {
-                ConstruirMenuDinamico();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"ERROR EN MENÚ:\n{ex.GetType().Name}\n{ex.Message}\n\nStackTrace:\n{ex.StackTrace}", "Debug Menú", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-
-            MostrarBienvenida(userNames, isAdmin);
             CargarNotasLocales();
         }
 
+        private void SetupWelcomeMessage(string userNames)
+        {
+            string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "Almacén General";
+            WelcomeMessage.Text = $"Bienvenido(a), {userNames} ({nombreAlmacen})";
+        }
+
+
+        private void CboAlmacenBarra_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CboAlmacenBarra.SelectedItem is Almacen nuevoAlmacen)
+            {
+                // Si ya era el almacén actual, no hacemos nada
+                if (SesionSistema.AlmacenActual?.Id == nuevoAlmacen.Id) return;
+
+                // Actualizamos el almacén activo en la sesión global
+                SesionSistema.AlmacenActual = nuevoAlmacen;
+
+                // Lanzamos la notificación visual de cambio de sede
+                Growl.Info($"🔄 Sede cambiada a: {nuevoAlmacen.Nombre}");
+
+                // Opcional: Puedes refrescar datos de las vistas activas si fuera necesario
+            }
+        }
         // Notificación de bienvenida con el nombre de la persona y su rol.
         // Se dispara una sola vez, justo cuando MainShell termina de armarse,
         // y usa Dispatcher para asegurarse de que la ventana (y su Growl)
@@ -257,9 +283,10 @@ namespace AplicativoDeAlmacen.Views
         // MÉTODOS BASE (Reloj, Bienvenida, Motor de Pestañas)
         // ==============================================================
 
-        private void SetupWelcomeMessage(string userNames)
+        private void SetupWelcomeMessage(string userNames, string nombreAlmacen)
         {
-            WelcomeMessage.Text = $"Bienvenido(a), {userNames}";
+            // Muestra en la cabecera superior derecha o en la barra inferior
+            WelcomeMessage.Text = $"Bienvenido(a), {userNames} ({nombreAlmacen})";
         }
 
         private void StartClock()

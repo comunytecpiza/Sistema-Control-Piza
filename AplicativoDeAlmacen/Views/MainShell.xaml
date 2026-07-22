@@ -213,9 +213,20 @@
         <Border Grid.Row="2" Background="#1F2937" Padding="20,10">
             <DockPanel LastChildFill="False">
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                    <TextBlock Text="📍" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0"/>
-                    <TextBlock Text="Ubicación: SEDE PRINCIPAL (ADMIN)" FontSize="14" Foreground="#E5E7EB" FontWeight="SemiBold"/>
+                    <TextBlock Text="📍" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+
+                    <!-- 🌟 COMBOBOX DINÁMICO DE CAMBIO DE ALMACÉN EN CALIENTE -->
+                    <ComboBox x:Name="CboAlmacenBarra" 
+                      ItemsSource="{Binding AlmacenesPermitidos}" 
+                      DisplayMemberPath="Nombre" 
+                      SelectedValuePath="Id"
+                      SelectionChanged="CboAlmacenBarra_SelectionChanged"
+                      Width="240" Height="30" FontSize="13" FontWeight="SemiBold"
+                      Background="#374151" Foreground="White" BorderBrush="#4B5563"
+                      VerticalContentAlignment="Center"
+                      ToolTip="Cambiar de almacén activo"/>
                 </StackPanel>
+
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                     <TextBlock Text="🕒" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0"/>
                     <TextBlock x:Name="DateTimeTextBlock" FontSize="14" Foreground="#E5E7EB" FontWeight="SemiBold"/>
