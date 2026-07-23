@@ -101,88 +101,136 @@ namespace AplicativoDeAlmacen.Services.Importaciones
     int coleccionId,
     int productoId,
     int categoriaId,
-    List<string> codigosValidos,
-    int usuarioActivoId,
-    string nombreArchivoExcel,
-    IProgress<int>? progress = null)
+    List<string> codigosAprobados,
+    int usuarioId,
+    int almacenId,
+    string nombreArchivoOrigen,
+    IProgress<int> progress = null)
         {
-            if (!codigosValidos.Any())
-                throw new Exception("No hay códigos para guardar.");
+            if (codigosAprobados == null || !codigosAprobados.Any()) return;
 
-            using var conn = _database.GetConnection();
-            var dbConn = (DbConnection)conn;
-            await dbConn.OpenAsync();
-
-            using var trans = dbConn.BeginTransaction();
-
-            try
+            using (var conn = _database.GetConnection())
             {
-                int loteId;
-                string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
 
-                using (var cmd = dbConn.CreateCommand())
+                using (var transaction = dbConn.BeginTransaction())
                 {
-                    cmd.Transaction = trans;
-
-                    // 🌟 INSERCIÓN CON REGISTRO DE USUARIO_ID Y ORIGEN DEL EXCEL
-                    string queryRegistro = @"
-                INSERT INTO registro_codigos
-                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta, usuario_id, origen_registro, created_at)
-                VALUES
-                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta, @usuario, @origen, GETDATE());" + selectId;
-
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRegistro);
-
-                    AgregarParametro(cmd, "@coleccion", coleccionId);
-                    AgregarParametro(cmd, "@producto", productoId);
-                    AgregarParametro(cmd, "@categoria", categoriaId);
-                    AgregarParametro(cmd, "@cantidad", codigosValidos.Count);
-                    AgregarParametro(cmd, "@desde", codigosValidos.First());
-                    AgregarParametro(cmd, "@hasta", codigosValidos.Last());
-
-                    // 🚀 AUDITORÍA: Asienta el usuario de la sesión actual
-                    AgregarParametro(cmd, "@usuario", usuarioActivoId > 0 ? usuarioActivoId : 1);
-                    AgregarParametro(cmd, "@origen", string.IsNullOrWhiteSpace(nombreArchivoExcel) ? "EXCEL" : nombreArchivoExcel);
-
-                    loteId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                }
-
-                // 🌟 INSERCIÓN EN BLOQUES DE CÓDIGOS INDIVIDUALES EN CODIGOS_CREADOS
-                int total = codigosValidos.Count;
-                const int insertBatchSize = 1000;
-
-                for (int i = 0; i < total; i += insertBatchSize)
-                {
-                    int currentBatchCount = Math.Min(insertBatchSize, total - i);
-                    var queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id, es_manual) VALUES ");
-
-                    using var cmdInsert = dbConn.CreateCommand();
-                    cmdInsert.Transaction = trans;
-
-                    for (int j = 0; j < currentBatchCount; j++)
+                    try
                     {
-                        int idx = i + j;
-                        queryBuilder.Append($"({loteId}, @cod{idx}, 1, 0)");
-                        if (j < currentBatchCount - 1) queryBuilder.Append(", ");
+                        int cantidad = codigosAprobados.Count;
 
-                        AgregarParametro(cmdInsert, $"@cod{idx}", codigosValidos[idx]);
+                        string codigoDesde = codigosAprobados.First().Replace("'", "-");
+                        string codigoHasta = codigosAprobados.Last().Replace("'", "-");
+
+                        int lastDashDesde = codigoDesde.LastIndexOf('-');
+                        int desdeNum = (lastDashDesde >= 0 && int.TryParse(codigoDesde.Substring(lastDashDesde + 1), out int dNum)) ? dNum : 0;
+
+                        int lastDashHasta = codigoHasta.LastIndexOf('-');
+                        int hastaNum = (lastDashHasta >= 0 && int.TryParse(codigoHasta.Substring(lastDashHasta + 1), out int hNum)) ? hNum : 0;
+
+                        string abreviaturaBase = lastDashDesde >= 0 ? codigoDesde.Substring(0, lastDashDesde) : codigoDesde;
+                        string origenRegistro = $"EXCEL: {nombreArchivoOrigen}";
+
+                        // 1. INSERT EN 'registro_codigos'
+                        string queryRegistro = @"
+                    INSERT INTO registro_codigos 
+                    (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
+                    VALUES 
+                    (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, GETDATE());";
+
+                        string selectId = AplicativoDeAlmacen.Data.QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
+
+                        int registroId;
+                        using (var cmd = dbConn.CreateCommand())
+                        {
+                            cmd.Transaction = transaction;
+                            cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(queryRegistro + selectId);
+
+                            AgregarParametro(cmd, "@cId", coleccionId);
+                            AgregarParametro(cmd, "@pId", productoId);
+                            AgregarParametro(cmd, "@cant", cantidad);
+                            AgregarParametro(cmd, "@des", codigoDesde);
+                            AgregarParametro(cmd, "@has", codigoHasta);
+                            AgregarParametro(cmd, "@catId", categoriaId);
+                            AgregarParametro(cmd, "@uId", usuarioId > 0 ? usuarioId : 1);
+                            AgregarParametro(cmd, "@origen", origenRegistro);
+
+                            registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                        }
+
+                        
+                        // 2. INSERT EN 'registro_rangos' (Quitamos 'cantidad' de la consulta porque es calculada en SQL)
+                        string queryRango = @"
+                        INSERT INTO registro_rangos 
+                        (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at, usuario_id) 
+                        VALUES 
+                        (@pId, @catId, @abrev, @dNum, @hNum, NULL, GETDATE(), @uId);";
+
+                        using (var cmdRango = dbConn.CreateCommand())
+                        {
+                            cmdRango.Transaction = transaction;
+                            cmdRango.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(queryRango);
+
+                            AgregarParametro(cmdRango, "@pId", productoId);
+                            AgregarParametro(cmdRango, "@catId", categoriaId);
+                            AgregarParametro(cmdRango, "@abrev", abreviaturaBase);
+                            AgregarParametro(cmdRango, "@dNum", desdeNum);
+                            AgregarParametro(cmdRango, "@hNum", hastaNum);
+                            AgregarParametro(cmdRango, "@uId", usuarioId > 0 ? usuarioId : 1);
+
+                            await cmdRango.ExecuteNonQueryAsync();
+                        }
+
+                        // 3. INSERT MASIVO EN 'codigos_creados'
+                        int batchSize = 1000;
+                        for (int i = 0; i < cantidad; i += batchSize)
+                        {
+                            int currentBatch = Math.Min(batchSize, cantidad - i);
+                            var queryBuilder = new System.Text.StringBuilder(@"
+                        INSERT INTO codigos_creados 
+                        (registro_codigo_id, codigo, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at) 
+                        VALUES ");
+
+                            using (var cmd = dbConn.CreateCommand())
+                            {
+                                cmd.Transaction = transaction;
+
+                                for (int j = 0; j < currentBatch; j++)
+                                {
+                                    int idx = i + j;
+                                    string paramCod = $"@cod{idx}";
+                                    string codigoGenerado = codigosAprobados[idx].Replace("'", "-");
+
+                                    queryBuilder.Append($"({registroId}, {paramCod}, 1, 1, @almId, @usrId, 'EXCEL', GETDATE())");
+                                    if (j < currentBatch - 1) queryBuilder.Append(", ");
+
+                                    AgregarParametro(cmd, paramCod, codigoGenerado);
+                                }
+
+                                AgregarParametro(cmd, "@almId", almacenId);
+                                AgregarParametro(cmd, "@usrId", usuarioId > 0 ? usuarioId : 1);
+
+                                cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(queryBuilder.ToString());
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            int pct = ((i + currentBatch) * 100) / cantidad;
+                            progress?.Report(pct);
+                        }
+
+                        transaction.Commit();
                     }
-
-                    cmdInsert.CommandText = QueryAdapter.FormatearConsulta(queryBuilder.ToString());
-                    await cmdInsert.ExecuteNonQueryAsync();
-
-                    int pct = ((i + currentBatchCount) * 100) / total;
-                    progress?.Report(pct);
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
                 }
-
-                trans.Commit();
-            }
-            catch
-            {
-                trans.Rollback();
-                throw;
             }
         }
+
+        
 
         /// <summary>
         /// Lee el archivo Excel de Nisira, extrae las filas y agrupa la información

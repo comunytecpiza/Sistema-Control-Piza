@@ -116,7 +116,7 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        public async Task<List<RegistroCodigo>> ObtenerRegistrosAsync(int coleccionId, int categoriaId)
+        public async Task<List<RegistroCodigo>> ObtenerRegistrosAsync(int coleccionId, int categoriaId, int? almacenIdFiltro = null)
         {
             var lista = new List<RegistroCodigo>();
             using (var conn = _database.GetConnection())
@@ -124,24 +124,39 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 Agregamos rc.created_at a la consulta SQL
-                string query = @"SELECT rc.id, 
-                                (SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id) AS cantidad_real, 
-                                rc.desde, rc.hasta, p.descripcion AS producto_desc, 
-                                p.abreviatura, um.descripcion AS unidad_medida_desc, cp.nombre AS categoria_nombre,
-                                rc.created_at
-                         FROM registro_codigos rc
-                         INNER JOIN productos p ON rc.producto_id = p.id
-                         INNER JOIN unidad_medida um ON p.unidad_medida_id = um.id
-                         INNER JOIN categoria_producto cp ON rc.categoria_producto_id = cp.id
-                         WHERE rc.coleccion_id = @coleccionId AND rc.categoria_producto_id = @categoriaId
-                         ORDER BY rc.created_at DESC, rc.id DESC"; // 🌟 Ordenado por fecha de creación
+                // 🌟 SI HAY FILTRO DE ALMACÉN (Trabajador): Cuenta solo los códigos de su sede y oculta lotes con 0
+                string sqlCantidad = almacenIdFiltro.HasValue
+                    ? "(SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id AND cc.almacen_id = @almId)"
+                    : "(SELECT COUNT(cc.id) FROM codigos_creados cc WHERE cc.registro_codigo_id = rc.id)";
+
+                string query = $@"
+            SELECT rc.id, 
+                   {sqlCantidad} AS cantidad_real, 
+                   rc.desde, rc.hasta, p.descripcion AS producto_desc, 
+                   p.abreviatura, um.descripcion AS unidad_medida_desc, cp.nombre AS categoria_nombre,
+                   rc.created_at
+            FROM registro_codigos rc
+            INNER JOIN productos p ON rc.producto_id = p.id
+            INNER JOIN unidad_medida um ON p.unidad_medida_id = um.id
+            INNER JOIN categoria_producto cp ON rc.categoria_producto_id = cp.id
+            WHERE rc.coleccion_id = @coleccionId AND rc.categoria_producto_id = @categoriaId";
+
+                if (almacenIdFiltro.HasValue)
+                {
+                    query += $" AND {sqlCantidad} > 0"; // 🛡️ Si Lima tiene 0 unidades, el lote no le aparece
+                }
+
+                query += " ORDER BY rc.created_at DESC, rc.id DESC";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                     AgregarParametro(cmd, "@coleccionId", coleccionId);
                     AgregarParametro(cmd, "@categoriaId", categoriaId);
+                    if (almacenIdFiltro.HasValue)
+                    {
+                        AgregarParametro(cmd, "@almId", almacenIdFiltro.Value);
+                    }
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
@@ -160,7 +175,7 @@ namespace AplicativoDeAlmacen.Services
                                     UnidadMedida = new UnidadMedida { Descripcion = reader["unidad_medida_desc"] as string }
                                 },
                                 CategoriaProducto = new CategoriaProducto { Nombre = reader["categoria_nombre"] as string },
-                                CreatedAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8) // 🌟 Asignamos la fecha leída
+                                CreatedAt = reader.IsDBNull(8) ? (DateTime?)null : reader.GetDateTime(8)
                             });
                         }
                     }
@@ -203,16 +218,38 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
+        public async Task<bool> CambiarCondicionCodigoAsync(int codigoCreadoId, int nuevaCondicionId, int usuarioId)
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            string query = @"
+        UPDATE codigos_creados 
+        SET condicion_id = @condicionId, 
+            usuario_id = @usuarioId 
+        WHERE id = @id";
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+            AgregarParametro(cmd, "@condicionId", nuevaCondicionId);
+            AgregarParametro(cmd, "@usuarioId", usuarioId);
+            AgregarParametro(cmd, "@id", codigoCreadoId);
+
+            int filasAfectadas = await cmd.ExecuteNonQueryAsync();
+            return filasAfectadas > 0;
+        }
         public async Task GuardarCodigosTransactionAsync(
-        int coleccionId,
-        int productoId,
-        int cantidad,
-        string desde,
-        string hasta,
-        int categoriaId,
-        int usuarioId,
-        string origenRegistro,
-        IProgress<int> progress = null)
+    int coleccionId,
+    int productoId,
+    int cantidad,
+    string desde,
+    string hasta,
+    int categoriaId,
+    int usuarioId,
+    int almacenId, // 🌟 Pasamos el almacén activo de la sesión
+    string origenRegistro,
+    IProgress<int> progress = null)
         {
             using (var conn = _database.GetConnection())
             {
@@ -227,12 +264,16 @@ namespace AplicativoDeAlmacen.Services
                         int desdeInt = lastDashIndex >= 0 ? int.Parse(desde.Substring(lastDashIndex + 1)) : 0;
                         string prefijo = lastDashIndex >= 0 ? desde.Substring(0, lastDashIndex + 1) : desde;
 
-                        // 🌟 INSERCIÓN DIRECTA USANDO ORIGEN_REGISTRO PARA EL NOMBRE DEL ARCHIVO O 'SECUENCIAL'
+                        // Abreviatura base limpia para la tabla registro_rangos (ej: 'LMA4-C26-V')
+                        string abreviaturaBase = lastDashIndex >= 0 ? desde.Substring(0, lastDashIndex) : desde;
+                        int hastaInt = desdeInt + cantidad - 1;
+
+                        // 1. Inserción del lote principal (registro_codigos)
                         string queryRegistro = @"
-                        INSERT INTO registro_codigos 
-                        (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
-                        VALUES 
-                        (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, @createdAt);";
+                    INSERT INTO registro_codigos 
+                    (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
+                    VALUES 
+                    (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, GETDATE());";
 
                         string selectId = QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
 
@@ -248,21 +289,44 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmd, "@des", desde);
                             AgregarParametro(cmd, "@has", hasta);
                             AgregarParametro(cmd, "@catId", categoriaId);
-
-                            // 🚀 AUDITORÍA INTEGRADA
                             AgregarParametro(cmd, "@uId", usuarioId > 0 ? usuarioId : 1);
                             AgregarParametro(cmd, "@origen", string.IsNullOrWhiteSpace(origenRegistro) ? "SECUENCIAL" : origenRegistro);
-                            AgregarParametro(cmd, "@createdAt", DateTime.Now);
 
                             registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
                         }
 
-                        // 2. INSERCIÓN EN BLOQUE DE CÓDIGOS INDIVIDUALES (Tu lógica intacta)
+                        // 🌟 2. INSERCIÓN OBLIGATORIA EN 'registro_rangos' PARA EL MÓDULO DE MOVIMIENTOS
+                        // 🌟 2. INSERCIÓN EN 'registro_rangos' (Sin enviar 'cantidad' porque es columna calculada)
+                        string queryRango = @"
+                        INSERT INTO registro_rangos 
+                        (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at, usuario_id) 
+                        VALUES 
+                        (@pId, @catId, @abrev, @dNum, @hNum, NULL, GETDATE(), @uId);";
+
+                        using (var cmdRango = dbConn.CreateCommand())
+                        {
+                            cmdRango.Transaction = transaction;
+                            cmdRango.CommandText = QueryAdapter.FormatearConsulta(queryRango);
+
+                            AgregarParametro(cmdRango, "@pId", productoId);
+                            AgregarParametro(cmdRango, "@catId", categoriaId);
+                            AgregarParametro(cmdRango, "@abrev", abreviaturaBase);
+                            AgregarParametro(cmdRango, "@dNum", desdeInt);
+                            AgregarParametro(cmdRango, "@hNum", hastaInt);
+                            AgregarParametro(cmdRango, "@uId", usuarioId > 0 ? usuarioId : 1);
+
+                            await cmdRango.ExecuteNonQueryAsync();
+                        }
+
+                        // 3. Inserción en bloque con AUDITORÍA COMPLETA (codigos_creados)
                         int batchSize = 1000;
                         for (int i = 0; i < cantidad; i += batchSize)
                         {
                             int currentBatch = Math.Min(batchSize, cantidad - i);
-                            var queryBuilder = new StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id) VALUES ");
+                            var queryBuilder = new StringBuilder(@"
+                        INSERT INTO codigos_creados 
+                        (registro_codigo_id, codigo, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at) 
+                        VALUES ");
 
                             using (var cmd = dbConn.CreateCommand())
                             {
@@ -276,11 +340,16 @@ namespace AplicativoDeAlmacen.Services
                                     string codigoGenerado = lastDashIndex >= 0 ? $"{prefijo}{(desdeInt + idx):D7}" : $"{prefijo}-{idx}";
                                     codigoGenerado = codigoGenerado.Replace("'", "-");
 
-                                    queryBuilder.Append($"({registroId}, {paramCod}, 1)");
+                                    // estado_id = 1 (En stock/creado), condicion_id = 1 (OK / Operativo)
+                                    queryBuilder.Append($"({registroId}, {paramCod}, 1, 1, @almId, @usrId, @origenC, GETDATE())");
                                     if (j < currentBatch - 1) queryBuilder.Append(", ");
 
                                     AgregarParametro(cmd, paramCod, codigoGenerado);
                                 }
+
+                                AgregarParametro(cmd, "@almId", almacenId);
+                                AgregarParametro(cmd, "@usrId", usuarioId > 0 ? usuarioId : 1);
+                                AgregarParametro(cmd, "@origenC", string.IsNullOrWhiteSpace(origenRegistro) ? "SECUENCIAL" : origenRegistro);
 
                                 cmd.CommandText = QueryAdapter.FormatearConsulta(queryBuilder.ToString());
                                 await cmd.ExecuteNonQueryAsync();

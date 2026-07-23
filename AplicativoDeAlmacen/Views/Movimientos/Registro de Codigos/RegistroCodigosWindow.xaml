@@ -114,8 +114,9 @@
             </Border>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button Content="+ Generar Nuevo Lote" Click="BtnNuevo_Click" Background="#10B981" Margin="0,0,15,0" MinWidth="170"/>
-                <Button Content="🗑️ Eliminar Lote" Click="BtnEliminar_Click" Background="#EF4444" MinWidth="130"/>
+                <!-- 🌟 LES AGREGAMOS x:Name AQUÍ -->
+                <Button x:Name="BtnNuevoLote" Content="+ Generar Nuevo Lote" Click="BtnNuevo_Click" Background="#10B981" Margin="0,0,15,0" MinWidth="170"/>
+                <Button x:Name="BtnEliminarLote" Content="🗑️ Eliminar Lote" Click="BtnEliminar_Click" Background="#EF4444" MinWidth="130"/>
             </StackPanel>
         </Grid>
 

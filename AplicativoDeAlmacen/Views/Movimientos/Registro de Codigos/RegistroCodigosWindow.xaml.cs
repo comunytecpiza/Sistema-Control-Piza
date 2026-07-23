@@ -35,6 +35,7 @@ namespace AplicativoDeAlmacen.Views
 
             _ = InicializarPantallaAsync();
 
+            AplicarPermisosRBAC();
             EventBus.OnProductosChanged += ActualizarComboProductosDesdeEvento;
             EventBus.OnRegistroCodigosChanged += () => Application.Current.Dispatcher.InvokeAsync(async () => {
                 if (CmbFiltroColeccion.SelectedValue is int cId) await CargarGridAsync(cId, RbLibroGuia.IsChecked == true ? 1 : 2);
@@ -113,7 +114,11 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                var data = await _registroService.ObtenerRegistrosAsync(coleccionId, categoriaId);
+                // 🌟 FILTRADO DINÁMICO POR ROL Y SEDE
+                bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
+                int? filtroAlmacen = esAdmin ? null : SesionSistema.AlmacenActual?.Id;
+
+                var data = await _registroService.ObtenerRegistrosAsync(coleccionId, categoriaId, filtroAlmacen);
                 _registrosGrid = data.ToList();
                 CodigosDataGrid.ItemsSource = _registrosGrid;
             }
@@ -484,31 +489,48 @@ namespace AplicativoDeAlmacen.Views
                 if (_isModoExcel)
                 {
                     var importService = new ImportacionExcelService();
-
                     string nombreArchivoExcel = System.IO.Path.GetFileName(TxtRutaArchivo.Text);
 
-                    // 🌟 CAPTURAMOS EL USUARIO DE LA SESIÓN ACTUAL (Si es nulo, respaldo a 1)
                     int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+                    int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                    Exception? errorTransaccion = null;
 
                     var progressModal = new ProgressWindow("Guardando Lote Limpio", "Insertando registros auditados...", async (progress) =>
                     {
-                        await importService.GuardarCodigosImportadosTransactionAsync(
-                            coleccionId,
-                            productoId,
-                            categoriaId,
-                            _codigosImportados,
-                            usuarioActivoId, // 👈 PASAMOS EL USUARIO EN SESIÓN
-                            nombreArchivoExcel,
-                            progress);
+                        try
+                        {
+                            await importService.GuardarCodigosImportadosTransactionAsync(
+                                coleccionId,
+                                productoId,
+                                categoriaId,
+                                _codigosImportados,
+                                usuarioActivoId,
+                                almacenActualId,
+                                nombreArchivoExcel,
+                                progress);
+                        }
+                        catch (Exception ex)
+                        {
+                            errorTransaccion = ex;
+                            throw; // Permite que el modal detecte la falla
+                        }
                     });
 
                     progressModal.Owner = Window.GetWindow(this);
-                    if (progressModal.ShowDialog() == true)
+                    bool? resultado = progressModal.ShowDialog();
+
+                    if (resultado == true)
                     {
                         MessageBox.Show($"¡Éxito! Se registraron {_codigosImportados.Count} códigos correctamente.", "Proceso Completado", MessageBoxButton.OK, MessageBoxImage.Information);
                         ModalAgregar.Visibility = Visibility.Collapsed;
                         await CargarGridAsync(coleccionId, categoriaId);
                         EventBus.NotificarRegistroCodigosChanged();
+                    }
+                    else if (errorTransaccion != null)
+                    {
+                        // 🚨 AQUÍ TE MOSTRARÁ EL MENSAJE DE ERROR EXACTO EN PANTALLA
+                        MessageBox.Show($"Error en la base de datos al importar:\n\n{errorTransaccion.Message}", "Falla de Guardado", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
                 }
                 else
@@ -520,11 +542,22 @@ namespace AplicativoDeAlmacen.Views
 
                     int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
                     string modoOrigen = "SECUENCIAL"; // Como es secuencial, guardará explícitamente "SECUENCIAL"
-
+                    int usuarioActualId = SesionSistema.UsuarioActual?.Id ?? 1;
+                    int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
                     var progressModal = new ProgressWindow("Generando Secuencia", "Creando e insertando lote secuencial...", async (progress) =>
                     {
-                        await _registroService.GuardarCodigosTransactionAsync(
-                            coleccionId, productoId, cantidad, desde, hasta, categoriaId, usuarioActivoId, modoOrigen, progress);
+                        await _registroService.GuardarCodigosTransactionAsync( // 👈 Cambiado a _registroService
+                            coleccionId,
+                            productoId,
+                            cantidad,
+                            desde,
+                            hasta,
+                            categoriaId,
+                            usuarioActualId,  // 👈 ID de Usuario real de la sesión
+                            almacenActualId,  // 👈 ID del Almacén activo en la barra inferior
+                            "SECUENCIAL",
+                            progress          // 👈 Cambiado a 'progress' (la variable de la lambda)
+                        );
                     });
 
                     progressModal.Owner = Window.GetWindow(this);
@@ -546,6 +579,29 @@ namespace AplicativoDeAlmacen.Views
                 _isGuardando = false;
                 btnGuardar.IsEnabled = true;
                 btnGuardar.Content = textoOriginal;
+            }
+        }
+
+
+        private void AplicarPermisosRBAC()
+        {
+            // 1. Buscamos los permisos asignados a esta vista en la sesión actual
+            var permisoModulo = SesionSistema.PermisosActuales?
+                .FirstOrDefault(p => p.ControlWpf == nameof(RegistroCodigosUserControl));
+
+            if (permisoModulo != null)
+            {
+                // 2. Si el rol del usuario no tiene 'puede_crear = true', ocultamos el botón de "+ Generar Nuevo Lote"
+                BtnNuevoLote.Visibility = permisoModulo.PuedeCrear ? Visibility.Visible : Visibility.Collapsed;
+
+                // 3. Si el rol del usuario no tiene 'puede_eliminar = true', ocultamos el botón de "Eliminar Lote"
+                BtnEliminarLote.Visibility = permisoModulo.PuedeEliminar ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else
+            {
+                // 🛡️ CANDADO DE SEGURIDAD: Si no se encuentra permiso cargado, ocultamos ambos botones por defecto
+                BtnNuevoLote.Visibility = Visibility.Collapsed;
+                BtnEliminarLote.Visibility = Visibility.Collapsed;
             }
         }
     }
