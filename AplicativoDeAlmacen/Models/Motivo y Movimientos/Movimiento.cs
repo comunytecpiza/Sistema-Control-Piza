@@ -19,6 +19,10 @@ public partial class Movimiento
 
     public int? UbicacionId { get; set; }
 
+
+    public int? AlmacenOrigenId { get; set; }
+    public int? AlmacenDestinoId { get; set; }
+
     public int UsuarioId { get; set; }
 
     public int? PersonaComercialId { get; set; }

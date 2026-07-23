@@ -553,13 +553,16 @@ namespace AplicativoDeAlmacen.Views
 
             if (cboMotivo.SelectedValue == null)
             {
-                MessageBox.Show("Debe seleccionar un Motivo de Salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Debe seleccionar un Motivo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
 
-            // 1. Validaciones por Motivo de Salida
+            // =========================================================
+            // 1. VALIDACIONES SEGÚN EL MOTIVO SELECCIONADO
+            // =========================================================
+
             // 🔴 IDs 5, 6, 7, 8, 11 -> Exigen Razón Social obligatoria
             if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
             {
@@ -569,12 +572,15 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
             }
-            // 🔵 ID 10 -> Exige Ubicación / Almacén de Destino
-            else if (idMotivo == 10)
+            // 🔵 IDs 4, 10 -> TRANSFERENCIA INTER-ALMACÉN (OBLIGA ALMACÉN DESTINO U UBICACIÓN REFERENCIAL)
+            else if (idMotivo == 4 || idMotivo == 10)
             {
-                if (string.IsNullOrWhiteSpace(txtUbicacion.Text) || !_idUbicacionSeleccionada.HasValue)
+                bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
+                bool tieneAlmacenFisico = cboAlmacenDestino.SelectedValue != null;
+
+                if (!tieneUbicacion && !tieneAlmacenFisico)
                 {
-                    MessageBox.Show("Para una Transferencia es obligatorio seleccionar la Ubicación / Almacén de destino.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Físico de Destino.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
@@ -591,7 +597,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // 2. Validación de Serie y Guía / Comprobante
+            // 2. Validación de Guía / Comprobante
             if (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text))
             {
                 MessageBox.Show("Debe ingresar la Serie y el Número de Guía o Comprobante.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -601,7 +607,7 @@ namespace AplicativoDeAlmacen.Views
             // 3. Validación de Tabla de Productos
             if (_productosGridList == null || !_productosGridList.Any())
             {
-                MessageBox.Show("Debe agregar al menos un producto antes de registrar la salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Debe agregar al menos un producto antes de registrar la operación.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -617,7 +623,7 @@ namespace AplicativoDeAlmacen.Views
                 btnCancelar.IsEnabled = false;
                 Cursor = Cursors.Wait;
 
-                // 🌟 RECONSTRUCCIÓN ATÓMICA: Forzamos la regeneración de rangos desde los códigos que están en la grilla
+                // 🌟 Regeneración de rangos basada en los códigos presentes en la grilla
                 _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
 
                 var solicitud = CrearSolicitudMovimiento();
@@ -641,7 +647,7 @@ namespace AplicativoDeAlmacen.Views
                         solicitud.Movimiento,
                         solicitud.Productos.ToList(),
                         _rangosProcesadosGlobal.ToList(),
-                        solicitud.Movimiento.UbicacionId ?? 1,
+                        solicitud.Movimiento.UbicacionId ?? UBICACION_ID_SELECCIONADA,
                         solicitud.MovimientoId,
                         progress)
                 );
@@ -699,6 +705,13 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
+            int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            // Si seleccionó un almacén físico destino en el combo, lo tomamos; sino queda null
+            int? almacenDestinoId = cboAlmacenDestino.SelectedValue != null
+                ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
+                : (int?)null;
+
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
@@ -712,9 +725,11 @@ namespace AplicativoDeAlmacen.Views
 
                     UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
 
-                    // 🌟 CAPTURA DINÁMICA DE LA SESIÓN DE USUARIO ACTUAL
-                    UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1,
+                    // 🌟 ASIGNACIÓN EXACTA DE ALMACENES
+                    AlmacenOrigenId = null,               // En Ingresos, el origen es externo o transferencia previa
+                    AlmacenDestinoId = almacenDestinoId ?? miAlmacenActual, // Mi almacén o el almacén destino si es transferencia
 
+                    UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
                     SerieGuia = txtSerieGuia.Text.Trim(),
                     NumeroGuia = txtNumeroGuia.Text.Trim(),
@@ -1393,26 +1408,33 @@ namespace AplicativoDeAlmacen.Views
             txtSerieGuia.IsEnabled = true;
             txtNumeroGuia.IsEnabled = true;
 
-            // 🔴 MOTIVO 1 (COMPRA) e ID 2 (DEVOLUCIÓN RECIBIDA) -> Exigen Razón Social, BLOQUEAN Ubicación
+            // 🔴 MOTIVO 1 (COMPRA / INGRESO DE IMPRENTA)
             if (idMotivo == 1 || idMotivo == 2)
             {
                 txtRazonSocial.IsEnabled = true;
+
+                // Bloqueados porque el ingreso es directo a tu almacén de sesión
                 txtUbicacion.IsEnabled = false;
+                cboAlmacenDestino.IsEnabled = false;
             }
-            // 🔵 MOTIVO 4 (TRANSFERENCIA) -> Exige Ubicación, BLOQUEA Razón Social
-            else if (idMotivo == 4)
+            // 🔵 MOTIVO 4 / 10 (TRANSFERENCIA INTER-ALMACÉN)
+            else if (idMotivo == 4 || idMotivo == 10)
             {
                 txtRazonSocial.IsEnabled = false;
+
+                // 🌟 Se habilitan AMBOS: Ubicación (Referencial) y Almacén (Operativo real)
                 txtUbicacion.IsEnabled = true;
+                cboAlmacenDestino.IsEnabled = true;
             }
-            // 🟣 MOTIVO 3 (PROMOTORÍA) e ID 13 (OTROS) -> Permiten ambos (Flexible)
+            // 🟣 OTROS MOTIVOS (Flexible)
             else
             {
                 txtRazonSocial.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
+                cboAlmacenDestino.IsEnabled = true;
             }
 
-            // 🧹 Limpieza de cajas y cierre de desplegables si se deshabilita el campo
+            // Limpieza de campos si son deshabilitados
             if (!txtRazonSocial.IsEnabled)
             {
                 txtRazonSocial.Clear();
@@ -1429,6 +1451,11 @@ namespace AplicativoDeAlmacen.Views
                 txtDireccionUbicacion.Clear();
                 _idUbicacionSeleccionada = null;
                 if (popupUbicacion != null) popupUbicacion.IsOpen = false;
+            }
+
+            if (!cboAlmacenDestino.IsEnabled)
+            {
+                cboAlmacenDestino.SelectedIndex = -1;
             }
         }
 

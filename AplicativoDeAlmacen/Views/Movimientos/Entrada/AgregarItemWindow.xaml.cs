@@ -1,4 +1,5 @@
-﻿using AplicativoDeAlmacen.Data;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
@@ -80,24 +81,25 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
+                // 🌟 CAPTURAMOS EL ALMACÉN DE LA SESIÓN DEL USUARIO ACTUAL (ej. Lima = 2)
+                int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                // 🌟 CONSULTA DIRECTA A LA TABLA MULTI-ALMACÉN 'stock_almacen'
                 string query = @"
-            SELECT ISNULL(SUM(cantidad_ingreso - cantidad_salida), 0)
-            FROM movimiento_detalles md WITH (NOLOCK)
-            INNER JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id
-            WHERE md.producto_id = @productoId AND m.estado_id != 2";
+            SELECT ISNULL(stock_actual, 0)
+            FROM stock_almacen WITH (NOLOCK)
+            WHERE producto_id = @productoId AND almacen_id = @almacenId";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-                var param = cmd.CreateParameter();
-                param.ParameterName = "@productoId";
-                param.Value = productoId;
-                cmd.Parameters.Add(param);
+                var pProd = cmd.CreateParameter(); pProd.ParameterName = "@productoId"; pProd.Value = productoId; cmd.Parameters.Add(pProd);
+                var pAlm = cmd.CreateParameter(); pAlm.ParameterName = "@almacenId"; pAlm.Value = almacenActualId; cmd.Parameters.Add(pAlm);
 
                 object result = await cmd.ExecuteScalarAsync();
-                decimal stock = (result != null && result != DBNull.Value) ? Convert.ToDecimal(result) : 0m;
+                int stockLocal = (result != null && result != DBNull.Value) ? Convert.ToInt32(result) : 0;
 
-                txtStockDisponible.Text = Convert.ToInt32(stock).ToString();
+                txtStockDisponible.Text = stockLocal.ToString();
             }
             catch
             {
@@ -361,6 +363,7 @@ namespace AplicativoDeAlmacen.Views
         }
 
         // 🌟 CONSULTA SQL: VERIFICA SI LOS CÓDIGOS QUITADOS REGISTRAN MOVIMIENTOS POSTERIORES
+        // 🌟 CONSULTA SQL CORREGIDA: SOLO DETECTA SALIDAS O DESPACHOS REALES
         private List<string> ObtenerCodigosConMovimientosPosteriores(int productoId, List<string> codigosQuitados)
         {
             var conflictos = new List<string>();
@@ -374,14 +377,20 @@ namespace AplicativoDeAlmacen.Views
 
                 foreach (string codStr in codigosQuitados)
                 {
+                    // 🛡️ REGLA: Un código retirado solo se considera en conflicto si:
+                    // 1. Su estado_id actual es 4 (VENDIDO/DESPACHADO) o 5 (EN TRÁNSITO)
+                    // 2. O si participa en un movimiento de SALIDA (tipo_movimiento_id = 2) que no esté anulado
                     string query = @"
-                        SELECT COUNT(*)
-                        FROM movimiento_codigos mc WITH (NOLOCK)
-                        INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                        WHERE cc.codigo = @codigoExacto
-                          AND m.estado_id = 1
-                          AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 1)"; // Entradas/Devoluciones
+                SELECT COUNT(*)
+                FROM codigos_creados cc WITH (NOLOCK)
+                LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                LEFT JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                WHERE cc.codigo = @codigoExacto
+                  AND (
+                      cc.estado_id IN (4, 5) -- Vendido o En Tránsito
+                      OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2) -- Registrado en Salidas activas
+                  )";
 
                     using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);

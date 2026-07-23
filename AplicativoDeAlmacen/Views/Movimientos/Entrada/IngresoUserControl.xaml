@@ -189,16 +189,26 @@
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
+                                <!-- 0: Registro / Fecha -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 1: Motivo -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 2: Razón Social -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 3: Dirección -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 4: Ubicación (Referencial) -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 5: Dir. Ubicación -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 6: Almacén Físico (NUEVO) -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 7: Guía Remisión -->
+                                <RowDefinition Height="Auto"/>
+                                <!-- 8: Observación -->
                             </Grid.RowDefinitions>
 
-                            <!-- Fila 1: N° Registro y Fecha -->
+                            <!-- Fila 0: N° Registro y Fecha -->
                             <TextBlock Text="N° Registro" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <Grid Grid.Column="1" Margin="0,0,20,12">
                                 <Grid.ColumnDefinitions>
@@ -212,11 +222,11 @@
                             <TextBlock Text="Fecha de Recepción" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <DatePicker x:Name="dtpFechaRecepcion" Grid.Column="3" Height="32" Margin="0,0,0,12" FontSize="13" VerticalContentAlignment="Center"/>
 
-                            <!-- Fila 2: Motivo -->
+                            <!-- Fila 1: Motivo -->
                             <TextBlock Text="Motivo" Grid.Row="1" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <ComboBox x:Name="cboMotivo" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id"/>
 
-                            <!-- Fila 3: Razón Social -->
+                            <!-- Fila 2: Razón Social -->
                             <TextBlock Text="Razón Social" Grid.Row="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <Grid Grid.Row="2" Grid.Column="1" Margin="0,0,20,12">
                                 <TextBox x:Name="txtRazonSocial" Height="32" FontSize="13"/>
@@ -235,12 +245,12 @@
                             <TextBlock Text="Código Cliente" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <TextBox x:Name="txtCodigoRazonSocial" Grid.Row="2" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
-                            <!-- Fila 4: Dirección -->
+                            <!-- Fila 3: Dirección -->
                             <TextBlock Text="Dirección" Grid.Row="3" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <TextBox x:Name="txtDireccion" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
-                            <!-- Fila 5: Ubicación -->
-                            <TextBlock Text="Ubicación" Grid.Row="4" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                            <!-- Fila 4: Ubicación Referencial -->
+                            <TextBlock Text="Ubicación Ref." Grid.Row="4" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <Grid Grid.Row="4" Grid.Column="1" Margin="0,0,20,12">
                                 <TextBox x:Name="txtUbicacion" Height="32" FontSize="13" TextChanged="TxtUbicacion_TextChanged"/>
                                 <Popup x:Name="popupUbicacion" PlacementTarget="{Binding ElementName=txtUbicacion}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtUbicacion}" AllowsTransparency="True" PopupAnimation="Fade">
@@ -258,20 +268,24 @@
                             <TextBlock Text="Cód. Ubicación" Grid.Row="4" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <TextBox x:Name="txtCodigoUbicacion" Grid.Row="4" Grid.Column="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
-                            <!-- Fila 6: Dirección Ubicación -->
+                            <!-- Fila 5: Dirección Ubicación -->
                             <TextBlock Text="Dir. Ubicación" Grid.Row="5" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <TextBox x:Name="txtDireccionUbicacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" IsReadOnly="True" FontSize="13"/>
 
+                            <!-- 🌟 Fila 6: Almacén Físico (NUEVO COMBO BOX) -->
+                            <TextBlock Text="Almacén Físico" Grid.Row="6" VerticalAlignment="Center" Foreground="#475569" FontWeight="Bold" Margin="0,0,0,12" FontSize="13"/>
+                            <ComboBox x:Name="cboAlmacenDestino" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Nombre" SelectedValuePath="Id"/>
+
                             <!-- Fila 7: Guía de Remisión -->
-                            <TextBlock Text="Guía de Remisión" Grid.Row="6" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                            <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="Guía de Remisión" Grid.Row="7" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                            <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,0,0,12">
                                 <TextBox x:Name="txtSerieGuia" Width="80" Height="32" Margin="0,0,8,0" FontSize="13" MaxLength="4"/>
                                 <TextBox x:Name="txtNumeroGuia" Width="300" Height="32" Margin="0,0,0,0" FontSize="13" MaxLength="7"/>
                             </StackPanel>
 
                             <!-- Fila 8: Observación -->
-                            <TextBlock Text="Observación" Grid.Row="7" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
-                            <TextBox x:Name="txtObservacion" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Height="48" Margin="0,0,0,0" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13"/>
+                            <TextBlock Text="Observación" Grid.Row="8" VerticalAlignment="Top" Margin="0,6,0,0" Foreground="#475569" FontWeight="Medium" FontSize="13"/>
+                            <TextBox x:Name="txtObservacion" Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="3" Height="48" Margin="0,0,0,0" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8,5" FontSize="13"/>
                         </Grid>
                     </StackPanel>
                 </Border>

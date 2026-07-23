@@ -1,11 +1,12 @@
-﻿using AplicativoDeAlmacen.Models;
-using AplicativoDeAlmacen.Models.Models;
+﻿using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Models;
 using System;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Windows;
 using static AplicativoDeAlmacen.Data.DataConnection;
-using System.Diagnostics;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -177,16 +178,19 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
-                // 🌟 Formateamos el prefijo de búsqueda según la categoría seleccionada (G = Guía, V = Venta)
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
                 string baseLimpia = abreviaturaRaw.Trim();
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
                 string prefijoBuscado = $"{baseLimpia}{separador}";
 
+                // 🌟 AGREGAMOS cc.almacen_id = @almacenId PARA AISLAR LA BÚSQUEDA POR SEDE
                 string query = @"
             SELECT COUNT(*)
             FROM codigos_creados cc WITH (NOLOCK)
             INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
             WHERE rc.producto_id = @productoId
+              AND cc.almacen_id = @almacenId -- 👈 FILTRO POR ALMACÉN ACTIVO
               AND cc.estado_id = @estadoPermitido
               AND rc.categoria_producto_id = @categoriaId
               AND cc.codigo LIKE @prefijoPattern
@@ -197,6 +201,7 @@ namespace AplicativoDeAlmacen.Views
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                 AgregarParametro(cmd, "@productoId", productoId);
+                AgregarParametro(cmd, "@almacenId", miAlmacenId);
                 AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
                 AgregarParametro(cmd, "@categoriaId", categoriaId);
                 AgregarParametro(cmd, "@prefijoPattern", prefijoBuscado + "%");
