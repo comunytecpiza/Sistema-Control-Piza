@@ -10,9 +10,10 @@ public partial class CodigoCreado
     public int Id { get; set; }
     public int RegistroCodigoId { get; set; }
     public string Codigo { get; set; }
+    public string AlmacenNombre { get; set; } = "SIN ALMACÉN";
     public bool EsManual { get; set; }
     public int EstadoId { get; set; }
-
+    
     // 🌟 NUEVOS CAMPOS DE LA V2
     public int? AlmacenId { get; set; }
     public int CondicionId { get; set; } = 1; // 1 = OPERATIVO (OK), 2 = DAÑADO / MERMA

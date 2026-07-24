@@ -18,7 +18,7 @@ public partial class Movimiento
     public int MotivoProductoId { get; set; }
 
     public int? UbicacionId { get; set; }
-
+    public int? AlmacenId { get; set; }
 
     public int? AlmacenOrigenId { get; set; }
     public int? AlmacenDestinoId { get; set; }

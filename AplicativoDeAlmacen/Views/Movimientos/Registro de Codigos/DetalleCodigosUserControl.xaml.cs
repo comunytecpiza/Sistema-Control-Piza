@@ -39,14 +39,24 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // 🌟 FILTRADO POR ALMACÉN DE SESIÓN: Si es trabajador de Almacén, ve solo los suyos. Si es Admin, ve todos.
-                bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
-                int? filtroAlmacen = esAdmin ? null : SesionSistema.AlmacenActual?.Id;
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                const int ALMACEN_CENTRAL_ID = 1;
+
+                // 🌟 REGLA POR SESIÓN ACTIVA (Sede activa vs Visión Global)
+                int? filtroAlmacen = (miAlmacenId == ALMACEN_CENTRAL_ID) ? null : miAlmacenId;
 
                 var codigos = await _service.ObtenerPorRegistroIdAsync(_lote.Id, filtroAlmacen);
                 CodigosDataGrid.ItemsSource = codigos;
 
-                // Contar Mermas / Dañados (condicion_id = 2)
+                // 🌟 VISIBILIDAD DE COLUMNA ALMACÉN:
+                // La columna solo estará visible si el usuario tiene rol de Administrador.
+                bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
+                if (columnaAlmacen != null)
+                {
+                    columnaAlmacen.Visibility = esAdmin ? Visibility.Visible : Visibility.Collapsed;
+                }
+
+                // Contar Mermas / Dañados en la vista activa
                 int mermas = codigos.Count(c => c.CondicionId == 2);
                 TxtExcepciones.Text = $"{mermas} dañados";
 

@@ -80,7 +80,7 @@
         <!-- TABLA PRINCIPAL DE CÓDIGOS -->
         <Border Grid.Row="2" CornerRadius="10" Background="White" Padding="5">
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                      Background="Transparent" BorderThickness="0" RowHeight="40" HeadersVisibility="Column">
+              Background="Transparent" BorderThickness="0" RowHeight="40" HeadersVisibility="Column">
                 <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
                         <EventSetter Event="MouseDoubleClick" Handler="DataGridRow_MouseDoubleClick"/>
@@ -95,6 +95,20 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="FontWeight" Value="SemiBold"/>
                                 <Setter Property="Foreground" Value="#111827"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 🌟 AGREGAR ESTA COLUMNA CON x:Name="columnaAlmacen" -->
+                    <DataGridTextColumn x:Name="columnaAlmacen" 
+                    Header="ALMACÉN RESIDENTE" 
+                    Binding="{Binding AlmacenNombre}" 
+                    Width="180">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Foreground" Value="#2563EB"/>
                                 <Setter Property="VerticalAlignment" Value="Center"/>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
@@ -136,7 +150,7 @@
                     <DataGridTemplateColumn Header="ORIGEN" Width="160">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Origen}" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding OrigenCreacion}" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

@@ -16,7 +16,7 @@ namespace AplicativoDeAlmacen.Views
         public BandejaTransferenciasUserControl()
         {
             InitializeComponent();
-            DtpDesde.SelectedDate = DateTime.Today.AddDays(-30); // Último mes por defecto
+            DtpDesde.SelectedDate = DateTime.Today.AddDays(-30);
             DtpHasta.SelectedDate = DateTime.Today;
             _ = CargarBandejaAsync();
         }
@@ -33,13 +33,17 @@ namespace AplicativoDeAlmacen.Views
                     filtroEstado = cbi.Content.ToString() ?? "TODOS";
                 }
 
-                // 🌟 CORRECCIÓN CLAVE: Usamos ObtenerHistorialTransferenciasAsync
-                // Este método trae AMBOS LADOS (Enviados por mí + Recibidos por mí)
                 var lista = await _transaccionesService.ObtenerHistorialTransferenciasAsync(
                     miAlmacenId,
                     DtpDesde.SelectedDate,
                     DtpHasta.SelectedDate,
                     filtroEstado);
+
+                // 🌟 ASIGNAMOS SI SOY EL EMISOR PARA CADA TRANSACCIÓN
+                foreach (var item in lista)
+                {
+                    item.SoyElEmisor = (item.AlmacenOrigenId == miAlmacenId);
+                }
 
                 DgTransferencias.ItemsSource = lista;
             }
@@ -51,7 +55,7 @@ namespace AplicativoDeAlmacen.Views
 
         private async void BtnBuscar_Click(object sender, RoutedEventArgs e) => await CargarBandejaAsync();
         private async void BtnRefrescar_Click(object sender, RoutedEventArgs e) => await CargarBandejaAsync();
-        
+
         private async void CboFiltroEstado_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (IsLoaded) await CargarBandejaAsync();
@@ -65,15 +69,11 @@ namespace AplicativoDeAlmacen.Views
                 {
                     int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                    // 🌟 INTELIGENCIA DE BANDEJA: 
-                    // Si yo fui el que ORIGINÓ (Envié la transferencia), abro la pantalla de SALIDAS.
-                    // Si yo soy el DESTINO (Me lo mandaron a mí), abro la pantalla de INGRESOS/Recepción.
-
+                    // 1. SI SOY EL EMISOR (Origen) -> Abrir la pantalla de SALIDAS en modo lectura
                     if (trans.AlmacenOrigenId == miAlmacenId)
                     {
                         var vistaSalida = new SalidasUserControl();
 
-                        // Extraemos serie y número del string "0001-0000001"
                         var partes = trans.SerieNumero.Split('-');
                         if (partes.Length >= 2)
                         {
@@ -82,14 +82,23 @@ namespace AplicativoDeAlmacen.Views
 
                         mainShell.AbrirPestaña($"📤 Salida / Envío: {trans.SerieNumero}", vistaSalida);
                     }
+                    // 2. SI SOY EL RECEPTOR (Destino) -> Abrir INGRESOS
                     else
                     {
                         var vistaIngreso = new IngresoUserControl();
 
-                        // Carga usando el MovimientoId único para recepción
-                        vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
-
-                        mainShell.AbrirPestaña($"📥 Recepción: {trans.SerieNumero}", vistaIngreso);
+                        if (trans.EsPendiente)
+                        {
+                            // 📥 AÚN NO SE HA RECIBIDO: Cargar datos de la Salida para que Lima procese su Entrada
+                            vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
+                            mainShell.AbrirPestaña($"📥 Procesar Recepción: {trans.GuiaRemision}", vistaIngreso);
+                        }
+                        else
+                        {
+                            // 👁️ YA FUE RECIBIDO: Cargar el registro de Entrada que guardó Lima
+                            vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
+                            mainShell.AbrirPestaña($"📥 Recepción Registrada: {trans.SerieNumero}", vistaIngreso);
+                        }
                     }
                 }
             }
