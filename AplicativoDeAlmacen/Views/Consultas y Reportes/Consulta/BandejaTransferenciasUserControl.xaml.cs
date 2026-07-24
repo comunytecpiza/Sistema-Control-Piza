@@ -82,25 +82,21 @@ namespace AplicativoDeAlmacen.Views
 
                         mainShell.AbrirPestaña($"📤 Salida / Envío: {trans.SerieNumero}", vistaSalida);
                     }
-                    // 2. SI SOY EL RECEPTOR (Destino)
+                    // 2. SI SOY EL RECEPTOR (Destino) -> Abrir INGRESOS
                     else
                     {
                         var vistaIngreso = new IngresoUserControl();
 
                         if (trans.EsPendiente)
                         {
-                            // 📥 AÚN NO SE HA RECIBIDO: Cargar Salida para procesar la Entrada
+                            // 📥 AÚN NO SE HA RECIBIDO: Cargar datos de la Salida para que Lima procese su Entrada
                             vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
-                            mainShell.AbrirPestaña($"📥 Procesar Recepción: {trans.SerieNumero}", vistaIngreso);
+                            mainShell.AbrirPestaña($"📥 Procesar Recepción: {trans.GuiaRemision}", vistaIngreso);
                         }
                         else
                         {
-                            // 👁️ YA FUE RECIBIDO: Cargar el registro de Entrada guardado en este almacén
-                            var partes = trans.SerieNumero.Split('-');
-                            if (partes.Length >= 2)
-                            {
-                                vistaIngreso.CargarDocumentoParaConsulta(partes[0], partes[1]);
-                            }
+                            // 👁️ YA FUE RECIBIDO: Cargar el registro de Entrada que guardó Lima
+                            vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
                             mainShell.AbrirPestaña($"📥 Recepción Registrada: {trans.SerieNumero}", vistaIngreso);
                         }
                     }
