@@ -1,16 +1,18 @@
 ﻿#nullable enable
 
+using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models.Facturación.AplicativoDeAlmacen.Models.Facturación; // Tu namespace correcto para los modelos
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Transferencias;
+using ClosedXML.Excel;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using ClosedXML.Excel;
-using System.IO;
-using AplicativoDeAlmacen.Data;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Models.Facturación;
-using AplicativoDeAlmacen.Models.Facturación.AplicativoDeAlmacen.Models.Facturación; // Tu namespace correcto para los modelos
 
 namespace AplicativoDeAlmacen.Services.Importaciones
 {
@@ -230,7 +232,100 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             }
         }
 
-        
+        // ==========================================
+        // OBTENER HISTORIAL COMPLETO DE TRANSFERENCIAS (BANDEJA CENTRAL/SUB-ALMACÉN)
+        // ==========================================
+        public async Task<List<TransaccionHeaderDTO>> ObtenerHistorialTransferenciasAsync(int miAlmacenId, DateTime? desde = null, DateTime? hasta = null, string? estadoFiltro = "TODOS")
+        {
+            var lista = new List<TransaccionHeaderDTO>();
+
+            try
+            {
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"
+            SELECT 
+                m.id,
+                CONCAT(m.serie_documento, '-', m.numero_documento) AS serie_numero,
+                ISNULL(CONCAT(m.serie_guia, '-', m.numero_guia), 'SIN GUÍA') AS guia_remision,
+                m.fecha_movimiento,
+                ISNULL(m.almacen_origen_id, 1) AS almacen_origen_id,
+                ISNULL(ao.nombre, 'ALMACÉN CENTRAL TRUJILLO') AS origen_nombre,
+                ISNULL(m.almacen_destino_id, 1) AS almacen_destino_id,
+                ISNULL(ad.nombre, 'ALMACÉN CENTRAL TRUJILLO') AS destino_nombre,
+                ISNULL(u.nombres, 'SISTEMA') AS emisor_nombre,
+                ISNULL(mp.descripcion, 'TRANSFERENCIA') AS motivo_desc,
+                ISNULL(m.observacion, '') AS observacion,
+                COUNT(DISTINCT md.producto_id) AS total_productos,
+                COUNT(mc.id) AS total_codigos,
+                MAX(CASE WHEN cc.estado_id = 5 THEN 1 ELSE 0 END) AS es_pendiente
+            FROM movimientos m WITH (NOLOCK)
+            LEFT JOIN almacenes ao WITH (NOLOCK) ON m.almacen_origen_id = ao.id
+            LEFT JOIN almacenes ad WITH (NOLOCK) ON m.almacen_destino_id = ad.id
+            LEFT JOIN usuarios u WITH (NOLOCK) ON m.usuario_id = u.id
+            LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+            INNER JOIN movimiento_detalles md WITH (NOLOCK) ON md.movimiento_id = m.id
+            INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
+            INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+            WHERE m.estado_id = 1
+              AND (m.motivo_producto_id IN (4, 10)) -- Transferencias
+              -- 🌟 FILTRO JERÁRQUICO LOGÍSTICO
+              AND (m.almacen_origen_id = @miAlmacen OR m.almacen_destino_id = @miAlmacen)";
+
+                if (desde.HasValue) query += " AND m.fecha_movimiento >= @desde";
+                if (hasta.HasValue) query += " AND m.fecha_movimiento <= @hasta";
+
+                query += @"
+            GROUP BY m.id, m.serie_documento, m.numero_documento, m.serie_guia, m.numero_guia, 
+                     m.fecha_movimiento, m.almacen_origen_id, ao.nombre, m.almacen_destino_id, 
+                     ad.nombre, u.nombres, mp.descripcion, m.observacion, m.created_at
+            ORDER BY m.created_at DESC";
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
+                if (desde.HasValue) AgregarParametro(cmd, "@desde", desde.Value);
+                if (hasta.HasValue) AgregarParametro(cmd, "@hasta", hasta.Value);
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                {
+                    bool esPendiente = Convert.ToInt32(rdr.GetValue(13)) == 1;
+
+                    // Filtro dinámico en memoria si selecciona "PENDIENTES" o "RECEPCIONADOS"
+                    if (estadoFiltro == "PENDIENTES" && !esPendiente) continue;
+                    if (estadoFiltro == "RECEPCIONADOS" && esPendiente) continue;
+
+                    lista.Add(new TransaccionHeaderDTO
+                    {
+                        MovimientoId = rdr.GetInt32(0),
+                        SerieNumero = rdr.GetString(1),
+                        GuiaRemision = rdr.GetString(2),
+                        FechaMovimiento = rdr.IsDBNull(3) ? DateTime.Today : rdr.GetDateTime(3),
+                        AlmacenOrigenId = rdr.GetInt32(4),
+                        AlmacenOrigenNombre = rdr.GetString(5),
+                        AlmacenDestinoId = rdr.GetInt32(6),
+                        AlmacenDestinoNombre = rdr.GetString(7),
+                        UsuarioEmisorNombre = rdr.GetString(8),
+                        MotivoDescripcion = rdr.GetString(9),
+                        Observacion = rdr.GetString(10),
+                        TotalProductos = Convert.ToInt32(rdr.GetValue(11)),
+                        TotalCodigos = Convert.ToInt32(rdr.GetValue(12)),
+                        EsPendiente = esPendiente
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al cargar historial de transferencias: {ex.Message}");
+            }
+
+            return lista;
+        }
+
 
         /// <summary>
         /// Lee el archivo Excel de Nisira, extrae las filas y agrupa la información

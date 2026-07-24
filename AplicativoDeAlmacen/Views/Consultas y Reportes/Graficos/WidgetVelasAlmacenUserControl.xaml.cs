@@ -1,17 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Windows;
-using System.Windows.Controls;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
 using LiveChartsCore;
+using LiveChartsCore.Kernel.Sketches;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
 using SkiaSharp;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Services;
-using System.Linq;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
-using LiveChartsCore.Kernel.Sketches;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
 {
@@ -75,7 +76,14 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
         {
             if (_productoSeleccionadoId == 0) return;
 
-            var kardex = await _kardexService.GenerarKardexFisicoAsync(_productoSeleccionadoId, DpDesde.SelectedDate.Value, DpHasta.SelectedDate.Value);
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            // 🌟 Pasar 'miAlmacenId' como 4to parámetro obligatorio
+            var kardex = await _kardexService.GenerarKardexFisicoAsync(
+                _productoSeleccionadoId,
+                DpDesde.SelectedDate.Value,
+                DpHasta.SelectedDate.Value,
+                miAlmacenId);
 
             // 1. Estructura intermedia para homogeneizar la agrupación seleccionada
             var movimientosProcesados = new List<MovimientoAgrupado>();

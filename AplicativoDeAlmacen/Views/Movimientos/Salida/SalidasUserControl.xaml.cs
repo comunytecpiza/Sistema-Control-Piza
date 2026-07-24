@@ -1,23 +1,24 @@
-﻿using System;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.facturaciòn;
+using AplicativoDeAlmacen.Services.Reportes;
+using AplicativoDeAlmacen.Views.Movimientos.Lectora;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using AplicativoDeAlmacen.Models;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Views.Movimientos.Lectora;
-using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Services.facturaciòn;
-using AplicativoDeAlmacen.Data;
-using static AplicativoDeAlmacen.Data.DataConnection;
-using AplicativoDeAlmacen.Models.Facturación;
 using System.Windows.Media;
-using AplicativoDeAlmacen.Services.Reportes;
-using AplicativoDeAlmacen.Core;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -48,12 +49,11 @@ namespace AplicativoDeAlmacen.Views
 
         private readonly DatabaseConnection _database; // ¡Debe estar declarado aquí!
 
-      
-        
+
+
         public SalidasUserControl()
         {
-
-            _database = new DatabaseConnection(); // ¡Debe estar inicializado aquí!
+            _database = new DatabaseConnection();
             InitializeComponent();
             _salidaService = new SalidaMovimientoService();
             _reporteService = new ReporteExcelService();
@@ -63,11 +63,10 @@ namespace AplicativoDeAlmacen.Views
             dgProductosSalida.ItemsSource = _productosLista;
             dgCodigosSalida.ItemsSource = _codigosLista;
 
-            // 🌟 INYECCIÓN LOGÍSTICA DE LIMITACIONES Y FORMATOS EN CALIENTE
             ConfigurarFormatoCamposGuia();
-
             EstadoInicialFormulario();
             CargarComboMotivosSalida();
+            _ = CargarComboAlmacenesDestinoAsync(); // 👈 Carga de almacenes destino
         }
 
         // Helper local para agregar parámetros a comandos DbCommand
@@ -96,7 +95,9 @@ namespace AplicativoDeAlmacen.Views
 
                 if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
-                var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numero);
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numero, miAlmacenId);
                 if (movCompleto == null || movCompleto.Movimiento == null)
                 {
                     MessageBox.Show("No se encontró el movimiento de salida especificado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -436,7 +437,11 @@ namespace AplicativoDeAlmacen.Views
 
             _idClienteSeleccionado = null; _idUbicacionSeleccionada = null; _idMovimientoActual = null;
             _productosLista.Clear(); _codigosLista.Clear();
-
+            if (cboAlmacenDestino != null)
+            {
+                cboAlmacenDestino.SelectedIndex = -1;
+                cboAlmacenDestino.IsEnabled = false;
+            }
             dgProductosSalida.ItemsSource = null; dgCodigosSalida.ItemsSource = null;
             _modoActual = ModoFormulario.Ninguno;
         }
@@ -737,7 +742,9 @@ namespace AplicativoDeAlmacen.Views
                     this.Cursor = Cursors.Wait; // Encendemos reloj de espera
                     _idMovimientoActual = null;
 
-                    var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr);
+                    int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                    var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr, miAlmacenId);
 
                     if (movCompleto == null || movCompleto.Movimiento == null)
                     {
@@ -1270,10 +1277,25 @@ namespace AplicativoDeAlmacen.Views
                 MessageBox.Show("No hay productos en la lista para procesar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            if (string.IsNullOrEmpty(txtNumeroSalida.Text))
+            if (cboMotivoSalida.SelectedValue == null)
             {
-                MessageBox.Show("El número de salida no puede estar vacío.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Debe seleccionar un Motivo de Salida.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
+            }
+
+            int idMotivo = Convert.ToInt32(cboMotivoSalida.SelectedValue);
+
+            // Validación de Transferencias
+            if (idMotivo == 4 || idMotivo == 10)
+            {
+                bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
+                bool tieneAlmacenDestino = cboAlmacenDestino.SelectedValue != null;
+
+                if (!tieneUbicacion && !tieneAlmacenDestino)
+                {
+                    MessageBox.Show("Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Destino.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
             }
 
             try
@@ -1282,7 +1304,10 @@ namespace AplicativoDeAlmacen.Views
                 btnCancelar.IsEnabled = false;
                 this.Cursor = Cursors.Wait;
 
+
                 int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+                int miAlmacenOrigen = SesionSistema.AlmacenActual?.Id ?? 1;
+                int? almacenDestinoSel = cboAlmacenDestino.SelectedValue != null ? Convert.ToInt32(cboAlmacenDestino.SelectedValue) : (int?)null;
 
                 var movimiento = new Movimiento
                 {
@@ -1291,24 +1316,24 @@ namespace AplicativoDeAlmacen.Views
                     FechaMovimiento = dtpFechaDespacho.SelectedDate.HasValue ? DateOnly.FromDateTime(dtpFechaDespacho.SelectedDate.Value) : DateOnly.FromDateTime(DateTime.Now),
                     UbicacionId = txtUbicacion.IsEnabled ? _idUbicacionSeleccionada : null,
                     PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : null,
-                    MotivoProductoId = (int)cboMotivoSalida.SelectedValue,
+                    MotivoProductoId = idMotivo,
 
-                    // 🌟 ASIGNAMOS EL USUARIO DE LA SESIÓN EN LA CABECERA
+                    // 🌟 ASIGNACIÓN EXACTA DE ALMACEN ORIGEN Y DESTINO
+                    AlmacenOrigenId = miAlmacenOrigen,
+                    AlmacenDestinoId = almacenDestinoSel,
+
                     UsuarioId = usuarioActivoId,
-
                     Observacion = txtObservacionSalida.Text,
                     SerieGuia = txtSerieGuia.Text,
                     NumeroGuia = txtNumeroGuia.Text,
                     CreatedAt = DateTime.Now
                 };
 
-                // Encedemos la grilla de progreso nativa que pusimos abajo en tus grids
                 pbCargaMasiva.Visibility = Visibility.Visible;
                 lblPorcentajeCarga.Visibility = Visibility.Visible;
                 pbCargaMasiva.Value = 0;
                 lblPorcentajeCarga.Text = "0% Procesando despacho...";
 
-                // 🌟 CONTROL DE PROGRESO DE FONDO SEGURIZADO (THREAD-SAFE)
                 var progress = new Progress<int>(percent =>
                 {
                     Application.Current.Dispatcher.BeginInvoke(new Action(() =>
@@ -1318,35 +1343,29 @@ namespace AplicativoDeAlmacen.Views
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
-                // Materializar copia segura antes de ejecutar en background
                 var snapshot = _productosLista.ToList();
-
                 var detallesPlanos = snapshot.Select(p => new VistaProductoGrid
                 {
                     ProductoId = p.ProductoId,
                     CodigoProducto = p.CodigoProducto,
                     Descripcion = p.Descripcion,
                     UnidadMedida = p.UnidadMedida,
-                    // Asegurar que Cantidad refleje lo que realmente fue asignado al producto
                     Cantidad = p.Detalle != null ? Convert.ToDecimal(p.Detalle.CantidadSalida) : p.Cantidad,
                     Detalle = new MovimientoDetalle
                     {
                         ProductoId = p.ProductoId,
                         CantidadSalida = p.Detalle?.CantidadSalida ?? p.Cantidad,
                         CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
-                        // opcional: copiar Id si existe
                         Id = p.Detalle?.Id ?? 0
                     }
                 }).ToList();
-
-
 
                 bool resultado = await Task.Run(async () =>
                     await _salidaService.RegistrarSalidaCompletaAsync(
                      movimiento,
                      detallesPlanos,
                      _codigosLista.ToList(),
-                     usuarioActivoId, // 👈 ENVIAMOS EL ID DE LA SESIÓN AL SERVICIO
+                     usuarioActivoId,
                      estadoSalida,
                      _idMovimientoActual,
                      progress)
@@ -1354,18 +1373,15 @@ namespace AplicativoDeAlmacen.Views
 
                 if (resultado)
                 {
-                    // 🌟 CAPTURA DEL CORRELATIVO REAL PERSISTIDO EN BASE DE DATOS
-                    string numFinal = movimiento.NumeroDocumento; 
-                    string serieFinal = movimiento.SerieDocumento; 
+                    string numFinal = movimiento.NumeroDocumento;
+                    string serieFinal = movimiento.SerieDocumento;
 
-                    // Inyectamos el valor real con formato destacado en caliente en la UI
                     txtNumeroSalida.Text = numFinal;
                     txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Black;
                     txtNumeroSalida.FontWeight = FontWeights.Bold;
                     txtNumeroSalida.FontStyle = FontStyles.Normal;
                     txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
 
-                    // Mostramos el mensaje de éxito impecable con la numeración oficial generada por SQL
                     MessageBox.Show($"¡Salida registrada con éxito!\n\nNúmero de Registro: {serieFinal}-{numFinal}",
                                     "Proceso Completado", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -1625,6 +1641,58 @@ namespace AplicativoDeAlmacen.Views
             catch (Exception ex) { }
         }
 
+
+        private async Task CargarComboAlmacenesDestinoAsync()
+        {
+            try
+            {
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                const int ALMACEN_CENTRAL_ID = 1; // ID oficial de Trujillo Central
+
+                string query;
+
+                // 🌟 APLICACIÓN DE LA REGLA DE JERARQUÍA LOGÍSTICA
+                if (miAlmacenId == ALMACEN_CENTRAL_ID)
+                {
+                    // 🟢 Almacén Central puede transferir a todos los sub-almacenes (excepto a sí mismo)
+                    query = "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC";
+                }
+                else
+                {
+                    // 🟡 Un Sub-Almacén SOLO puede ver y devolver mercadería al Almacén Central
+                    query = "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
+                }
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
+                AgregarParametro(cmd, "@centralId", ALMACEN_CENTRAL_ID);
+
+                var listaAlmacenes = new List<dynamic>();
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                {
+                    listaAlmacenes.Add(new { Id = rdr.GetInt32(0), Nombre = rdr.GetString(1) });
+                }
+
+                cboAlmacenDestino.ItemsSource = listaAlmacenes;
+
+                // Si es sub-almacén, seleccionamos "Almacén Central" por defecto en el Combo para facilitarle el trabajo
+                if (miAlmacenId != ALMACEN_CENTRAL_ID && listaAlmacenes.Any())
+                {
+                    cboAlmacenDestino.SelectedIndex = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al cargar almacenes destino con jerarquía: {ex.Message}");
+            }
+        }
         private void CboMotivoSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (cboMotivoSalida.SelectedValue == null) return;
@@ -1632,58 +1700,63 @@ namespace AplicativoDeAlmacen.Views
 
             txtCliente.IsEnabled = false;
             txtUbicacion.IsEnabled = false;
+            cboAlmacenDestino.IsEnabled = false;
 
-            // 1. Motivos de solo Cliente (5: Consignación, 6: Dev. Entregada, 7: Donación, 8: Feria, 11: Venta)
+            // Motivos de Solo Cliente (Ventas, Consignación, Feria, Donaciones)
             if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
             {
                 txtCliente.IsEnabled = true;
             }
-            // 2. Transferencia Entre Almacenes (10)
+            // Transferencia entre Almacenes (ID 4 o 10): Habilita Ubicación (Referencial) Y Almacén Destino
             else if (idMotivo == 10)
             {
                 txtUbicacion.IsEnabled = true;
+                cboAlmacenDestino.IsEnabled = true;
             }
-            // 🌟 3. PROMOTORÍA / PROMOCIÓN (9) u OTROS (12): Requieren Cliente Y Ubicación
+            // Promotoría u Otros: Habilita Cliente y Ubicación
             else if (idMotivo == 9 || idMotivo == 12)
             {
                 txtCliente.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
+                cboAlmacenDestino.IsEnabled = true;
             }
 
             if (!txtCliente.IsEnabled) { txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear(); _idClienteSeleccionado = null; }
             if (!txtUbicacion.IsEnabled) { txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); _idUbicacionSeleccionada = null; }
+            if (!cboAlmacenDestino.IsEnabled) { cboAlmacenDestino.SelectedIndex = -1; }
         }
 
         private void ActualizarVisibilidadCampos()
         {
-            var motivo = cboMotivoSalida.SelectedItem as dynamic;
-            string descripcion = motivo?.Descripcion?.ToString().ToLower() ?? "";
+            if (cboMotivoSalida.SelectedValue == null) return;
+            int idMotivo = Convert.ToInt32(cboMotivoSalida.SelectedValue);
 
             txtCliente.IsEnabled = false;
             txtUbicacion.IsEnabled = false;
+            cboAlmacenDestino.IsEnabled = false;
 
-            if (descripcion.Contains("venta") || descripcion.Contains("devolucion") || descripcion.Contains("feria") || descripcion.Contains("donacion"))
+            // Ventas / Consignaciones / Donaciones -> Solo Cliente
+            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
             {
                 txtCliente.IsEnabled = true;
             }
-            if (descripcion.Contains("transferencia"))
+            // Transferencia entre almacenes -> Ubicación Referencial y Almacén Destino
+            else if (idMotivo == 10)
             {
                 txtUbicacion.IsEnabled = true;
+                cboAlmacenDestino.IsEnabled = true;
             }
-            if (descripcion.Contains("otros") || descripcion.Contains("promocion"))
+            // Promotoría / Otros -> Cliente, Ubicación y Almacén Destino
+            else if (idMotivo == 9 || idMotivo == 12)
             {
                 txtCliente.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
+                cboAlmacenDestino.IsEnabled = true;
             }
 
-            if (!txtCliente.IsEnabled)
-            {
-                txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear(); _idClienteSeleccionado = null;
-            }
-            if (!txtUbicacion.IsEnabled)
-            {
-                txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); _idUbicacionSeleccionada = null;
-            }
+            if (!txtCliente.IsEnabled) { txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear(); _idClienteSeleccionado = null; }
+            if (!txtUbicacion.IsEnabled) { txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); _idUbicacionSeleccionada = null; }
+            if (!cboAlmacenDestino.IsEnabled) { cboAlmacenDestino.SelectedIndex = -1; }
         }
 
         private void BtnCancelar_Click(object sender, RoutedEventArgs e)

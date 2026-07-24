@@ -1,0 +1,98 @@
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Models.Transferencias;
+using AplicativoDeAlmacen.Services;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace AplicativoDeAlmacen.Views
+{
+    public partial class BandejaTransferenciasUserControl : UserControl
+    {
+        private readonly TransaccionesService _transaccionesService = new TransaccionesService();
+
+        public BandejaTransferenciasUserControl()
+        {
+            InitializeComponent();
+            DtpDesde.SelectedDate = DateTime.Today.AddDays(-30); // Último mes por defecto
+            DtpHasta.SelectedDate = DateTime.Today;
+            _ = CargarBandejaAsync();
+        }
+
+        private async Task CargarBandejaAsync()
+        {
+            try
+            {
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                string filtroEstado = "TODOS";
+                if (CboFiltroEstado?.SelectedItem is ComboBoxItem cbi)
+                {
+                    filtroEstado = cbi.Content.ToString() ?? "TODOS";
+                }
+
+                // 🌟 CORRECCIÓN CLAVE: Usamos ObtenerHistorialTransferenciasAsync
+                // Este método trae AMBOS LADOS (Enviados por mí + Recibidos por mí)
+                var lista = await _transaccionesService.ObtenerHistorialTransferenciasAsync(
+                    miAlmacenId,
+                    DtpDesde.SelectedDate,
+                    DtpHasta.SelectedDate,
+                    filtroEstado);
+
+                DgTransferencias.ItemsSource = lista;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar la bandeja: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void BtnBuscar_Click(object sender, RoutedEventArgs e) => await CargarBandejaAsync();
+        private async void BtnRefrescar_Click(object sender, RoutedEventArgs e) => await CargarBandejaAsync();
+        
+        private async void CboFiltroEstado_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (IsLoaded) await CargarBandejaAsync();
+        }
+
+        private void BtnVerDetalle_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is TransaccionHeaderDTO trans)
+            {
+                if (Window.GetWindow(this) is IMainWindow mainShell)
+                {
+                    int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                    // 🌟 INTELIGENCIA DE BANDEJA: 
+                    // Si yo fui el que ORIGINÓ (Envié la transferencia), abro la pantalla de SALIDAS.
+                    // Si yo soy el DESTINO (Me lo mandaron a mí), abro la pantalla de INGRESOS/Recepción.
+
+                    if (trans.AlmacenOrigenId == miAlmacenId)
+                    {
+                        var vistaSalida = new SalidasUserControl();
+
+                        // Extraemos serie y número del string "0001-0000001"
+                        var partes = trans.SerieNumero.Split('-');
+                        if (partes.Length >= 2)
+                        {
+                            vistaSalida.CargarDocumentoParaConsulta(partes[0], partes[1]);
+                        }
+
+                        mainShell.AbrirPestaña($"📤 Salida / Envío: {trans.SerieNumero}", vistaSalida);
+                    }
+                    else
+                    {
+                        var vistaIngreso = new IngresoUserControl();
+
+                        // Carga usando el MovimientoId único para recepción
+                        vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
+
+                        mainShell.AbrirPestaña($"📥 Recepción: {trans.SerieNumero}", vistaIngreso);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -31,7 +31,13 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
-        public async Task<MovimientoCompletoResult?> GetMovimientoCompletoAsync(string serie, string numero)
+        // =========================================================================
+        // 1. CARGAR ENTRADA NORMAL (Para Búsqueda, Edición o Impresión de Ingresos)
+        // =========================================================================
+        // =========================================================================
+        // 1. CARGAR ENTRADA NORMAL (Con candado estricto de Almacén de Sesión)
+        // =========================================================================
+        public async Task<MovimientoCompletoResult?> GetMovimientoCompletoAsync(string serie, string numero, int miAlmacenId)
         {
             var result = new MovimientoCompletoResult();
 
@@ -43,21 +49,132 @@ namespace AplicativoDeAlmacen.Services
 
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
-            // 🌟 CAMBIO: Se filtra estrictamente por tipo_movimiento_id = 1 (ENTRADA)
+            // 🌟 CANDADO ANTI-TRAMPA: Exige que el movimiento pertenezca a miAlmacenId (almacen_destino_id)
             string query = @"
-            SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
-                   m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id
-            FROM movimientos m
-            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id 
-            WHERE m.serie_documento = @serie 
-            AND m.numero_documento = @numero
-            AND mp.tipo_movimiento_id = 1";
+    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+           m.almacen_origen_id, m.almacen_destino_id
+    FROM movimientos m WITH (NOLOCK)
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE m.serie_documento = @serie 
+      AND m.numero_documento = @numero
+      AND mp.tipo_movimiento_id = 1 -- 👈 Entrada
+      AND m.estado_id = 1
+      AND ISNULL(m.almacen_destino_id, 1) = @miAlmacen"; // 👈 CANDADO EXCLUSIVO POR MI ALMACÉN
 
             using (var cmd = dbConn.CreateCommand())
             {
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                 AgregarParametro(cmd, "@serie", serie);
                 AgregarParametro(cmd, "@numero", numero);
+                AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync()) return null; // 🛡️ Si es de otro almacén, no lo encuentra
+
+                result.Movimiento = new Movimiento
+                {
+                    Id = reader.GetInt32(reader.GetOrdinal("id")),
+                    FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateOnly?)null : DateOnly.FromDateTime(reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"))),
+                    SerieDocumento = reader["serie_documento"].ToString(),
+                    NumeroDocumento = reader["numero_documento"].ToString(),
+                    MotivoProductoId = reader.IsDBNull(reader.GetOrdinal("motivo_producto_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("motivo_producto_id")),
+                    PersonaComercialId = reader.IsDBNull(reader.GetOrdinal("persona_comercial_id")) ? null : reader.GetInt32(reader.GetOrdinal("persona_comercial_id")),
+                    SerieGuia = reader.IsDBNull(reader.GetOrdinal("serie_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("serie_guia")),
+                    NumeroGuia = reader.IsDBNull(reader.GetOrdinal("numero_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("numero_guia")),
+                    Observacion = reader.IsDBNull(reader.GetOrdinal("observacion")) ? string.Empty : reader.GetString(reader.GetOrdinal("observacion")),
+                    UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id")),
+                    AlmacenOrigenId = reader.IsDBNull(reader.GetOrdinal("almacen_origen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_origen_id")),
+                    AlmacenDestinoId = reader.IsDBNull(reader.GetOrdinal("almacen_destino_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_destino_id")),
+                    EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
+                };
+            }
+
+            string qDet = @"
+    SELECT id, producto_id, cantidad_ingreso, costo_unitario 
+    FROM movimiento_detalles WITH (NOLOCK)
+    WHERE movimiento_id = @movId";
+
+            using (var cmdDet = dbConn.CreateCommand())
+            {
+                cmdDet.CommandText = QueryAdapter.FormatearConsulta(qDet);
+                AgregarParametro(cmdDet, "@movId", result.Movimiento.Id);
+                using var rdrDet = await cmdDet.ExecuteReaderAsync();
+                while (await rdrDet.ReadAsync())
+                {
+                    result.Detalles.Add(new MovimientoDetalle
+                    {
+                        Id = rdrDet.GetInt32(0),
+                        ProductoId = rdrDet.GetInt32(1),
+                        CantidadIngreso = Convert.ToInt32(rdrDet.GetValue(2)),
+                        CostoUnitario = rdrDet.IsDBNull(3) ? (decimal?)null : rdrDet.GetDecimal(3)
+                    });
+                }
+            }
+
+            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WITH (NOLOCK) WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+            using (var cmdR = dbConn.CreateCommand())
+            {
+                cmdR.CommandText = QueryAdapter.FormatearConsulta(qRangos);
+                AgregarParametro(cmdR, "@movId", result.Movimiento.Id);
+                using var rdrR = await cmdR.ExecuteReaderAsync();
+                while (await rdrR.ReadAsync())
+                {
+                    int desdeNum = rdrR.GetInt32(rdrR.GetOrdinal("desde_num"));
+                    int hastaNum = rdrR.GetInt32(rdrR.GetOrdinal("hasta_num"));
+                    int categoriaId = rdrR.GetInt32(rdrR.GetOrdinal("categoria_producto_id"));
+                    string baseAbrev = rdrR.IsDBNull(rdrR.GetOrdinal("abreviatura_base")) ? string.Empty : rdrR.GetString(rdrR.GetOrdinal("abreviatura_base"));
+
+                    string desdeText = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}";
+                    string hastaText = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}";
+
+                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+                    string coleccionTipo = $"C2026 / {tipoTexto}";
+
+                    result.Rangos.Add(new RangoCodigoItem
+                    {
+                        MovimientoDetalleId = rdrR.IsDBNull(rdrR.GetOrdinal("movimiento_detalle_id")) ? 0 : rdrR.GetInt32(rdrR.GetOrdinal("movimiento_detalle_id")),
+                        productoId = rdrR.GetInt32(rdrR.GetOrdinal("producto_id")),
+                        CategoriaProductoId = categoriaId,
+                        AbreviaturaBase = baseAbrev,
+                        DesdeNum = desdeNum,
+                        HastaNum = hastaNum,
+                        Cantidad = desdeNum == -1 ? "1" : (hastaNum - desdeNum + 1).ToString(),
+                        Desde = desdeText,
+                        Hasta = hastaText,
+                        ColeccionTipo = coleccionTipo
+                    });
+                }
+            }
+            return result;
+        }
+
+        // =========================================================================
+        // 2. CARGAR SALIDA DE TRANSFERENCIA POR ID ÚNICO (Para Procesar Recepción)
+        // =========================================================================
+        public async Task<MovimientoCompletoResult?> GetSalidaParaRecepcionAsync(int movimientoSalidaId)
+        {
+            var result = new MovimientoCompletoResult();
+
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            // 🌟 CONSULTA POR ID ÚNICO FILTRANDO QUE SEA SALIDA (tipo_movimiento_id = 2)
+            string query = @"
+    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+           m.almacen_origen_id, m.almacen_destino_id
+    FROM movimientos m WITH (NOLOCK)
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE m.id = @movId 
+      AND mp.tipo_movimiento_id = 2 -- 👈 2 = SALIDA EXCLUSIVAMENTE
+      AND m.estado_id = 1";
+
+            using (var cmd = dbConn.CreateCommand())
+            {
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                AgregarParametro(cmd, "@movId", movimientoSalidaId);
 
                 using var reader = await cmd.ExecuteReaderAsync();
                 if (!await reader.ReadAsync()) return null;
@@ -74,35 +191,43 @@ namespace AplicativoDeAlmacen.Services
                     NumeroGuia = reader.IsDBNull(reader.GetOrdinal("numero_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("numero_guia")),
                     Observacion = reader.IsDBNull(reader.GetOrdinal("observacion")) ? string.Empty : reader.GetString(reader.GetOrdinal("observacion")),
                     UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id")),
+                    AlmacenOrigenId = reader.IsDBNull(reader.GetOrdinal("almacen_origen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_origen_id")),
+                    AlmacenDestinoId = reader.IsDBNull(reader.GetOrdinal("almacen_destino_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_destino_id")),
                     EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
                 };
             }
 
-            // Detalles (🌟 CAMBIO: Casteo limpio de cantidad_ingreso de la BD a int)
-            string qDet = @"SELECT id, producto_id, cantidad_ingreso, costo_unitario FROM movimiento_detalles WHERE movimiento_id = @movId";
+            // LEER DETALLES TOMANDO 'cantidad_salida'
+            string qDet = @"
+    SELECT id, producto_id, cantidad_salida, costo_unitario 
+    FROM movimiento_detalles WITH (NOLOCK)
+    WHERE movimiento_id = @movId";
+
             using (var cmdDet = dbConn.CreateCommand())
             {
                 cmdDet.CommandText = QueryAdapter.FormatearConsulta(qDet);
-                var pdet = cmdDet.CreateParameter(); pdet.ParameterName = "@movId"; pdet.Value = result.Movimiento.Id; cmdDet.Parameters.Add(pdet);
+                AgregarParametro(cmdDet, "@movId", result.Movimiento.Id);
                 using var rdrDet = await cmdDet.ExecuteReaderAsync();
                 while (await rdrDet.ReadAsync())
                 {
+                    int cantSalida = Convert.ToInt32(rdrDet.GetValue(2));
                     result.Detalles.Add(new MovimientoDetalle
                     {
                         Id = rdrDet.GetInt32(0),
                         ProductoId = rdrDet.GetInt32(1),
-                        CantidadIngreso = Convert.ToInt32(rdrDet.GetValue(2)),
+                        CantidadIngreso = cantSalida, // Se asigna a Ingreso para que la grilla de entrada lo muestre
+                        CantidadSalida = cantSalida,
                         CostoUnitario = rdrDet.IsDBNull(3) ? (decimal?)null : rdrDet.GetDecimal(3)
                     });
                 }
             }
 
-            // Rangos asociados
-            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+            // LEER RANGOS DE LA SALIDA
+            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WITH (NOLOCK) WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
             using (var cmdR = dbConn.CreateCommand())
             {
                 cmdR.CommandText = QueryAdapter.FormatearConsulta(qRangos);
-                var pr = cmdR.CreateParameter(); pr.ParameterName = "@movId"; pr.Value = result.Movimiento.Id; cmdR.Parameters.Add(pr);
+                AgregarParametro(cmdR, "@movId", result.Movimiento.Id);
                 using var rdrR = await cmdR.ExecuteReaderAsync();
                 while (await rdrR.ReadAsync())
                 {
@@ -114,7 +239,7 @@ namespace AplicativoDeAlmacen.Services
                     string desdeText = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}";
                     string hastaText = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}";
 
-                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : (categoriaId == 2 ? "LIBRO VENTA" : "OTROS");
+                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
                     string coleccionTipo = $"C2026 / {tipoTexto}";
 
                     result.Rangos.Add(new RangoCodigoItem
@@ -402,17 +527,17 @@ namespace AplicativoDeAlmacen.Services
             if (existingId.HasValue)
             {
                 string updateCab = @"
-            UPDATE movimientos 
-            SET fecha_movimiento = @fecha, 
-                motivo_producto_id = @motivoId, 
-                ubicacion_id = @ubicacionId, 
-                almacen_origen_id = @almOrigen,
-                almacen_destino_id = @almDestino,
-                persona_comercial_id = @personaId, 
-                observacion = @observacion, 
-                serie_guia = @serieGuia, 
-                numero_guia = @numeroGuia 
-            WHERE id = @id";
+    UPDATE movimientos 
+    SET fecha_movimiento = @fecha, 
+        motivo_producto_id = @motivoId, 
+        ubicacion_id = @ubicacionId, 
+        almacen_origen_id = @almOrigen,
+        almacen_destino_id = @almDestino,
+        persona_comercial_id = @personaId, 
+        observacion = @observacion, 
+        serie_guia = @serieGuia, 
+        numero_guia = @numeroGuia 
+    WHERE id = @id";
 
                 using var cmd = conn.CreateCommand();
                 cmd.Transaction = trans;
@@ -431,7 +556,13 @@ namespace AplicativoDeAlmacen.Services
                 return existingId.Value;
             }
 
-            string queryLock = "SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 FROM movimientos WITH (TABLOCKX, HOLDLOCK) WHERE serie_documento = @serie";
+            // 🌟 CORRELATIVO AISLADO POR ALMACÉN: Filtra exclusivamente los movimientos de esta sede/almacén destino
+            string queryLock = @"
+        SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 
+        FROM movimientos WITH (TABLOCKX, HOLDLOCK) 
+        WHERE serie_documento = @serie 
+          AND ISNULL(almacen_destino_id, 1) = @almDestino";
+
             int nuevoNumero;
 
             using (var cmdLock = conn.CreateCommand())
@@ -439,6 +570,7 @@ namespace AplicativoDeAlmacen.Services
                 cmdLock.Transaction = trans;
                 cmdLock.CommandText = QueryAdapter.FormatearConsulta(queryLock);
                 AgregarParametro(cmdLock, "@serie", cabecera.SerieDocumento);
+                AgregarParametro(cmdLock, "@almDestino", cabecera.AlmacenDestinoId ?? 1);
                 nuevoNumero = Convert.ToInt32(await cmdLock.ExecuteScalarAsync());
             }
 
@@ -462,7 +594,7 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
             AgregarParametro(cmdCab, "@ubicacionId", ubicacionId);
             AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
-            AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId);
+            AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId ?? 1);
             AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId > 0 ? cabecera.UsuarioId : 1);
             AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
@@ -547,6 +679,7 @@ namespace AplicativoDeAlmacen.Services
                 int almacenDelMovimiento = 1; // Variable declarada con valor por defecto
 
                 // 🌟 1. LEER DATOS DEL MOVIMIENTO (INCLUYENDO ALMACÉN DESTINO)
+                // 🌟 1. LEER DATOS DEL MOVIMIENTO (Obteniendo con precisión el almacén destino real)
                 using (var cmdMov = dbConn.CreateCommand())
                 {
                     cmdMov.Transaction = transaccion;
@@ -559,7 +692,7 @@ namespace AplicativoDeAlmacen.Services
                     if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento ya está anulado.");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
-                    almacenDelMovimiento = rdrMov.GetInt32(2); // 👈 Captura el ID del almacén real
+                    almacenDelMovimiento = rdrMov.GetInt32(2); // 👈 Almacén exacto donde impactó este ingreso
                 }
 
                 using (var cmdCreate = dbConn.CreateCommand())

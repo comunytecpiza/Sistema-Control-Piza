@@ -191,20 +191,15 @@ namespace AplicativoDeAlmacen.Views
                 Mouse.OverrideCursor = Cursors.Wait;
 
                 // Ejecutamos el servicio del Kardex multimotor con rango de fechas
-                    _ultimoReporte =
-                    await _kardexService.GenerarKardexFisicoAsync(
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                            _productoSeleccionadoId,
+                _ultimoReporte = await _kardexService.GenerarKardexFisicoAsync(
+                    _productoSeleccionadoId,
+                    DpDesde.SelectedDate ?? DateTime.Today,
+                    DpHasta.SelectedDate ?? DateTime.Today,
+                    miAlmacenId); // 👈 4to parámetro obligatorio
 
-                            DpDesde.SelectedDate
-                                ?? DateTime.Today,
-
-                            DpHasta.SelectedDate
-                                ?? DateTime.Today
-
-                    );
-
-                   var reporte =
+                var reporte =
                     _ultimoReporte;
 
                 // Llenamos la tabla del DataGrid de forma directa

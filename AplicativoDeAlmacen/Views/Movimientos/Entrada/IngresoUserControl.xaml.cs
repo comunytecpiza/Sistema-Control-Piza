@@ -115,6 +115,7 @@ namespace AplicativoDeAlmacen.Views
         {
             ConfigurarDataGridsParaVirtualizacion();
             await CargarMotivosAsync();
+            await CargarComboAlmacenesOrigenAsync(); // 🌟 OBLIGATORIO: Carga la lista de almacenes al abrir
         }
 
         private void EstablecerEstadoInicial()
@@ -124,12 +125,187 @@ namespace AplicativoDeAlmacen.Views
             GestionarBotonesPrincipales(enEdicion: false);
         }
 
+        private async Task CargarComboAlmacenesOrigenAsync()
+        {
+            try
+            {
+                using var conn = _dbConnHelper.GetConnection();
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                const int ALMACEN_CENTRAL_ID = 1;
+
+                string query;
+
+                if (miAlmacenId == ALMACEN_CENTRAL_ID)
+                {
+                    // 🟢 Almacén Central puede recibir transferencias de TODOS los sub-almacenes
+                    query = "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC";
+                }
+                else
+                {
+                    // 🟡 Un Sub-Almacén SOLO puede seleccionar ALMACÉN CENTRAL
+                    query = "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
+                }
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                var p1 = cmd.CreateParameter(); p1.ParameterName = "@miAlmacen"; p1.Value = miAlmacenId; cmd.Parameters.Add(p1);
+                var p2 = cmd.CreateParameter(); p2.ParameterName = "@centralId"; p2.Value = ALMACEN_CENTRAL_ID; cmd.Parameters.Add(p2);
+
+                var listaAlmacenes = new List<dynamic>();
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
+                {
+                    listaAlmacenes.Add(new { Id = rdr.GetInt32(0), Nombre = rdr.GetString(1) });
+                }
+
+                // Asignamos al ComboBox (cboAlmacenDestino es la referencia física en pantalla)
+                cboAlmacenDestino.ItemsSource = listaAlmacenes;
+                cboAlmacenDestino.DisplayMemberPath = "Nombre";
+                cboAlmacenDestino.SelectedValuePath = "Id";
+
+                // Si es sub-almacén, selecciona automáticamente "Almacén Central Trujillo"
+                if (miAlmacenId != ALMACEN_CENTRAL_ID && listaAlmacenes.Any())
+                {
+                    cboAlmacenDestino.SelectedIndex = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al cargar almacenes origen: {ex.Message}");
+            }
+        }
+
+        // 🌟 SOBRECARGA 1: Recepción de Transferencias desde Campana/Bandeja (por ID de movimiento único)
+        public async void CargarDocumentoParaConsulta(int movimientoSalidaId)
+        {
+            try
+            {
+                this.Cursor = Cursors.Wait;
+
+                var movCompleto = await _serviceMovimiento.GetSalidaParaRecepcionAsync(movimientoSalidaId);
+                if (movCompleto == null || movCompleto.Movimiento == null)
+                {
+                    MessageBox.Show("No se encontró el registro de transferencia especificado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                LimpiarFormulario();
+
+                await CargarComboAlmacenesOrigenAsync();
+
+                cboMotivo.SelectedValue = 4; // Transferencia
+                dtpFechaRecepcion.SelectedDate = DateTime.Today;
+
+                if (movCompleto.Movimiento.AlmacenOrigenId.HasValue)
+                {
+                    cboAlmacenDestino.SelectedValue = movCompleto.Movimiento.AlmacenOrigenId.Value;
+                }
+
+                txtSerieGuia.Clear();
+                txtNumeroGuia.Clear();
+                txtObservacion.Clear();
+
+                _productosGridList.Clear();
+                _codigosGridList.Clear();
+                _rangosProcesadosGlobal.Clear();
+
+                var prodService = new ProductoService();
+
+                foreach (var det in movCompleto.Detalles)
+                {
+                    string descripcionProducto = await _serviceMovimiento.ObtenerDescripcionProductoAsync(det.ProductoId);
+                    var prodData = await prodService.ObtenerPorIdAsync(det.ProductoId);
+
+                    var vp = new VistaProductoGrid
+                    {
+                        ProductoId = det.ProductoId,
+                        CodigoProducto = det.ProductoId.ToString(),
+                        Descripcion = descripcionProducto,
+                        UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
+                        Cantidad = det.CantidadIngreso,
+                        Detalle = new MovimientoDetalle
+                        {
+                            ProductoId = det.ProductoId,
+                            CantidadIngreso = det.CantidadIngreso,
+                            CostoUnitario = det.CostoUnitario ?? 0
+                        }
+                    };
+                    _productosGridList.Add(vp);
+                }
+
+                foreach (var r in movCompleto.Rangos)
+                {
+                    _rangosProcesadosGlobal.Add(r);
+                    var codigosReconstruidos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(new List<RangoCodigoItem> { r });
+                    foreach (var c in codigosReconstruidos)
+                    {
+                        _codigosGridList.Add(c);
+                    }
+                }
+
+                RefrescarGrillas();
+
+                HabilitarCamposFormulario(true);
+                txtNumSerie.Text = "0001";
+                txtNumDocumento.Text = "[ AUTOMÁTICO ]";
+                txtNumSerie.IsEnabled = false;
+                txtNumDocumento.IsEnabled = false;
+
+                txtSerieGuia.Focus();
+
+                MessageBox.Show("Transferencia cargada. Ingrese el N° de Guía de Remisión que trae el transportista y presione 'Guardar Entrada'.", "Recepción Lista", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar la transferencia: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+        }
+
+        // 🌟 SOBRECARGA 2: Búsqueda normal de Ingresos previos por Serie y Número (Soporta 2 argumentos string)
+        public async void CargarDocumentoParaConsulta(string serie, string numero)
+        {
+            try
+            {
+                this.Cursor = Cursors.Wait;
+                await LoadMovimientoBySerieNumeroAsync(serie, numero);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar el documento: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+        }
+
         private async Task CargarMotivosAsync()
         {
             try
             {
                 this.Cursor = Cursors.Wait;
-                cboMotivo.ItemsSource = await _serviceMovimiento.ObtenerMotivosProductosAsync();
+                var todosLosMotivos = await _serviceMovimiento.ObtenerMotivosProductosAsync();
+
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                const int ALMACEN_CENTRAL_ID = 1;
+
+                // 🌟 REGLA DE NEGOCIO: Si NO es Almacén Central, eliminamos la opción "COMPRA" (ID 1)
+                if (miAlmacenId != ALMACEN_CENTRAL_ID)
+                {
+                    todosLosMotivos = todosLosMotivos.Where(m => m.Id != 1).ToList();
+                }
+
+                cboMotivo.ItemsSource = todosLosMotivos;
+                cboMotivo.DisplayMemberPath = "Descripcion";
+                cboMotivo.SelectedValuePath = "Id";
             }
             catch (Exception ex)
             {
@@ -279,11 +455,15 @@ namespace AplicativoDeAlmacen.Views
         private async Task LoadMovimientoBySerieNumeroAsync(string serie, string numero)
         {
             LimpiarFormulario();
-            var movimientoComp = await _serviceMovimiento.GetMovimientoCompletoAsync(serie, numero);
+
+            // 🌟 PASAMOS EL ALMACÉN DE LA SESIÓN ACTIVA COMO TERCER ARGUMENTO
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            var movimientoComp = await _serviceMovimiento.GetMovimientoCompletoAsync(serie, numero, miAlmacenId);
 
             if (movimientoComp == null)
             {
-                MessageBox.Show("No se encontró el movimiento especificado o corresponde a una salida.", "No encontrado", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("No se encontró el movimiento especificado en este Almacén.", "No encontrado", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -462,7 +642,34 @@ namespace AplicativoDeAlmacen.Views
                 GestionarBotonesPrincipales(enEdicion: true);
 
                 txtNumSerie.Text = "0001";
-                txtNumDocumento.Text = "[ AUTOMÁTICO ]";
+
+                // 🌟 CORRELATIVO INDEPENDIENTE POR ALMACÉN EN TIEMPO REAL
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                string siguienteCorrelativo = "0000001";
+
+                using (var conn = _dbConnHelper.GetConnection())
+                {
+                    var dbConn = (System.Data.Common.DbConnection)conn;
+                    await dbConn.OpenAsync();
+
+                    string queryMax = @"
+                SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 
+                FROM movimientos 
+                WHERE serie_documento = '0001' 
+                  AND ISNULL(almacen_destino_id, ISNULL(almacen_origen_id, 1)) = @almId";
+
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryMax);
+                    var p = cmd.CreateParameter(); p.ParameterName = "@almId"; p.Value = miAlmacenId; cmd.Parameters.Add(p);
+
+                    object res = await cmd.ExecuteScalarAsync();
+                    if (res != null && res != DBNull.Value)
+                    {
+                        siguienteCorrelativo = Convert.ToInt32(res).ToString("D7");
+                    }
+                }
+
+                txtNumDocumento.Text = siguienteCorrelativo; // 👈 Ahora muestra el correlativo correcto de esta sede
                 txtNumDocumento.IsReadOnly = true;
                 txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
                 txtNumDocumento.Foreground = System.Windows.Media.Brushes.Gray;
@@ -472,15 +679,13 @@ namespace AplicativoDeAlmacen.Views
                 txtNumDocumento.IsEnabled = false;
 
                 cboMotivo.SelectedValue = 1;
-
-                // 🌟 FORZAMOS LA EVALUACIÓN DE CAMPOS SEGÚN EL MOTIVO SELECCIONADO
                 CboMotivo_SelectionChanged(cboMotivo, null);
 
                 cboMotivo.Focus();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error: {ex.Message}");
+                MessageBox.Show($"Error al generar correlativo: {ex.Message}");
             }
             finally { this.Cursor = Cursors.Arrow; }
         }
@@ -573,14 +778,15 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
             // 🔵 IDs 4, 10 -> TRANSFERENCIA INTER-ALMACÉN (OBLIGA ALMACÉN DESTINO U UBICACIÓN REFERENCIAL)
-            else if (idMotivo == 4 || idMotivo == 10)
+            // 🔵 ID 4 -> RECEPCIÓN DE TRANSFERENCIA INTER-ALMACÉN
+            else if (idMotivo == 4)
             {
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
                 bool tieneAlmacenFisico = cboAlmacenDestino.SelectedValue != null;
 
                 if (!tieneUbicacion && !tieneAlmacenFisico)
                 {
-                    MessageBox.Show("Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Físico de Destino.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Físico de Procedencia.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
@@ -1418,11 +1624,11 @@ namespace AplicativoDeAlmacen.Views
                 cboAlmacenDestino.IsEnabled = false;
             }
             // 🔵 MOTIVO 4 / 10 (TRANSFERENCIA INTER-ALMACÉN)
-            else if (idMotivo == 4 || idMotivo == 10)
+            else if (idMotivo == 4)
             {
                 txtRazonSocial.IsEnabled = false;
 
-                // 🌟 Se habilitan AMBOS: Ubicación (Referencial) y Almacén (Operativo real)
+                // Se habilitan Ubicación (Referencial) y el Almacén Origen/Destino de procedencia
                 txtUbicacion.IsEnabled = true;
                 cboAlmacenDestino.IsEnabled = true;
             }
@@ -1521,28 +1727,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
         // 🌟 Método público para cargar directamente el documento al abrir la pestaña
-        public async void CargarDocumentoParaConsulta(string serie, string numero)
-        {
-            try
-            {
-                _printMode = true; // Activamos el modo impresión/consulta por defecto
-                this.Cursor = Cursors.Wait;
-
-                txtNumSerie.Text = serie;
-                txtNumDocumento.Text = numero;
-
-                // Ejecutamos la carga completa que ya tienes programada
-                await LoadMovimientoBySerieNumeroAsync(serie, numero);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al cargar el documento automáticamente: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                this.Cursor = Cursors.Arrow;
-            }
-        }
+       
         private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (sender is DependencyObject dep)
