@@ -31,11 +31,14 @@ namespace AplicativoDeAlmacen.Models.Models
         public List<KardexFisicoItem> Detalles { get; set; } = new List<KardexFisicoItem>();
         public List<ConsultaCodigoItem> Codigos { get; set; } = new List<ConsultaCodigoItem>();
         // Totales de Entradas
+
+        public decimal SaldoInicial { get; set; }
         public decimal TotalIngresos { get; set; }
         public decimal TotalDevIngresos { get; set; }
 
         // Totales de Salidas
         public decimal TotalSalidas { get; set; }
+        public decimal SalidasNetas { get; set; }
         public decimal TotalDevSalidas { get; set; }
         public string NumeroRegistro { get; set; }
         // Resumen Final (Se elimina StockInicial)

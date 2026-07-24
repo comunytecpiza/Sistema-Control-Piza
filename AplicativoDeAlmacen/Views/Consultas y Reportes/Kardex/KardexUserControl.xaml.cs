@@ -71,6 +71,11 @@ namespace AplicativoDeAlmacen.Views
                 var dbProductos = await _productoService.ObtenerTodosAsync();
                 _todosLosProductos = dbProductos.ToList();
 
+                // 🌟 CORRECCIÓN: Asignamos una lista inicial para que el ComboBox no nazca vacío
+                CboProductos.ItemsSource = _todosLosProductos.Take(50).ToList();
+                CboProductos.DisplayMemberPath = "Descripcion";
+                CboProductos.SelectedValuePath = "Id";
+
                 // 🌟 MÁSCARA: Activamos la máscara en los calendarios
                 ConfigurarMascaraFecha(DpDesde);
                 ConfigurarMascaraFecha(DpHasta);
@@ -187,34 +192,27 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                // Cambiamos temporalmente el cursor al reloj de arena
                 Mouse.OverrideCursor = Cursors.Wait;
 
-                // Ejecutamos el servicio del Kardex multimotor con rango de fechas
-                    _ultimoReporte =
-                    await _kardexService.GenerarKardexFisicoAsync(
+                _ultimoReporte = await _kardexService.GenerarKardexFisicoAsync(
+                        _productoSeleccionadoId,
+                        DpDesde.SelectedDate ?? DateTime.Today,
+                        DpHasta.SelectedDate ?? DateTime.Today
+                );
 
-                            _productoSeleccionadoId,
+                var reporte = _ultimoReporte;
 
-                            DpDesde.SelectedDate
-                                ?? DateTime.Today,
-
-                            DpHasta.SelectedDate
-                                ?? DateTime.Today
-
-                    );
-
-                   var reporte =
-                    _ultimoReporte;
-
-                // Llenamos la tabla del DataGrid de forma directa
                 KardexDataGrid.ItemsSource = reporte.Detalles;
 
-                // Actualizamos los cuadros de resumen (Asegurando formato de 2 decimales)
+                // Actualizamos las tarjetas de resumen
+                TxtSaldoInicialTotal.Text = reporte.SaldoInicial.ToString("N2");
                 TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N2");
-                TxtTotalDevIngresos.Text = reporte.TotalDevIngresos.ToString("N2");
                 TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N2");
-                TxtTotalDevSalidas.Text = reporte.TotalDevSalidas.ToString("N2");
+
+                // Cálculo de Salida Neta (Total Ingresos - Total Salidas)
+                decimal salidasNetas = reporte.TotalIngresos - reporte.TotalSalidas;
+                TxtSalidasNetas.Text = salidasNetas.ToString("N2");
+
                 TxtStockFinal.Text = reporte.StockFinal.ToString("N2");
             }
             catch (Exception ex)
@@ -223,7 +221,7 @@ namespace AplicativoDeAlmacen.Views
             }
             finally
             {
-                Mouse.OverrideCursor = null; // Restauramos el cursor
+                Mouse.OverrideCursor = null;
             }
         }
 

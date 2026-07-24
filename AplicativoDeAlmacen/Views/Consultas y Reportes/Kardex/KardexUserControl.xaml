@@ -47,7 +47,6 @@
             </Setter>
         </Style>
     </UserControl.Resources>
-
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -93,19 +92,12 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
                     <Button Content="Generar Kardex" Width="150" Margin="0,0,10,0" Click="BtnEjecutarKardex_Click" Background="#2563EB" Foreground="White"/>
-                    <Button Content="Imprimir"
-
-                        Width="120"
-
-                        Background="#10B981"
-
-                        Foreground="White"
-
-                        Click="BtnImprimir_Click"/>
+                    <Button Content="Imprimir" Width="120" Background="#10B981" Foreground="White" Click="BtnImprimir_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
 
+        <!-- TABLA PRINCIPAL CON 3 COLUMNAS DE MOVIMIENTOS -->
         <Border Grid.Row="2" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
             <DataGrid x:Name="KardexDataGrid" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" Background="White"
                       RowHeight="38" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
@@ -141,11 +133,11 @@
                     <DataGridTextColumn Header="TIPO MOVIMIENTO" Binding="{Binding Tipo}" Width="180"/>
                     <DataGridTextColumn Header="DOCUMENTO" Binding="{Binding Registro}" Width="130"/>
                     <DataGridTextColumn Header="RAZÓN SOCIAL / UBICACIÓN" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
-                    <DataGridTextColumn Header="INGRESO" Binding="{Binding IngresoNormal, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
-                    <DataGridTextColumn Header="ING. DEV." Binding="{Binding IngresoDevolucion, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
-                    <DataGridTextColumn Header="SALIDA" Binding="{Binding SalidaNormal, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
-                    <DataGridTextColumn Header="SAL. DEV." Binding="{Binding SalidaDevolucion, StringFormat=N2}" Width="100" CellStyle="{StaticResource RightAlignStyle}"/>
-                    <DataGridTextColumn Header="SALDO FINAL" Binding="{Binding SaldoFinal, StringFormat=N2}" Width="120" CellStyle="{StaticResource RightAlignStyle}">
+
+                    <!-- SOLO TRES COLUMNAS DE CANTIDADES -->
+                    <DataGridTextColumn Header="INGRESO" Binding="{Binding IngresoNormal, StringFormat=N2}" Width="120" CellStyle="{StaticResource RightAlignStyle}"/>
+                    <DataGridTextColumn Header="SALIDA" Binding="{Binding SalidaNormal, StringFormat=N2}" Width="120" CellStyle="{StaticResource RightAlignStyle}"/>
+                    <DataGridTextColumn Header="SALDO FINAL" Binding="{Binding SaldoFinal, StringFormat=N2}" Width="130" CellStyle="{StaticResource RightAlignStyle}">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="FontWeight" Value="Bold"/>
@@ -157,43 +149,52 @@
             </DataGrid>
         </Border>
 
+        <!-- TARJETAS RESUMEN INFERIORES REDUCIDAS A 4 -->
         <Border Grid.Row="3" Margin="0,15,0,0" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="15">
-            <UniformGrid Columns="5">                                                                       
+            <UniformGrid Columns="4">
+
+                <!-- 1. Saldo Inicial -->
+                <Border Background="#F3F4F6" CornerRadius="8" Margin="5" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="Saldo Inicial" FontSize="13" Foreground="#374151" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtSaldoInicialTotal" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#1F2937"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 2. Ingresos Totales -->
                 <Border Background="#ECFDF5" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-                        <TextBlock Text="Ingresos" FontSize="13" Foreground="#065F46" FontWeight="SemiBold"/>
+                        <TextBlock Text="Total Ingresos" FontSize="13" Foreground="#065F46" FontWeight="SemiBold"/>
                         <TextBlock x:Name="TxtTotalIngresos" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#059669"/>
                     </StackPanel>
                 </Border>
 
-                <Border Background="#F0FDFA" CornerRadius="8" Margin="5" Padding="12">
-                    <StackPanel>
-                        <TextBlock Text="Dev. (Entradas)" FontSize="13" Foreground="#0F766E" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="TxtTotalDevIngresos" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#0D9488"/>
-                    </StackPanel>
-                </Border>
-
+                <!-- 3. Salidas Totales -->
                 <Border Background="#FEF2F2" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
-                        <TextBlock Text="Salidas" FontSize="13" Foreground="#991B1B" FontWeight="SemiBold"/>
+                        <TextBlock Text="Total Salidas" FontSize="13" Foreground="#991B1B" FontWeight="SemiBold"/>
                         <TextBlock x:Name="TxtTotalSalidas" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#DC2626"/>
                     </StackPanel>
                 </Border>
 
-                <Border Background="#FFF7ED" CornerRadius="8" Margin="5" Padding="12">
+                <!-- 4. Salida Neta (Ingresos - Salidas) -->
+                <Border Background="#FEF8F6" CornerRadius="8" Margin="4" Padding="10">
                     <StackPanel>
-                        <TextBlock Text="Dev. (Salidas)" FontSize="13" Foreground="#9A3412" FontWeight="SemiBold"/>
-                        <TextBlock x:Name="TxtTotalDevSalidas" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#EA580C"/>
+                        <TextBlock Text="Salida Neta" FontSize="12" Foreground="#9A3412" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtSalidasNetas" Text="0.00" FontSize="22" FontWeight="Bold" Foreground="#EA580C"/>
                     </StackPanel>
                 </Border>
-
+                
+                <!-- 5. Stock Final -->
                 <Border Background="#EFF6FF" CornerRadius="8" Margin="5" Padding="12">
                     <StackPanel>
                         <TextBlock Text="Stock Final" FontSize="13" Foreground="#1E3A8A" FontWeight="SemiBold"/>
                         <TextBlock x:Name="TxtStockFinal" Text="0.00" FontSize="24" FontWeight="Bold" Foreground="#2563EB"/>
                     </StackPanel>
                 </Border>
+
             </UniformGrid>
         </Border>
     </Grid>
+   
 </UserControl>

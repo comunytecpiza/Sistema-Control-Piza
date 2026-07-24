@@ -45,34 +45,66 @@ namespace AplicativoDeAlmacen.Services
             {
                 await ((DbConnection)conn).OpenAsync();
 
+                // 1. CALCULAR EL SALDO INICIAL (Todo lo anterior a la fecha "Desde")
+                using (IDbCommand cmdSaldoInicial = conn.CreateCommand())
+                {
+                    string querySaldoInicial = @"
+      SELECT 
+          SUM(CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
+          SUM(CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
+      FROM movimiento_detalles md
+      INNER JOIN movimientos m ON md.movimiento_id = m.id
+      INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+      WHERE md.producto_id = @ProductoId
+          AND m.fecha_movimiento < @FechaDesde
+          AND m.estado_id != 2";
+
+                    cmdSaldoInicial.CommandText = QueryAdapter.FormatearConsulta(querySaldoInicial);
+                    AgregarParametro(cmdSaldoInicial, "@ProductoId", productoId);
+                    AgregarParametro(cmdSaldoInicial, "@FechaDesde", fechaDesde.Date);
+
+                    using (IDataReader readerSaldo = await ((DbCommand)cmdSaldoInicial).ExecuteReaderAsync())
+                    {
+                        decimal ingAnt = 0;
+                        decimal salAnt = 0;
+
+                        if (await ((DbDataReader)readerSaldo).ReadAsync())
+                        {
+                            ingAnt = readerSaldo.IsDBNull(0) ? 0 : readerSaldo.GetDecimal(0);
+                            salAnt = readerSaldo.IsDBNull(1) ? 0 : readerSaldo.GetDecimal(1);
+                        }
+
+                        reporte.SaldoInicial = ingAnt - salAnt;
+                    }
+                }
+
+                // 2. OBTENER LOS MOVIMIENTOS DENTRO DEL RANGO
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-            string queryRaw = @"
-        SELECT
-            m.fecha_movimiento,
-            mp.descripcion          AS motivo,
-            -- Nota: la tabla motivo_productos almacena el tipo como entero (tipo_movimiento_id)
-            -- Convertimos a etiqueta legible aquí para evitar columnas inexistentes
-            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
-            m.serie_documento,
-            m.numero_documento,
-            m.serie_guia,
-            m.numero_guia,
-            pc.razon_social,
-            u.descripcion           AS ubicacion_desc,
-            CASE WHEN m.motivo_producto_id = 2 THEN md.cantidad_ingreso ELSE 0 END AS IngresoDev, -- 2 = DEVOLUCION RECIBIDA
-            CASE WHEN m.motivo_producto_id != 2 AND mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS IngresoDoc,
-            CASE WHEN m.motivo_producto_id = 6 THEN md.cantidad_salida ELSE 0 END  AS SalidaDev,  -- 6 = DEVOLUCION ENTREGADA
-            CASE WHEN m.motivo_producto_id != 6 AND mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END  AS SalidaDoc
-        FROM movimiento_detalles md
-        INNER JOIN movimientos       m  ON md.movimiento_id      = m.id
-        INNER JOIN motivo_productos  mp ON m.motivo_producto_id  = mp.id
-        LEFT  JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
-        LEFT  JOIN ubicaciones       u  ON m.ubicacion_id        = u.id
-        WHERE md.producto_id       = @ProductoId
-          AND m.fecha_movimiento  >= @FechaDesde
-          AND m.fecha_movimiento  <= @FechaHasta
-          AND m.estado_id        != 2 -- 🌟 CANDADO RECONFIGURADO: 2 = Anulado en estados_movimiento";
+                    string queryRaw = @"
+      SELECT
+          m.fecha_movimiento,
+          mp.descripcion AS motivo,
+          CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
+          m.serie_documento,
+          m.numero_documento,
+          m.serie_guia,
+          m.numero_guia,
+          pc.razon_social,
+          u.descripcion AS ubicacion_desc,
+          CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS IngresoDoc,
+          CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS SalidaDoc,
+          m.estado_id
+      FROM movimiento_detalles md
+      INNER JOIN movimientos m ON md.movimiento_id = m.id
+      INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+      LEFT JOIN personas_comerciales pc ON m.persona_comercial_id = pc.id
+      LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+      WHERE md.producto_id = @ProductoId
+          AND m.fecha_movimiento >= @FechaDesde
+          AND m.fecha_movimiento <= @FechaHasta
+          AND m.estado_id != 2
+      ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -82,16 +114,20 @@ namespace AplicativoDeAlmacen.Services
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
-                        decimal saldoAcumulado = 0;
+                        // AQUÍ ESTABA EL ERROR: Debe arrancar con el saldo acumulado previo calculado en el bloque 1
+                        decimal saldoAcumulado = reporte.SaldoInicial;
                         decimal totalIngresos = 0;
-                        decimal totalDevIngresos = 0;
                         decimal totalSalidas = 0;
-                        decimal totalDevSalidas = 0;
+
+                        reporte.Detalles = new List<KardexFisicoItem>();
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
                             bool isAnulado = false;
                             try { isAnulado = !reader.IsDBNull(reader.GetOrdinal("estado_id")) && reader.GetInt32(reader.GetOrdinal("estado_id")) == 2; } catch { isAnulado = false; }
+
+                            decimal ingresoNormalFila = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("IngresoDoc"));
+                            decimal salidaNormalFila = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDoc"));
 
                             var item = new KardexFisicoItem
                             {
@@ -100,39 +136,34 @@ namespace AplicativoDeAlmacen.Services
                                 Registro = $"{(reader.IsDBNull(3) ? "" : reader.GetString(3))}-{(reader.IsDBNull(4) ? "" : reader.GetString(4))}",
                                 Guia = $"{(reader.IsDBNull(5) ? "" : reader.GetString(5))}-{(reader.IsDBNull(6) ? "" : reader.GetString(6))}",
                                 RazonSocialUbicacion = !reader.IsDBNull(7) ? reader.GetString(7) : (!reader.IsDBNull(8) ? reader.GetString(8) : ""),
-                                IngresoDevolucion = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("IngresoDev")),
-                                IngresoNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("IngresoDoc")),
-                                SalidaDevolucion = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDev")),
-                                SalidaNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDoc")),
+                                IngresoNormal = ingresoNormalFila,
+                                SalidaNormal = salidaNormalFila,
                                 IsAnulado = isAnulado
                             };
 
                             if (!item.IsAnulado)
                             {
-                                totalIngresos += item.IngresoNormal;
-                                totalDevIngresos += item.IngresoDevolucion;
-                                totalSalidas += item.SalidaNormal;
-                                totalDevSalidas += item.SalidaDevolucion;
+                                totalIngresos += ingresoNormalFila;
+                                totalSalidas += salidaNormalFila;
 
-                                // El stock final neto calcula sumando ingresos reales y restando salidas reales junto a sus respectivas devoluciones
-                                saldoAcumulado += (item.IngresoNormal + item.IngresoDevolucion) - (item.SalidaNormal + item.SalidaDevolucion);
+                                // Acumula correctamente sumando ingresos y restando salidas
+                                saldoAcumulado += ingresoNormalFila - salidaNormalFila;
                             }
-                            item.SaldoFinal = saldoAcumulado;
 
+                            item.SaldoFinal = saldoAcumulado;
                             reporte.Detalles.Add(item);
                         }
 
                         reporte.TotalIngresos = totalIngresos;
-                        reporte.TotalDevIngresos = totalDevIngresos;
                         reporte.TotalSalidas = totalSalidas;
-                        reporte.TotalDevSalidas = totalDevSalidas;
+                        reporte.SalidasNetas = totalSalidas;
                         reporte.StockFinal = saldoAcumulado;
                     }
                 }
             }
+
             return reporte;
         }
-
         // =========================================================
         // SALDOS DE PRODUCTOS  (Soportado en SQL Server y MySQL 8.0+)
         // =========================================================
