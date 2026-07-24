@@ -1,26 +1,30 @@
 ﻿#nullable enable
 
+using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Models.Almacen;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Transferencias;
+using AplicativoDeAlmacen.Models.UI;
+using AplicativoDeAlmacen.Services;
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Globalization;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Windows.Input;
-using System.Collections.Generic;
-using AplicativoDeAlmacen.Core;
-using AplicativoDeAlmacen.Services;
 // Alias explícito: usamos Growl directo desde HandyControl.Controls sin
 // importar todo el namespace, porque HandyControl también tiene su propia
 // clase "Window" que choca (CS0104) con System.Windows.Window de WPF,
 // que es la que usa esta clase (MainShell : Window).
 using Growl = HandyControl.Controls.Growl;
-using System.Collections.ObjectModel;
-using System.IO;
-using System.Text.Json;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -33,33 +37,208 @@ namespace AplicativoDeAlmacen.Views
         private string _rutaArchivoNotas;
         private readonly bool isAdmin;
 
+        private readonly TransaccionesService _transaccionesService = new TransaccionesService();
+        private DispatcherTimer _timerPollingTransacciones;
+        private int _ultimoConteoPendientes = -1;
+
+        private void IniciarPollingTransacciones()
+        {
+            _timerPollingTransacciones = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(12) // Revisa la BD cada 12 segundos
+            };
+            _timerPollingTransacciones.Tick += async (s, e) => await VerificarNuevasTransaccionesAsync();
+            _timerPollingTransacciones.Start();
+
+            // Primera verificación al abrir
+            _ = VerificarNuevasTransaccionesAsync();
+        }
         public MainShell(string userNames, bool isAdmin)
         {
             InitializeComponent();
             this.isAdmin = isAdmin;
             EventBus.OnRolesPermisosChanged += EventBus_OnRolesPermisosChanged;
+
             SetupWelcomeMessage(userNames);
             StartClock();
 
-            // 1. Si es Admin maestro pero por alguna razón no tiene lista de permisos, cargamos un acceso temporal
-            if (SesionSistema.UsuarioActual?.RolUsuarioId == 1 && (SesionSistema.PermisosActuales == null || !SesionSistema.PermisosActuales.Any()))
+            // 🌟 1. CONFIGURAR EL COMBOBOX DE ALMACENES
+            CboAlmacenBarra.ItemsSource = SesionSistema.AlmacenesPermitidos;
+            CboAlmacenBarra.SelectionChanged -= CboAlmacenBarra_SelectionChanged;
+            if (SesionSistema.AlmacenActual != null)
             {
-                // Aquí podrías forzar la carga de todos los módulos para el super admin si tu servicio devuelve lista vacía
+                CboAlmacenBarra.SelectedValue = SesionSistema.AlmacenActual.Id;
+            }
+            CboAlmacenBarra.SelectionChanged += CboAlmacenBarra_SelectionChanged;
+
+            if (SesionSistema.AlmacenesPermitidos.Count <= 1)
+            {
+                CboAlmacenBarra.IsEnabled = false;
             }
 
+            // 🌟 2. PINTAR EL MENÚ SUPERIOR DINÁMICO
             try
             {
                 ConstruirMenuDinamico();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"ERROR EN MENÚ:\n{ex.GetType().Name}\n{ex.Message}\n\nStackTrace:\n{ex.StackTrace}", "Debug Menú", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"ERROR AL CONSTRUIR MENÚ:\n{ex.Message}", "Debug Menú", MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             MostrarBienvenida(userNames, isAdmin);
             CargarNotasLocales();
+
+            // 🔔 3. INICIAR LA REVISIÓN DE NOTIFICACIONES PARA CUALQUIER USUARIO (ADMIN O ALMACENERO)
+            IniciarPollingTransacciones();
+        }
+        private async Task VerificarNuevasTransaccionesAsync()
+        {
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            int pendientes = await _transaccionesService.ContarTransferenciasPendientesAsync(miAlmacenId);
+
+            // Actualizamos el número del Badge en la UI
+            BadgeNotificaciones.Value = pendientes;
+
+            // 🔔 SI LLEGÓ UNA NUEVA TRANSFERENCIA: Reproducir sonido y lanzar alerta emergente
+            if (_ultimoConteoPendientes != -1 && pendientes > _ultimoConteoPendientes)
+            {
+                ReproducirSonidoNotificacion();
+
+                Growl.Info(new HandyControl.Data.GrowlInfo
+                {
+                    Message = $"📦 ¡Atención! Se ha registrado una nueva Transferencia Entrante enviada a esta sede.",
+                    WaitTime = 5,
+                    ActionBeforeClose = (isConfirm) =>
+                    {
+                        PopupBandeja.IsOpen = true;
+                        _ = CargarListaBandejaAsync();
+                        return true;
+                    }
+                });
+            }
+
+            _ultimoConteoPendientes = pendientes;
         }
 
+        private void ReproducirSonidoNotificacion()
+        {
+            try
+            {
+                // Utiliza el sonido Asterisk/Notification nativo de Windows (sin archivos .wav externos)
+                System.Media.SystemSounds.Asterisk.Play();
+            }
+            catch { }
+        }
+
+        private async void BtnBandejaTransacciones_Click(object sender, RoutedEventArgs e)
+        {
+            PopupBandeja.IsOpen = !PopupBandeja.IsOpen;
+            if (PopupBandeja.IsOpen)
+            {
+                await CargarListaBandejaAsync();
+            }
+        }
+
+        private async void BtnRefrescarBandeja_Click(object sender, RoutedEventArgs e)
+        {
+            await CargarListaBandejaAsync();
+        }
+
+        private async Task CargarListaBandejaAsync()
+        {
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+            var lista = await _transaccionesService.ObtenerBandejaTransaccionesAsync(miAlmacenId);
+            LstTransaccionesBandeja.ItemsSource = lista;
+        }
+
+        private void BtnAtenderTransferencia_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is TransaccionHeaderDTO transferencia)
+            {
+                PopupBandeja.IsOpen = false;
+
+                var vistaIngreso = new IngresoUserControl();
+
+                // 🌟 Pasa el MovimientoId único (ID primario de la tabla movimientos)
+                vistaIngreso.CargarDocumentoParaConsulta(transferencia.MovimientoId);
+
+                AbrirPestaña($"📥 Recepción: {transferencia.GuiaRemision}", vistaIngreso);
+            }
+        }
+        private void SetupWelcomeMessage(string userNames)
+        {
+            string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "Almacén General";
+            WelcomeMessage.Text = $"Bienvenido(a), {userNames} ({nombreAlmacen})";
+
+            // 🌟 Evaluación directa usando el booleano del Login
+            if (this.isAdmin)
+            {
+                UserRoleIcon.Text = "👑"; // Corona para Administrador
+            }
+            else
+            {
+                UserRoleIcon.Text = "📦"; // Caja para Almacenero
+            }
+        }
+        private void CargarDatosUsuario(Usuario usuarioActual)
+        {
+            WelcomeMessage.Text = $"Bienvenido(a), {usuarioActual.Username}";
+
+            // 🌟 Se agrega .ToString() antes de .ToLower() para evitar el choque con MemoryExtensions
+            string rolTexto = usuarioActual.Rol?.ToString()?.ToLower() ?? "";
+
+            switch (rolTexto)
+            {
+                case "administrador":
+                case "admin":
+                    UserRoleIcon.Text = "👑"; // Corona
+                    break;
+
+                case "almacenero":
+                case "almacen":
+                    UserRoleIcon.Text = "📦"; // Caja
+                    break;
+
+                default:
+                    UserRoleIcon.Text = "👤";
+                    break;
+            }
+        }
+
+        private async void CboAlmacenBarra_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CboAlmacenBarra.SelectedItem is Almacen nuevoAlmacen)
+            {
+                if (SesionSistema.AlmacenActual?.Id == nuevoAlmacen.Id) return;
+
+                // 1. Actualizamos el almacén activo en la sesión
+                SesionSistema.AlmacenActual = nuevoAlmacen;
+
+                // 2. 🌟 SEGURIDAD: CERRAR TODAS LAS PESTAÑAS ABIERTAS PARA EVITAR CRUCE DE DATOS
+                CerrarTodasLasPestanasSecundarias();
+
+                // 3. Actualizamos la cabecera
+                string usuarioNombre = SesionSistema.UsuarioActual?.Nombres ?? "Usuario";
+                WelcomeMessage.Text = $"Bienvenido(a), {usuarioNombre} ({nuevoAlmacen.Nombre})";
+
+                // 4. 🔔 Forzamos la consulta de la bandeja para la nueva sede
+                _ultimoConteoPendientes = -1;
+                await VerificarNuevasTransaccionesAsync();
+
+                Growl.Info($"🔄 Sede cambiada a: {nuevoAlmacen.Nombre}. Se han cerrado las pestañas previas por seguridad.");
+            }
+        }
+
+        private void CerrarTodasLasPestanasSecundarias()
+        {
+            // Mantiene únicamente la primera pestaña ("Panel Principal")
+            for (int i = MainTabControl.Items.Count - 1; i > 0; i--)
+            {
+                MainTabControl.Items.RemoveAt(i);
+            }
+        }
         // Notificación de bienvenida con el nombre de la persona y su rol.
         // Se dispara una sola vez, justo cuando MainShell termina de armarse,
         // y usa Dispatcher para asegurarse de que la ventana (y su Growl)
@@ -257,9 +436,10 @@ namespace AplicativoDeAlmacen.Views
         // MÉTODOS BASE (Reloj, Bienvenida, Motor de Pestañas)
         // ==============================================================
 
-        private void SetupWelcomeMessage(string userNames)
+        private void SetupWelcomeMessage(string userNames, string nombreAlmacen)
         {
-            WelcomeMessage.Text = $"Bienvenido(a), {userNames}";
+            // Muestra en la cabecera superior derecha o en la barra inferior
+            WelcomeMessage.Text = $"Bienvenido(a), {userNames} ({nombreAlmacen})";
         }
 
         private void StartClock()

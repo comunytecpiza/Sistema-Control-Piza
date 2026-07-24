@@ -9,6 +9,19 @@ using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Services
 {
+    // DTO para la Auditoría Completa del Modal de Administrador
+    public class CodigoAuditoriaDTO
+    {
+        public int Id { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string CondicionNombre { get; set; } = string.Empty;
+        public string AlmacenNombre { get; set; } = string.Empty;
+        public string UsuarioCreador { get; set; } = string.Empty;
+        public string OrigenCreacion { get; set; } = string.Empty;
+        public DateTime FechaCreacion { get; set; }
+        public bool PermitirSalida { get; set; }
+    }
+
     public class CodigoCreadoService
     {
         private readonly DatabaseConnection _database;
@@ -26,7 +39,8 @@ namespace AplicativoDeAlmacen.Services
             cmd.Parameters.Add(p);
         }
 
-        public async Task<List<CodigoCreado>> ObtenerPorRegistroIdAsync(int registroCodigoId)
+        // 🌟 CONSULTA DE CÓDIGOS CON FILTRO POR ALMACÉN DE SESIÓN
+        public async Task<List<CodigoCreado>> ObtenerPorRegistroIdAsync(int registroCodigoId, int? almacenIdFiltro = null)
         {
             var lista = new List<CodigoCreado>();
 
@@ -36,15 +50,28 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string query = @"
-                    SELECT id, registro_codigo_id, codigo, es_manual, estado_id
-                    FROM codigos_creados
-                    WHERE registro_codigo_id = @id
-                    ORDER BY codigo ASC"; // Ordenamos por código para mantener la secuencia visual
+                    SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id, 
+                           cc.condicion_id, cc.almacen_id, cc.usuario_id, cc.origen_creacion, cc.created_at,
+                           cond.nombre as condicion_nombre
+                    FROM codigos_creados cc
+                    INNER JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
+                    WHERE cc.registro_codigo_id = @id";
+
+                if (almacenIdFiltro.HasValue)
+                {
+                    query += " AND cc.almacen_id = @almacenId";
+                }
+
+                query += " ORDER BY cc.codigo ASC";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                     AgregarParametro(cmd, "@id", registroCodigoId);
+                    if (almacenIdFiltro.HasValue)
+                    {
+                        AgregarParametro(cmd, "@almacenId", almacenIdFiltro.Value);
+                    }
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
@@ -52,11 +79,16 @@ namespace AplicativoDeAlmacen.Services
                         {
                             lista.Add(new CodigoCreado
                             {
-                                Id = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
-                                RegistroCodigoId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                                Id = reader.GetInt32(0),
+                                RegistroCodigoId = reader.GetInt32(1),
                                 Codigo = reader.IsDBNull(2) ? "SIN CÓDIGO" : reader.GetString(2),
                                 EsManual = reader.IsDBNull(3) ? false : reader.GetBoolean(3),
-                                EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
+                                EstadoId = reader.GetInt32(4),
+                                CondicionId = reader.GetInt32(5),
+                                AlmacenId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                                UsuarioId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                                OrigenCreacion = reader.IsDBNull(8) ? "SECUENCIA" : reader.GetString(8),
+                                CreatedAt = reader.GetDateTime(9)
                             });
                         }
                     }
@@ -65,7 +97,80 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        // 🌟 NUEVO MÉTODO: Evita duplicados a nivel de base de datos
+        // 🌟 CAMBIAR CONDICIÓN POR RANGO (Ej: De correlativo 10 a 20)
+        public async Task<int> CambiarCondicionPorRangoAsync(int registroCodigoId, int desdeNum, int hastaNum, int nuevaCondicionId, int usuarioModificadorId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"
+                    UPDATE codigos_creados 
+                    SET condicion_id = @condicionId, 
+                        usuario_id = @usuarioId 
+                    WHERE registro_codigo_id = @rid 
+                      AND ISNUMERIC(RIGHT(codigo, 7)) = 1 
+                      AND CAST(RIGHT(codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@condicionId", nuevaCondicionId);
+                    AgregarParametro(cmd, "@usuarioId", usuarioModificadorId);
+                    AgregarParametro(cmd, "@rid", registroCodigoId);
+                    AgregarParametro(cmd, "@desde", desdeNum);
+                    AgregarParametro(cmd, "@hasta", hastaNum);
+
+                    return await cmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+
+        // 🌟 OBTENER AUDITORÍA COMPLETA PARA EL MODAL DE ADMINISTRADOR
+        public async Task<CodigoAuditoriaDTO?> ObtenerAuditoriaCompletaAsync(int codigoId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"
+                    SELECT cc.id, cc.codigo, cond.nombre AS condicion, ISNULL(a.nombre, 'Sin Almacén') AS almacen,
+                           ISNULL(u.nombres, 'SISTEMA') AS usuario, cc.origen_creacion, cc.created_at, cond.permitir_salida
+                    FROM codigos_creados cc
+                    INNER JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
+                    LEFT JOIN almacenes a ON cc.almacen_id = a.id
+                    LEFT JOIN usuarios u ON cc.usuario_id = u.id
+                    WHERE cc.id = @id";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@id", codigoId);
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
+                        {
+                            return new CodigoAuditoriaDTO
+                            {
+                                Id = reader.GetInt32(0),
+                                Codigo = reader.GetString(1),
+                                CondicionNombre = reader.GetString(2),
+                                AlmacenNombre = reader.GetString(3),
+                                UsuarioCreador = reader.GetString(4),
+                                OrigenCreacion = reader.IsDBNull(5) ? "SECUENCIA" : reader.GetString(5),
+                                FechaCreacion = reader.GetDateTime(6),
+                                PermitirSalida = Convert.ToBoolean(reader[7])
+                            };
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
         public async Task<bool> ExisteCodigoAsync(int registroId, string codigo)
         {
             using (var conn = _database.GetConnection())
@@ -73,7 +178,6 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // Verificamos si este código ya existe para el mismo producto (incluso en otros lotes)
                 string query = @"
                     SELECT COUNT(1) 
                     FROM codigos_creados cc
@@ -93,7 +197,7 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        public async Task RegistrarManualAsync(int registroId, string codigo)
+        public async Task RegistrarManualAsync(int registroId, string codigo, int usuarioId, int almacenId)
         {
             using (var conn = _database.GetConnection())
             {
@@ -101,118 +205,19 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string query = @"
-                    INSERT INTO codigos_creados (registro_codigo_id, codigo, es_manual, estado_id)
-                    VALUES (@rid, @cod, 1, 1)"; // es_manual = 1
+                    INSERT INTO codigos_creados 
+                    (registro_codigo_id, codigo, es_manual, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at)
+                    VALUES (@rid, @cod, 1, 1, 1, @almId, @usrId, 'MANUAL', GETDATE())";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                     AgregarParametro(cmd, "@rid", registroId);
                     AgregarParametro(cmd, "@cod", codigo);
+                    AgregarParametro(cmd, "@almId", almacenId);
+                    AgregarParametro(cmd, "@usrId", usuarioId);
 
                     await cmd.ExecuteNonQueryAsync();
-                }
-            }
-        }
-
-        public async Task EliminarAsync(int id)
-        {
-            using (var conn = _database.GetConnection())
-            {
-                var dbConn = (DbConnection)conn;
-                await dbConn.OpenAsync();
-
-                string query = "DELETE FROM codigos_creados WHERE id = @id";
-
-                using (var cmd = dbConn.CreateCommand())
-                {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                    AgregarParametro(cmd, "@id", id);
-                    await cmd.ExecuteNonQueryAsync();
-                }
-            }
-        }
-
-
-        public async Task<int> ObtenerIdCodigoPorTextoAsync(string codigo)
-        {
-            using (var conn = _database.GetConnection())
-            {
-                var dbConn = (DbConnection)conn;
-                if (dbConn.State != System.Data.ConnectionState.Open)
-                    await dbConn.OpenAsync();
-
-                string query = "SELECT id FROM codigos_creados WHERE codigo = @codigo";
-
-                using (var cmd = dbConn.CreateCommand())
-                {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-
-                    // Asegúrate de pasar el valor correctamente
-                    AgregarParametro(cmd, "@codigo", codigo);
-
-                    // Usamos ExecuteScalarAsync para no bloquear el hilo de la UI
-                    object result = await cmd.ExecuteScalarAsync();
-
-                    return result != null ? Convert.ToInt32(result) : 0;
-                }
-            }
-        }
-
-        public async Task<CodigoCreado?> ObtenerPorCodigoExactoAsync(string codigo)
-        {
-            using (var conn = _database.GetConnection())
-            {
-                var dbConn = (DbConnection)conn;
-                await dbConn.OpenAsync();
-
-                // Esta búsqueda es simple y directa, sin filtros de estado
-                string query = "SELECT id, registro_codigo_id, codigo, es_manual, estado_id FROM codigos_creados WHERE codigo = @cod";
-
-                using (var cmd = dbConn.CreateCommand())
-                {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                    AgregarParametro(cmd, "@cod", codigo);
-                    using (var reader = await cmd.ExecuteReaderAsync())
-                    {
-                        if (await reader.ReadAsync())
-                        {
-                            return new CodigoCreado
-                            {
-                                Id = reader.GetInt32(0),
-                                Codigo = reader.GetString(2),
-                                EstadoId = reader.GetInt32(4)
-                            };
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-
-        public async Task<int> ObtenerIdCodigoPorProductoAsync(string codigo, int productoId)
-        {
-            using (var conn = _database.GetConnection())
-            {
-                var dbConn = (DbConnection)conn;
-                if (dbConn.State != System.Data.ConnectionState.Open)
-                    await dbConn.OpenAsync();
-
-                // 🌟 Esta consulta es la clave: busca por código Y por el ID de producto
-                string query = @"SELECT cc.id 
-                         FROM codigos_creados cc
-                         INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                         WHERE cc.codigo = @codigo 
-                         AND rc.producto_id = @prodId";
-
-                using (var cmd = dbConn.CreateCommand())
-                {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                    AgregarParametro(cmd, "@codigo", codigo);
-                    AgregarParametro(cmd, "@prodId", productoId);
-
-                    object result = await cmd.ExecuteScalarAsync();
-                    return result != null ? Convert.ToInt32(result) : 0;
                 }
             }
         }

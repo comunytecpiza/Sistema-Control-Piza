@@ -1,13 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Threading.Tasks;
+﻿using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Ubicaciones;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -380,7 +381,6 @@ namespace AplicativoDeAlmacen.Views
             if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Consultando..."; }
             Mouse.OverrideCursor = Cursors.Wait;
 
-
             try
             {
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
@@ -389,19 +389,28 @@ namespace AplicativoDeAlmacen.Views
                 string? filtroRazon = ChkRazonSocial.IsChecked == true ? TxtRazonSocial.Text : null;
                 string? filtroUbicacion = ChkUbicacion.IsChecked == true ? TxtUbicacion.Text : null;
 
-                // 🌟 EVALUAR EL ID DE CATEGORÍA SEGÚN EL RADIOBUTTON
                 int? categoriaIdFiltro = null;
-                if (RbGuia != null && RbGuia.IsChecked == true)
-                {
-                    categoriaIdFiltro = 1; // 1 = Libros Guía
-                }
-                else if (RbVenta != null && RbVenta.IsChecked == true)
-                {
-                    categoriaIdFiltro = 2; // 2 = Libros Venta
-                }
-                // 🌟 CONSULTA CON LA CATEGORÍA A NIVEL DE CÓDIGOS DE BASE DE DATOS
+                if (RbGuia != null && RbGuia.IsChecked == true) categoriaIdFiltro = 1;
+                else if (RbVenta != null && RbVenta.IsChecked == true) categoriaIdFiltro = 2;
+
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                // 🌟 ORDEN DE PARÁMETROS CORREGIDO (Llama a KardexService con el orden exacto de sus argumentos):
+                // 1: productoId (int)
+                // 2: fechaDesde (DateTime)
+                // 3: fechaHasta (DateTime)
+                // 4: razonSocial (string?)
+                // 5: ubicacion (string?)
+                // 6: categoriaProductoId (int?)
+                // 7: almacenId (int)
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(
-                    _productoSeleccionadoId, desde, hasta, filtroRazon, filtroUbicacion, categoriaIdFiltro);
+                    _productoSeleccionadoId,
+                    desde,
+                    hasta,
+                    filtroRazon,
+                    filtroUbicacion,
+                    categoriaIdFiltro,
+                    miAlmacenId);
 
                 _todosLosMovimientosRaw = reporte.Movimientos;
                 _todosLosCodigos = reporte.Codigos;
@@ -418,7 +427,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        
+
 
         // 🌟 Muestra los códigos que le quedan actualmente en su poder al hacer clic en la tarjeta de saldo
         private void CardSaldoEnPoder_Click(object sender, MouseButtonEventArgs e)

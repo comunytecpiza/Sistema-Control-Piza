@@ -1,11 +1,15 @@
-﻿using AplicativoDeAlmacen.Data;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Data.Common;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -27,25 +31,28 @@ namespace AplicativoDeAlmacen.Views
         public bool FueGrabado { get; private set; } = false;
 
         private readonly ProductoService _productoService;
+        private readonly DatabaseConnection _database;
         public Producto _productoSeleccionado = null;
         public ObservableCollection<RangoCodigoItem> ListaRangosAgregados { get; private set; }
         public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; }
+
+        // Copia de respaldo para comparar los códigos originales antes de editar
+        private List<RangoCodigoItem> _rangosOriginalesEdicion = new List<RangoCodigoItem>();
 
         public AgregarItemWindow()
         {
             InitializeComponent();
 
             _productoService = new ProductoService();
+            _database = new DatabaseConnection();
             ListaRangosAgregados = new ObservableCollection<RangoCodigoItem>();
 
-            
             dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
             dgDetalleCodigos.MouseDoubleClick += DgDetalleCodigos_MouseDoubleClick;
 
             txtProducto.TextChanged += TxtProducto_TextChanged;
             lstSugerenciasProductos.SelectionChanged += LstSugerenciasProductos_SelectionChanged;
 
-            // 🌟 La caja de cantidad SIEMPRE permanece editable para el operador
             txtCantidad.IsReadOnly = false;
 
             txtBuscarRangoInterno.TextChanged += (s, e) =>
@@ -70,28 +77,29 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                using var conn = new DatabaseConnection().GetConnection();
-                var dbConn = (System.Data.Common.DbConnection)conn;
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
+                // 🌟 CAPTURAMOS EL ALMACÉN DE LA SESIÓN DEL USUARIO ACTUAL (ej. Lima = 2)
+                int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                // 🌟 CONSULTA DIRECTA A LA TABLA MULTI-ALMACÉN 'stock_almacen'
                 string query = @"
-            SELECT ISNULL(SUM(cantidad_ingreso - cantidad_salida), 0)
-            FROM movimiento_detalles md WITH (NOLOCK)
-            INNER JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id
-            WHERE md.producto_id = @productoId AND m.estado_id != 2";
+            SELECT ISNULL(stock_actual, 0)
+            FROM stock_almacen WITH (NOLOCK)
+            WHERE producto_id = @productoId AND almacen_id = @almacenId";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-                var param = cmd.CreateParameter();
-                param.ParameterName = "@productoId";
-                param.Value = productoId;
-                cmd.Parameters.Add(param);
+                var pProd = cmd.CreateParameter(); pProd.ParameterName = "@productoId"; pProd.Value = productoId; cmd.Parameters.Add(pProd);
+                var pAlm = cmd.CreateParameter(); pAlm.ParameterName = "@almacenId"; pAlm.Value = almacenActualId; cmd.Parameters.Add(pAlm);
 
                 object result = await cmd.ExecuteScalarAsync();
-                decimal stock = (result != null && result != DBNull.Value) ? Convert.ToDecimal(result) : 0m;
+                int stockLocal = (result != null && result != DBNull.Value) ? Convert.ToInt32(result) : 0;
 
-                txtStockDisponible.Text = Convert.ToInt32(stock).ToString();
+                txtStockDisponible.Text = stockLocal.ToString();
             }
             catch
             {
@@ -99,10 +107,8 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-
         private void RecalcularCantidadTotalEnVivo()
         {
-            // 🛡️ REGLA: Si el usuario ya digitó una cantidad manual mayor a 0 (ej. 10), NO la pisamos.
             if (int.TryParse(txtCantidad.Text, out int actual) && actual > 0)
             {
                 return;
@@ -114,6 +120,7 @@ namespace AplicativoDeAlmacen.Views
                 txtCantidad.Text = sumaTotal.ToString();
             }
         }
+
         public void InitializeForEdit(VistaProductoGrid item, List<RangoCodigoItem> rangos)
         {
             if (item == null) return;
@@ -143,6 +150,8 @@ namespace AplicativoDeAlmacen.Views
             txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
 
             ListaRangosAgregados.Clear();
+            _rangosOriginalesEdicion.Clear();
+
             if (rangos != null)
             {
                 foreach (var r in rangos)
@@ -176,7 +185,7 @@ namespace AplicativoDeAlmacen.Views
 
                     string txtCantidadRango = string.IsNullOrEmpty(r.Cantidad) || r.Cantidad == "0" ? cantCalcular.ToString() : r.Cantidad;
 
-                    ListaRangosAgregados.Add(new RangoCodigoItem
+                    var nuevoRangoItem = new RangoCodigoItem
                     {
                         Cantidad = txtCantidadRango,
                         Desde = txtDesde,
@@ -187,11 +196,22 @@ namespace AplicativoDeAlmacen.Views
                         CategoriaProductoId = categoriaId,
                         AbreviaturaBase = abrev,
                         productoId = r.productoId == 0 ? item.ProductoId : r.productoId
+                    };
+
+                    ListaRangosAgregados.Add(nuevoRangoItem);
+
+                    // Guardamos una copia exacta para saber qué teníamos al iniciar la edición
+                    _rangosOriginalesEdicion.Add(new RangoCodigoItem
+                    {
+                        DesdeNum = desdeN,
+                        HastaNum = hastaN,
+                        CategoriaProductoId = categoriaId,
+                        AbreviaturaBase = abrev,
+                        productoId = nuevoRangoItem.productoId
                     });
                 }
             }
 
-            // 🌟 Mantiene la cantidad original del item sin ser pisada por los rangos parciales
             decimal cantidadOriginal = item.Detalle != null ? (item.Detalle.CantidadIngreso > 0 ? item.Detalle.CantidadIngreso : item.Detalle.CantidadSalida) : item.Cantidad;
             txtCantidad.Text = cantidadOriginal > 0 ? Convert.ToInt32(cantidadOriginal).ToString() : ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0).ToString();
 
@@ -249,7 +269,6 @@ namespace AplicativoDeAlmacen.Views
                     ? producto.PrecioUnitario.Value.ToString("F2")
                     : "0.00";
 
-                // 🌟 CONSULTAR STOCK EN VIVO
                 await CargarStockActualProductoAsync(producto.Id);
 
                 if (string.IsNullOrWhiteSpace(producto.Abreviatura))
@@ -319,9 +338,8 @@ namespace AplicativoDeAlmacen.Views
 
                 if (ventanaCodigo.ShowDialog() == true && ventanaCodigo.FueConfirmado)
                 {
-                    // 🛡️ BLOQUEO DE SEGURIDAD CONTRA CLICS EN FALSO
                     this.Cursor = Cursors.Wait;
-                    btnGrabar.IsEnabled = false; // Bloquea guardar mientras procesa el cambio
+                    btnGrabar.IsEnabled = false;
 
                     RangoCodigoItem nuevoRango = ventanaCodigo.RangoProcesado;
                     if (nuevoRango != null)
@@ -329,11 +347,9 @@ namespace AplicativoDeAlmacen.Views
                         ListaRangosAgregados.Add(nuevoRango);
                     }
 
-                    // ⚡ REFRESCO INSTANTÁNEO FORZADO
                     dgDetalleCodigos.Items.Refresh();
                     RecalcularCantidadTotalEnVivo();
 
-                    // Liberamos el bloqueo de inmediato
                     btnGrabar.IsEnabled = true;
                     this.Cursor = Cursors.Arrow;
                 }
@@ -344,6 +360,61 @@ namespace AplicativoDeAlmacen.Views
                 btnGrabar.IsEnabled = true;
                 MessageBox.Show($"Error al abrir la ventana de códigos:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        // 🌟 CONSULTA SQL: VERIFICA SI LOS CÓDIGOS QUITADOS REGISTRAN MOVIMIENTOS POSTERIORES
+        // 🌟 CONSULTA SQL CORREGIDA: SOLO DETECTA SALIDAS O DESPACHOS REALES
+        private List<string> ObtenerCodigosConMovimientosPosteriores(int productoId, List<string> codigosQuitados)
+        {
+            var conflictos = new List<string>();
+            if (codigosQuitados == null || !codigosQuitados.Any()) return conflictos;
+
+            try
+            {
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
+
+                foreach (string codStr in codigosQuitados)
+                {
+                    // 🛡️ REGLA: Un código retirado solo se considera en conflicto si:
+                    // 1. Su estado_id actual es 4 (VENDIDO/DESPACHADO) o 5 (EN TRÁNSITO)
+                    // 2. O si participa en un movimiento de SALIDA (tipo_movimiento_id = 2) que no esté anulado
+                    string query = @"
+                SELECT COUNT(*)
+                FROM codigos_creados cc WITH (NOLOCK)
+                LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                LEFT JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                WHERE cc.codigo = @codigoExacto
+                  AND (
+                      cc.estado_id IN (4, 5) -- Vendido o En Tránsito
+                      OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2) -- Registrado en Salidas activas
+                  )";
+
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                    var p = cmd.CreateParameter();
+                    p.ParameterName = "@codigoExacto";
+                    p.Value = codStr;
+                    cmd.Parameters.Add(p);
+
+                    object res = cmd.ExecuteScalar();
+                    int count = (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
+
+                    if (count > 0)
+                    {
+                        conflictos.Add(codStr);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al consultar trazabilidad: {ex.Message}");
+            }
+
+            return conflictos;
         }
 
         private void BtnGrabar_Click(object sender, RoutedEventArgs e)
@@ -376,10 +447,8 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 🌟 SUMA TOTAL DE CÓDIGOS AGREGADOS ABAJO EN LA TABLA
                 int totalCodigosUnicosRegistrados = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
 
-                // 🛡️ CANDADO DE DESCUADRE (Compara Cantidad General vs Suma de Rangos):
                 if (cantidadDeclarada != totalCodigosUnicosRegistrados)
                 {
                     string detalleDiferencia = cantidadDeclarada < totalCodigosUnicosRegistrados
@@ -396,7 +465,55 @@ namespace AplicativoDeAlmacen.Views
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
 
-                    return; // 🛑 Cancela el guardado
+                    return;
+                }
+
+                // 🌟 BARRERA DE SEGURIDAD AL GUARDAR ÍTEM:
+                // Evaluamos los códigos que estaban al inicio de la edición vs los que quedaron ahora en ListaRangosAgregados
+                if (IsEdit && _rangosOriginalesEdicion.Any())
+                {
+                    var codigosOriginales = new HashSet<string>();
+                    foreach (var r in _rangosOriginalesEdicion)
+                    {
+                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                        {
+                            codigosOriginales.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                        }
+                    }
+
+                    var codigosActuales = new HashSet<string>();
+                    foreach (var r in ListaRangosAgregados)
+                    {
+                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                        {
+                            codigosActuales.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                        }
+                    }
+
+                    // Obtenemos únicamente los códigos que el usuario retiró al editar o fraccionar
+                    var codigosQuitados = codigosOriginales.Where(c => !codigosActuales.Contains(c)).ToList();
+
+                    if (codigosQuitados.Any())
+                    {
+                        // Consultamos a la BD si alguno de los retirados tiene devoluciones/movimientos posteriores
+                        var conflictos = ObtenerCodigosConMovimientosPosteriores(this._productoSeleccionado.Id, codigosQuitados);
+
+                        if (conflictos.Any())
+                        {
+                            MessageBox.Show(
+                                $"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\n" +
+                                $"No se pueden quitar los siguientes códigos del producto porque ya registran reingresos o devoluciones posteriores:\n\n" +
+                                $"{string.Join("\n", conflictos.Select(c => $"• {c}"))}\n\n" +
+                                $"Si necesita retirar estos códigos, primero debe anular o modificar las devoluciones asociadas.",
+                                "Restricción de Kárdex",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Warning);
+
+                            return; // 🛑 Impide cerrar o guardar la ventana azul
+                        }
+                    }
                 }
             }
 
@@ -461,9 +578,8 @@ namespace AplicativoDeAlmacen.Views
 
                 if (ventanaEdicion.ShowDialog() == true && ventanaEdicion.FueConfirmado)
                 {
-                    // 🛡️ BLOQUEO DE SEGURIDAD CONTRA CLICS EN FALSO
                     this.Cursor = Cursors.Wait;
-                    btnGrabar.IsEnabled = false; // Evita que guarden a medias
+                    btnGrabar.IsEnabled = false;
 
                     RangoCodigoItem rangoModificado = ventanaEdicion.RangoProcesado;
                     int index = ListaRangosAgregados.IndexOf(rangoSeleccionado);
@@ -472,11 +588,9 @@ namespace AplicativoDeAlmacen.Views
                         ListaRangosAgregados[index] = rangoModificado;
                     }
 
-                    // ⚡ REFRESCO INSTANTÁNEO FORZADO EN MEMORIA
                     dgDetalleCodigos.Items.Refresh();
                     RecalcularCantidadTotalEnVivo();
 
-                    // Restauramos los controles al instante
                     btnGrabar.IsEnabled = true;
                     this.Cursor = Cursors.Arrow;
                 }

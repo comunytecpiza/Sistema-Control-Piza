@@ -1,13 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Threading.Tasks;
+﻿using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Reportes;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -63,10 +64,8 @@ namespace AplicativoDeAlmacen.Views
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
-            // 🛡️ CANDADO UX: Evita consultas dobles a la base de datos
             if (_isCargando) return;
 
-            // Identificamos el botón real (Si vino del teclado, lo buscamos manual)
             Button btnEjecutar = sender as Button;
             string textoOriginal = btnEjecutar?.Content?.ToString() ?? "Ejecutar";
 
@@ -84,10 +83,12 @@ namespace AplicativoDeAlmacen.Views
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                // Llamamos a la base de datos
-                _todosLosSaldos = await _kardexService.ObtenerSaldosYMovimientosAsync(desde, hasta);
+                // 🌟 CORRECCIÓN CRÍTICA: Llamar a ObtenerSaldosYMovimientosAsync con el Almacén activo
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                // Aplicamos el filtro por si el usuario ya había escrito algo
+                _todosLosSaldos = await _kardexService.ObtenerSaldosYMovimientosAsync(desde, hasta, miAlmacenId);
+
+                // Renderizar la tabla y aplicar filtros de texto si los hay
                 FiltrarData();
             }
             catch (Exception ex)
@@ -96,7 +97,6 @@ namespace AplicativoDeAlmacen.Views
             }
             finally
             {
-                // 🔄 Restauramos la UI a la normalidad
                 if (btnEjecutar != null)
                 {
                     btnEjecutar.IsEnabled = true;

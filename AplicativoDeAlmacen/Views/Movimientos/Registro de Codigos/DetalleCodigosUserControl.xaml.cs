@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Core;
@@ -25,7 +27,6 @@ namespace AplicativoDeAlmacen.Views
 
         private void DetalleCodigosUserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            // Llenamos la cabecera principal
             TxtProducto.Text = !string.IsNullOrWhiteSpace(_lote.Producto?.Descripcion) ? _lote.Producto.Descripcion : "Sin Producto";
             TxtCategoria.Text = !string.IsNullOrWhiteSpace(_lote.CategoriaProducto?.Nombre) ? _lote.CategoriaProducto.Nombre : "Sin Categoría";
             TxtRango.Text = $"De {_lote.Desde} a {_lote.Hasta}";
@@ -38,14 +39,17 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                var codigos = await _service.ObtenerPorRegistroIdAsync(_lote.Id);
+                // 🌟 FILTRADO POR ALMACÉN DE SESIÓN: Si es trabajador de Almacén, ve solo los suyos. Si es Admin, ve todos.
+                bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
+                int? filtroAlmacen = esAdmin ? null : SesionSistema.AlmacenActual?.Id;
+
+                var codigos = await _service.ObtenerPorRegistroIdAsync(_lote.Id, filtroAlmacen);
                 CodigosDataGrid.ItemsSource = codigos;
 
-                // Calculamos las Excepciones (Manuales)
-                int excepciones = codigos.Count(c => c.EsManual);
-                TxtExcepciones.Text = $"{excepciones} manuales";
+                // Contar Mermas / Dañados (condicion_id = 2)
+                int mermas = codigos.Count(c => c.CondicionId == 2);
+                TxtExcepciones.Text = $"{mermas} dañados";
 
-                // Calculamos el último código para sugerir el siguiente
                 CalcularSiguienteCodigo(codigos);
             }
             catch (Exception ex)
@@ -54,21 +58,17 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private void CalcularSiguienteCodigo(System.Collections.Generic.List<CodigoCreado> codigos)
+        private void CalcularSiguienteCodigo(List<CodigoCreado> codigos)
         {
             if (codigos == null || codigos.Count == 0)
             {
                 TxtNuevoCodigo.Text = "1";
-                TxtUltimoAviso.Text = "Último: Ninguno";
                 return;
             }
 
             int maxNumero = 0;
-            string prefijo = _lote.Producto?.Abreviatura ?? "COD";
-
             foreach (var cod in codigos)
             {
-                // Extraemos solo el número después del guion
                 if (cod.Codigo != null && cod.Codigo.Contains("-"))
                 {
                     string numeroStr = cod.Codigo.Substring(cod.Codigo.LastIndexOf('-') + 1);
@@ -79,8 +79,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            TxtUltimoAviso.Text = $"Último registrado: {prefijo}-{maxNumero:D7}";
-            TxtNuevoCodigo.Text = (maxNumero + 1).ToString(); // Sugerimos el siguiente
+            TxtNuevoCodigo.Text = (maxNumero + 1).ToString();
         }
 
         private async void BtnRegistrarManual_Click(object sender, RoutedEventArgs e)
@@ -89,7 +88,7 @@ namespace AplicativoDeAlmacen.Views
 
             if (!int.TryParse(input, out int numero))
             {
-                MessageBox.Show("Por favor, ingrese solo el número del código (sin prefijo).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, ingrese solo el número correlativo.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -98,18 +97,19 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                // 🛡️ REGLA: Verificar si el código ya existe antes de hacer nada
                 bool existe = await _service.ExisteCodigoAsync(_lote.Id, codigoCompleto);
                 if (existe)
                 {
-                    MessageBox.Show($"El código {codigoCompleto} YA EXISTE en el sistema. No se permiten duplicados.", "Colisión de Códigos", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    MessageBox.Show($"El código {codigoCompleto} YA EXISTE. No se permiten duplicados.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Stop);
                     return;
                 }
 
-                await _service.RegistrarManualAsync(_lote.Id, codigoCompleto);
+                int usrId = SesionSistema.UsuarioActual?.Id ?? 1;
+                int almId = SesionSistema.AlmacenActual?.Id ?? 1;
 
+                await _service.RegistrarManualAsync(_lote.Id, codigoCompleto, usrId, almId);
                 await CargarCodigosAsync();
-                MessageBox.Show($"Excepción {codigoCompleto} registrada correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show($"Código {codigoCompleto} registrado correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
 
                 EventBus.NotificarRegistroCodigosChanged();
             }
@@ -119,32 +119,75 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private async void BtnEliminarCodigo_Click(object sender, RoutedEventArgs e)
+        // 🌟 CAMBIO DE CONDICIÓN POR RANGO (CONVERTIR A MERMA)
+        private async void BtnConvertirMermaRango_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button button && button.DataContext != null)
+            await ProcesarCambioCondicionRangoAsync(2, "DECLARAR MERMA");
+        }
+
+        private async void BtnRevertirOkRango_Click(object sender, RoutedEventArgs e)
+        {
+            await ProcesarCambioCondicionRangoAsync(1, "REVERTIR A OPERATIVO");
+        }
+
+        private async Task ProcesarCambioCondicionRangoAsync(int nuevaCondicionId, string operacionTexto)
+        {
+            if (!int.TryParse(TxtRangoDesde.Text.Trim(), out int desde) || !int.TryParse(TxtRangoHasta.Text.Trim(), out int hasta))
             {
-                dynamic codigoItem = button.DataContext;
-                int idCodigo = codigoItem.Id;
-                string numeroCodigo = codigoItem.Codigo;
+                MessageBox.Show("Por favor, ingrese números válidos en los campos 'Desde' y 'Hasta'.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
-                MessageBoxResult resultado = MessageBox.Show(
-                    $"¿Está seguro de que desea eliminar permanentemente el código '{numeroCodigo}'?\n\nEsta acción no se puede deshacer.",
-                    "Confirmar Eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (desde > hasta)
+            {
+                MessageBox.Show("El correlativo 'Desde' no puede ser mayor que 'Hasta'.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
-                if (resultado == MessageBoxResult.Yes)
+            if (MessageBox.Show($"¿Está seguro de {operacionTexto} para los correlativos del {desde} al {hasta}?", "Confirmación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                try
                 {
-                    try
-                    {
-                        await _service.EliminarAsync(idCodigo);
-                        await CargarCodigosAsync();
-                        EventBus.NotificarRegistroCodigosChanged();
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show("No se pudo eliminar el código. Es posible que ya tenga movimientos (kardex) asociados.\n\nDetalle: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    }
+                    int usuarioId = SesionSistema.UsuarioActual?.Id ?? 1;
+                    int actualizados = await _service.CambiarCondicionPorRangoAsync(_lote.Id, desde, hasta, nuevaCondicionId, usuarioId);
+
+                    MessageBox.Show($"Operación completada. Se actualizaron {actualizados} códigos.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await CargarCodigosAsync();
+                    EventBus.NotificarRegistroCodigosChanged();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error al actualizar la condición: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
+        }
+
+        // 🌟 MODAL DE AUDITORÍA AL HACER DOBLE CLICK (SOLO ADMINISTRADOR)
+        private async void DataGridRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
+            if (!esAdmin) return; // Si no es Admin, se ignora el doble clic
+
+            if (sender is DataGridRow row && row.Item is CodigoCreado codigoItem)
+            {
+                var audit = await _service.ObtenerAuditoriaCompletaAsync(codigoItem.Id);
+                if (audit != null)
+                {
+                    AudCodigo.Text = audit.Codigo;
+                    AudCondicion.Text = audit.CondicionNombre;
+                    AudAlmacen.Text = audit.AlmacenNombre;
+                    AudUsuario.Text = audit.UsuarioCreador;
+                    AudOrigen.Text = audit.OrigenCreacion;
+                    AudFecha.Text = audit.FechaCreacion.ToString("dd/MM/yyyy HH:mm:ss");
+
+                    ModalAuditoria.Visibility = Visibility.Visible;
+                }
+            }
+        }
+
+        private void BtnCerrarAuditoria_Click(object sender, RoutedEventArgs e)
+        {
+            ModalAuditoria.Visibility = Visibility.Collapsed;
         }
     }
 }

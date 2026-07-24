@@ -1,16 +1,18 @@
 ﻿#nullable enable
 
+using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models.Facturación.AplicativoDeAlmacen.Models.Facturación; // Tu namespace correcto para los modelos
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Transferencias;
+using ClosedXML.Excel;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using ClosedXML.Excel;
-using System.IO;
-using AplicativoDeAlmacen.Data;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Models.Facturación;
-using AplicativoDeAlmacen.Models.Facturación.AplicativoDeAlmacen.Models.Facturación; // Tu namespace correcto para los modelos
 
 namespace AplicativoDeAlmacen.Services.Importaciones
 {
@@ -97,80 +99,233 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             return duplicados;
         }
 
-        public async Task GuardarCodigosImportadosTransactionAsync(int coleccionId, int productoId, int categoriaId, List<string> codigosValidos, int usuarioActivoId, string nombreArchivoExcel, IProgress<int>? progress = null)
+        public async Task GuardarCodigosImportadosTransactionAsync(
+    int coleccionId,
+    int productoId,
+    int categoriaId,
+    List<string> codigosAprobados,
+    int usuarioId,
+    int almacenId,
+    string nombreArchivoOrigen,
+    IProgress<int> progress = null)
         {
-            if (!codigosValidos.Any())
-                throw new Exception("No hay códigos para guardar.");
+            if (codigosAprobados == null || !codigosAprobados.Any()) return;
 
-            using var conn = _database.GetConnection();
-            var dbConn = (DbConnection)conn;
-            await dbConn.OpenAsync();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
 
-            using var trans = dbConn.BeginTransaction();
+                using (var transaction = dbConn.BeginTransaction())
+                {
+                    try
+                    {
+                        int cantidad = codigosAprobados.Count;
+
+                        string codigoDesde = codigosAprobados.First().Replace("'", "-");
+                        string codigoHasta = codigosAprobados.Last().Replace("'", "-");
+
+                        int lastDashDesde = codigoDesde.LastIndexOf('-');
+                        int desdeNum = (lastDashDesde >= 0 && int.TryParse(codigoDesde.Substring(lastDashDesde + 1), out int dNum)) ? dNum : 0;
+
+                        int lastDashHasta = codigoHasta.LastIndexOf('-');
+                        int hastaNum = (lastDashHasta >= 0 && int.TryParse(codigoHasta.Substring(lastDashHasta + 1), out int hNum)) ? hNum : 0;
+
+                        string abreviaturaBase = lastDashDesde >= 0 ? codigoDesde.Substring(0, lastDashDesde) : codigoDesde;
+                        string origenRegistro = $"EXCEL: {nombreArchivoOrigen}";
+
+                        // 1. INSERT EN 'registro_codigos'
+                        string queryRegistro = @"
+                    INSERT INTO registro_codigos 
+                    (coleccion_id, producto_id, cantidad, desde, hasta, categoria_producto_id, usuario_id, origen_registro, created_at) 
+                    VALUES 
+                    (@cId, @pId, @cant, @des, @has, @catId, @uId, @origen, GETDATE());";
+
+                        string selectId = AplicativoDeAlmacen.Data.QueryAdapter.EsMySQL ? " SELECT LAST_INSERT_ID();" : " SELECT SCOPE_IDENTITY();";
+
+                        int registroId;
+                        using (var cmd = dbConn.CreateCommand())
+                        {
+                            cmd.Transaction = transaction;
+                            cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(queryRegistro + selectId);
+
+                            AgregarParametro(cmd, "@cId", coleccionId);
+                            AgregarParametro(cmd, "@pId", productoId);
+                            AgregarParametro(cmd, "@cant", cantidad);
+                            AgregarParametro(cmd, "@des", codigoDesde);
+                            AgregarParametro(cmd, "@has", codigoHasta);
+                            AgregarParametro(cmd, "@catId", categoriaId);
+                            AgregarParametro(cmd, "@uId", usuarioId > 0 ? usuarioId : 1);
+                            AgregarParametro(cmd, "@origen", origenRegistro);
+
+                            registroId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                        }
+
+                        
+                        // 2. INSERT EN 'registro_rangos' (Quitamos 'cantidad' de la consulta porque es calculada en SQL)
+                        string queryRango = @"
+                        INSERT INTO registro_rangos 
+                        (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at, usuario_id) 
+                        VALUES 
+                        (@pId, @catId, @abrev, @dNum, @hNum, NULL, GETDATE(), @uId);";
+
+                        using (var cmdRango = dbConn.CreateCommand())
+                        {
+                            cmdRango.Transaction = transaction;
+                            cmdRango.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(queryRango);
+
+                            AgregarParametro(cmdRango, "@pId", productoId);
+                            AgregarParametro(cmdRango, "@catId", categoriaId);
+                            AgregarParametro(cmdRango, "@abrev", abreviaturaBase);
+                            AgregarParametro(cmdRango, "@dNum", desdeNum);
+                            AgregarParametro(cmdRango, "@hNum", hastaNum);
+                            AgregarParametro(cmdRango, "@uId", usuarioId > 0 ? usuarioId : 1);
+
+                            await cmdRango.ExecuteNonQueryAsync();
+                        }
+
+                        // 3. INSERT MASIVO EN 'codigos_creados'
+                        int batchSize = 1000;
+                        for (int i = 0; i < cantidad; i += batchSize)
+                        {
+                            int currentBatch = Math.Min(batchSize, cantidad - i);
+                            var queryBuilder = new System.Text.StringBuilder(@"
+                        INSERT INTO codigos_creados 
+                        (registro_codigo_id, codigo, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at) 
+                        VALUES ");
+
+                            using (var cmd = dbConn.CreateCommand())
+                            {
+                                cmd.Transaction = transaction;
+
+                                for (int j = 0; j < currentBatch; j++)
+                                {
+                                    int idx = i + j;
+                                    string paramCod = $"@cod{idx}";
+                                    string codigoGenerado = codigosAprobados[idx].Replace("'", "-");
+
+                                    queryBuilder.Append($"({registroId}, {paramCod}, 1, 1, @almId, @usrId, 'EXCEL', GETDATE())");
+                                    if (j < currentBatch - 1) queryBuilder.Append(", ");
+
+                                    AgregarParametro(cmd, paramCod, codigoGenerado);
+                                }
+
+                                AgregarParametro(cmd, "@almId", almacenId);
+                                AgregarParametro(cmd, "@usrId", usuarioId > 0 ? usuarioId : 1);
+
+                                cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(queryBuilder.ToString());
+                                await cmd.ExecuteNonQueryAsync();
+                            }
+
+                            int pct = ((i + currentBatch) * 100) / cantidad;
+                            progress?.Report(pct);
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // OBTENER HISTORIAL COMPLETO DE TRANSFERENCIAS (BANDEJA CENTRAL/SUB-ALMACÉN)
+        // ==========================================
+        public async Task<List<TransaccionHeaderDTO>> ObtenerHistorialTransferenciasAsync(int miAlmacenId, DateTime? desde = null, DateTime? hasta = null, string? estadoFiltro = "TODOS")
+        {
+            var lista = new List<TransaccionHeaderDTO>();
 
             try
             {
-                int loteId;
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
 
-                using (var cmd = dbConn.CreateCommand())
+                string query = @"
+            SELECT 
+                m.id,
+                CONCAT(m.serie_documento, '-', m.numero_documento) AS serie_numero,
+                ISNULL(CONCAT(m.serie_guia, '-', m.numero_guia), 'SIN GUÍA') AS guia_remision,
+                m.fecha_movimiento,
+                ISNULL(m.almacen_origen_id, 1) AS almacen_origen_id,
+                ISNULL(ao.nombre, 'ALMACÉN CENTRAL TRUJILLO') AS origen_nombre,
+                ISNULL(m.almacen_destino_id, 1) AS almacen_destino_id,
+                ISNULL(ad.nombre, 'ALMACÉN CENTRAL TRUJILLO') AS destino_nombre,
+                ISNULL(u.nombres, 'SISTEMA') AS emisor_nombre,
+                ISNULL(mp.descripcion, 'TRANSFERENCIA') AS motivo_desc,
+                ISNULL(m.observacion, '') AS observacion,
+                COUNT(DISTINCT md.producto_id) AS total_productos,
+                COUNT(mc.id) AS total_codigos,
+                MAX(CASE WHEN cc.estado_id = 5 THEN 1 ELSE 0 END) AS es_pendiente
+            FROM movimientos m WITH (NOLOCK)
+            LEFT JOIN almacenes ao WITH (NOLOCK) ON m.almacen_origen_id = ao.id
+            LEFT JOIN almacenes ad WITH (NOLOCK) ON m.almacen_destino_id = ad.id
+            LEFT JOIN usuarios u WITH (NOLOCK) ON m.usuario_id = u.id
+            LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+            INNER JOIN movimiento_detalles md WITH (NOLOCK) ON md.movimiento_id = m.id
+            INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
+            INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+            WHERE m.estado_id = 1
+              AND (m.motivo_producto_id IN (4, 10)) -- Transferencias
+              -- 🌟 FILTRO JERÁRQUICO LOGÍSTICO
+              AND (m.almacen_origen_id = @miAlmacen OR m.almacen_destino_id = @miAlmacen)";
+
+                if (desde.HasValue) query += " AND m.fecha_movimiento >= @desde";
+                if (hasta.HasValue) query += " AND m.fecha_movimiento <= @hasta";
+
+                query += @"
+            GROUP BY m.id, m.serie_documento, m.numero_documento, m.serie_guia, m.numero_guia, 
+                     m.fecha_movimiento, m.almacen_origen_id, ao.nombre, m.almacen_destino_id, 
+                     ad.nombre, u.nombres, mp.descripcion, m.observacion, m.created_at
+            ORDER BY m.created_at DESC";
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
+                if (desde.HasValue) AgregarParametro(cmd, "@desde", desde.Value);
+                if (hasta.HasValue) AgregarParametro(cmd, "@hasta", hasta.Value);
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    cmd.Transaction = trans;
-                    // Insertamos también el origen_registro para rastrear el nombre del archivo de importación
-                    cmd.CommandText = @"
-                INSERT INTO registro_codigos
-                (coleccion_id, producto_id, categoria_producto_id, cantidad, desde, hasta, origen_registro)
-                OUTPUT INSERTED.id
-                VALUES
-                (@coleccion, @producto, @categoria, @cantidad, @desde, @hasta, @origen)";
+                    bool esPendiente = Convert.ToInt32(rdr.GetValue(13)) == 1;
 
-                    AgregarParametro(cmd, "@coleccion", coleccionId);
-                    AgregarParametro(cmd, "@producto", productoId);
-                    AgregarParametro(cmd, "@categoria", categoriaId);
-                    AgregarParametro(cmd, "@cantidad", codigosValidos.Count);
-                    AgregarParametro(cmd, "@desde", codigosValidos.First());
-                    AgregarParametro(cmd, "@hasta", codigosValidos.Last());
-                    AgregarParametro(cmd, "@origen", nombreArchivoExcel ?? string.Empty);
+                    // Filtro dinámico en memoria si selecciona "PENDIENTES" o "RECEPCIONADOS"
+                    if (estadoFiltro == "PENDIENTES" && !esPendiente) continue;
+                    if (estadoFiltro == "RECEPCIONADOS" && esPendiente) continue;
 
-                    loteId = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                }
-
-                // 🌟 SE CORRIGIÓ EL FLUJO: Se eliminó el foreach individual que duplicaba el procesamiento.
-                // Ahora todo corre bajo la arquitectura limpia de bloques industriales.
-                int total = codigosValidos.Count;
-                const int insertBatchSize = 1000;
-
-                for (int i = 0; i < total; i += insertBatchSize)
-                {
-                    int currentBatchCount = Math.Min(insertBatchSize, total - i);
-                    var queryBuilder = new System.Text.StringBuilder("INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id, es_manual) VALUES ");
-
-                    using var cmdInsert = dbConn.CreateCommand();
-                    cmdInsert.Transaction = trans;
-
-                    for (int j = 0; j < currentBatchCount; j++)
+                    lista.Add(new TransaccionHeaderDTO
                     {
-                        int idx = i + j;
-                        queryBuilder.Append($"({loteId}, @cod{idx}, 1, 0)");
-                        if (j < currentBatchCount - 1) queryBuilder.Append(", ");
-
-                        AgregarParametro(cmdInsert, $"@cod{idx}", codigosValidos[idx]);
-                    }
-
-                    cmdInsert.CommandText = queryBuilder.ToString();
-                    await cmdInsert.ExecuteNonQueryAsync();
-
-                    int pct = ((i + currentBatchCount) * 100) / total;
-                    progress?.Report(pct);
+                        MovimientoId = rdr.GetInt32(0),
+                        SerieNumero = rdr.GetString(1),
+                        GuiaRemision = rdr.GetString(2),
+                        FechaMovimiento = rdr.IsDBNull(3) ? DateTime.Today : rdr.GetDateTime(3),
+                        AlmacenOrigenId = rdr.GetInt32(4),
+                        AlmacenOrigenNombre = rdr.GetString(5),
+                        AlmacenDestinoId = rdr.GetInt32(6),
+                        AlmacenDestinoNombre = rdr.GetString(7),
+                        UsuarioEmisorNombre = rdr.GetString(8),
+                        MotivoDescripcion = rdr.GetString(9),
+                        Observacion = rdr.GetString(10),
+                        TotalProductos = Convert.ToInt32(rdr.GetValue(11)),
+                        TotalCodigos = Convert.ToInt32(rdr.GetValue(12)),
+                        EsPendiente = esPendiente
+                    });
                 }
-
-                trans.Commit();
             }
-            catch
+            catch (Exception ex)
             {
-                trans.Rollback();
-                throw;
+                Debug.WriteLine($"Error al cargar historial de transferencias: {ex.Message}");
             }
+
+            return lista;
         }
+
 
         /// <summary>
         /// Lee el archivo Excel de Nisira, extrae las filas y agrupa la información

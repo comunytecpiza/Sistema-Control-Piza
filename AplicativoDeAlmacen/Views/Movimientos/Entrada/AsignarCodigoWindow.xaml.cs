@@ -1,11 +1,12 @@
-﻿using AplicativoDeAlmacen.Models;
-using AplicativoDeAlmacen.Models.Models;
+﻿using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Models;
 using System;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Windows;
 using static AplicativoDeAlmacen.Data.DataConnection;
-using System.Diagnostics;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -177,16 +178,19 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
-                // 🌟 Formateamos el prefijo de búsqueda según la categoría seleccionada (G = Guía, V = Venta)
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
                 string baseLimpia = abreviaturaRaw.Trim();
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
                 string prefijoBuscado = $"{baseLimpia}{separador}";
 
+                // 🌟 AGREGAMOS cc.almacen_id = @almacenId PARA AISLAR LA BÚSQUEDA POR SEDE
                 string query = @"
             SELECT COUNT(*)
             FROM codigos_creados cc WITH (NOLOCK)
             INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
             WHERE rc.producto_id = @productoId
+              AND cc.almacen_id = @almacenId -- 👈 FILTRO POR ALMACÉN ACTIVO
               AND cc.estado_id = @estadoPermitido
               AND rc.categoria_producto_id = @categoriaId
               AND cc.codigo LIKE @prefijoPattern
@@ -197,6 +201,7 @@ namespace AplicativoDeAlmacen.Views
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                 AgregarParametro(cmd, "@productoId", productoId);
+                AgregarParametro(cmd, "@almacenId", miAlmacenId);
                 AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
                 AgregarParametro(cmd, "@categoriaId", categoriaId);
                 AgregarParametro(cmd, "@prefijoPattern", prefijoBuscado + "%");
@@ -239,24 +244,21 @@ namespace AplicativoDeAlmacen.Views
 
             int categoriaId = rbLibroGuia.IsChecked == true ? 1 : 2;
 
-            // 🛡️ CANDADO DE DUPLICIDAD LOCAL (Revisa la lista de la grilla en memoria)
+            // 🛡️ CANDADO ÚNICO: Prevenir solapamiento entre los rangos que están en la grilla temporal
             if (_itemsEnGrilla != null)
             {
                 foreach (var itemObj in _itemsEnGrilla)
                 {
                     if (itemObj is RangoCodigoItem rangoExistente)
                     {
-                        // Si estamos editando, ignoramos el mismo item que estamos modificando
                         if (this.EsModoEdicion && _itemEnEdicion != null && _itemEnEdicion == rangoExistente)
                             continue;
 
-                        // Solo comparamos si pertenecen a la misma categoría (Guía con Guía, Venta con Venta)
                         if (rangoExistente.CategoriaProductoId == categoriaId)
                         {
                             int exDesde = rangoExistente.DesdeNum;
                             int exHasta = rangoExistente.HastaNum;
 
-                            // Evalúa intersección matemática de rangos [intDesde, intHasta] vs [exDesde, exHasta]
                             bool hayCruce = (intDesde <= exHasta) && (intHasta >= exDesde);
 
                             if (hayCruce)
@@ -269,7 +271,7 @@ namespace AplicativoDeAlmacen.Views
                                     "Serie de Códigos Duplicada",
                                     MessageBoxButton.OK,
                                     MessageBoxImage.Warning);
-                                return; // 🛑 Bloquea el guardado
+                                return;
                             }
                         }
                     }
@@ -279,36 +281,21 @@ namespace AplicativoDeAlmacen.Views
             string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
             string baseLimpia = _abreviaturaProducto.Trim();
 
-            int totalFisicosEncontrados = 0;
-            bool rangoEsValido = ValidarExistenciaRangoEnBD(this._productoId, baseLimpia, categoriaId, intDesde, intHasta, out totalFisicosEncontrados, this.EstadoPermitido);
-            int cantidadSolicitada = (intHasta - intDesde) + 1;
-
-            if (!rangoEsValido)
-            {
-                string explicacion = this.EstadoPermitido == 4
-                    ? "VENDIDOS (Estado 4) para poder procesar la devolución"
-                    : "DISPONIBLES para el movimiento";
-
-                MessageBox.Show(
-                    $"Verificación de Códigos ⚠️\n\n" +
-                    $"El rango desde {intDesde} hasta {intHasta} requiere {cantidadSolicitada} códigos en estado {explicacion}.\n\n" +
-                    $"El sistema encontró {totalFisicosEncontrados} códigos aptos en la base de datos.",
-                    "No se pueden asignar los códigos",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
             string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
             string desdeFormatted = $"{baseLimpia}{separador}{intDesde:D7}";
             string hastaFormatted = $"{baseLimpia}{separador}{intHasta:D7}";
+
+            int cantidadSolicitada = (intHasta - intDesde) + 1;
+
+            string anoColeccionBD = ObtenerAnoColeccionRealBD(this._productoId, baseLimpia, categoriaId, intDesde);
+            string coleccionTipoDinamica = $"C{anoColeccionBD} / {tipoTexto}";
 
             if (this.EsModoEdicion && this.RangoProcesado != null)
             {
                 this.RangoProcesado.Cantidad = cantidadSolicitada.ToString();
                 this.RangoProcesado.Desde = desdeFormatted;
                 this.RangoProcesado.Hasta = hastaFormatted;
-                this.RangoProcesado.ColeccionTipo = $"C2026 / {tipoTexto}";
+                this.RangoProcesado.ColeccionTipo = coleccionTipoDinamica; // 👈 AHORA ES DINÁMICO
                 this.RangoProcesado.DesdeNum = intDesde;
                 this.RangoProcesado.HastaNum = intHasta;
                 this.RangoProcesado.CategoriaProductoId = categoriaId;
@@ -321,7 +308,7 @@ namespace AplicativoDeAlmacen.Views
                     Cantidad = cantidadSolicitada.ToString(),
                     Desde = desdeFormatted,
                     Hasta = hastaFormatted,
-                    ColeccionTipo = $"C2026 / {tipoTexto}",
+                    ColeccionTipo = coleccionTipoDinamica, // 👈 AHORA ES DINÁMICO
                     DesdeNum = intDesde,
                     HastaNum = intHasta,
                     CategoriaProductoId = categoriaId,
@@ -332,6 +319,47 @@ namespace AplicativoDeAlmacen.Views
 
             this.FueConfirmado = true;
             this.DialogResult = true;
+        }
+
+        private string ObtenerAnoColeccionRealBD(int productoId, string abreviaturaRaw, int categoriaId, int desde)
+        {
+            try
+            {
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
+
+                string baseLimpia = abreviaturaRaw.Trim();
+                string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
+                string codigoBuscado = $"{baseLimpia}{separador}{desde:D7}";
+
+                string query = @"
+            SELECT TOP 1 c.ano
+            FROM codigos_creados cc WITH (NOLOCK)
+            INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
+            INNER JOIN colecciones c WITH (NOLOCK) ON rc.coleccion_id = c.id
+            WHERE rc.producto_id = @productoId
+              AND (cc.codigo = @codigoBuscado OR cc.codigo LIKE @prefijoPattern)";
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                AgregarParametro(cmd, "@productoId", productoId);
+                AgregarParametro(cmd, "@codigoBuscado", codigoBuscado);
+                AgregarParametro(cmd, "@prefijoPattern", $"{baseLimpia}{separador}%");
+
+                object res = cmd.ExecuteScalar();
+                if (res != null && res != DBNull.Value)
+                {
+                    return res.ToString(); // Devuelve ej: "2025", "2026", "2024"
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error obteniendo año de colección: {ex.Message}");
+            }
+
+            // Fallback por defecto si es un código recién creado sin registro previo
+            return DateTime.Now.Year.ToString();
         }
 
         private void BtnCancelarRango_Click(object sender, RoutedEventArgs e)

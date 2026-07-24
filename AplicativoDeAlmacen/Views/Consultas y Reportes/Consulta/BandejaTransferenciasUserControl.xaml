@@ -1,0 +1,139 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.BandejaTransferenciasUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:hc="https://handyorg.github.io/handycontrol"
+             Background="#F9FAFB" FontFamily="Segoe UI">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Titulo y Filtros -->
+            <RowDefinition Height="*"/>
+            <!-- DataGrid -->
+        </Grid.RowDefinitions>
+
+        <!-- Cabecera de Filtros -->
+        <Border Grid.Row="0" Background="White" CornerRadius="10" Padding="15" Margin="0,0,0,15" BorderBrush="#E5E7EB" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="📦 Bandeja General de Transferencias" FontSize="18" FontWeight="Bold" Foreground="#111827" VerticalAlignment="Center" Margin="0,0,20,0"/>
+
+                    <TextBlock Text="Estado:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#374151" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="CboFiltroEstado" Width="150" Height="32" SelectedIndex="0" SelectionChanged="CboFiltroEstado_SelectionChanged">
+                        <ComboBoxItem Content="TODOS"/>
+                        <ComboBoxItem Content="PENDIENTES"/>
+                        <ComboBoxItem Content="RECEPCIONADOS"/>
+                    </ComboBox>
+
+                    <TextBlock Text="Desde:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#374151" Margin="15,0,8,0"/>
+                    <DatePicker x:Name="DtpDesde" Width="120" Height="32"/>
+
+                    <TextBlock Text="Hasta:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#374151" Margin="10,0,8,0"/>
+                    <DatePicker x:Name="DtpHasta" Width="120" Height="32"/>
+
+                    <Button Content="🔍 Buscar" Click="BtnBuscar_Click" Width="90" Height="32" Background="#2563EB" Foreground="White" FontWeight="Bold" Margin="15,0,0,0" Cursor="Hand" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+
+                <Button Grid.Column="1" Content="🔄 Refrescar" Click="BtnRefrescar_Click" Height="32" Padding="12,0" Background="#F3F4F6" Foreground="#374151" FontWeight="SemiBold" Cursor="Hand" BorderBrush="#D1D5DB" BorderThickness="1">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Tabla DataGrid de Transferencias -->
+        <DataGrid x:Name="DgTransferencias" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" 
+                  Background="White" RowHeaderWidth="0" GridLinesVisibility="Horizontal" 
+                  HorizontalGridLinesBrush="#F3F4F6" BorderBrush="#E5E7EB" BorderThickness="1"
+                  FontSize="13" ColumnHeaderHeight="38" RowHeight="42">
+            <DataGrid.Columns>
+                <!-- Guía / Documento -->
+                <DataGridTextColumn Header="DOCUMENTO" Binding="{Binding SerieNumero}" Width="120" FontWeight="Bold"/>
+                <DataGridTextColumn Header="GUÍA REMISIÓN" Binding="{Binding GuiaRemision}" Width="130"/>
+                <DataGridTextColumn Header="FECHA" Binding="{Binding FechaMovimiento, StringFormat='{}{0:dd/MM/yyyy}'}" Width="100"/>
+
+                <!-- Origen y Destino -->
+                <DataGridTextColumn Header="ALMACÉN ORIGEN" Binding="{Binding AlmacenOrigenNombre}" Width="*"/>
+                <DataGridTextColumn Header="ALMACÉN DESTINO" Binding="{Binding AlmacenDestinoNombre}" Width="*"/>
+
+                <!-- Resumen Cantidades -->
+                <DataGridTextColumn Header="PROD." Binding="{Binding TotalProductos}" Width="60"/>
+                <DataGridTextColumn Header="CÓDIGOS" Binding="{Binding TotalCodigos}" Width="70"/>
+
+                <!-- ESTADO DE COLOR DINO -->
+                <DataGridTemplateColumn Header="ESTADO DE TRANSFERENCIA" Width="160">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Border CornerRadius="12" Padding="10,4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <!-- 🟢 VERDE = RECEPCIONADO -->
+                                        <Setter Property="Background" Value="#D1FAE5"/>
+                                        <Style.Triggers>
+                                            <!-- 🟡 AMARILLO = EN TRÁNSITO / PENDIENTE -->
+                                            <DataTrigger Binding="{Binding EsPendiente}" Value="True">
+                                                <Setter Property="Background" Value="#FEF3C7"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+
+                                <TextBlock FontWeight="Bold" FontSize="11">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="✅ RECEPCIONADO"/>
+                                            <Setter Property="Foreground" Value="#065F46"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding EsPendiente}" Value="True">
+                                                    <Setter Property="Text" Value="⏳ EN TRÁNSITO"/>
+                                                    <Setter Property="Foreground" Value="#92400E"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- Acciones -->
+                <DataGridTemplateColumn Header="ACCIÓN" Width="130">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="🔍 Ver Detalle" Tag="{Binding}" Click="BtnVerDetalle_Click"
+                                    Height="26" FontSize="11" FontWeight="Bold" Background="#4F46E5" Foreground="White" 
+                                    BorderThickness="0" Cursor="Hand" Margin="4">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

@@ -1,11 +1,12 @@
-﻿using System;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Reportes;
+using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Services.Reportes;
 
 namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 {
@@ -99,21 +100,25 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
             {
                 DgResumen.ItemsSource = null;
 
+                // 🌟 CORRECCIÓN: Pasar el ID del almacén actual de la sesión
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
                 _reporteActual = await _kardexService.GenerarKardexValorizadoAsync(
-                _productoSeleccionadoId,
-                DpDesde.SelectedDate.Value,
-                DpHasta.SelectedDate.Value); 
+                    _productoSeleccionadoId,
+                    DpDesde.SelectedDate.Value,
+                    DpHasta.SelectedDate.Value,
+                    miAlmacenId); // 👈 ID de Almacén
 
-                DgResumen.ItemsSource = _reporteActual.Detalles; 
+                DgResumen.ItemsSource = _reporteActual.Detalles;
 
-                // 🌟 CORRECCIÓN DE FOOTER DINÁMICO RE計算
+                // FOOTER DINÁMICO
                 decimal saldoInicialCalculado = _reporteActual.StockFinalFisico - _reporteActual.TotalIngresoFisico + _reporteActual.TotalSalidaFisico;
-                                decimal costoPromedioInicial = _reporteActual.Detalles.FirstOrDefault()?.CostoPromedio ?? 0;
+                decimal costoPromedioInicial = _reporteActual.Detalles.FirstOrDefault()?.CostoPromedio ?? 0;
 
                 TxtSaldoInicial.Text = Math.Max(0, saldoInicialCalculado).ToString("N2");
                 TxtCostoInicial.Text = (saldoInicialCalculado * costoPromedioInicial).ToString("N2");
-                TxtTotalIngresos.Text = _reporteActual.TotalIngresoValorado.ToString("N2"); // 🌟 Cambiado a valorizado en dinero
-                TxtTotalSalidas.Text = _reporteActual.TotalSalidaValorado.ToString("N2");   // 🌟 Cambiado a valorizado en dinero
+                TxtTotalIngresos.Text = _reporteActual.TotalIngresoValorado.ToString("N2");
+                TxtTotalSalidas.Text = _reporteActual.TotalSalidaValorado.ToString("N2");
                 TxtSaldoFinal.Text = _reporteActual.SaldoFinalValorado.ToString("N2");
             }
             catch (Exception ex)

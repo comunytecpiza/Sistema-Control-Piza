@@ -1,6 +1,7 @@
 ﻿using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Models.Motivo_y_Movimientos;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -30,7 +31,13 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
-        public async Task<MovimientoCompletoResult?> GetMovimientoCompletoAsync(string serie, string numero)
+        // =========================================================================
+        // 1. CARGAR ENTRADA NORMAL (Para Búsqueda, Edición o Impresión de Ingresos)
+        // =========================================================================
+        // =========================================================================
+        // 1. CARGAR ENTRADA NORMAL (Con candado estricto de Almacén de Sesión)
+        // =========================================================================
+        public async Task<MovimientoCompletoResult?> GetMovimientoCompletoAsync(string serie, string numero, int miAlmacenId)
         {
             var result = new MovimientoCompletoResult();
 
@@ -42,24 +49,28 @@ namespace AplicativoDeAlmacen.Services
 
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
-            // 🌟 CAMBIO: Se filtra estrictamente por tipo_movimiento_id = 1 (ENTRADA)
+            // 🌟 CANDADO ANTI-TRAMPA: Exige que el movimiento pertenezca a miAlmacenId (almacen_destino_id)
             string query = @"
-            SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
-                   m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id
-            FROM movimientos m
-            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id 
-            WHERE m.serie_documento = @serie 
-            AND m.numero_documento = @numero
-            AND mp.tipo_movimiento_id = 1";
+    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+           m.almacen_origen_id, m.almacen_destino_id
+    FROM movimientos m WITH (NOLOCK)
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE m.serie_documento = @serie 
+      AND m.numero_documento = @numero
+      AND mp.tipo_movimiento_id = 1 -- 👈 Entrada
+      AND m.estado_id = 1
+      AND ISNULL(m.almacen_destino_id, 1) = @miAlmacen"; // 👈 CANDADO EXCLUSIVO POR MI ALMACÉN
 
             using (var cmd = dbConn.CreateCommand())
             {
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                 AgregarParametro(cmd, "@serie", serie);
                 AgregarParametro(cmd, "@numero", numero);
+                AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
 
                 using var reader = await cmd.ExecuteReaderAsync();
-                if (!await reader.ReadAsync()) return null;
+                if (!await reader.ReadAsync()) return null; // 🛡️ Si es de otro almacén, no lo encuentra
 
                 result.Movimiento = new Movimiento
                 {
@@ -73,16 +84,21 @@ namespace AplicativoDeAlmacen.Services
                     NumeroGuia = reader.IsDBNull(reader.GetOrdinal("numero_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("numero_guia")),
                     Observacion = reader.IsDBNull(reader.GetOrdinal("observacion")) ? string.Empty : reader.GetString(reader.GetOrdinal("observacion")),
                     UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id")),
+                    AlmacenOrigenId = reader.IsDBNull(reader.GetOrdinal("almacen_origen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_origen_id")),
+                    AlmacenDestinoId = reader.IsDBNull(reader.GetOrdinal("almacen_destino_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_destino_id")),
                     EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
                 };
             }
 
-            // Detalles (🌟 CAMBIO: Casteo limpio de cantidad_ingreso de la BD a int)
-            string qDet = @"SELECT id, producto_id, cantidad_ingreso, costo_unitario FROM movimiento_detalles WHERE movimiento_id = @movId";
+            string qDet = @"
+    SELECT id, producto_id, cantidad_ingreso, costo_unitario 
+    FROM movimiento_detalles WITH (NOLOCK)
+    WHERE movimiento_id = @movId";
+
             using (var cmdDet = dbConn.CreateCommand())
             {
                 cmdDet.CommandText = QueryAdapter.FormatearConsulta(qDet);
-                var pdet = cmdDet.CreateParameter(); pdet.ParameterName = "@movId"; pdet.Value = result.Movimiento.Id; cmdDet.Parameters.Add(pdet);
+                AgregarParametro(cmdDet, "@movId", result.Movimiento.Id);
                 using var rdrDet = await cmdDet.ExecuteReaderAsync();
                 while (await rdrDet.ReadAsync())
                 {
@@ -96,12 +112,11 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
 
-            // Rangos asociados
-            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WITH (NOLOCK) WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
             using (var cmdR = dbConn.CreateCommand())
             {
                 cmdR.CommandText = QueryAdapter.FormatearConsulta(qRangos);
-                var pr = cmdR.CreateParameter(); pr.ParameterName = "@movId"; pr.Value = result.Movimiento.Id; cmdR.Parameters.Add(pr);
+                AgregarParametro(cmdR, "@movId", result.Movimiento.Id);
                 using var rdrR = await cmdR.ExecuteReaderAsync();
                 while (await rdrR.ReadAsync())
                 {
@@ -113,7 +128,7 @@ namespace AplicativoDeAlmacen.Services
                     string desdeText = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}";
                     string hastaText = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}";
 
-                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : (categoriaId == 2 ? "LIBRO VENTA" : "OTROS");
+                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
                     string coleccionTipo = $"C2026 / {tipoTexto}";
 
                     result.Rangos.Add(new RangoCodigoItem
@@ -134,36 +149,179 @@ namespace AplicativoDeAlmacen.Services
             return result;
         }
 
-        private async Task ActualizarStockProductoPorKardexAsync(int productoId, DbConnection conn, DbTransaction trans)
+        // =========================================================================
+        // 2. CARGAR SALIDA DE TRANSFERENCIA POR ID ÚNICO (Para Procesar Recepción)
+        // =========================================================================
+        public async Task<MovimientoCompletoResult?> GetSalidaParaRecepcionAsync(int movimientoSalidaId)
         {
-            // 🌟 PARA INGRESOS: Calcula: INGRESOS - SALIDAS (mismo cálculo, distinto contexto)
+            var result = new MovimientoCompletoResult();
 
-            string queryUpdate = @"
-            UPDATE productos
-            SET cantidad = (
-                SELECT COALESCE(
-                    (SELECT COALESCE(SUM(md.cantidad_ingreso), 0)
-                     FROM movimiento_detalles md
-                     INNER JOIN movimientos m ON md.movimiento_id = m.id
-                     WHERE md.producto_id = productos.id 
-                     AND m.estado_id = 1
-                     AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 1)
-                    ) -
-                    (SELECT COALESCE(SUM(md.cantidad_salida), 0)
-                     FROM movimiento_detalles md
-                     INNER JOIN movimientos m ON md.movimiento_id = m.id
-                     WHERE md.producto_id = productos.id 
-                     AND m.estado_id = 1
-                     AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 2)
-                    ), 0)
-            )
-            WHERE id = @ProdId";
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
 
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = trans;
-            cmd.CommandText = QueryAdapter.FormatearConsulta(queryUpdate);
-            AgregarParametro(cmd, "@ProdId", productoId);
-            await cmd.ExecuteNonQueryAsync();
+            // 🌟 CONSULTA POR ID ÚNICO FILTRANDO QUE SEA SALIDA (tipo_movimiento_id = 2)
+            string query = @"
+    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+           m.almacen_origen_id, m.almacen_destino_id
+    FROM movimientos m WITH (NOLOCK)
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE m.id = @movId 
+      AND mp.tipo_movimiento_id = 2 -- 👈 2 = SALIDA EXCLUSIVAMENTE
+      AND m.estado_id = 1";
+
+            using (var cmd = dbConn.CreateCommand())
+            {
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                AgregarParametro(cmd, "@movId", movimientoSalidaId);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync()) return null;
+
+                result.Movimiento = new Movimiento
+                {
+                    Id = reader.GetInt32(reader.GetOrdinal("id")),
+                    FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateOnly?)null : DateOnly.FromDateTime(reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"))),
+                    SerieDocumento = reader["serie_documento"].ToString(),
+                    NumeroDocumento = reader["numero_documento"].ToString(),
+                    MotivoProductoId = reader.IsDBNull(reader.GetOrdinal("motivo_producto_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("motivo_producto_id")),
+                    PersonaComercialId = reader.IsDBNull(reader.GetOrdinal("persona_comercial_id")) ? null : reader.GetInt32(reader.GetOrdinal("persona_comercial_id")),
+                    SerieGuia = reader.IsDBNull(reader.GetOrdinal("serie_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("serie_guia")),
+                    NumeroGuia = reader.IsDBNull(reader.GetOrdinal("numero_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("numero_guia")),
+                    Observacion = reader.IsDBNull(reader.GetOrdinal("observacion")) ? string.Empty : reader.GetString(reader.GetOrdinal("observacion")),
+                    UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id")),
+                    AlmacenOrigenId = reader.IsDBNull(reader.GetOrdinal("almacen_origen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_origen_id")),
+                    AlmacenDestinoId = reader.IsDBNull(reader.GetOrdinal("almacen_destino_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_destino_id")),
+                    EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
+                };
+            }
+
+            // LEER DETALLES TOMANDO 'cantidad_salida'
+            string qDet = @"
+    SELECT id, producto_id, cantidad_salida, costo_unitario 
+    FROM movimiento_detalles WITH (NOLOCK)
+    WHERE movimiento_id = @movId";
+
+            using (var cmdDet = dbConn.CreateCommand())
+            {
+                cmdDet.CommandText = QueryAdapter.FormatearConsulta(qDet);
+                AgregarParametro(cmdDet, "@movId", result.Movimiento.Id);
+                using var rdrDet = await cmdDet.ExecuteReaderAsync();
+                while (await rdrDet.ReadAsync())
+                {
+                    int cantSalida = Convert.ToInt32(rdrDet.GetValue(2));
+                    result.Detalles.Add(new MovimientoDetalle
+                    {
+                        Id = rdrDet.GetInt32(0),
+                        ProductoId = rdrDet.GetInt32(1),
+                        CantidadIngreso = cantSalida, // Se asigna a Ingreso para que la grilla de entrada lo muestre
+                        CantidadSalida = cantSalida,
+                        CostoUnitario = rdrDet.IsDBNull(3) ? (decimal?)null : rdrDet.GetDecimal(3)
+                    });
+                }
+            }
+
+            // LEER RANGOS DE LA SALIDA
+            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WITH (NOLOCK) WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+            using (var cmdR = dbConn.CreateCommand())
+            {
+                cmdR.CommandText = QueryAdapter.FormatearConsulta(qRangos);
+                AgregarParametro(cmdR, "@movId", result.Movimiento.Id);
+                using var rdrR = await cmdR.ExecuteReaderAsync();
+                while (await rdrR.ReadAsync())
+                {
+                    int desdeNum = rdrR.GetInt32(rdrR.GetOrdinal("desde_num"));
+                    int hastaNum = rdrR.GetInt32(rdrR.GetOrdinal("hasta_num"));
+                    int categoriaId = rdrR.GetInt32(rdrR.GetOrdinal("categoria_producto_id"));
+                    string baseAbrev = rdrR.IsDBNull(rdrR.GetOrdinal("abreviatura_base")) ? string.Empty : rdrR.GetString(rdrR.GetOrdinal("abreviatura_base"));
+
+                    string desdeText = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}";
+                    string hastaText = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}";
+
+                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+                    string coleccionTipo = $"C2026 / {tipoTexto}";
+
+                    result.Rangos.Add(new RangoCodigoItem
+                    {
+                        MovimientoDetalleId = rdrR.IsDBNull(rdrR.GetOrdinal("movimiento_detalle_id")) ? 0 : rdrR.GetInt32(rdrR.GetOrdinal("movimiento_detalle_id")),
+                        productoId = rdrR.GetInt32(rdrR.GetOrdinal("producto_id")),
+                        CategoriaProductoId = categoriaId,
+                        AbreviaturaBase = baseAbrev,
+                        DesdeNum = desdeNum,
+                        HastaNum = hastaNum,
+                        Cantidad = desdeNum == -1 ? "1" : (hastaNum - desdeNum + 1).ToString(),
+                        Desde = desdeText,
+                        Hasta = hastaText,
+                        ColeccionTipo = coleccionTipo
+                    });
+                }
+            }
+            return result;
+        }
+
+        private async Task ActualizarStockProductoPorKardexAsync(int productoId, int almacenId, DbConnection conn, DbTransaction trans)
+        {
+            // 🌟 1. CALCULA EL STOCK DEL PRODUCTO EXCLUSIVAMENTE PARA ESTE ALMACÉN FISICO
+            // Considera solo movimientos PROCESADOS (estado_id = 1)
+            string queryCalculo = @"
+        SELECT COALESCE(
+            (SELECT COALESCE(SUM(md.cantidad_ingreso), 0)
+             FROM movimiento_detalles md
+             INNER JOIN movimientos m ON md.movimiento_id = m.id
+             WHERE md.producto_id = @ProdId 
+               AND m.almacen_destino_id = @AlmId
+               AND m.estado_id = 1
+               AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 1)
+            ) -
+            (SELECT COALESCE(SUM(md.cantidad_salida), 0)
+             FROM movimiento_detalles md
+             INNER JOIN movimientos m ON md.movimiento_id = m.id
+             WHERE md.producto_id = @ProdId 
+               AND m.almacen_origen_id = @AlmId
+               AND m.estado_id = 1
+               AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 2)
+            ), 0) AS stock_calculado";
+
+            int stockCalculado = 0;
+            using (var cmdCalc = conn.CreateCommand())
+            {
+                cmdCalc.Transaction = trans;
+                cmdCalc.CommandText = QueryAdapter.FormatearConsulta(queryCalculo);
+                AgregarParametro(cmdCalc, "@ProdId", productoId);
+                AgregarParametro(cmdCalc, "@AlmId", almacenId);
+
+                object result = await cmdCalc.ExecuteScalarAsync();
+                if (result != null && result != DBNull.Value)
+                {
+                    stockCalculado = Convert.ToInt32(result);
+                }
+            }
+
+            // 🌟 2. UPSERT EN LA TABLA 'stock_almacen'
+            string queryUpsert = @"
+        IF EXISTS (SELECT 1 FROM stock_almacen WHERE producto_id = @ProdId AND almacen_id = @AlmId)
+        BEGIN
+            UPDATE stock_almacen 
+            SET stock_actual = @Stock, updated_at = GETDATE()
+            WHERE producto_id = @ProdId AND almacen_id = @AlmId;
+        END
+        ELSE
+        BEGIN
+            INSERT INTO stock_almacen (producto_id, almacen_id, stock_actual, updated_at)
+            VALUES (@ProdId, @AlmId, @Stock, GETDATE());
+        END";
+
+            using (var cmdUpsert = conn.CreateCommand())
+            {
+                cmdUpsert.Transaction = trans;
+                cmdUpsert.CommandText = QueryAdapter.FormatearConsulta(queryUpsert);
+                AgregarParametro(cmdUpsert, "@ProdId", productoId);
+                AgregarParametro(cmdUpsert, "@AlmId", almacenId);
+                AgregarParametro(cmdUpsert, "@Stock", stockCalculado);
+
+                await cmdUpsert.ExecuteNonQueryAsync();
+            }
         }
 
         public async Task<string> ObtenerDescripcionProductoAsync(int productoId)
@@ -368,13 +526,27 @@ namespace AplicativoDeAlmacen.Services
 
             if (existingId.HasValue)
             {
-                string updateCab = @"UPDATE movimientos SET fecha_movimiento = @fecha, motivo_producto_id = @motivoId, ubicacion_id = @ubicacionId, persona_comercial_id = @personaId, observacion = @observacion, serie_guia = @serieGuia, numero_guia = @numeroGuia WHERE id = @id";
+                string updateCab = @"
+    UPDATE movimientos 
+    SET fecha_movimiento = @fecha, 
+        motivo_producto_id = @motivoId, 
+        ubicacion_id = @ubicacionId, 
+        almacen_origen_id = @almOrigen,
+        almacen_destino_id = @almDestino,
+        persona_comercial_id = @personaId, 
+        observacion = @observacion, 
+        serie_guia = @serieGuia, 
+        numero_guia = @numeroGuia 
+    WHERE id = @id";
+
                 using var cmd = conn.CreateCommand();
                 cmd.Transaction = trans;
                 cmd.CommandText = QueryAdapter.FormatearConsulta(updateCab);
                 AgregarParametro(cmd, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
                 AgregarParametro(cmd, "@motivoId", cabecera.MotivoProductoId);
                 AgregarParametro(cmd, "@ubicacionId", ubicacionId);
+                AgregarParametro(cmd, "@almOrigen", cabecera.AlmacenOrigenId);
+                AgregarParametro(cmd, "@almDestino", cabecera.AlmacenDestinoId);
                 AgregarParametro(cmd, "@personaId", cabecera.PersonaComercialId);
                 AgregarParametro(cmd, "@observacion", cabecera.Observacion);
                 AgregarParametro(cmd, "@serieGuia", cabecera.SerieGuia);
@@ -384,7 +556,13 @@ namespace AplicativoDeAlmacen.Services
                 return existingId.Value;
             }
 
-            string queryLock = "SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 FROM movimientos WITH (TABLOCKX, HOLDLOCK) WHERE serie_documento = @serie";
+            // 🌟 CORRELATIVO AISLADO POR ALMACÉN: Filtra exclusivamente los movimientos de esta sede/almacén destino
+            string queryLock = @"
+        SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 
+        FROM movimientos WITH (TABLOCKX, HOLDLOCK) 
+        WHERE serie_documento = @serie 
+          AND ISNULL(almacen_destino_id, 1) = @almDestino";
+
             int nuevoNumero;
 
             using (var cmdLock = conn.CreateCommand())
@@ -392,14 +570,19 @@ namespace AplicativoDeAlmacen.Services
                 cmdLock.Transaction = trans;
                 cmdLock.CommandText = QueryAdapter.FormatearConsulta(queryLock);
                 AgregarParametro(cmdLock, "@serie", cabecera.SerieDocumento);
+                AgregarParametro(cmdLock, "@almDestino", cabecera.AlmacenDestinoId ?? 1);
                 nuevoNumero = Convert.ToInt32(await cmdLock.ExecuteScalarAsync());
             }
 
             cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
 
-            // 🌟 CAMBIO: El Insert de la cabecera ahora asienta con estado_id = 1 (PROCESADO de la tabla estados_movimiento)
-            string qCab = $@"INSERT INTO movimientos (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
-                     VALUES (@fecha, @serie, @numero, @motivoId, @ubicacionId, 1, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
+            // 🌟 INSERCIÓN CON ALMACÉN ORIGEN Y DESTINO
+            string qCab = $@"
+        INSERT INTO movimientos 
+        (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
+         almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
+        VALUES 
+        (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almOrigen, @almDestino, @usuarioId, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
 
             using var cmdCab = conn.CreateCommand();
             cmdCab.Transaction = trans;
@@ -410,21 +593,16 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmdCab, "@numero", nuevoNumero.ToString("D7"));
             AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
             AgregarParametro(cmdCab, "@ubicacionId", ubicacionId);
+            AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
+            AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId ?? 1);
+            AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId > 0 ? cabecera.UsuarioId : 1);
             AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
             AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
             AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia);
 
-            try
-            {
-                int idCabeceraObtenido = Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
-                if (idCabeceraObtenido <= 0) throw new Exception("Error interno de asignación de llave foránea.");
-                return idCabeceraObtenido;
-            }
-            catch (DbException ex) when (ex.Message.Contains("PRIMARY KEY") || ex.Message.Contains("UNIQUE") || ex.ErrorCode == 2627)
-            {
-                throw new Exception("Conflicto de Concurrencia: Otro usuario registró un movimiento simultáneamente con el mismo correlativo. Por favor, intente guardar el documento nuevamente.");
-            }
+            int idCabeceraObtenido = Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
+            return idCabeceraObtenido;
         }
 
         private async Task<int> UpsertMovimientoDetalleAsync(int movId, VistaProductoGrid item, DbConnection conn, DbTransaction trans)
@@ -498,15 +676,23 @@ namespace AplicativoDeAlmacen.Services
             try
             {
                 DateTime fechaMovimiento;
+                int almacenDelMovimiento = 1; // Variable declarada con valor por defecto
+
+                // 🌟 1. LEER DATOS DEL MOVIMIENTO (INCLUYENDO ALMACÉN DESTINO)
+                // 🌟 1. LEER DATOS DEL MOVIMIENTO (Obteniendo con precisión el almacén destino real)
                 using (var cmdMov = dbConn.CreateCommand())
                 {
                     cmdMov.Transaction = transaccion;
-                    cmdMov.CommandText = QueryAdapter.FormatearConsulta("SELECT fecha_movimiento, estado_id FROM movimientos WHERE id = @movId");
+                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(
+                        "SELECT fecha_movimiento, estado_id, ISNULL(almacen_destino_id, ISNULL(almacen_origen_id, 1)) FROM movimientos WHERE id = @movId");
                     AgregarParametro(cmdMov, "@movId", movimientoId);
+
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
                     if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento no existe.");
-                    if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento ya está anulado."); // 🌟 Nueva Tabla (2 = Anulado)
+                    if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento ya está anulado.");
+
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
+                    almacenDelMovimiento = rdrMov.GetInt32(2); // 👈 Almacén exacto donde impactó este ingreso
                 }
 
                 using (var cmdCreate = dbConn.CreateCommand())
@@ -525,10 +711,10 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 string sqlValidarEstados = @"
-                    SELECT COUNT(*) 
-                    FROM codigos_creados cc
-                    INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id
-                    WHERE cc.estado_id != 3";
+            SELECT COUNT(*) 
+            FROM codigos_creados cc
+            INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id
+            WHERE cc.estado_id != 3";
 
                 using (var cmdCheckStock = dbConn.CreateCommand())
                 {
@@ -543,12 +729,12 @@ namespace AplicativoDeAlmacen.Services
 
                 progress?.Report(40);
 
-                // 🌟 APUESTA PROFESIONAL: Limpiar físicamente los rangos asociados a los detalles del movimiento anulado
+                // Limpiar físicamente los rangos asociados
                 string sqlEliminarRangosAnulados = @"
-                DELETE FROM registro_rangos 
-                WHERE movimiento_detalle_id IN (
-                    SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId
-                )";
+        DELETE FROM registro_rangos 
+        WHERE movimiento_detalle_id IN (
+            SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId
+        )";
 
                 using (var cmdDelRangos = dbConn.CreateCommand())
                 {
@@ -558,11 +744,11 @@ namespace AplicativoDeAlmacen.Services
                     await cmdDelRangos.ExecuteNonQueryAsync();
                 }
 
-                // 🌟 REVERSIÓN: Retorna a estado_id = 1 (En tránsito / Disponible para ingreso) de la nueva tabla estados_codigo
+                // Reversión: Retorna a estado_id = 1 (En tránsito / Disponible para ingreso)
                 string sqlRevertir = @"
-                UPDATE cc SET cc.estado_id = 1
-                FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
-                INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id";
+        UPDATE cc SET cc.estado_id = 1
+        FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
+        INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id";
 
                 using (var cmdRevert = dbConn.CreateCommand())
                 {
@@ -571,7 +757,7 @@ namespace AplicativoDeAlmacen.Services
                     await cmdRevert.ExecuteNonQueryAsync();
                 }
 
-                // 🌟 Marcar movimiento como Anulado (2 = Anulado en la tabla estados_movimiento)
+                // Marcar movimiento como Anulado (2)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
@@ -580,6 +766,7 @@ namespace AplicativoDeAlmacen.Services
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
 
+                // 🌟 RECALCULAR STOCK EN KÁRDEX MULTI-ALMACÉN
                 using (var cmdProds = dbConn.CreateCommand())
                 {
                     cmdProds.Transaction = transaccion;
@@ -592,9 +779,11 @@ namespace AplicativoDeAlmacen.Services
 
                     foreach (var pid in prodIds)
                     {
-                        await ActualizarStockProductoPorKardexAsync(pid, dbConn, transaccion);
+                        // 🚀 AHORA SÍ EXISTE 'almacenDelMovimiento' EN EL CONTEXTO
+                        await ActualizarStockProductoPorKardexAsync(pid, almacenDelMovimiento, dbConn, transaccion);
                     }
                 }
+
                 progress?.Report(100);
                 transaccion.Commit();
                 return true;
@@ -606,6 +795,56 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
+        public async Task<List<TransferenciaPendienteDTO>> ObtenerTransferenciasPendientesAsync(int miAlmacenDestinoId)
+        {
+            var lista = new List<TransferenciaPendienteDTO>();
+
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            string query = @"
+        SELECT 
+            m.id AS MovimientoSalidaId,
+            CONCAT(m.serie_documento, '-', m.numero_documento) AS GuiaRemision,
+            ISNULL(ao.nombre, 'Almacén Central') AS AlmacenOrigen,
+            p.id AS ProductoId,
+            p.descripcion AS Producto,
+            COUNT(cc.id) AS CantidadEnTransito,
+            m.created_at
+        FROM movimientos m
+        INNER JOIN almacenes ao ON m.almacen_origen_id = ao.id
+        INNER JOIN movimiento_detalles md ON md.movimiento_id = m.id
+        INNER JOIN productos p ON md.producto_id = p.id
+        INNER JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
+        INNER JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id
+        WHERE m.almacen_destino_id = @miAlmacen
+          AND cc.estado_id = 5 -- 5 = EN TRÁNSITO POR TRANSFERENCIA
+        GROUP BY m.id, m.serie_documento, m.numero_documento, ao.nombre, p.id, p.descripcion, m.created_at
+        ORDER BY m.created_at DESC";
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+            AgregarParametro(cmd, "@miAlmacen", miAlmacenDestinoId);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                lista.Add(new TransferenciaPendienteDTO
+                {
+                    MovimientoSalidaId = reader.GetInt32(0),
+                    GuiaOrigen = reader.GetString(1),
+                    AlmacenOrigenNombre = reader.GetString(2),
+                    ProductoId = reader.GetInt32(3),
+                    ProductoNombre = reader.GetString(4),
+                    CantidadEnTransito = reader.GetInt32(5),
+                    FechaEnvio = reader.GetDateTime(6),
+                    Seleccionado = false
+                });
+            }
+
+            return lista;
+        }
         public async Task<bool> RegistrarMovimientoCompletoAsync(Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos, int ubicacionId, int? existingMovimientoId = null, IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
@@ -637,6 +876,7 @@ namespace AplicativoDeAlmacen.Services
                 var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());
 
                 // 🌟 2. BARRERA DE SEGURIDAD PREVENTIVA (Detección de recortes con salidas/despachos)
+                // 🌟 BARRERA DE SEGURIDAD CORREGIDA: Permite recortar si está en Estado 3 (En Almacén) sin movimientos futuros
                 if (existingMovimientoId.HasValue && codigosPreviosEnBD.Any())
                 {
                     var idsNuevosMendados = new HashSet<int>();
@@ -652,14 +892,16 @@ namespace AplicativoDeAlmacen.Services
                         }
                     }
 
+                    var codigosRechazados = new List<string>();
+
                     foreach (var codIdAnterior in codigosPreviosEnBD)
                     {
+                        // Si el código antes pertenecía a la entrada y AHORA fue quitado por el usuario:
                         if (!idsNuevosMendados.Contains(codIdAnterior))
                         {
                             string codigoTxt = string.Empty;
                             int estadoActual = 0;
 
-                            // 1. Leemos los datos y CERRAMOS el lector de inmediato para liberarlo de la conexión SQL
                             using (var cmdEstadoCheck = dbConn.CreateCommand())
                             {
                                 cmdEstadoCheck.Transaction = transaccion;
@@ -674,15 +916,20 @@ namespace AplicativoDeAlmacen.Services
                                 }
                             }
 
-                            // 2. Conexión libre: verificamos si tiene salidas registradas o posteriores
+                            // Verificamos si realmente se usó en un movimiento posterior (Venta, Salida, etc.)
                             bool tienePosteriores = await TieneMovimientosPosterioresAsync(codIdAnterior, movimientoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
 
-                            // 3. Excepción ejecutiva amigable para la interfaz
+                            // 🛡️ SOLO RECHAZA SI Y A FUE VENDIDO (4) O SI TIENE MOVIMIENTOS POSTERIORES REALES
                             if (estadoActual == 4 || tienePosteriores)
                             {
-                                throw new Exception($"⚠️ No se puede guardar el cambio.\n\nEl código '{codigoTxt}' ya fue vendido o despachado en un documento posterior.\n\nSi necesita modificar este ingreso, primero debe anular o modificar las salidas asociadas a este código.");
+                                codigosRechazados.Add($"• {codigoTxt}");
                             }
                         }
+                    }
+
+                    if (codigosRechazados.Any())
+                    {
+                        throw new Exception($"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\nNo se pueden quitar los siguientes códigos porque ya registran salidas o ventas posteriores:\n\n{string.Join("\n", codigosRechazados)}");
                     }
                 }
 
@@ -746,7 +993,19 @@ namespace AplicativoDeAlmacen.Services
                         int motivoId = cabecera.MotivoProductoId;
                         string sqlVerificarDuplicados;
 
-                        if (motivoId != 1) // 🟢 Aplica a DEVOLUCIÓN RECIBIDA, PROMOTORÍA, REINGRESOS, ETC.
+                        // 🔵 1. MOTIVO 4 = TRANSFERENCIA (Acepta tanto Estado 4 como Estado 5)
+                        if (motivoId == 4)
+                        {
+                            sqlVerificarDuplicados = @"
+                        SELECT cc.codigo, cc.estado_id 
+                        FROM codigos_creados cc WITH (NOLOCK)
+                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
+                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                        WHERE cc.estado_id NOT IN (4, 5) 
+                          AND mc.codigo_creado_id IS NULL";
+                        }
+                        // 🟢 2. DEVOLUCIÓN RECIBIDA (2), PROMOTORÍA (3), OTROS (13) -> Exigen estrictamente Estado 4
+                        else if (motivoId != 1)
                         {
                             sqlVerificarDuplicados = @"
                         SELECT cc.codigo, cc.estado_id 
@@ -756,7 +1015,8 @@ namespace AplicativoDeAlmacen.Services
                         WHERE cc.estado_id != 4 
                           AND mc.codigo_creado_id IS NULL";
                         }
-                        else // 🔵 Motivo 1 = COMPRA (Ingreso Inicial)
+                        // 🟡 3. MOTIVO 1 = COMPRA (Ingreso Inicial -> Solo códigos en Estado 1)
+                        else
                         {
                             sqlVerificarDuplicados = @"
                         SELECT cc.codigo, cc.estado_id 
@@ -781,9 +1041,10 @@ namespace AplicativoDeAlmacen.Services
                                 int estConflicto = rdrVerify.GetInt32(1);
                                 string nombreEstado = estConflicto switch
                                 {
-                                    1 => "DISPONIBLE EN TRÁNSITO",
-                                    3 => "EN ALMACÉN",
-                                    4 => "VENDIDO/ENTREGADO",
+                                    1 => "CREADO / DISPONIBLE PARA INGRESO",
+                                    3 => "DISPONIBLE EN ALMACÉN",
+                                    4 => "SALIÓ DE ALMACÉN",
+                                    5 => "EN TRÁNSITO / TRANSFERIDO",
                                     _ => $"ESTADO {estConflicto}"
                                 };
                                 listaConflictos.Add($"- {codConflicto} ({nombreEstado})");
@@ -792,9 +1053,19 @@ namespace AplicativoDeAlmacen.Services
 
                         if (listaConflictos.Any())
                         {
-                            string msjError = motivoId != 1
-                                ? "No se puede procesar la Devolución/Reingreso. Los siguientes códigos NO figuran como VENDIDOS/DESPACHADOS (Estado 4) para poder reingresar:\n\n"
-                                : "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n\n";
+                            string msjError;
+                            if (motivoId == 4)
+                            {
+                                msjError = "No se puede procesar la Transferencia. Los siguientes códigos NO están en Salida (Estado 4) ni En Tránsito (Estado 5):\n\n";
+                            }
+                            else if (motivoId != 1)
+                            {
+                                msjError = "No se puede procesar la Devolución/Reingreso. Los siguientes códigos NO figuran como VENDIDOS/DESPACHADOS (Estado 4) para poder reingresar:\n\n";
+                            }
+                            else
+                            {
+                                msjError = "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n\n";
+                            }
 
                             throw new Exception(msjError + string.Join("\n", listaConflictos));
                         }
@@ -898,6 +1169,7 @@ namespace AplicativoDeAlmacen.Services
                 {
                     foreach (var codId in codigosAEliminar)
                     {
+                        // Si fue el primer ingreso del código, ObtenerEstadoAnteriorAsync retornará 1 (Estado Creado)
                         int estadoAnterior = await ObtenerEstadoAnteriorAsync(codId, movimientoId, dbConn, transaccion);
                         await ActualizarEstadoCodigo(codId, estadoAnterior, dbConn, transaccion);
                     }
@@ -909,16 +1181,17 @@ namespace AplicativoDeAlmacen.Services
                         string queryDel = $"DELETE FROM movimiento_codigos WHERE movimiento_id = @movId AND codigo_creado_id IN ({string.Join(",", batchDel)})";
                         using var cmdDel = dbConn.CreateCommand();
                         cmdDel.Transaction = transaccion;
-                        cmdDel.CommandText = queryDel;
+                        cmdDel.CommandText = QueryAdapter.FormatearConsulta(queryDel);
                         AgregarParametro(cmdDel, "@movId", movimientoId);
                         await cmdDel.ExecuteNonQueryAsync();
                     }
                 }
 
                 var productosUnicos = productos.Select(p => p.ProductoId).Distinct();
+                int almacenAfectado = cabecera.AlmacenDestinoId ?? 1;
                 foreach (var pid in productosUnicos)
                 {
-                    await ActualizarStockProductoPorKardexAsync(pid, dbConn, transaccion);
+                    await ActualizarStockProductoPorKardexAsync(pid, almacenAfectado, dbConn, transaccion);
                 }
 
                 transaccion.Commit();
@@ -1764,7 +2037,8 @@ namespace AplicativoDeAlmacen.Services
         FROM movimiento_codigos mc
         JOIN movimientos m ON mc.movimiento_id = m.id
         WHERE mc.codigo_creado_id = @codId 
-        AND m.id < @movId
+          AND m.id < @movId
+          AND m.estado_id = 1
         ORDER BY m.fecha_movimiento DESC, m.id DESC";
 
             try
@@ -1781,9 +2055,10 @@ namespace AplicativoDeAlmacen.Services
                 if (result != null && result != DBNull.Value)
                 {
                     int motivoId = Convert.ToInt32(result);
-                    // 🌟 MAPEO: Si el motivo previo infiere una entrada, regresa a Almacén (3), sino es Salida (4)
                     return (motivoId == 1 || motivoId == 2 || motivoId == 3 || motivoId == 4) ? 3 : 4;
                 }
+
+                // 🌟 Si no hay movimientos anteriores a este ingreso, vuelve a Estado 1 (CREADO / IMPRENTA)
                 return 1;
             }
             catch (Exception ex)

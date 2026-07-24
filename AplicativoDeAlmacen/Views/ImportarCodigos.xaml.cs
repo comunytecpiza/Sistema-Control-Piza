@@ -204,8 +204,11 @@ namespace AplicativoDeAlmacen.Views
 
                         string nombreProd = "❌ CÓDIGOS NO REGISTRADOS EN BD";
                         bool esValido = false;
-                        int categoriaId = 1;
                         string observacion = "❌ NO EXISTE EN BASE DE DATOS";
+
+                        // 🌟 DEDUCCIÓN INTELIGENTE DE CATEGORÍA DESDE EL TEXTO DEL CÓDIGO (1 = GUÍA, 2 = VENTA)
+                        // Si contiene 'V', '-V-', "'V'" o "VENTA", asigna 2 (VENTA), de lo contrario 1 (GUÍA)
+                        int categoriaId = (norm.Contains("-V-") || norm.Contains("'V'") || norm.Contains("-V'") || norm.Contains(" V ") || norm.Contains("VENTA")) ? 2 : 1;
 
                         // 🛑 A. Si ya fue agregado a la grilla de la pantalla principal del movimiento
                         if (yaExisteEnMovimiento)
@@ -213,7 +216,6 @@ namespace AplicativoDeAlmacen.Views
                             nombreProd = "⚠️ CÓDIGOS YA ENLAZADOS EN ESTE MOVIMIENTO";
                             observacion = "❌ YA FUE AGREGADO EN EL MOVIMIENTO ACTUAL";
 
-                            // Intentamos inferir la categoría real (GUÍA / VENTA) consultando la coincidencia en la BD
                             if (listaCoincidencias.Any() && listaCoincidencias.First().Value.CodigoObj != null)
                             {
                                 try
@@ -221,10 +223,7 @@ namespace AplicativoDeAlmacen.Views
                                     string catBDExistente = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(listaCoincidencias.First().Value.CodigoObj.Id);
                                     categoriaId = catBDExistente.Contains("VENTA") ? 2 : 1;
                                 }
-                                catch
-                                {
-                                    // En caso de fallo, mantenemos el valor por defecto (1 = GUÍA)
-                                }
+                                catch { }
                             }
                         }
                         // 🛑 B. Si viene repetido más de una vez en el mismo archivo Excel
@@ -242,7 +241,7 @@ namespace AplicativoDeAlmacen.Views
                                 nombreProd = pDesc;
                             }
 
-                            // Consultar categoría real en BD (1 = GUÍA, 2 = VENTA)
+                            // Consultar categoría oficial en BD (Prevalece sobre la deducción por texto)
                             if (coincidencia.CodigoObj != null)
                             {
                                 string catBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(coincidencia.CodigoObj.Id);

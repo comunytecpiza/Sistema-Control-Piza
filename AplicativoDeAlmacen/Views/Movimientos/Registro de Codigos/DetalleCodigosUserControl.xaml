@@ -11,6 +11,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- CARS DE RESUMEN -->
         <Border Background="White" CornerRadius="10" Padding="20" Margin="0,0,0,20">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.05" Direction="270"/>
@@ -41,72 +42,53 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="3" VerticalAlignment="Center">
-                    <TextBlock Text="EXCEPCIONES" FontSize="12" Foreground="#9CA3AF" FontWeight="Bold"/>
+                    <TextBlock Text="MERMAS / DAÑADOS" FontSize="12" Foreground="#9CA3AF" FontWeight="Bold"/>
                     <TextBlock x:Name="TxtExcepciones" FontSize="16" Foreground="#DC2626" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>
         </Border>
 
+        <!-- BARRA DE ACCIONES Y CAMBIO DE CONDICIÓN POR RANGO -->
         <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,15">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Ingresar Excepción Manual:" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,15,0"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-                <Border BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="4">
-                    <TextBox x:Name="TxtNuevoCodigo" Width="140" FontSize="15" FontWeight="Bold" Padding="10,6" 
-                             VerticalContentAlignment="Center" BorderThickness="0" Background="Transparent"/>
-                </Border>
+                <!-- 1. REGISTRO MANUAL -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Excepción Manual N°:" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TxtNuevoCodigo" Width="80" FontSize="14" FontWeight="Bold" Padding="6" Background="#F9FAFB"/>
+                    <Button Content="+ Registrar" Click="BtnRegistrarManual_Click" Background="#2563EB" Foreground="White" FontWeight="Bold" Padding="12,6" Margin="8,0,20,0"/>
+                </StackPanel>
 
-                <Button Content="+ Registrar" Click="BtnRegistrarManual_Click" Background="#2563EB" Foreground="White" 
-                        FontWeight="Bold" Padding="15,8" Margin="10,0,0,0" BorderThickness="0" Cursor="Hand">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}" CornerRadius="4">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
+                <!-- 2. CAMBIO DE CONDICIÓN POR RANGO (MERMA) -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="⚠️ Declarar Merma por Rango:" VerticalAlignment="Center" Foreground="#DC2626" FontWeight="Bold" Margin="0,0,10,0"/>
+                    <TextBlock Text="Desde:" VerticalAlignment="Center" Foreground="#6B7280" Margin="0,0,4,0"/>
+                    <TextBox x:Name="TxtRangoDesde" Width="60" TextAlignment="Center" Padding="4"/>
+                    <TextBlock Text="Hasta:" VerticalAlignment="Center" Foreground="#6B7280" Margin="8,0,4,0"/>
+                    <TextBox x:Name="TxtRangoHasta" Width="60" TextAlignment="Center" Padding="4"/>
 
-                <TextBlock x:Name="TxtUltimoAviso" Foreground="#6B7280" FontStyle="Italic" VerticalAlignment="Center" Margin="20,0,0,0"/>
-            </StackPanel>
+                    <Button Content="Convertir en Merma" Click="BtnConvertirMermaRango_Click" Background="#EF4444" Foreground="White" FontWeight="Bold" Padding="10,6" Margin="10,0,0,0"/>
+                    <Button Content="Revertir a OK" Click="BtnRevertirOkRango_Click" Background="#10B981" Foreground="White" FontWeight="Bold" Padding="10,6" Margin="5,0,0,0"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
+        <!-- TABLA PRINCIPAL DE CÓDIGOS -->
         <Border Grid.Row="2" CornerRadius="10" Background="White" Padding="5">
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="15" ShadowDepth="3" Opacity="0.08" Direction="270"/>
-            </Border.Effect>
-
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                      Background="Transparent" BorderThickness="0" 
-                      RowHeight="40" HeadersVisibility="Column" GridLinesVisibility="None">
-                <DataGrid.Resources>
-                    <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="Transparent"/>
-                        <Setter Property="Foreground" Value="#6B7280"/>
-                        <Setter Property="FontWeight" Value="Bold"/>
-                        <Setter Property="Padding" Value="15,12"/>
-                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
-                        <Setter Property="BorderBrush" Value="#E5E7EB"/>
-                    </Style>
+                      Background="Transparent" BorderThickness="0" RowHeight="40" HeadersVisibility="Column">
+                <DataGrid.RowStyle>
                     <Style TargetType="DataGridRow">
-                        <Setter Property="BorderBrush" Value="#F3F4F6"/>
-                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#F9FAFB"/>
-                            </Trigger>
-                        </Style.Triggers>
+                        <EventSetter Event="MouseDoubleClick" Handler="DataGridRow_MouseDoubleClick"/>
+                        <Setter Property="Cursor" Value="Hand"/>
                     </Style>
-                    <Style TargetType="DataGridCell">
-                        <Setter Property="Padding" Value="15,0"/>
-                        <Setter Property="VerticalContentAlignment" Value="Center"/>
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                    </Style>
-                </DataGrid.Resources>
-
+                </DataGrid.RowStyle>
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="ID INTERNO" Binding="{Binding Id}" Width="100"/>
+                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="80"/>
 
                     <DataGridTextColumn Header="CÓDIGO GENERADO" Binding="{Binding Codigo}" Width="*">
                         <DataGridTextColumn.ElementStyle>
@@ -118,37 +100,92 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTemplateColumn Header="ORIGEN" Width="200">
+                    <DataGridTemplateColumn Header="CONDICIÓN / CALIDAD" Width="180">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="Automático"/>
-                                            <Setter Property="Foreground" Value="#6B7280"/>
+                                <Border CornerRadius="12" Padding="10,4" HorizontalAlignment="Left">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="#DEF7EC"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding EsManual}" Value="True">
-                                                    <Setter Property="Text" Value="Excepción (Manual)"/>
-                                                    <Setter Property="Foreground" Value="#EAB308"/>
+                                                <DataTrigger Binding="{Binding CondicionId}" Value="2">
+                                                    <Setter Property="Background" Value="#FDE8E8"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                    </Border.Style>
+                                    <TextBlock FontWeight="Bold" FontSize="12">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="OPERATIVO (OK)"/>
+                                                <Setter Property="Foreground" Value="#03543F"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CondicionId}" Value="2">
+                                                        <Setter Property="Text" Value="MERMA / DAÑADO"/>
+                                                        <Setter Property="Foreground" Value="#9B1C1C"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Border>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTemplateColumn Header="ACCIONES" Width="120">
+                    <DataGridTemplateColumn Header="ORIGEN" Width="160">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Content="🗑️ Eliminar" Click="BtnEliminarCodigo_Click" Background="Transparent" 
-                                        Foreground="#EF4444" FontWeight="Bold" Cursor="Hand" BorderThickness="0"/>
+                                <TextBlock Text="{Binding Origen}" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+
+                    <DataGridTextColumn Header="FECHA CREACIÓN" Binding="{Binding CreatedAt, StringFormat=dd/MM/yyyy HH:mm}" Width="160"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
+
+        <!-- 🌟 MODAL FLOTANTE DE AUDITORÍA (SOLO ADMINISTRADOR AL HACER DOBLE CLICK) -->
+        <Grid x:Name="ModalAuditoria" Visibility="Collapsed" Background="#99000000" Grid.RowSpan="3" Margin="-30">
+            <Border Background="White" Width="500" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="25">
+                <StackPanel>
+                    <TextBlock Text="🔍 Auditoría Técnica de Código" FontSize="20" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,15"/>
+                    <Border Height="1" Background="#E5E7EB" Margin="0,0,0,15"/>
+
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="Código Físico:" FontWeight="Bold" Foreground="#6B7280"/>
+                        <TextBlock x:Name="AudCodigo" HorizontalAlignment="Right" FontWeight="Bold" FontSize="16" Foreground="#2563EB"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="Estado Calidad:" FontWeight="Bold" Foreground="#6B7280"/>
+                        <TextBlock x:Name="AudCondicion" HorizontalAlignment="Right" FontWeight="Bold"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="Almacén Actual:" FontWeight="Bold" Foreground="#6B7280"/>
+                        <TextBlock x:Name="AudAlmacen" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="Usuario Creador / Modificador:" FontWeight="Bold" Foreground="#6B7280"/>
+                        <TextBlock x:Name="AudUsuario" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="Origen de Creación:" FontWeight="Bold" Foreground="#6B7280"/>
+                        <TextBlock x:Name="AudOrigen" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,20">
+                        <TextBlock Text="Fecha y Hora:" FontWeight="Bold" Foreground="#6B7280"/>
+                        <TextBlock x:Name="AudFecha" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                    </Grid>
+
+                    <Button Content="Cerrar Auditoría" Click="BtnCerrarAuditoria_Click" Background="#374151" Foreground="White" FontWeight="Bold" Height="36"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

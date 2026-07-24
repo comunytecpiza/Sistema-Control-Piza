@@ -10,9 +10,17 @@ public partial class CodigoCreado
     public int Id { get; set; }
     public int RegistroCodigoId { get; set; }
     public string Codigo { get; set; }
-    public bool EsManual { get; set; } // Nuevo campo
-    public int EstadoId { get; set; }  // Nuevo campo
+    public bool EsManual { get; set; }
+    public int EstadoId { get; set; }
 
-    // Propiedad calculada para la vista
-    public string Origen => EsManual ? "Manual" : "Automático";
+    // 🌟 NUEVOS CAMPOS DE LA V2
+    public int? AlmacenId { get; set; }
+    public int CondicionId { get; set; } = 1; // 1 = OPERATIVO (OK), 2 = DAÑADO / MERMA
+    public int? UsuarioId { get; set; }
+    public string OrigenCreacion { get; set; } = "SECUENCIA";
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    // Propiedades calculadas para la UI
+    public string Origen => EsManual ? "Manual" : OrigenCreacion;
+    public string CondicionTexto => CondicionId == 1 ? "OPERATIVO (OK)" : "MERMA / DAÑADO";
 }

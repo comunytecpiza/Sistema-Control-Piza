@@ -156,6 +156,7 @@
                     </StackPanel>
 
                     <!-- FORMULARIO PRINCIPAL -->
+                    <!-- FORMULARIO PRINCIPAL DE SALIDA -->
                     <Border CornerRadius="8" Background="White" Padding="24" Effect="{StaticResource CardShadow}">
                         <Grid x:Name="grdFormularioSalida">
                             <Grid.ColumnDefinitions>
@@ -166,13 +167,23 @@
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
+                                <!-- 0: Operación / Fecha -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 1: Motivo Salida -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 2: Cliente / Destino -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 3: Dirección Cliente -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 4: Ubicación / Destino -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 5: Dirección Ubicación -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 6: Almacén Físico Destino (NUEVO) -->
                                 <RowDefinition Height="Auto"/>
+                                <!-- 7: Guía -->
+                                <RowDefinition Height="Auto"/>
+                                <!-- 8: Observación -->
                             </Grid.RowDefinitions>
 
                             <TextBlock Text="N° Operación" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
@@ -225,7 +236,7 @@
                             <Grid Grid.Row="4" Grid.Column="1" Margin="0,0,20,14">
                                 <TextBox x:Name="txtUbicacion" Height="36" FontSize="13" Padding="10,6" TextChanged="TxtUbicacion_TextChanged"/>
                                 <Popup x:Name="popupUbicaciones" PlacementTarget="{Binding ElementName=txtUbicacion}" Placement="Bottom" Width="{Binding ActualWidth, ElementName=txtUbicacion}" AllowsTransparency="True" PopupAnimation="Fade" StaysOpen="False">
-                                    <Border Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="6" Effect="{StaticResource CardShadow}">
+                                    <Border Background="White" BorderBrush="#E5E5EB" BorderThickness="1" CornerRadius="6" Effect="{StaticResource CardShadow}">
                                         <ListBox x:Name="lstUbicaciones" MaxHeight="160" Background="Transparent" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.VerticalScrollBarVisibility="Auto" PreviewMouseLeftButtonUp="LstUbicaciones_PreviewMouseLeftButtonUp">
                                             <ListBox.ItemContainerStyle>
                                                 <Style TargetType="ListBoxItem">
@@ -250,8 +261,12 @@
                             <TextBlock Text="Dirección Ubic." Grid.Row="5" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
                             <TextBox x:Name="txtDireccionUbicacion" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Height="36" Margin="0,0,0,14" IsReadOnly="True" FontSize="13"/>
 
-                            <TextBlock Text="# Guía" Grid.Row="6" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
-                            <Grid Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,14">
+                            <!-- 🌟 Fila 6: ALMACÉN FÍSICO DESTINO (NUEVO COMBO EN SALIDAS) -->
+                            <TextBlock Text="Almacén Destino" Grid.Row="6" VerticalAlignment="Center" Foreground="#374151" FontWeight="Bold" Margin="0,0,0,14" FontSize="13"/>
+                            <ComboBox x:Name="cboAlmacenDestino" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Height="36" Margin="0,0,0,14" FontSize="13" DisplayMemberPath="Nombre" SelectedValuePath="Id"/>
+
+                            <TextBlock Text="# Guía" Grid.Row="7" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
+                            <Grid Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,14">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="90"/>
                                     <ColumnDefinition Width="10"/>
@@ -261,8 +276,8 @@
                                 <TextBox x:Name="txtNumeroGuia" Grid.Column="2" Height="36" FontSize="13"/>
                             </Grid>
 
-                            <TextBlock Text="Observación" Grid.Row="7" VerticalAlignment="Top" Margin="0,8,0,0" Foreground="#374151" FontWeight="SemiBold" FontSize="13"/>
-                            <TextBox x:Name="txtObservacionSalida" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Height="52" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="10,8" FontSize="13"/>
+                            <TextBlock Text="Observación" Grid.Row="8" VerticalAlignment="Top" Margin="0,8,0,0" Foreground="#374151" FontWeight="SemiBold" FontSize="13"/>
+                            <TextBox x:Name="txtObservacionSalida" Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="3" Height="52" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="10,8" FontSize="13"/>
                         </Grid>
                     </Border>
                 </StackPanel>
