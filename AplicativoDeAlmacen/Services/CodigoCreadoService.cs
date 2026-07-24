@@ -39,7 +39,7 @@ namespace AplicativoDeAlmacen.Services
             cmd.Parameters.Add(p);
         }
 
-        // 🌟 CONSULTA DE CÓDIGOS CON FILTRO POR ALMACÉN DE SESIÓN
+        // 🌟 CONSULTA DE CÓDIGOS CON FILTRO POR ALMACÉN DE SESIÓN (SIN NOLOCK)
         public async Task<List<CodigoCreado>> ObtenerPorRegistroIdAsync(int registroCodigoId, int? almacenIdFiltro = null)
         {
             var lista = new List<CodigoCreado>();
@@ -49,7 +49,9 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
+                string isNullFunc = QueryAdapter.EsMySQL ? "COALESCE" : "ISNULL";
+
+                string query = $@"
             SELECT cc.id,                -- [0]
                    cc.registro_codigo_id,-- [1]
                    cc.codigo,            -- [2]
@@ -60,11 +62,11 @@ namespace AplicativoDeAlmacen.Services
                    cc.usuario_id,        -- [7]
                    cc.origen_creacion,   -- [8]
                    cc.created_at,        -- [9]
-                   ISNULL(a.nombre, 'SIN ALMACÉN') AS almacen_nombre, -- [10] 👈 ALMACÉN
-                   cond.nombre AS condicion_nombre                     -- [11] 👈 CONDICIÓN
-            FROM codigos_creados cc WITH (NOLOCK)
-            INNER JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
-            LEFT JOIN almacenes a WITH (NOLOCK) ON cc.almacen_id = a.id
+                   {isNullFunc}(a.nombre, 'SIN ALMACÉN') AS almacen_nombre, -- [10]
+                   cond.nombre AS condicion_nombre                     -- [11]
+            FROM codigos_creados cc
+            INNER JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
+            LEFT JOIN almacenes a ON cc.almacen_id = a.id
             WHERE cc.registro_codigo_id = @id";
 
                 if (almacenIdFiltro.HasValue)
@@ -99,8 +101,6 @@ namespace AplicativoDeAlmacen.Services
                                 UsuarioId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
                                 OrigenCreacion = reader.IsDBNull(8) ? "SECUENCIA" : reader.GetString(8),
                                 CreatedAt = reader.GetDateTime(9),
-
-                                // 🌟 ASIGNACIÓN EXACTA DEL NOMBRE DEL ALMACÉN
                                 AlmacenNombre = reader.IsDBNull(10) ? "SIN ALMACÉN" : reader.GetString(10)
                             });
                         }
@@ -110,7 +110,7 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        // 🌟 CAMBIAR CONDICIÓN POR RANGO (Ej: De correlativo 10 a 20)
+        // 🌟 CAMBIAR CONDICIÓN POR RANGO (COMPATIBLE CON MYSQL Y SQL SERVER)
         public async Task<int> CambiarCondicionPorRangoAsync(int registroCodigoId, int desdeNum, int hastaNum, int nuevaCondicionId, int usuarioModificadorId)
         {
             using (var conn = _database.GetConnection())
@@ -118,13 +118,18 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
+                string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
+                string numericCheck = QueryAdapter.EsMySQL
+                    ? "RIGHT(codigo, 7) REGEXP '^[0-9]+$'"
+                    : "ISNUMERIC(RIGHT(codigo, 7)) = 1";
+
+                string query = $@"
                     UPDATE codigos_creados 
                     SET condicion_id = @condicionId, 
                         usuario_id = @usuarioId 
                     WHERE registro_codigo_id = @rid 
-                      AND ISNUMERIC(RIGHT(codigo, 7)) = 1 
-                      AND CAST(RIGHT(codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+                      AND {numericCheck}
+                      AND CAST(RIGHT(codigo, 7) AS {castType}) BETWEEN @desde AND @hasta";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -140,7 +145,7 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // 🌟 OBTENER AUDITORÍA COMPLETA PARA EL MODAL DE ADMINISTRADOR
+        // 🌟 OBTENER AUDITORÍA COMPLETA
         public async Task<CodigoAuditoriaDTO?> ObtenerAuditoriaCompletaAsync(int codigoId)
         {
             using (var conn = _database.GetConnection())
@@ -148,9 +153,11 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
-                    SELECT cc.id, cc.codigo, cond.nombre AS condicion, ISNULL(a.nombre, 'Sin Almacén') AS almacen,
-                           ISNULL(u.nombres, 'SISTEMA') AS usuario, cc.origen_creacion, cc.created_at, cond.permitir_salida
+                string isNullFunc = QueryAdapter.EsMySQL ? "COALESCE" : "ISNULL";
+
+                string query = $@"
+                    SELECT cc.id, cc.codigo, cond.nombre AS condicion, {isNullFunc}(a.nombre, 'Sin Almacén') AS almacen,
+                           {isNullFunc}(u.nombres, 'SISTEMA') AS usuario, cc.origen_creacion, cc.created_at, cond.permitir_salida
                     FROM codigos_creados cc
                     INNER JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
                     LEFT JOIN almacenes a ON cc.almacen_id = a.id
@@ -217,10 +224,12 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
+                string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
+
+                string query = $@"
                     INSERT INTO codigos_creados 
                     (registro_codigo_id, codigo, es_manual, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at)
-                    VALUES (@rid, @cod, 1, 1, 1, @almId, @usrId, 'MANUAL', GETDATE())";
+                    VALUES (@rid, @cod, 1, 1, 1, @almId, @usrId, 'MANUAL', {nowFunc})";
 
                 using (var cmd = dbConn.CreateCommand())
                 {

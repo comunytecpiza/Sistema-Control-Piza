@@ -1,17 +1,21 @@
-﻿using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Data;
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.Common;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Threading.Tasks;
+using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Users;
+using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -30,11 +34,10 @@ namespace AplicativoDeAlmacen.Views
 
     public partial class PersonasComercialesUserControl : UserControl
     {
-        private string connectionString => ConfigManager.ObtenerCadenaConexion();
-
         private ObservableCollection<PersonaComercial> personas = new ObservableCollection<PersonaComercial>();
         private PersonaComercial? currentPersona;
         private readonly PersonaComercialService _service;
+        private readonly DatabaseConnection _database;
 
         // Bandera para evitar bucles de búsqueda
         private bool _isTyping = true;
@@ -43,22 +46,23 @@ namespace AplicativoDeAlmacen.Views
         {
             InitializeComponent();
             _service = new PersonaComercialService();
+            _database = new DatabaseConnection();
             PersonasDataGrid.ItemsSource = personas;
 
             this.Loaded += async (s, e) =>
             {
-                LoadDataCombos();
+                await LoadDataCombosAsync();
                 await LoadPersonas();
             };
         }
 
-        private void LoadDataCombos()
+        private async Task LoadDataCombosAsync()
         {
-            LoadTipoPersonas();
-            LoadTiposDeNegocio(); // NUEVO
-            LoadDepartamentos();
-            LoadLocalidades();    // Corregido
-            LoadEstados();
+            await LoadTipoPersonasAsync();
+            await LoadTiposDeNegocioAsync();
+            await LoadDepartamentosAsync();
+            await LoadLocalidadesAsync();
+            await LoadEstadosAsync();
         }
 
         private async Task LoadPersonas()
@@ -77,67 +81,61 @@ namespace AplicativoDeAlmacen.Views
         // ===============================================
         private void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            AplicarFiltro();
+            AplicativoFiltroSeguro();
         }
 
         private void FilterRadioButton_Checked(object sender, RoutedEventArgs e)
         {
-            // Validamos que los controles ya estén dibujados en pantalla
             if (SearchTextBox != null && personas != null)
             {
-                AplicarFiltro();
+                AplicativoFiltroSeguro();
             }
         }
 
-        private void AplicarFiltro()
+        private void AplicativoFiltroSeguro()
         {
             if (SearchTextBox == null || personas == null) return;
 
             string texto = SearchTextBox.Text.Trim().ToLower();
 
-            // Si la caja está vacía, mostramos toda la lista
             if (string.IsNullOrEmpty(texto))
             {
                 PersonasDataGrid.ItemsSource = personas;
                 return;
             }
 
-            // Aplicamos el filtro dependiendo de qué RadioButton esté marcado
             IEnumerable<PersonaComercial> filtrados = personas;
 
             if (RbRazonSocial.IsChecked == true)
                 filtrados = personas.Where(p => p.RazonSocial != null && p.RazonSocial.ToLower().Contains(texto));
-
             else if (RbNombreComercial.IsChecked == true)
                 filtrados = personas.Where(p => p.NombreComercial != null && p.NombreComercial.ToLower().Contains(texto));
-
             else if (RbRuc.IsChecked == true)
                 filtrados = personas.Where(p => p.Ruc != null && p.Ruc.Contains(texto));
-
             else if (RbDni.IsChecked == true)
                 filtrados = personas.Where(p => p.Dni != null && p.Dni.Contains(texto));
 
-            // Actualizamos la grilla con los resultados
             PersonasDataGrid.ItemsSource = filtrados.ToList();
         }
+
         private void LstBuscador_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (LstBuscador.SelectedItem is PersonaComercial clienteSeleccionado)
             {
-                _isTyping = false; // Pausamos el TextChanged
+                _isTyping = false;
                 SearchTextBox.Text = clienteSeleccionado.RazonSocial ?? $"{clienteSeleccionado.Nombres} {clienteSeleccionado.ApellidoPaterno}";
                 PopBuscador.IsOpen = false;
                 _isTyping = true;
 
-                // Filtramos la grilla para mostrar SOLO al seleccionado
                 PersonasDataGrid.ItemsSource = personas.Where(p => p.Id == clienteSeleccionado.Id).ToList();
             }
         }
+
         private void BtnLimpiarFiltro_Click(object sender, RoutedEventArgs e)
         {
             SearchTextBox.Text = "";
-            RbRazonSocial.IsChecked = true; // Por defecto regresa a Razón Social
-            PersonasDataGrid.ItemsSource = personas; // Restaura la grilla
+            RbRazonSocial.IsChecked = true;
+            PersonasDataGrid.ItemsSource = personas;
         }
 
         // ===============================================
@@ -174,13 +172,8 @@ namespace AplicativoDeAlmacen.Views
         {
             if (PersonasDataGrid.SelectedItem is PersonaComercial p)
             {
-                // 1. Instanciamos tu nueva ventana pasándole el cliente completo
                 DefinicionPreciosWindow modal = new DefinicionPreciosWindow(p);
-
-                // 2. Asignamos el Owner para que el modal nazca centrado y no se pierda detrás de la ventana principal
                 modal.Owner = Window.GetWindow(this);
-
-                // 3. Abrimos la ventana en modo "Dialog" (bloquea el catálogo hasta que cierres los precios)
                 modal.ShowDialog();
             }
         }
@@ -191,170 +184,218 @@ namespace AplicativoDeAlmacen.Views
         }
 
         // ===============================================
-        // CARGA DE COMBOS (ADO.NET Directo como lo tenías)
+        // CARGA DE COMBOS (COMPATIBLE CON MYSQL Y SQL SERVER)
         // ===============================================
-        private void LoadTipoPersonas()
+        private async Task LoadTipoPersonasAsync()
         {
-            TipoPersonaComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                string query = "SELECT id, nombre FROM tipo_persona";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                using (SqlDataReader reader = command.ExecuteReader())
+                TipoPersonaComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM tipo_persona ORDER BY nombre ASC");
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (reader.Read())
-                    {
-                        TipoPersonaComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
-                    }
+                    TipoPersonaComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando tipo personas: " + ex.Message); }
         }
 
-        private void LoadTiposDeNegocio()
+        private async Task LoadTiposDeNegocioAsync()
         {
-            CmbTipoNegocio.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                string query = "SELECT id, nombre FROM tipos_persona_comercial";
-                using (SqlCommand command = new SqlCommand(query, connection))
-                using (SqlDataReader reader = command.ExecuteReader())
+                CmbTipoNegocio.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM tipos_persona_comercial ORDER BY nombre ASC");
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (reader.Read())
-                    {
-                        CmbTipoNegocio.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
-                    }
+                    CmbTipoNegocio.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando tipos de negocio: " + ex.Message); }
         }
 
-        private void LoadDepartamentos()
+        private async Task LoadDepartamentosAsync()
         {
-            DepartamentoComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand("SELECT id, nombre FROM departamentos", connection))
-                using (SqlDataReader reader = command.ExecuteReader())
+                DepartamentoComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM departamentos ORDER BY nombre ASC");
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (reader.Read())
-                        DepartamentoComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
+                    DepartamentoComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando departamentos: " + ex.Message); }
         }
 
-        private void LoadProvincias(int departamentoId)
+        private async Task LoadProvinciasAsync(int departamentoId)
         {
-            ProvinciaComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand("SELECT id, nombre FROM provincias WHERE departamento_id = @id", connection))
+                ProvinciaComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM provincias WHERE departamento_id = @id ORDER BY nombre ASC");
+
+                var p = cmd.CreateParameter();
+                p.ParameterName = "@id";
+                p.Value = departamentoId;
+                cmd.Parameters.Add(p);
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    command.Parameters.AddWithValue("@id", departamentoId);
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                            ProvinciaComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
-                    }
+                    ProvinciaComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando provincias: " + ex.Message); }
         }
 
-        private void LoadDistritos(int provinciaId)
+        private async Task LoadDistritosAsync(int provinciaId)
         {
-            DistritoComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand("SELECT id, nombre FROM distritos WHERE provincia_id = @id", connection))
+                DistritoComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM distritos WHERE provincia_id = @id ORDER BY nombre ASC");
+
+                var p = cmd.CreateParameter();
+                p.ParameterName = "@id";
+                p.Value = provinciaId;
+                cmd.Parameters.Add(p);
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    command.Parameters.AddWithValue("@id", provinciaId);
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                            DistritoComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
-                    }
+                    DistritoComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando distritos: " + ex.Message); }
         }
 
-        private void LoadLocalidades()
+        private async Task LoadLocalidadesAsync()
         {
-            LocalidadComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand("SELECT id, nombre FROM localidades", connection))
-                using (SqlDataReader reader = command.ExecuteReader())
+                LocalidadComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM localidades ORDER BY nombre ASC");
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (reader.Read())
-                        LocalidadComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
+                    LocalidadComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando localidades: " + ex.Message); }
         }
 
-        private void LoadZonasPromotoria(int localidadId)
+        private async Task LoadZonasPromotoriaAsync(int localidadId)
         {
-            ZonaPromotoriaComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand("SELECT id, descripcion FROM zona_promotoria WHERE localidad_id = @id", connection))
+                ZonaPromotoriaComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion FROM zona_promotoria WHERE localidad_id = @id ORDER BY descripcion ASC");
+
+                var p = cmd.CreateParameter();
+                p.ParameterName = "@id";
+                p.Value = localidadId;
+                cmd.Parameters.Add(p);
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    command.Parameters.AddWithValue("@id", localidadId);
-                    using (SqlDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                            ZonaPromotoriaComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
-                    }
+                    ZonaPromotoriaComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
             }
+            catch (Exception ex) { MessageBox.Show("Error cargando zonas de promotoría: " + ex.Message); }
         }
 
-        private void LoadEstados()
+        private async Task LoadEstadosAsync()
         {
-            EstadoComboBox.Items.Clear();
-            using (SqlConnection connection = new SqlConnection(connectionString))
+            try
             {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand("SELECT id, nombre FROM estados", connection))
-                using (SqlDataReader reader = command.ExecuteReader())
+                EstadoComboBox.Items.Clear();
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM estados ORDER BY nombre ASC");
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                while (await rdr.ReadAsync())
                 {
-                    while (reader.Read())
-                        EstadoComboBox.Items.Add(new ComboBoxItem { Content = reader.GetString(1), Tag = reader.GetInt32(0) });
+                    EstadoComboBox.Items.Add(new ComboBoxItem { Content = rdr.GetString(1), Tag = rdr.GetInt32(0) });
                 }
+                if (EstadoComboBox.Items.Count > 0) EstadoComboBox.SelectedIndex = 0;
             }
-            if (EstadoComboBox.Items.Count > 0) EstadoComboBox.SelectedIndex = 0;
+            catch (Exception ex) { MessageBox.Show("Error cargando estados: " + ex.Message); }
         }
 
         // ===============================================
         // EVENTOS DE CASCADA Y LOGICA DE INTERFAZ
         // ===============================================
-        private void DepartamentoComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void DepartamentoComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (DepartamentoComboBox.SelectedItem is ComboBoxItem dep)
             {
-                LoadProvincias((int)dep.Tag);
+                await LoadProvinciasAsync((int)dep.Tag);
                 ProvinciaComboBox.IsEnabled = true;
             }
         }
 
-        private void ProvinciaComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void ProvinciaComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (ProvinciaComboBox.SelectedItem is ComboBoxItem prov)
             {
-                LoadDistritos((int)prov.Tag);
+                await LoadDistritosAsync((int)prov.Tag);
                 DistritoComboBox.IsEnabled = true;
             }
         }
 
-        private void LocalidadComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void LocalidadComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (LocalidadComboBox.SelectedItem is ComboBoxItem loc)
             {
-                LoadZonasPromotoria((int)loc.Tag);
+                await LoadZonasPromotoriaAsync((int)loc.Tag);
                 ZonaPromotoriaComboBox.IsEnabled = true;
             }
         }
@@ -453,10 +494,7 @@ namespace AplicativoDeAlmacen.Views
         {
             if (currentPersona == null) return;
 
-            // Tipo DNI/RUC
             TipoPersonaComboBox.SelectedItem = TipoPersonaComboBox.Items.Cast<ComboBoxItem>().FirstOrDefault(x => (int)x.Tag == currentPersona.TipoPersona?.Id);
-
-            // Tipo de Negocio (Colegio, Empresa, etc)
             CmbTipoNegocio.SelectedItem = CmbTipoNegocio.Items.Cast<ComboBoxItem>().FirstOrDefault(x => (int)x.Tag == currentPersona.TipoPersonaComercial?.Id);
 
             ApellidoPaternoTextBox.Text = currentPersona.ApellidoPaterno ?? "";
@@ -488,10 +526,47 @@ namespace AplicativoDeAlmacen.Views
 
         private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            // Validaciones básicas
-            if (TipoPersonaComboBox.SelectedIndex == -1) { MessageBox.Show("Seleccione el Tipo Legal (DNI/RUC)."); return; }
-            if (CmbTipoNegocio.SelectedIndex == -1) { MessageBox.Show("Seleccione el Tipo de Negocio (Colegio/Empresa)."); return; }
-            if (string.IsNullOrWhiteSpace(RazonSocialTextBox.Text)) { MessageBox.Show("La Razón Social es obligatoria."); return; }
+            if (TipoPersonaComboBox.SelectedItem is not ComboBoxItem tipoPersonaItem)
+            {
+                MessageBox.Show("Seleccione el Tipo Legal (Natural/Jurídica).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (CmbTipoNegocio.SelectedIndex == -1)
+            {
+                MessageBox.Show("Seleccione el Tipo de Negocio (Colegio/Empresa/Persona).", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string tipoPersonaNombre = tipoPersonaItem.Content?.ToString() ?? string.Empty;
+
+            // 🌟 VALIDACIONES INTELIGENTES SEGÚN TIPO DE PERSONA
+            if (tipoPersonaNombre == "Natural")
+            {
+                if (string.IsNullOrWhiteSpace(NombresTextBox.Text))
+                {
+                    MessageBox.Show("Los Nombres son obligatorios para una Persona Natural.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(ApellidoPaternoTextBox.Text))
+                {
+                    MessageBox.Show("El Apellido Paterno es obligatorio para una Persona Natural.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            else // Persona Jurídica u otros
+            {
+                if (string.IsNullOrWhiteSpace(RazonSocialTextBox.Text))
+                {
+                    MessageBox.Show("La Razón Social es obligatoria para una Persona Jurídica.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(RucTextBox.Text))
+                {
+                    MessageBox.Show("El RUC es obligatorio para una Persona Jurídica.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
 
             var persona = new PersonaComercial
             {
@@ -505,7 +580,7 @@ namespace AplicativoDeAlmacen.Views
                 Dni = DniTextBox.Text,
                 Direccion = DireccionTextBox.Text,
 
-                TipoPersona = new TipoPersona { Id = (int)((ComboBoxItem)TipoPersonaComboBox.SelectedItem).Tag },
+                TipoPersona = new TipoPersona { Id = (int)tipoPersonaItem.Tag },
                 TipoPersonaComercial = new TipoPersonaComercial { Id = (int)((ComboBoxItem)CmbTipoNegocio.SelectedItem).Tag },
 
                 Localidad = LocalidadComboBox.SelectedItem is ComboBoxItem loc ? new Localidad { Id = (int)loc.Tag } : null,
@@ -518,7 +593,7 @@ namespace AplicativoDeAlmacen.Views
 
             await _service.GuardarAsync(persona);
             ModalBackground.Visibility = Visibility.Collapsed;
-            await LoadPersonas(); // Refresca la grilla
+            await LoadPersonas();
         }
     }
 }

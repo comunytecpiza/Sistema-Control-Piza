@@ -426,14 +426,24 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
-                    SELECT ISNULL(MAX(CAST(RIGHT(cc.codigo,7) AS INT)),0)
-                    FROM codigos_creados cc
-                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id=rc.id
-                    WHERE rc.producto_id=@producto
-                      AND rc.categoria_producto_id=@categoria
-                      AND cc.codigo LIKE @prefijo
-                      AND ISNUMERIC(RIGHT(cc.codigo,7))=1";
+                // 🌟 Adaptación dinámica de sintaxis según la BD (MySQL vs SQL Server)
+                string isNullFunc = QueryAdapter.EsMySQL ? "COALESCE" : "ISNULL";
+                string rightFunc = QueryAdapter.EsMySQL ? "RIGHT(cc.codigo, 7)" : "RIGHT(cc.codigo, 7)";
+                string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
+
+                // En MySQL se usa REGEXP '^[0-9]+$', en SQL Server ISNUMERIC() = 1
+                string numericCheck = QueryAdapter.EsMySQL
+                    ? "RIGHT(cc.codigo, 7) REGEXP '^[0-9]+$'"
+                    : "ISNUMERIC(RIGHT(cc.codigo, 7)) = 1";
+
+                string query = $@"
+            SELECT {isNullFunc}(MAX(CAST({rightFunc} AS {castType})), 0)
+            FROM codigos_creados cc
+            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+            WHERE rc.producto_id = @producto
+              AND rc.categoria_producto_id = @categoria
+              AND cc.codigo LIKE @prefijo
+              AND {numericCheck}";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -443,7 +453,7 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmd, "@prefijo", abreviatura + "-%");
 
                     object result = await cmd.ExecuteScalarAsync();
-                    return result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    return (result != null && result != DBNull.Value) ? Convert.ToInt32(result) : 0;
                 }
             }
         }
