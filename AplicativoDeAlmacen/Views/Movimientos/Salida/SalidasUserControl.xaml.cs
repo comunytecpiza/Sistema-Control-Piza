@@ -497,7 +497,6 @@ namespace AplicativoDeAlmacen.Views
             _modoActual = ModoFormulario.Nuevo;
             grdFormularioSalida.IsEnabled = true;
 
-            // Habilitamos todos los campos necesarios para empezar a trabajar
             cboMotivoSalida.IsEnabled = true;
             dtpFechaDespacho.IsEnabled = true;
             txtObservacionSalida.IsEnabled = true;
@@ -516,9 +515,44 @@ namespace AplicativoDeAlmacen.Views
             dtpFechaDespacho.SelectedDate = DateTime.Today;
             ActualizarVisibilidadCampos();
 
-            // 🌟 CORRECCIÓN AQUÍ: Forzamos serie limpia y enmascaramos el número en la UI
-            txtSerieSalida.Text = "0001"; // Serie numérica fija sin la 'S'
-            txtNumeroSalida.Text = "[ AUTOMÁTICO ]";
+            txtSerieSalida.Text = "0001";
+
+            // 🌟 CORRELATIVO INDEPENDIENTE BASADO EN EL ALMACÉN EMISOR DE SESIÓN
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+            string siguienteCorrelativo = "0000001";
+
+            try
+            {
+                using (var conn = _database.GetConnection())
+                {
+                    var dbConn = (System.Data.Common.DbConnection)conn;
+                    await dbConn.OpenAsync();
+
+                    string queryMax = @"
+                SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
+                FROM movimientos m WITH (NOLOCK)
+                INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                WHERE m.serie_documento = '0001' 
+                  AND mp.tipo_movimiento_id = 2
+                  AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) = @almId";
+
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryMax);
+                    AgregarParametro(cmd, "@almId", miAlmacenId);
+
+                    object res = await cmd.ExecuteScalarAsync();
+                    if (res != null && res != DBNull.Value)
+                    {
+                        siguienteCorrelativo = Convert.ToInt32(res).ToString("D7");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al calcular correlativo de salida: {ex.Message}");
+            }
+
+            txtNumeroSalida.Text = siguienteCorrelativo;
             txtNumeroSalida.IsReadOnly = true;
             txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
             txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Gray;
@@ -1318,9 +1352,10 @@ namespace AplicativoDeAlmacen.Views
                     PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : null,
                     MotivoProductoId = idMotivo,
 
-                    // 🌟 ASIGNACIÓN EXACTA DE ALMACEN ORIGEN Y DESTINO
-                    AlmacenOrigenId = miAlmacenOrigen,
-                    AlmacenDestinoId = almacenDestinoSel,
+                    // 🌟 ASIGNACIÓN MÁSTER DE ALMACENES
+                    AlmacenId = miAlmacenOrigen,         // 👈 ALMACÉN TITULAR QUE CREA Y EMITE LA SALIDA
+                    AlmacenOrigenId = miAlmacenOrigen,   // Sede física de procedencia de los libros
+                    AlmacenDestinoId = almacenDestinoSel,// Sede física de destino (si es transferencia)
 
                     UsuarioId = usuarioActivoId,
                     Observacion = txtObservacionSalida.Text,

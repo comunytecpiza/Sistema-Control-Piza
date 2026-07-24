@@ -108,24 +108,29 @@ namespace AplicativoDeAlmacen.Services
         // 🌟 RECALCULA EL STOCK FÍSICO REAL EN LA TABLA stock_almacen
         private async Task ActualizarStockProductoPorKardexAsync(int productoId, int almacenId, DbConnection conn, DbTransaction trans)
         {
+            // 🌟 1. CALCULA EL STOCK EN 1 SOLO JOIN (Sin subconsultas dentro de SUM)
             string queryCalculo = @"
-                SELECT COALESCE(
-                    (SELECT COALESCE(SUM(md.cantidad_ingreso), 0)
-                     FROM movimiento_detalles md
-                     INNER JOIN movimientos m ON md.movimiento_id = m.id
-                     WHERE md.producto_id = @ProdId 
-                       AND m.almacen_destino_id = @AlmId
-                       AND m.estado_id = 1
-                       AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 1)
-                    ) -
-                    (SELECT COALESCE(SUM(md.cantidad_salida), 0)
-                     FROM movimiento_detalles md
-                     INNER JOIN movimientos m ON md.movimiento_id = m.id
-                     WHERE md.producto_id = @ProdId 
-                       AND m.almacen_origen_id = @AlmId
-                       AND m.estado_id = 1
-                       AND m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 2)
-                    ), 0) AS stock_calculado";
+        SELECT COALESCE(
+            SUM(CASE 
+                WHEN m.almacen_destino_id = @AlmId AND mp.tipo_movimiento_id = 1 
+                THEN md.cantidad_ingreso 
+                ELSE 0 
+            END) -
+            SUM(CASE 
+                WHEN m.almacen_origen_id = @AlmId AND mp.tipo_movimiento_id = 2 
+                THEN md.cantidad_salida 
+                ELSE 0 
+            END), 0) AS stock_calculado
+        FROM movimiento_detalles md WITH (NOLOCK)
+        INNER JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id
+        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+        WHERE md.producto_id = @ProdId
+          AND m.estado_id = 1
+          AND (
+              (m.almacen_destino_id = @AlmId AND mp.tipo_movimiento_id = 1)
+              OR
+              (m.almacen_origen_id = @AlmId AND mp.tipo_movimiento_id = 2)
+          )";
 
             int stockCalculado = 0;
             using (var cmdCalc = conn.CreateCommand())
@@ -142,18 +147,19 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
 
+            // 🌟 2. ACTUALIZA O INSERTA EL STOCK EN 'stock_almacen'
             string queryUpsert = @"
-                IF EXISTS (SELECT 1 FROM stock_almacen WHERE producto_id = @ProdId AND almacen_id = @AlmId)
-                BEGIN
-                    UPDATE stock_almacen 
-                    SET stock_actual = @Stock, updated_at = GETDATE()
-                    WHERE producto_id = @ProdId AND almacen_id = @AlmId;
-                END
-                ELSE
-                BEGIN
-                    INSERT INTO stock_almacen (producto_id, almacen_id, stock_actual, updated_at)
-                    VALUES (@ProdId, @AlmId, @Stock, GETDATE());
-                END";
+        IF EXISTS (SELECT 1 FROM stock_almacen WHERE producto_id = @ProdId AND almacen_id = @AlmId)
+        BEGIN
+            UPDATE stock_almacen 
+            SET stock_actual = @Stock, updated_at = GETDATE()
+            WHERE producto_id = @ProdId AND almacen_id = @AlmId;
+        END
+        ELSE
+        BEGIN
+            INSERT INTO stock_almacen (producto_id, almacen_id, stock_actual, updated_at)
+            VALUES (@ProdId, @AlmId, @Stock, GETDATE());
+        END";
 
             using (var cmdUpsert = conn.CreateCommand())
             {
@@ -373,9 +379,11 @@ namespace AplicativoDeAlmacen.Services
                             FROM movimientos m {bloqueoConcurrencia}
                             INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
                             WHERE m.serie_documento = @serie 
-                            AND mp.tipo_movimiento_id = 2");
+                              AND mp.tipo_movimiento_id = 2
+                              AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) = @almId");
 
                         AgregarParametro(cmdGen, "@serie", serieParaGenerar);
+                        AgregarParametro(cmdGen, "@almId", cabecera.AlmacenId ?? cabecera.AlmacenOrigenId ?? 1);
                         object? genRes = await cmdGen.ExecuteScalarAsync();
                         int siguienteNumero = genRes != null && genRes != DBNull.Value ? Convert.ToInt32(genRes) : 1;
 
@@ -383,13 +391,13 @@ namespace AplicativoDeAlmacen.Services
                         cabecera.SerieDocumento = serieParaGenerar;
                     }
 
-                    // 🌟 CABECERA CON ALMACÉN ORIGEN Y ALMACÉN DESTINO
+                    // 🌟 CABECERA INCLUYENDO almacen_id (ALMACÉN TITULAR)
                     string queryCabecera = $@"
                         INSERT INTO movimientos 
                         (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
-                         almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, serie_guia, numero_guia, observacion, estado_id, created_at)
+                         almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, serie_guia, numero_guia, observacion, estado_id, created_at)
                         VALUES 
-                        (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almOrigen, @almDestino, @usuarioId, @personaId, @serieGuia, @numeroGuia, @observacion, 1, GETDATE()); {selectId}";
+                        (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @serieGuia, @numeroGuia, @observacion, 1, GETDATE()); {selectId}";
 
                     using var cmdCab = dbConn.CreateCommand();
                     cmdCab.Transaction = transaccion;
@@ -399,6 +407,7 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdCab, "@numero", cabecera.NumeroDocumento);
                     AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
                     AgregarParametro(cmdCab, "@ubicacionId", cabecera.UbicacionId > 0 ? (object)cabecera.UbicacionId : DBNull.Value);
+                    AgregarParametro(cmdCab, "@almId", cabecera.AlmacenId ?? cabecera.AlmacenOrigenId ?? 1);
                     AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
                     AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId);
                     AgregarParametro(cmdCab, "@usuarioId", usuarioId);
@@ -417,6 +426,7 @@ namespace AplicativoDeAlmacen.Services
                         SET fecha_movimiento = @fecha, 
                             motivo_producto_id = @motivoId, 
                             ubicacion_id = @ubicacionId, 
+                            almacen_id = @almId,
                             almacen_origen_id = @almOrigen,
                             almacen_destino_id = @almDestino,
                             usuario_id = @usuarioId, 
@@ -432,6 +442,7 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdUpdCab, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Now);
                     AgregarParametro(cmdUpdCab, "@motivoId", cabecera.MotivoProductoId);
                     AgregarParametro(cmdUpdCab, "@ubicacionId", cabecera.UbicacionId > 0 ? (object)cabecera.UbicacionId : DBNull.Value);
+                    AgregarParametro(cmdUpdCab, "@almId", cabecera.AlmacenId ?? cabecera.AlmacenOrigenId ?? 1);
                     AgregarParametro(cmdUpdCab, "@almOrigen", cabecera.AlmacenOrigenId);
                     AgregarParametro(cmdUpdCab, "@almDestino", cabecera.AlmacenDestinoId);
                     AgregarParametro(cmdUpdCab, "@usuarioId", usuarioId);
@@ -603,6 +614,9 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdPurga, "@movId", movimientoIdInserted);
                     await cmdPurga.ExecuteNonQueryAsync();
                 }
+
+
+
                 // 🌟 RECALCULAR STOCK EN stock_almacen PARA LA SEDE EMISORA
                 int almacenEmisor = cabecera.AlmacenOrigenId ?? 1;
                 var productosUnicos = listaProductos.Select(p => p.ProductoId).Distinct();
@@ -636,21 +650,21 @@ namespace AplicativoDeAlmacen.Services
             {
                 cmd.CommandText = QueryAdapter.FormatearConsulta(@"
         SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, 
-               m.persona_comercial_id, m.ubicacion_id, m.almacen_origen_id, m.almacen_destino_id,
+               m.persona_comercial_id, m.ubicacion_id, m.almacen_id, m.almacen_origen_id, m.almacen_destino_id,
                m.serie_guia, m.numero_guia, m.observacion, m.estado_id
         FROM movimientos m WITH (NOLOCK)
         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
         WHERE m.serie_documento = @serie 
         AND m.numero_documento = @numero
         AND mp.tipo_movimiento_id = 2 -- Salida
-        AND ISNULL(m.almacen_origen_id, 1) = @miAlmacen"); // 👈 BLOQUEO ESTRICTO POR TU ALMACÉN
+        AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) = @miAlmacen"); // 👈 BLOQUEO ESTRICTO POR TU ALMACÉN CREADOR
 
                 AgregarParametro(cmd, "@serie", serie);
                 AgregarParametro(cmd, "@numero", numero);
                 AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
 
                 using var rd = await cmd.ExecuteReaderAsync();
-                if (!await rd.ReadAsync()) return null; // 🛡️ Si no pertenece a tu almacén de sesión, retorna NULL
+                if (!await rd.ReadAsync()) return null;
 
                 if (rd.GetInt32(rd.GetOrdinal("estado_id")) == 2) return null;
 
@@ -663,6 +677,7 @@ namespace AplicativoDeAlmacen.Services
                     MotivoProductoId = rd.IsDBNull(rd.GetOrdinal("motivo_producto_id")) ? 0 : rd.GetInt32(rd.GetOrdinal("motivo_producto_id")),
                     PersonaComercialId = rd.IsDBNull(rd.GetOrdinal("persona_comercial_id")) ? (int?)null : rd.GetInt32(rd.GetOrdinal("persona_comercial_id")),
                     UbicacionId = rd.IsDBNull(rd.GetOrdinal("ubicacion_id")) ? (int?)null : rd.GetInt32(rd.GetOrdinal("ubicacion_id")),
+                    AlmacenId = rd.IsDBNull(rd.GetOrdinal("almacen_id")) ? (int?)null : rd.GetInt32(rd.GetOrdinal("almacen_id")),
                     AlmacenOrigenId = rd.IsDBNull(rd.GetOrdinal("almacen_origen_id")) ? (int?)null : rd.GetInt32(rd.GetOrdinal("almacen_origen_id")),
                     AlmacenDestinoId = rd.IsDBNull(rd.GetOrdinal("almacen_destino_id")) ? (int?)null : rd.GetInt32(rd.GetOrdinal("almacen_destino_id")),
                     SerieGuia = rd["serie_guia"]?.ToString(),
@@ -713,7 +728,7 @@ namespace AplicativoDeAlmacen.Services
                 {
                     cmdMov.Transaction = transaccion;
                     cmdMov.CommandText = QueryAdapter.FormatearConsulta(
-                        "SELECT fecha_movimiento, estado_id, ISNULL(almacen_origen_id, 1) FROM movimientos WHERE id = @movId");
+                        "SELECT fecha_movimiento, estado_id, ISNULL(almacen_id, ISNULL(almacen_origen_id, 1)) FROM movimientos WHERE id = @movId");
                     AgregarParametro(cmdMov, "@movId", movimientoId);
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
@@ -721,7 +736,7 @@ namespace AplicativoDeAlmacen.Services
                     if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento de salida ya está anulado.");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
-                    almacenEmisor = rdrMov.GetInt32(2); // 👈 Almacén emisor exacto de la salida
+                    almacenEmisor = rdrMov.GetInt32(2); // 👈 Almacén emisor del movimiento
                 }
 
                 using (var cmdCreate = dbConn.CreateCommand())

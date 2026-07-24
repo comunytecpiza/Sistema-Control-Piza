@@ -1,17 +1,21 @@
 ﻿using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Almacen;
 using AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using AplicativoDeAlmacen.Views.Movimientos.Lectora;
+using MediaColor = System.Windows.Media.Color;
+using MediaConverter = System.Windows.Media.ColorConverter;
 using HandyControl.Controls;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Diagnostics;
+using System.Drawing;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -23,6 +27,8 @@ using static AplicativoDeAlmacen.Data.DataConnection;
 using MessageBox = System.Windows.MessageBox;
 using ScrollViewer = System.Windows.Controls.ScrollViewer;
 using Window = HandyControl.Controls.Window;
+using Color = System.Windows.Media.Color;
+using ColorConverter = System.Windows.Media.ColorConverter;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -203,6 +209,7 @@ namespace AplicativoDeAlmacen.Views
                 if (movCompleto.Movimiento.AlmacenOrigenId.HasValue)
                 {
                     cboAlmacenDestino.SelectedValue = movCompleto.Movimiento.AlmacenOrigenId.Value;
+                    cboAlmacenDestino.IsEnabled = false; // Bloqueado porque viene predeterminado de la guía de salida
                 }
 
                 txtSerieGuia.Clear();
@@ -456,9 +463,10 @@ namespace AplicativoDeAlmacen.Views
         {
             LimpiarFormulario();
 
-            // 🌟 PASAMOS EL ALMACÉN DE LA SESIÓN ACTIVA COMO TERCER ARGUMENTO
+            // 🌟 FILTRO ABSOLUTO: Captura el almacén de la sesión activa
             int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
+            // 🛡️ Pasa el almacén actual para que la búsqueda solo jale registros de este almacén
             var movimientoComp = await _serviceMovimiento.GetMovimientoCompletoAsync(serie, numero, miAlmacenId);
 
             if (movimientoComp == null)
@@ -643,7 +651,7 @@ namespace AplicativoDeAlmacen.Views
 
                 txtNumSerie.Text = "0001";
 
-                // 🌟 CORRELATIVO INDEPENDIENTE POR ALMACÉN EN TIEMPO REAL
+                // 🌟 CORRELATIVO INDEPENDIENTE BASADO EN ALMACÉN CREADOR (almacen_id)
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
                 string siguienteCorrelativo = "0000001";
 
@@ -653,10 +661,12 @@ namespace AplicativoDeAlmacen.Views
                     await dbConn.OpenAsync();
 
                     string queryMax = @"
-                SELECT COALESCE(MAX(CAST(numero_documento AS INT)), 0) + 1 
-                FROM movimientos 
-                WHERE serie_documento = '0001' 
-                  AND ISNULL(almacen_destino_id, ISNULL(almacen_origen_id, 1)) = @almId";
+                SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
+                FROM movimientos m WITH (NOLOCK)
+                INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                WHERE m.serie_documento = '0001' 
+                  AND mp.tipo_movimiento_id = 1
+                  AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @almId";
 
                     using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryMax);
@@ -669,7 +679,7 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }
 
-                txtNumDocumento.Text = siguienteCorrelativo; // 👈 Ahora muestra el correlativo correcto de esta sede
+                txtNumDocumento.Text = siguienteCorrelativo;
                 txtNumDocumento.IsReadOnly = true;
                 txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
                 txtNumDocumento.Foreground = System.Windows.Media.Brushes.Gray;
@@ -911,12 +921,26 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
+            // 🌟 DECLARACIÓN DE LA VARIABLE QUE FALTABA
             int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
 
-            // Si seleccionó un almacén físico destino en el combo, lo tomamos; sino queda null
             int? almacenDestinoId = cboAlmacenDestino.SelectedValue != null
                 ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
                 : (int?)null;
+
+            // 🌟 DETECCIÓN INTELIGENTE DE ORIGEN Y DESTINO SEGÚN EL MOTIVO
+            int idMotivoIngreso = Convert.ToInt32(cboMotivo.SelectedValue);
+            int? almacenOrigenReal = null;
+            int? almacenDestinoReal = miAlmacenActual;
+
+            if (idMotivoIngreso == 4) // Si es Recepción por Transferencia
+            {
+                almacenOrigenReal = cboAlmacenDestino.SelectedValue != null
+                    ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
+                    : (int?)null; // El almacén que me envió (Ej: Trujillo = 1)
+
+                almacenDestinoReal = miAlmacenActual; // Mi sede actual que recibe (Ej: Lima = 3)
+            }
 
             return new SolicitudMovimiento
             {
@@ -927,13 +951,14 @@ namespace AplicativoDeAlmacen.Views
                         : DateOnly.FromDateTime(DateTime.Today),
                     SerieDocumento = txtNumSerie.Text.Trim(),
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
-                    MotivoProductoId = Convert.ToInt32(cboMotivo.SelectedValue),
+                    MotivoProductoId = idMotivoIngreso,
 
                     UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
 
-                    // 🌟 ASIGNACIÓN EXACTA DE ALMACENES
-                    AlmacenOrigenId = null,               // En Ingresos, el origen es externo o transferencia previa
-                    AlmacenDestinoId = almacenDestinoId ?? miAlmacenActual, // Mi almacén o el almacén destino si es transferencia
+                    // 🌟 ASIGNACIÓN MÁSTER BLINDADA PARA KÁRDEX Y STOCK INDEPENDIENTE
+                    AlmacenId = miAlmacenActual,           // Sede que genera el registro de entrada (Lima)
+                    AlmacenOrigenId = almacenOrigenReal,   // Procedencia real de los libros (Trujillo)
+                    AlmacenDestinoId = almacenDestinoReal, // Destino final de los libros (Lima)
 
                     UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
@@ -946,6 +971,7 @@ namespace AplicativoDeAlmacen.Views
                 MovimientoId = _currentMovimientoId
             };
         }
+
 
         private void ShowPrintButtonNearSave()
         {

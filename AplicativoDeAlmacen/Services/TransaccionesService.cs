@@ -46,7 +46,7 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 CONSULTA BLINDADA DE NOTIFICACIONES PENDIENTES
+                // 🌟 CONSULTA BLINDADA DE NOTIFICACIONES PENDIENTES USANDO ALMACÉN CREADOR
                 string query = @"
             SELECT COUNT(DISTINCT m.id)
             FROM movimientos m WITH (NOLOCK)
@@ -56,10 +56,10 @@ namespace AplicativoDeAlmacen.Services
             WHERE m.estado_id = 1
               AND m.motivo_producto_id IN (4, 10)     -- Motivo Transferencia
               AND cc.estado_id = 5                    -- Estado: EN TRÁNSITO
-              AND m.almacen_destino_id = @miAlmacen   -- 👈 El almacén destino es mi sede actual
-              AND m.almacen_origen_id != @miAlmacen"; 
-        
-        using var cmd = dbConn.CreateCommand();
+              AND m.almacen_destino_id = @miAlmacen   -- 👈 El destino físico es mi sede actual
+              AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) != @miAlmacen"; // 👈 Ignora registros creados por mi propia sede
+
+                using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                 AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
 
@@ -117,8 +117,8 @@ namespace AplicativoDeAlmacen.Services
             INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
             WHERE m.estado_id = 1
               AND (m.motivo_producto_id IN (4, 10)) -- Transferencias
-              -- 🌟 FILTRO CLAVE: Muestra si SOY EL ORIGEN (Emisor) O EL DESTINO (Receptor)
-              AND (m.almacen_origen_id = @miAlmacen OR m.almacen_destino_id = @miAlmacen)";
+              -- 🌟 FILTRO POR ALMACÉN CREADOR / EMISOR O DESTINO RECEPTOR
+              AND (ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) = @miAlmacen OR m.almacen_destino_id = @miAlmacen)";
 
                 if (desde.HasValue) query += " AND m.fecha_movimiento >= @desde";
                 if (hasta.HasValue) query += " AND m.fecha_movimiento <= @hasta";
@@ -188,7 +188,7 @@ namespace AplicativoDeAlmacen.Services
                     string topClause = QueryAdapter.EsMySQL ? "" : $"TOP ({limiteRegistros})";
                     string limitClause = QueryAdapter.EsMySQL ? $"LIMIT {limiteRegistros}" : "";
 
-                    string query = $@"
+                string query = $@"
                     SELECT {topClause}
                         m.id,
                         CONCAT(m.serie_documento, '-', m.numero_documento) AS serie_numero,
@@ -214,14 +214,15 @@ namespace AplicativoDeAlmacen.Services
                     INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
                     WHERE m.almacen_destino_id = @miAlmacen
                       AND m.estado_id = 1
-                      AND (m.motivo_producto_id IN (4, 10)) -- Motivos de Transferencia
+                      AND (m.motivo_producto_id IN (4, 10))
+                      AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) != @miAlmacen
                     GROUP BY m.id, m.serie_documento, m.numero_documento, m.serie_guia, m.numero_guia, 
                              m.fecha_movimiento, m.almacen_origen_id, ao.nombre, m.almacen_destino_id, 
                              ad.nombre, u.nombres, mp.descripcion, m.observacion, m.created_at
                     ORDER BY es_pendiente DESC, m.created_at DESC
                     {limitClause}";
 
-                    using var cmd = dbConn.CreateCommand();
+                using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                     AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
 
