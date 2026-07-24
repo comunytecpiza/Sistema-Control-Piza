@@ -50,12 +50,22 @@ namespace AplicativoDeAlmacen.Services
                 await dbConn.OpenAsync();
 
                 string query = @"
-                    SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id, 
-                           cc.condicion_id, cc.almacen_id, cc.usuario_id, cc.origen_creacion, cc.created_at,
-                           cond.nombre as condicion_nombre
-                    FROM codigos_creados cc
-                    INNER JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
-                    WHERE cc.registro_codigo_id = @id";
+            SELECT cc.id,                -- [0]
+                   cc.registro_codigo_id,-- [1]
+                   cc.codigo,            -- [2]
+                   cc.es_manual,         -- [3]
+                   cc.estado_id,         -- [4]
+                   cc.condicion_id,      -- [5]
+                   cc.almacen_id,        -- [6]
+                   cc.usuario_id,        -- [7]
+                   cc.origen_creacion,   -- [8]
+                   cc.created_at,        -- [9]
+                   ISNULL(a.nombre, 'SIN ALMACÉN') AS almacen_nombre, -- [10] 👈 ALMACÉN
+                   cond.nombre AS condicion_nombre                     -- [11] 👈 CONDICIÓN
+            FROM codigos_creados cc WITH (NOLOCK)
+            INNER JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
+            LEFT JOIN almacenes a WITH (NOLOCK) ON cc.almacen_id = a.id
+            WHERE cc.registro_codigo_id = @id";
 
                 if (almacenIdFiltro.HasValue)
                 {
@@ -82,13 +92,16 @@ namespace AplicativoDeAlmacen.Services
                                 Id = reader.GetInt32(0),
                                 RegistroCodigoId = reader.GetInt32(1),
                                 Codigo = reader.IsDBNull(2) ? "SIN CÓDIGO" : reader.GetString(2),
-                                EsManual = reader.IsDBNull(3) ? false : reader.GetBoolean(3),
+                                EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
                                 EstadoId = reader.GetInt32(4),
                                 CondicionId = reader.GetInt32(5),
                                 AlmacenId = reader.IsDBNull(6) ? null : reader.GetInt32(6),
                                 UsuarioId = reader.IsDBNull(7) ? null : reader.GetInt32(7),
                                 OrigenCreacion = reader.IsDBNull(8) ? "SECUENCIA" : reader.GetString(8),
-                                CreatedAt = reader.GetDateTime(9)
+                                CreatedAt = reader.GetDateTime(9),
+
+                                // 🌟 ASIGNACIÓN EXACTA DEL NOMBRE DEL ALMACÉN
+                                AlmacenNombre = reader.IsDBNull(10) ? "SIN ALMACÉN" : reader.GetString(10)
                             });
                         }
                     }

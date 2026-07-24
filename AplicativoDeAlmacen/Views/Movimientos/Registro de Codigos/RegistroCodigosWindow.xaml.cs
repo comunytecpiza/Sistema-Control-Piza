@@ -114,9 +114,14 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // 🌟 FILTRADO DINÁMICO POR ROL Y SEDE
-                bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
-                int? filtroAlmacen = esAdmin ? null : SesionSistema.AlmacenActual?.Id;
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                const int ALMACEN_CENTRAL_ID = 1;
+
+                // 🌟 REGLA CORREGIDA POR SESIÓN ACTIVA:
+                // Solo la sesión en ALMACÉN CENTRAL TRUJILLO (Sede 1) consulta de forma global.
+                // Si la sesión activa está en LIMA o cualquier sub-almacén, SE FILTRA POR ESA SEDE,
+                // sin importar si el usuario es Administrador o Trabajador.
+                int? filtroAlmacen = (miAlmacenId == ALMACEN_CENTRAL_ID) ? null : miAlmacenId;
 
                 var data = await _registroService.ObtenerRegistrosAsync(coleccionId, categoriaId, filtroAlmacen);
                 _registrosGrid = data.ToList();
