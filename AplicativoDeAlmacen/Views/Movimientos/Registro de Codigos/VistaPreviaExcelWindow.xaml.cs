@@ -135,14 +135,18 @@ namespace AplicativoDeAlmacen.Views
                 {
                     TxtResumen.Text = $"Total: {_listaVisual.Count} | Aptos: {contadorValidos} | Errores/Repetidos: {contadorErrores}";
 
+                    // 🟢 OPTIMIZACIÓN VIRTUAL: Solo enviamos 1,000 elementos al DataGrid para carga instantánea
                     DgCodigos.ItemsSource = null;
-                    DgCodigos.ItemsSource = _listaVisual;
+                    DgCodigos.ItemsSource = _listaVisual.Take(1000).ToList();
+
+                    if (_listaVisual.Count > 1000)
+                    {
+                        TxtResumen.Text += " (Mostrando primeros 1,000 registros para mayor fluidez)";
+                    }
 
                     BtnConfirmar.IsEnabled = contadorValidos > 0;
                     BtnConfirmar.Content = contadorValidos > 0 ? $"Confirmar ({contadorValidos} Aptos)" : "Lote Inválido";
                     if (contadorValidos == 0) BtnConfirmar.Background = System.Windows.Media.Brushes.Gray;
-
-                    DgCodigos.UpdateLayout();
                 }
             }
             catch (Exception ex)

@@ -427,25 +427,28 @@ namespace AplicativoDeAlmacen.Services
         {
             List<Producto> resultados = new List<Producto>();
 
-            // 🌟 CORRECCIÓN: Agregados LEFT JOINs para unidad_medida y afectacion_igv e incluimos campos faltantes
-            string query = @"
-                SELECT 
-                    p.id, 
-                    p.descripcion, 
-                    p.abreviatura, 
-                    p.unidad_medida_id, 
-                    um.descripcion AS unidad_medida,
-                    p.precio_unitario,
-                    p.porcentaje,
-                    p.afectacion_igv_id,
-                    ai.nombre AS afectacion_igv,
-                    p.cantidad, 
-                    ISNULL((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0) AS cantidad_codigos
-                FROM productos p
-                LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
-                LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
-                WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
-                  AND p.estado_id = 1";
+            string subconsultaCantidad = QueryAdapter.EsMySQL
+                ? "COALESCE((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)"
+                : "ISNULL((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)";
+
+            string query = $@"
+        SELECT 
+            p.id, 
+            p.descripcion, 
+            p.abreviatura, 
+            p.unidad_medida_id, 
+            um.descripcion AS unidad_medida,
+            p.precio_unitario,
+            p.porcentaje,
+            p.afectacion_igv_id,
+            ai.nombre AS afectacion_igv,
+            p.cantidad, 
+            {subconsultaCantidad} AS cantidad_codigos
+        FROM productos p
+        LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
+        LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
+        WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
+          AND p.estado_id = 1";
 
             using (var conn = _database.GetConnection())
             {

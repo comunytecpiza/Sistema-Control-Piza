@@ -2,6 +2,7 @@
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Motivo_y_Movimientos;
+using HandyControl.Controls;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -263,7 +264,7 @@ namespace AplicativoDeAlmacen.Services
 
         private async Task ActualizarStockProductoPorKardexAsync(int productoId, int almacenId, DbConnection conn, DbTransaction trans)
         {
-            // 🌟 1. CALCULA EL STOCK EN 1 SOLO JOIN (Sin subconsultas dentro de SUM)
+            // 🌟 1. CALCULA EL STOCK EN 1 SOLO JOIN
             string queryCalculo = @"
         SELECT COALESCE(
             SUM(CASE 
@@ -302,19 +303,35 @@ namespace AplicativoDeAlmacen.Services
                 }
             }
 
-            // 🌟 2. ACTUALIZA O INSERTA EL STOCK EN 'stock_almacen'
-            string queryUpsert = @"
-        IF EXISTS (SELECT 1 FROM stock_almacen WHERE producto_id = @ProdId AND almacen_id = @AlmId)
-        BEGIN
-            UPDATE stock_almacen 
-            SET stock_actual = @Stock, updated_at = GETDATE()
-            WHERE producto_id = @ProdId AND almacen_id = @AlmId;
-        END
-        ELSE
-        BEGIN
+            // 🌟 2. UPSERT MULTI-MOTOR (Sintaxis limpia según el motor activo)
+            string queryUpsert;
+
+            if (QueryAdapter.EsMySQL)
+            {
+                // 🟢 Sintaxis nativa MariaDB / MySQL
+                queryUpsert = @"
             INSERT INTO stock_almacen (producto_id, almacen_id, stock_actual, updated_at)
-            VALUES (@ProdId, @AlmId, @Stock, GETDATE());
-        END";
+            VALUES (@ProdId, @AlmId, @Stock, NOW())
+            ON DUPLICATE KEY UPDATE 
+                stock_actual = @Stock, 
+                updated_at = NOW();";
+            }
+            else
+            {
+                // 🛡️ Sintaxis nativa SQL Server
+                queryUpsert = @"
+            IF EXISTS (SELECT 1 FROM stock_almacen WHERE producto_id = @ProdId AND almacen_id = @AlmId)
+            BEGIN
+                UPDATE stock_almacen 
+                SET stock_actual = @Stock, updated_at = GETDATE()
+                WHERE producto_id = @ProdId AND almacen_id = @AlmId;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO stock_almacen (producto_id, almacen_id, stock_actual, updated_at)
+                VALUES (@ProdId, @AlmId, @Stock, GETDATE());
+            END";
+            }
 
             using (var cmdUpsert = conn.CreateCommand())
             {
@@ -691,15 +708,17 @@ namespace AplicativoDeAlmacen.Services
             try
             {
                 DateTime fechaMovimiento;
-                int almacenDelMovimiento = 1; // Variable declarada con valor por defecto
+                int almacenDelMovimiento = 1;
 
-                // 🌟 1. LEER DATOS DEL MOVIMIENTO (INCLUYENDO ALMACÉN DESTINO)
-                // 🌟 1. LEER DATOS DEL MOVIMIENTO (Obteniendo con precisión el almacén destino real)
+                // 1. LEER DATOS DEL MOVIMIENTO
+                string queryLeer = QueryAdapter.EsMySQL
+                    ? "SELECT fecha_movimiento, estado_id, COALESCE(almacen_destino_id, almacen_origen_id, 1) FROM movimientos WHERE id = @movId"
+                    : "SELECT fecha_movimiento, estado_id, ISNULL(almacen_destino_id, ISNULL(almacen_origen_id, 1)) FROM movimientos WHERE id = @movId";
+
                 using (var cmdMov = dbConn.CreateCommand())
                 {
                     cmdMov.Transaction = transaccion;
-                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(
-                        "SELECT fecha_movimiento, estado_id, ISNULL(almacen_destino_id, ISNULL(almacen_origen_id, 1)) FROM movimientos WHERE id = @movId");
+                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(queryLeer);
                     AgregarParametro(cmdMov, "@movId", movimientoId);
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
@@ -707,28 +726,35 @@ namespace AplicativoDeAlmacen.Services
                     if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento ya está anulado.");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
-                    almacenDelMovimiento = rdrMov.GetInt32(2); // 👈 Almacén exacto donde impactó este ingreso
+                    almacenDelMovimiento = rdrMov.GetInt32(2);
                 }
+
+                // 2. CREAR TABLA TEMPORAL SEGÚN MOTOR
+                string tablaTempAnular = QueryAdapter.EsMySQL ? "temp_codigos_anular" : "#temp_codigos_anular";
+                string sqlCreateTemp = QueryAdapter.EsMySQL
+                    ? $"CREATE TEMPORARY TABLE IF NOT EXISTS {tablaTempAnular} (codigo_creado_id INT NOT NULL PRIMARY KEY);"
+                    : $"CREATE TABLE {tablaTempAnular} (codigo_creado_id INT NOT NULL PRIMARY KEY);";
 
                 using (var cmdCreate = dbConn.CreateCommand())
                 {
                     cmdCreate.Transaction = transaccion;
-                    cmdCreate.CommandText = QueryAdapter.FormatearConsulta("CREATE TABLE #temp_codigos_anular (codigo_creado_id INT NOT NULL PRIMARY KEY);");
+                    cmdCreate.CommandText = QueryAdapter.FormatearConsulta(sqlCreateTemp);
                     await cmdCreate.ExecuteNonQueryAsync();
                 }
 
                 using (var cmdPopulate = dbConn.CreateCommand())
                 {
                     cmdPopulate.Transaction = transaccion;
-                    cmdPopulate.CommandText = QueryAdapter.FormatearConsulta("INSERT INTO #temp_codigos_anular (codigo_creado_id) SELECT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId;");
+                    cmdPopulate.CommandText = QueryAdapter.FormatearConsulta($"INSERT INTO {tablaTempAnular} (codigo_creado_id) SELECT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId;");
                     AgregarParametro(cmdPopulate, "@movId", movimientoId);
                     await cmdPopulate.ExecuteNonQueryAsync();
                 }
 
-                string sqlValidarEstados = @"
+                // 3. VALIDAR ESTADOS
+                string sqlValidarEstados = $@"
             SELECT COUNT(*) 
             FROM codigos_creados cc
-            INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id
+            INNER JOIN {tablaTempAnular} tmp ON tmp.codigo_creado_id = cc.id
             WHERE cc.estado_id != 3";
 
                 using (var cmdCheckStock = dbConn.CreateCommand())
@@ -744,12 +770,12 @@ namespace AplicativoDeAlmacen.Services
 
                 progress?.Report(40);
 
-                // Limpiar físicamente los rangos asociados
+                // 4. ELIMINAR RANGOS ASOCIADOS
                 string sqlEliminarRangosAnulados = @"
-        DELETE FROM registro_rangos 
-        WHERE movimiento_detalle_id IN (
-            SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId
-        )";
+            DELETE FROM registro_rangos 
+            WHERE movimiento_detalle_id IN (
+                SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId
+            )";
 
                 using (var cmdDelRangos = dbConn.CreateCommand())
                 {
@@ -759,11 +785,14 @@ namespace AplicativoDeAlmacen.Services
                     await cmdDelRangos.ExecuteNonQueryAsync();
                 }
 
-                // Reversión: Retorna a estado_id = 1 (En tránsito / Disponible para ingreso)
-                string sqlRevertir = @"
-        UPDATE cc SET cc.estado_id = 1
-        FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
-        INNER JOIN #temp_codigos_anular tmp ON tmp.codigo_creado_id = cc.id";
+                // 5. REVERTIR ESTADO A CREADO (1)
+                string sqlRevertir = QueryAdapter.EsMySQL
+                    ? $@"UPDATE codigos_creados cc
+                 INNER JOIN {tablaTempAnular} tmp ON tmp.codigo_creado_id = cc.id
+                 SET cc.estado_id = 1;"
+                    : $@"UPDATE cc SET cc.estado_id = 1
+                 FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
+                 INNER JOIN {tablaTempAnular} tmp ON tmp.codigo_creado_id = cc.id;";
 
                 using (var cmdRevert = dbConn.CreateCommand())
                 {
@@ -772,7 +801,7 @@ namespace AplicativoDeAlmacen.Services
                     await cmdRevert.ExecuteNonQueryAsync();
                 }
 
-                // Marcar movimiento como Anulado (2)
+                // 6. MARCAR CABECERA COMO ANULADA (2)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
@@ -781,7 +810,7 @@ namespace AplicativoDeAlmacen.Services
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
 
-                // 🌟 RECALCULAR STOCK EN KÁRDEX MULTI-ALMACÉN
+                // 7. RECALCULAR STOCK POR ALMACÉN
                 using (var cmdProds = dbConn.CreateCommand())
                 {
                     cmdProds.Transaction = transaccion;
@@ -794,10 +823,16 @@ namespace AplicativoDeAlmacen.Services
 
                     foreach (var pid in prodIds)
                     {
-                        // 🚀 AHORA SÍ EXISTE 'almacenDelMovimiento' EN EL CONTEXTO
                         await ActualizarStockProductoPorKardexAsync(pid, almacenDelMovimiento, dbConn, transaccion);
                     }
                 }
+
+                // 8. BORRAR TABLA TEMPORAL
+                string dropSql = QueryAdapter.EsMySQL ? $"DROP TEMPORARY TABLE IF EXISTS {tablaTempAnular};" : $"DROP TABLE IF EXISTS {tablaTempAnular};";
+                using var cmdDrop = dbConn.CreateCommand();
+                cmdDrop.Transaction = transaccion;
+                cmdDrop.CommandText = QueryAdapter.FormatearConsulta(dropSql);
+                await cmdDrop.ExecuteNonQueryAsync();
 
                 progress?.Report(100);
                 transaccion.Commit();
@@ -975,10 +1010,17 @@ namespace AplicativoDeAlmacen.Services
 
                 if (todosLosCodigosAValidar.Any())
                 {
+                    // 1. Definimos nombre y sintaxis según el motor
+                    string nombreTablaTemp = QueryAdapter.EsMySQL ? "temp_nuevos_ingresos_check" : "#temp_nuevos_ingresos_check";
+
+                    string sqlCrearTemp = QueryAdapter.EsMySQL
+                        ? $"CREATE TEMPORARY TABLE IF NOT EXISTS {nombreTablaTemp} (id INT NOT NULL PRIMARY KEY) ENGINE=Memory;"
+                        : $"CREATE TABLE {nombreTablaTemp} (id INT NOT NULL PRIMARY KEY);";
+
                     using (var cmdCreateCheck = dbConn.CreateCommand())
                     {
                         cmdCreateCheck.Transaction = transaccion;
-                        cmdCreateCheck.CommandText = "CREATE TABLE #temp_nuevos_ingresos_check (id INT NOT NULL PRIMARY KEY);";
+                        cmdCreateCheck.CommandText = QueryAdapter.FormatearConsulta(sqlCrearTemp);
                         await cmdCreateCheck.ExecuteNonQueryAsync();
                     }
 
@@ -986,11 +1028,12 @@ namespace AplicativoDeAlmacen.Services
                     {
                         var codigosUnicosAValidar = todosLosCodigosAValidar.Distinct().ToList();
 
+                        // 2. Carga ultrarrápida por lotes de 1,000 a la tabla temporal
                         const int insertBatchSize = 1000;
                         for (int i = 0; i < codigosUnicosAValidar.Count; i += insertBatchSize)
                         {
                             var batchCheck = codigosUnicosAValidar.Skip(i).Take(insertBatchSize).ToList();
-                            var sbCheck = new System.Text.StringBuilder("INSERT INTO #temp_nuevos_ingresos_check (id) VALUES ");
+                            var sbCheck = new System.Text.StringBuilder($"INSERT INTO {nombreTablaTemp} (id) VALUES ");
                             using var cmdInsCheck = dbConn.CreateCommand();
                             cmdInsCheck.Transaction = transaccion;
 
@@ -1001,45 +1044,43 @@ namespace AplicativoDeAlmacen.Services
                                 AgregarParametro(cmdInsCheck, "@chk" + j, batchCheck[j]);
                             }
 
-                            cmdInsCheck.CommandText = sbCheck.ToString();
+                            cmdInsCheck.CommandText = QueryAdapter.FormatearConsulta(sbCheck.ToString());
                             await cmdInsCheck.ExecuteNonQueryAsync();
                         }
 
+                        // 3. Validación ultra-eficiente por INNER JOIN sobre memoria
                         int motivoId = cabecera.MotivoProductoId;
                         string sqlVerificarDuplicados;
 
-                        // 🔵 1. MOTIVO 4 = TRANSFERENCIA (Acepta tanto Estado 4 como Estado 5)
-                        if (motivoId == 4)
+                        if (motivoId == 4) // Transferencia
                         {
-                            sqlVerificarDuplicados = @"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc WITH (NOLOCK)
-                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id NOT IN (4, 5) 
-                          AND mc.codigo_creado_id IS NULL";
+                            sqlVerificarDuplicados = $@"
+                SELECT cc.codigo, cc.estado_id 
+                FROM codigos_creados cc
+                INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
+                LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                WHERE cc.estado_id NOT IN (4, 5) 
+                  AND mc.codigo_creado_id IS NULL";
                         }
-                        // 🟢 2. DEVOLUCIÓN RECIBIDA (2), PROMOTORÍA (3), OTROS (13) -> Exigen estrictamente Estado 4
-                        else if (motivoId != 1)
+                        else if (motivoId != 1) // Devoluciones / Reingresos
                         {
-                            sqlVerificarDuplicados = @"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc WITH (NOLOCK)
-                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id != 4 
-                          AND mc.codigo_creado_id IS NULL";
+                            sqlVerificarDuplicados = $@"
+                SELECT cc.codigo, cc.estado_id 
+                FROM codigos_creados cc
+                INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
+                LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                WHERE cc.estado_id != 4 
+                  AND mc.codigo_creado_id IS NULL";
                         }
-                        // 🟡 3. MOTIVO 1 = COMPRA (Ingreso Inicial -> Solo códigos en Estado 1)
-                        else
+                        else // Compra / Ingreso Inicial
                         {
-                            sqlVerificarDuplicados = @"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc WITH (NOLOCK)
-                        INNER JOIN #temp_nuevos_ingresos_check tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id IN (3, 4)
-                          AND mc.codigo_creado_id IS NULL";
+                            sqlVerificarDuplicados = $@"
+                SELECT cc.codigo, cc.estado_id 
+                FROM codigos_creados cc
+                INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
+                LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                WHERE cc.estado_id IN (3, 4)
+                  AND mc.codigo_creado_id IS NULL";
                         }
 
                         using var cmdVerify = dbConn.CreateCommand();
@@ -1068,28 +1109,30 @@ namespace AplicativoDeAlmacen.Services
 
                         if (listaConflictos.Any())
                         {
-                            string msjError;
-                            if (motivoId == 4)
-                            {
-                                msjError = "No se puede procesar la Transferencia. Los siguientes códigos NO están en Salida (Estado 4) ni En Tránsito (Estado 5):\n\n";
-                            }
-                            else if (motivoId != 1)
-                            {
-                                msjError = "No se puede procesar la Devolución/Reingreso. Los siguientes códigos NO figuran como VENDIDOS/DESPACHADOS (Estado 4) para poder reingresar:\n\n";
-                            }
-                            else
-                            {
-                                msjError = "Operación Cancelada por Seguridad de Stock. Se detectaron códigos que ya cuentan con un ingreso activo:\n\n";
-                            }
+                            string msjError = motivoId == 4
+                                ? "No se puede procesar la Transferencia. Los códigos NO están en Salida ni En Tránsito:\n\n"
+                                : (motivoId != 1
+                                    ? "No se puede procesar la Devolución. Los códigos NO figuran como VENDIDOS:\n\n"
+                                    : "Operación Cancelada. Códigos que ya cuentan con un ingreso activo:\n\n");
 
-                            throw new Exception(msjError + string.Join("\n", listaConflictos));
+                            // Si hay demasiados conflictos, mostramos solo los primeros 50 para no saturar la pantalla
+                            var muestraConflictos = listaConflictos.Take(50).ToList();
+                            if (listaConflictos.Count > 50)
+                                muestraConflictos.Add($"... y {listaConflictos.Count - 50} códigos más en conflicto.");
+
+                            throw new Exception(msjError + string.Join("\n", muestraConflictos));
                         }
                     }
                     finally
                     {
+                        // 4. Limpieza de tabla temporal
+                        string dropSql = QueryAdapter.EsMySQL
+                            ? $"DROP TEMPORARY TABLE IF EXISTS {nombreTablaTemp};"
+                            : $"DROP TABLE IF EXISTS {nombreTablaTemp};";
+
                         using var cmdDropCheck = dbConn.CreateCommand();
                         cmdDropCheck.Transaction = transaccion;
-                        cmdDropCheck.CommandText = "DROP TABLE IF EXISTS #temp_nuevos_ingresos_check;";
+                        cmdDropCheck.CommandText = QueryAdapter.FormatearConsulta(dropSql);
                         await cmdDropCheck.ExecuteNonQueryAsync();
                     }
                 }
@@ -1223,25 +1266,34 @@ namespace AplicativoDeAlmacen.Services
         {
             if (codigosIds == null || !codigosIds.Any()) return;
 
-            var sb = new System.Text.StringBuilder();
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = trans;
+            // 🟢 Mantenemos lotes de 500 para no exceder el límite de parámetros de MySQL / MariaDB
+            const int batchSize = 500;
 
-            sb.Append("INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at) VALUES ");
-
-            for (int i = 0; i < codigosIds.Count; i++)
+            for (int i = 0; i < codigosIds.Count; i += batchSize)
             {
-                sb.Append($"(@movId, @detId, @c{i}, 1, 0, GETDATE())");
-                if (i < codigosIds.Count - 1) sb.Append(",");
+                var batch = codigosIds.Skip(i).Take(batchSize).ToList();
+                var sb = new System.Text.StringBuilder();
 
-                AgregarParametro(cmd, "@c" + i, codigosIds[i]);
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = trans;
+
+                sb.Append("INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at) VALUES ");
+
+                for (int j = 0; j < batch.Count; j++)
+                {
+                    sb.Append($"(@movId, @detId, @c{j}, 1, 0, GETDATE())");
+                    if (j < batch.Count - 1) sb.Append(",");
+
+                    AgregarParametro(cmd, "@c" + j, batch[j]);
+                }
+
+                cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
+                AgregarParametro(cmd, "@movId", movId);
+                AgregarParametro(cmd, "@detId", detId);
+
+                await cmd.ExecuteNonQueryAsync();
+                sb.Clear();
             }
-
-            cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
-            AgregarParametro(cmd, "@movId", movId);
-            AgregarParametro(cmd, "@detId", detId);
-
-            await cmd.ExecuteNonQueryAsync();
         }
 
         private async Task ActualizarEstadoCodigosMasivoAsync(List<int> codigosIds, int nuevoEstadoId, DbConnection conn, DbTransaction trans)
@@ -1292,6 +1344,7 @@ namespace AplicativoDeAlmacen.Services
             FROM codigos_creados cc WITH (NOLOCK)
             INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
             WHERE rc.producto_id = @productoId
+              AND rc.categoria_producto_id = @categoriaId -- 🌟 FILTRO DE CATEGORÍA AGREGADO
               AND cc.codigo = @codigoExacto";
 
                 using var cmdPack = conn.CreateCommand();
@@ -1299,6 +1352,7 @@ namespace AplicativoDeAlmacen.Services
                 cmdPack.CommandText = QueryAdapter.FormatearConsulta(queryPack);
 
                 AgregarParametro(cmdPack, "@productoId", productoId);
+                AgregarParametro(cmdPack, "@categoriaId", categoriaId); // 🌟 PARAMETRO DE CATEGORIA
                 AgregarParametro(cmdPack, "@codigoExacto", baseLimpia);
 
                 using var readerPack = await cmdPack.ExecuteReaderAsync();
@@ -1319,20 +1373,40 @@ namespace AplicativoDeAlmacen.Services
                 return resultados;
             }
 
-            // Búsqueda directa sobre codigos_creados filtrados por producto_id y rango de correlativo final
-            string queryMaster = @"
-        SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id,
-               CAST(RIGHT(cc.codigo, 7) AS INT) as seq
-        FROM codigos_creados cc WITH (NOLOCK)
-        INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
-        WHERE rc.producto_id = @productoId
-          AND ISNUMERIC(RIGHT(cc.codigo, 7)) = 1
-          AND CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+            string queryMaster;
+
+            if (QueryAdapter.EsMySQL)
+            {
+                // 🟢 MySQL: Valida el tipo de libro (categoria_producto_id) y usa REGEXP para números
+                queryMaster = @"
+            SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id,
+                   CAST(RIGHT(cc.codigo, 7) AS SIGNED) as seq
+            FROM codigos_creados cc
+            INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
+            WHERE rc.producto_id = @productoId
+              AND rc.categoria_producto_id = @categoriaId -- 🌟 FILTRO DE CATEGORÍA OBLIGATORIO
+              AND RIGHT(cc.codigo, 7) REGEXP '^[0-9]+$'
+              AND CAST(RIGHT(cc.codigo, 7) AS SIGNED) BETWEEN @desde AND @hasta";
+            }
+            else
+            {
+                // 🛡️ SQL Server: Consulta con filtro estricto de Categoria
+                queryMaster = @"
+            SELECT cc.id, cc.registro_codigo_id, cc.codigo, cc.es_manual, cc.estado_id,
+                   CAST(RIGHT(cc.codigo, 7) AS INT) as seq
+            FROM codigos_creados cc WITH (NOLOCK)
+            INNER JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
+            WHERE rc.producto_id = @productoId
+              AND rc.categoria_producto_id = @categoriaId -- 🌟 FILTRO DE CATEGORÍA OBLIGATORIO
+              AND ISNUMERIC(RIGHT(cc.codigo, 7)) = 1
+              AND CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+            }
 
             using var cmdQuery = conn.CreateCommand();
             cmdQuery.Transaction = trans;
             cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
             AgregarParametro(cmdQuery, "@productoId", productoId);
+            AgregarParametro(cmdQuery, "@categoriaId", categoriaId); // 🌟 PARAMETRO DE CATEGORIA
             AgregarParametro(cmdQuery, "@desde", desde);
             AgregarParametro(cmdQuery, "@hasta", hasta);
 
@@ -1363,11 +1437,6 @@ namespace AplicativoDeAlmacen.Services
             s = s.Replace("'", "-");
             s = s.Replace("\u2019", "-").Replace("\u2018", "-");
 
-            if (s.StartsWith("LMA4") && !s.StartsWith("LMA4 "))
-            {
-                s = "LMA4 " + s.Substring(4);
-            }
-
             int posGuion = s.LastIndexOf('-');
             if (posGuion >= 0)
             {
@@ -1378,6 +1447,7 @@ namespace AplicativoDeAlmacen.Services
                 {
                     if (int.TryParse(parteNumerica, out int numeroVal))
                     {
+                        // Mantiene el prefijo completo (incluyendo el -G-G-) y formatea solo los 7 dígitos
                         s = prefijoBase + numeroVal.ToString("D7");
                     }
                 }
@@ -1408,55 +1478,39 @@ namespace AplicativoDeAlmacen.Services
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            string sqlCrearTabla = "CREATE TABLE #temp_codigos_bulk (codigo_norm VARCHAR(50) NOT NULL PRIMARY KEY);";
-
-            using (var cmdTmp = dbConn.CreateCommand())
+            // 🟢 PROCESAMOS EN BLOQUES DE 500 PARÁMETROS PARA EVITAR LÍMITES Y SIN TABLAS TEMPORALES
+            const int batchSize = 500;
+            for (int i = 0; i < listaNormalizada.Count; i += batchSize)
             {
-                cmdTmp.CommandText = QueryAdapter.FormatearConsulta(sqlCrearTabla);
-                await cmdTmp.ExecuteNonQueryAsync();
-            }
-
-            try
-            {
-                const int batchInsertSize = 1000;
-
-                for (int i = 0; i < listaNormalizada.Count; i += batchInsertSize)
-                {
-                    int cantidad = Math.Min(batchInsertSize, listaNormalizada.Count - i);
-                    List<string> lote = listaNormalizada.GetRange(i, cantidad);
-
-                    var sbInsert = new System.Text.StringBuilder("INSERT INTO #temp_codigos_bulk (codigo_norm) VALUES ");
-                    using var cmdInsert = dbConn.CreateCommand();
-
-                    for (int j = 0; j < lote.Count; j++)
-                    {
-                        sbInsert.Append($"(@txt{j})");
-                        if (j < lote.Count - 1) sbInsert.Append(",");
-
-                        var p = cmdInsert.CreateParameter();
-                        p.ParameterName = "@txt" + j;
-                        p.Value = lote[j];
-                        cmdInsert.Parameters.Add(p);
-                    }
-
-                    cmdInsert.CommandText = sbInsert.ToString();
-                    await cmdInsert.ExecuteNonQueryAsync();
-                }
-
-                string queryMaster = @"
-                SELECT 
-                    cc.id, 
-                    cc.registro_codigo_id, 
-                    cc.codigo, 
-                    cc.es_manual, 
-                    cc.estado_id, 
-                    rc.producto_id
-                FROM #temp_codigos_bulk tmp
-                INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) 
-                    ON cc.codigo = tmp.codigo_norm 
-                LEFT JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id";
+                var lote = listaNormalizada.Skip(i).Take(batchSize).ToList();
+                var paramNames = new List<string>();
 
                 using var cmdQuery = dbConn.CreateCommand();
+
+                for (int j = 0; j < lote.Count; j++)
+                {
+                    string pName = "@p" + j;
+                    paramNames.Add(pName);
+                    var p = cmdQuery.CreateParameter();
+                    p.ParameterName = pName;
+                    p.Value = lote[j];
+                    cmdQuery.Parameters.Add(p);
+                }
+
+                string hintIndex = QueryAdapter.EsMySQL ? "" : "WITH (INDEX(IX_codigos_creados_codigo_perf))";
+
+                string queryMaster = $@"
+            SELECT 
+                cc.id, 
+                cc.registro_codigo_id, 
+                cc.codigo, 
+                cc.es_manual, 
+                cc.estado_id, 
+                rc.producto_id
+            FROM codigos_creados cc {hintIndex}
+            LEFT JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
+            WHERE cc.codigo IN ({string.Join(",", paramNames)})";
+
                 cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
 
                 using var reader = await cmdQuery.ExecuteReaderAsync();
@@ -1480,12 +1534,6 @@ namespace AplicativoDeAlmacen.Services
                         resultado.Add(codigoNorm, (codigoCreado, productoId));
                     }
                 }
-            }
-            finally
-            {
-                using var cmdDrop = dbConn.CreateCommand();
-                cmdDrop.CommandText = "DROP TABLE IF EXISTS #temp_codigos_bulk;";
-                await cmdDrop.ExecuteNonQueryAsync();
             }
 
             return resultado;
@@ -2047,14 +2095,33 @@ namespace AplicativoDeAlmacen.Services
 
         public async Task<int> ObtenerEstadoAnteriorAsync(int codigoId, int movimientoActualId, DbConnection conn, DbTransaction trans)
         {
-            string query = @"
-        SELECT TOP 1 m.motivo_producto_id 
-        FROM movimiento_codigos mc
-        JOIN movimientos m ON mc.movimiento_id = m.id
-        WHERE mc.codigo_creado_id = @codId 
-          AND m.id < @movId
-          AND m.estado_id = 1
-        ORDER BY m.fecha_movimiento DESC, m.id DESC";
+            string query;
+
+            if (QueryAdapter.EsMySQL)
+            {
+                // 🟢 MySQL: Usa LIMIT 1 al final
+                query = @"
+            SELECT m.motivo_producto_id 
+            FROM movimiento_codigos mc
+            JOIN movimientos m ON mc.movimiento_id = m.id
+            WHERE mc.codigo_creado_id = @codId 
+              AND m.id < @movId
+              AND m.estado_id = 1
+            ORDER BY m.fecha_movimiento DESC, m.id DESC
+            LIMIT 1;";
+            }
+            else
+            {
+                // 🛡️ SQL Server: Tu consulta original
+                query = @"
+            SELECT TOP 1 m.motivo_producto_id 
+            FROM movimiento_codigos mc
+            JOIN movimientos m ON mc.movimiento_id = m.id
+            WHERE mc.codigo_creado_id = @codId 
+              AND m.id < @movId
+              AND m.estado_id = 1
+            ORDER BY m.fecha_movimiento DESC, m.id DESC";
+            }
 
             try
             {
@@ -2073,7 +2140,6 @@ namespace AplicativoDeAlmacen.Services
                     return (motivoId == 1 || motivoId == 2 || motivoId == 3 || motivoId == 4) ? 3 : 4;
                 }
 
-                // 🌟 Si no hay movimientos anteriores a este ingreso, vuelve a Estado 1 (CREADO / IMPRENTA)
                 return 1;
             }
             catch (Exception ex)

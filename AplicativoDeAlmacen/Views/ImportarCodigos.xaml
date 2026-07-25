@@ -101,8 +101,11 @@
 
                                 <!-- 🌟 GRILLA INTERNA CON PROPAGACIÓN DE MOUSEWHEEL PARA NO BLOQUEAR EL SCROLL -->
                                 <DataGrid ItemsSource="{Binding CodigosInternos}" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" 
-                                          Background="White" RowHeight="30" Margin="0,10,0,0" BorderBrush="#E2E8F0" BorderThickness="1"
-                                          PreviewMouseWheel="DataGrid_PreviewMouseWheel">
+                                      Background="White" RowHeight="30" MaxHeight="350" Margin="0,10,0,0" BorderBrush="#E2E8F0" BorderThickness="1"
+                                      VirtualizingPanel.IsVirtualizing="True"
+                                      VirtualizingPanel.VirtualizationMode="Recycling"
+                                      ScrollViewer.CanContentScroll="True"
+                                      PreviewMouseWheel="DataGrid_PreviewMouseWheel">
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="#" Binding="{Binding RowNumber}" Width="50"/>
                                         <DataGridTextColumn Header="Código Extraído" Binding="{Binding CodigoRaw}" Width="220" FontWeight="Bold"/>

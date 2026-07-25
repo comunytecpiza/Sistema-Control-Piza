@@ -182,7 +182,7 @@ namespace AplicativoDeAlmacen.Views
 
                 string baseLimpia = abreviaturaRaw.Trim();
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
-                string prefijoBuscado = $"{baseLimpia}{separador}";
+                string prefijoBuscado = baseLimpia.EndsWith("-") ? baseLimpia : $"{baseLimpia}-";
 
                 // 🌟 AGREGAMOS cc.almacen_id = @almacenId PARA AISLAR LA BÚSQUEDA POR SEDE
                 string query = @"
@@ -333,13 +333,31 @@ namespace AplicativoDeAlmacen.Views
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
                 string codigoBuscado = $"{baseLimpia}{separador}{desde:D7}";
 
-                string query = @"
-            SELECT TOP 1 c.ano
-            FROM codigos_creados cc WITH (NOLOCK)
-            INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
-            INNER JOIN colecciones c WITH (NOLOCK) ON rc.coleccion_id = c.id
-            WHERE rc.producto_id = @productoId
-              AND (cc.codigo = @codigoBuscado OR cc.codigo LIKE @prefijoPattern)";
+                string query;
+
+                if (QueryAdapter.EsMySQL)
+                {
+                    // 🟢 Versión limpia para MySQL (Sin WITH NOLOCK y con LIMIT 1 al final)
+                    query = @"
+                SELECT c.ano
+                FROM codigos_creados cc
+                INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                INNER JOIN colecciones c ON rc.coleccion_id = c.id
+                WHERE rc.producto_id = @productoId
+                  AND (cc.codigo = @codigoBuscado OR cc.codigo LIKE @prefijoPattern)
+                LIMIT 1;";
+                }
+                else
+                {
+                    // 🛡️ Versión original para SQL Server
+                    query = @"
+                SELECT TOP 1 c.ano
+                FROM codigos_creados cc WITH (NOLOCK)
+                INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
+                INNER JOIN colecciones c WITH (NOLOCK) ON rc.coleccion_id = c.id
+                WHERE rc.producto_id = @productoId
+                  AND (cc.codigo = @codigoBuscado OR cc.codigo LIKE @prefijoPattern)";
+                }
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -350,7 +368,7 @@ namespace AplicativoDeAlmacen.Views
                 object res = cmd.ExecuteScalar();
                 if (res != null && res != DBNull.Value)
                 {
-                    return res.ToString(); // Devuelve ej: "2025", "2026", "2024"
+                    return res.ToString();
                 }
             }
             catch (Exception ex)
@@ -358,7 +376,6 @@ namespace AplicativoDeAlmacen.Views
                 Debug.WriteLine($"Error obteniendo año de colección: {ex.Message}");
             }
 
-            // Fallback por defecto si es un código recién creado sin registro previo
             return DateTime.Now.Year.ToString();
         }
 

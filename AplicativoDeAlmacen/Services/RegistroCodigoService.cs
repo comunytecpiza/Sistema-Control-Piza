@@ -186,8 +186,6 @@ namespace AplicativoDeAlmacen.Services
 
         public async Task<int> ObtenerUltimoCodigoAsync(int productoId, string abreviatura, int categoriaId)
         {
-            // 🌟 Si el libro no tiene abreviatura configurada, es un PackLibro alfanumérico puro. 
-            // Retornamos 0 de inmediato de forma inteligente y profesional para evitar romper funciones de cadena en SQL.
             if (string.IsNullOrWhiteSpace(abreviatura)) return 0;
 
             using (var conn = _database.GetConnection())
@@ -195,15 +193,28 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string lenFunc = QueryAdapter.EsMySQL ? "LENGTH" : "LEN";
-                string castType = QueryAdapter.EsMySQL ? "SIGNED" : "INT";
+                string query;
 
-                string query = $@"
-                    SELECT MAX(CAST(SUBSTRING(codigo, {lenFunc}(@abreviatura) + 2, {lenFunc}(codigo)) AS {castType}))
-                    FROM codigos_creados cc
-                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                    WHERE rc.producto_id = @productoId 
-                      AND rc.categoria_producto_id = @categoriaId";
+                if (QueryAdapter.EsMySQL)
+                {
+                    // 🟢 MySQL: Usa LENGTH, CAST a SIGNED y COALESCE
+                    query = @"
+                SELECT COALESCE(MAX(CAST(SUBSTRING(cc.codigo, LENGTH(@abreviatura) + 2) AS SIGNED)), 0)
+                FROM codigos_creados cc
+                INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                WHERE rc.producto_id = @productoId 
+                  AND rc.categoria_producto_id = @categoriaId";
+                }
+                else
+                {
+                    // 🛡️ SQL Server: Tu consulta original INTACTA
+                    query = @"
+                SELECT MAX(CAST(SUBSTRING(codigo, LEN(@abreviatura) + 2, LEN(codigo)) AS INT))
+                FROM codigos_creados cc
+                INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                WHERE rc.producto_id = @productoId 
+                  AND rc.categoria_producto_id = @categoriaId";
+                }
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -426,14 +437,32 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
-                    SELECT ISNULL(MAX(CAST(RIGHT(cc.codigo,7) AS INT)),0)
-                    FROM codigos_creados cc
-                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id=rc.id
-                    WHERE rc.producto_id=@producto
-                      AND rc.categoria_producto_id=@categoria
-                      AND cc.codigo LIKE @prefijo
-                      AND ISNUMERIC(RIGHT(cc.codigo,7))=1";
+                string query;
+
+                if (QueryAdapter.EsMySQL)
+                {
+                    // 🟢 MySQL: Usamos COALESCE, CAST a SIGNED y REGEXP para validar que los últimos 7 sean dígitos
+                    query = @"
+                SELECT COALESCE(MAX(CAST(RIGHT(cc.codigo,7) AS SIGNED)),0)
+                FROM codigos_creados cc
+                INNER JOIN registro_codigos rc ON cc.registro_codigo_id=rc.id
+                WHERE rc.producto_id=@producto
+                  AND rc.categoria_producto_id=@categoria
+                  AND cc.codigo LIKE @prefijo
+                  AND RIGHT(cc.codigo,7) REGEXP '^[0-9]+$'";
+                }
+                else
+                {
+                    // 🛡️ SQL Server: Tu consulta original 100% INTACTA
+                    query = @"
+                SELECT ISNULL(MAX(CAST(RIGHT(cc.codigo,7) AS INT)),0)
+                FROM codigos_creados cc
+                INNER JOIN registro_codigos rc ON cc.registro_codigo_id=rc.id
+                WHERE rc.producto_id=@producto
+                  AND rc.categoria_producto_id=@categoria
+                  AND cc.codigo LIKE @prefijo
+                  AND ISNUMERIC(RIGHT(cc.codigo,7))=1";
+                }
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -443,7 +472,7 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmd, "@prefijo", abreviatura + "-%");
 
                     object result = await cmd.ExecuteScalarAsync();
-                    return result == DBNull.Value ? 0 : Convert.ToInt32(result);
+                    return (result == DBNull.Value || result == null) ? 0 : Convert.ToInt32(result);
                 }
             }
         }

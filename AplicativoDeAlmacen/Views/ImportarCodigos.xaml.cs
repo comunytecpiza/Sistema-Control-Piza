@@ -151,21 +151,28 @@ namespace AplicativoDeAlmacen.Views
                     else
                         rawList = File.ReadLines(openFileDialog.FileName).Select(LimpiarCodigo).Where(x => !string.IsNullOrEmpty(x)).ToList();
 
-                    // 🌟 2. Set para colisiones con códigos ya presentes en la grilla principal del movimiento
+                    if (!rawList.Any()) return;
+
+                    // 2. Set para colisiones con códigos ya presentes en la grilla principal
                     var setYaAgregadosEnMovimiento = new HashSet<string>(
                         (CodigosYaAgregadosEnMovimiento ?? new List<string>()).Select(x => _serviceMovimiento.NormalizarCodigo(x)),
                         StringComparer.OrdinalIgnoreCase
                     );
 
-                    // 3. Detección de duplicados dentro del propio archivo Excel
+                    // 3. Detección de duplicados dentro del archivo Excel
                     var contadorOcurrenciasExcel = rawList
                         .GroupBy(x => _serviceMovimiento.NormalizarCodigo(x), StringComparer.OrdinalIgnoreCase)
                         .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-                    // 4. Búsqueda masiva en la Base de Datos
+                    // 4. Búsqueda masiva en la Base de Datos (1 solo viaje)
                     var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(rawList);
 
-                    var prodIds = lookup.Values.Where(v => v.ProductoId.HasValue).Select(v => v.ProductoId.Value).Distinct().ToList();
+                    var prodIds = lookup.Values
+                        .Where(v => v.ProductoId.HasValue)
+                        .Select(v => v.ProductoId.Value)
+                        .Distinct()
+                        .ToList();
+
                     var prodMap = new Dictionary<int, string>();
 
                     if (prodIds.Any())
@@ -173,23 +180,37 @@ namespace AplicativoDeAlmacen.Views
                         using var conn = _db.GetConnection();
                         var dbConn = (DbConnection)conn;
                         await dbConn.OpenAsync();
-                        var paramNames = new List<string>();
-                        for (int i = 0; i < prodIds.Count; i++) paramNames.Add("@p" + i);
-                        string q = $"SELECT id, descripcion FROM productos WHERE id IN ({string.Join(',', paramNames)})";
-                        using var cmd = dbConn.CreateCommand();
-                        cmd.CommandText = QueryAdapter.FormatearConsulta(q);
-                        for (int i = 0; i < prodIds.Count; i++)
+
+                        const int chunkProdSize = 200;
+                        for (int pIdx = 0; pIdx < prodIds.Count; pIdx += chunkProdSize)
                         {
-                            var p = cmd.CreateParameter(); p.ParameterName = "@p" + i; p.Value = prodIds[i]; cmd.Parameters.Add(p);
-                        }
-                        using var rdr = await cmd.ExecuteReaderAsync();
-                        while (await rdr.ReadAsync())
-                        {
-                            if (!rdr.IsDBNull(0)) prodMap[rdr.GetInt32(0)] = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                            var subIds = prodIds.Skip(pIdx).Take(chunkProdSize).ToList();
+                            var paramNames = new List<string>();
+
+                            using var cmd = dbConn.CreateCommand();
+
+                            for (int i = 0; i < subIds.Count; i++)
+                            {
+                                string pName = "@p" + i;
+                                paramNames.Add(pName);
+                                var p = cmd.CreateParameter();
+                                p.ParameterName = pName;
+                                p.Value = subIds[i];
+                                cmd.Parameters.Add(p);
+                            }
+
+                            string q = $"SELECT id, descripcion FROM productos WHERE id IN ({string.Join(',', paramNames)})";
+                            cmd.CommandText = QueryAdapter.FormatearConsulta(q);
+
+                            using var rdr = await cmd.ExecuteReaderAsync();
+                            while (await rdr.ReadAsync())
+                            {
+                                if (!rdr.IsDBNull(0)) prodMap[rdr.GetInt32(0)] = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                            }
                         }
                     }
 
-                    // 5. Evaluación individual de cada código
+                    // 5. Evaluación ultra-rápida EN MEMORIA (Sin consultas a la BD dentro del bucle)
                     var dictTemp = new Dictionary<string, List<ItemCodigoPreview>>();
                     int total = rawList.Count;
 
@@ -200,55 +221,34 @@ namespace AplicativoDeAlmacen.Views
 
                         bool yaExisteEnMovimiento = setYaAgregadosEnMovimiento.Contains(norm);
                         bool duplicadoEnExcel = contadorOcurrenciasExcel.ContainsKey(norm) && contadorOcurrenciasExcel[norm] > 1;
-                        var listaCoincidencias = lookup.Where(x => x.Key.Equals(norm, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                        lookup.TryGetValue(norm, out var coincidencia);
+                        bool existeEnBD = coincidencia.CodigoObj != null;
 
                         string nombreProd = "❌ CÓDIGOS NO REGISTRADOS EN BD";
                         bool esValido = false;
                         string observacion = "❌ NO EXISTE EN BASE DE DATOS";
 
-                        // 🌟 DEDUCCIÓN INTELIGENTE DE CATEGORÍA DESDE EL TEXTO DEL CÓDIGO (1 = GUÍA, 2 = VENTA)
-                        // Si contiene 'V', '-V-', "'V'" o "VENTA", asigna 2 (VENTA), de lo contrario 1 (GUÍA)
+                        // Deducción de Categoría limpia en memoria
                         int categoriaId = (norm.Contains("-V-") || norm.Contains("'V'") || norm.Contains("-V'") || norm.Contains(" V ") || norm.Contains("VENTA")) ? 2 : 1;
 
-                        // 🛑 A. Si ya fue agregado a la grilla de la pantalla principal del movimiento
                         if (yaExisteEnMovimiento)
                         {
                             nombreProd = "⚠️ CÓDIGOS YA ENLAZADOS EN ESTE MOVIMIENTO";
                             observacion = "❌ YA FUE AGREGADO EN EL MOVIMIENTO ACTUAL";
-
-                            if (listaCoincidencias.Any() && listaCoincidencias.First().Value.CodigoObj != null)
-                            {
-                                try
-                                {
-                                    string catBDExistente = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(listaCoincidencias.First().Value.CodigoObj.Id);
-                                    categoriaId = catBDExistente.Contains("VENTA") ? 2 : 1;
-                                }
-                                catch { }
-                            }
                         }
-                        // 🛑 B. Si viene repetido más de una vez en el mismo archivo Excel
                         else if (duplicadoEnExcel)
                         {
                             nombreProd = "⚠️ COLISIONES / DUPLICADOS EN EXCEL";
                             observacion = "❌ DUPLICADO EN EXCEL";
                         }
-                        // 🟢 C. Si existe en la Base de Datos
-                        else if (listaCoincidencias.Any())
+                        else if (existeEnBD)
                         {
-                            var coincidencia = listaCoincidencias.First().Value;
                             if (coincidencia.ProductoId.HasValue && prodMap.TryGetValue(coincidencia.ProductoId.Value, out string pDesc))
                             {
                                 nombreProd = pDesc;
                             }
 
-                            // Consultar categoría oficial en BD (Prevalece sobre la deducción por texto)
-                            if (coincidencia.CodigoObj != null)
-                            {
-                                string catBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(coincidencia.CodigoObj.Id);
-                                categoriaId = catBD.Contains("VENTA") ? 2 : 1;
-                            }
-
-                            // Verificar disponibilidad del estado_id
                             if (EstadoPermitido != 0 && coincidencia.CodigoObj?.EstadoId != EstadoPermitido)
                             {
                                 observacion = $"❌ ESTADO INVÁLIDO (Estado: {coincidencia.CodigoObj?.EstadoId})";
@@ -273,7 +273,7 @@ namespace AplicativoDeAlmacen.Views
                         });
                     }
 
-                    // 6. Generación de tarjetas por Producto con estilos Thread-Safe
+                    // 6. Generación de tarjetas por Producto
                     foreach (var kvp in dictTemp)
                     {
                         int cantValidos = kvp.Value.Count(x => x.EstadoValido);
@@ -307,7 +307,6 @@ namespace AplicativoDeAlmacen.Views
                             badgeTexto = "🔴 SIN CÓDIGOS VÁLIDOS";
                         }
 
-                        // Creamos el grupo maestro con los codigos completos
                         var grupoMaestro = new ProductoGroupPreview
                         {
                             ProductoNombre = kvp.Key,
@@ -333,10 +332,17 @@ namespace AplicativoDeAlmacen.Views
                 });
 
                 loadingModal.Owner = this;
-                if (loadingModal.ShowDialog() == true)
+                bool? resultadoModal = loadingModal.ShowDialog();
+
+                if (resultadoModal == true)
                 {
                     txtTotalCodigos.Text = rawList.Count.ToString();
                     FiltrarYMostrarDatos();
+                }
+                else if (loadingModal.ErrorResult != null)
+                {
+                    MessageBox.Show($"Error al consultar MySQL en la auditoría:\n\n{loadingModal.ErrorResult.Message}",
+                                    "Error de Base de Datos", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -531,5 +537,8 @@ namespace AplicativoDeAlmacen.Views
         }
 
         private void Button_Click_1(object sender, RoutedEventArgs e) { DialogResult = false; Close(); }
+
+        // 🟢 Detección inteligente respetando la abreviatura del Excel
+        
     }
 }

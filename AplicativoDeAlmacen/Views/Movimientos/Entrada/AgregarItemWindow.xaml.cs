@@ -81,14 +81,15 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 CAPTURAMOS EL ALMACÉN DE LA SESIÓN DEL USUARIO ACTUAL (ej. Lima = 2)
                 int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                // 🌟 CONSULTA DIRECTA A LA TABLA MULTI-ALMACÉN 'stock_almacen'
-                string query = @"
-            SELECT ISNULL(stock_actual, 0)
-            FROM stock_almacen WITH (NOLOCK)
-            WHERE producto_id = @productoId AND almacen_id = @almacenId";
+                string query = QueryAdapter.EsMySQL
+                    ? @"SELECT IFNULL(stock_actual, 0)
+                FROM stock_almacen
+                WHERE producto_id = @productoId AND almacen_id = @almacenId;"
+                    : @"SELECT ISNULL(stock_actual, 0)
+                FROM stock_almacen WITH (NOLOCK)
+                WHERE producto_id = @productoId AND almacen_id = @almacenId";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -377,20 +378,27 @@ namespace AplicativoDeAlmacen.Views
 
                 foreach (string codStr in codigosQuitados)
                 {
-                    // 🛡️ REGLA: Un código retirado solo se considera en conflicto si:
-                    // 1. Su estado_id actual es 4 (VENDIDO/DESPACHADO) o 5 (EN TRÁNSITO)
-                    // 2. O si participa en un movimiento de SALIDA (tipo_movimiento_id = 2) que no esté anulado
-                    string query = @"
-                SELECT COUNT(*)
-                FROM codigos_creados cc WITH (NOLOCK)
-                LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                LEFT JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                WHERE cc.codigo = @codigoExacto
-                  AND (
-                      cc.estado_id IN (4, 5) -- Vendido o En Tránsito
-                      OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2) -- Registrado en Salidas activas
-                  )";
+                    string query = QueryAdapter.EsMySQL
+                        ? @"SELECT COUNT(*)
+                    FROM codigos_creados cc
+                    LEFT JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                    LEFT JOIN movimientos m ON mc.movimiento_id = m.id
+                    LEFT JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                    WHERE cc.codigo = @codigoExacto
+                      AND (
+                          cc.estado_id IN (4, 5)
+                          OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2)
+                      );"
+                        : @"SELECT COUNT(*)
+                    FROM codigos_creados cc WITH (NOLOCK)
+                    LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                    LEFT JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                    LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                    WHERE cc.codigo = @codigoExacto
+                      AND (
+                          cc.estado_id IN (4, 5)
+                          OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2)
+                      )";
 
                     using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
