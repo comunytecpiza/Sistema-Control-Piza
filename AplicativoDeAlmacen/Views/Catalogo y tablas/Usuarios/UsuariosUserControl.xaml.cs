@@ -16,7 +16,6 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             _usuarioService = new UsuarioService();
 
-            // Inicialización Asíncrona Controlada
             InicializarComponentesNegocio();
             EventBus.OnUsuariosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => CargarUsuarios(""));
         }
@@ -25,13 +24,19 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // 1. Cargar el ComboBox de Roles directo de la Base de Datos de manera profesional
+                // 1. Cargar el ComboBox de Roles[cite: 10]
                 var roles = await _usuarioService.ObtenerRolesActivosAsync();
                 CboRol.ItemsSource = roles;
                 CboRol.DisplayMemberPath = "Nombre";
                 CboRol.SelectedValuePath = "Id";
 
-                // 2. Poblar la lista principal de usuarios
+                // 2. Cargar el ComboBox de Almacenes a través del servicio
+                var almacenes = await _usuarioService.ObtenerAlmacenesActivosAsync();
+                CboAlmacen.ItemsSource = almacenes;
+                CboAlmacen.DisplayMemberPath = "Nombre";
+                CboAlmacen.SelectedValuePath = "Id";
+
+                // 3. Poblar la lista principal de usuarios[cite: 10]
                 CargarUsuarios();
             }
             catch (Exception ex)
@@ -58,9 +63,8 @@ namespace AplicativoDeAlmacen.Views
             CargarUsuarios(TxtBuscar.Text.Trim());
         }
 
-        private void UsuariosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void UsuariosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // CORREGIDO: Mapeo directo y legítimo utilizando la entidad Usuario
             if (UsuariosDataGrid.SelectedItem is Usuario usuario)
             {
                 _usuarioSeleccionadoId = usuario.Id;
@@ -68,9 +72,18 @@ namespace AplicativoDeAlmacen.Views
                 TxtNombres.Text = usuario.Nombres;
                 TxtPassword.Password = usuario.Password;
                 CboRol.SelectedValue = usuario.RolUsuarioId;
-
-                // Mapear estado booleano al ComboBoxItem correspondiente
                 CboEstado.SelectedIndex = usuario.Estado ? 0 : 1;
+
+                // Leer y seleccionar el almacén perteneciente mediante el servicio
+                int? almacenId = await _usuarioService.ObtenerAlmacenPorUsuarioAsync(usuario.Id);
+                if (almacenId.HasValue)
+                {
+                    CboAlmacen.SelectedValue = almacenId.Value;
+                }
+                else
+                {
+                    CboAlmacen.SelectedIndex = -1;
+                }
             }
         }
 
@@ -81,6 +94,7 @@ namespace AplicativoDeAlmacen.Views
             TxtNombres.Text = string.Empty;
             TxtPassword.Password = string.Empty;
             CboRol.SelectedIndex = -1;
+            CboAlmacen.SelectedIndex = -1;
             CboEstado.SelectedIndex = 0;
             TxtNombres.Focus();
         }
@@ -93,12 +107,17 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
+            if (CboAlmacen.SelectedValue == null)
+            {
+                MessageBox.Show("Debe seleccionar el Almacén al que pertenece el usuario.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             try
             {
-                // Extraer el valor booleano del tag seleccionado para el estado
                 bool estadoActivo = Convert.ToBoolean(((ComboBoxItem)CboEstado.SelectedItem).Tag);
+                int almacenIdSel = Convert.ToInt32(CboAlmacen.SelectedValue);
 
-                // CORREGIDO: Creación limpia del objeto con tipado robusto compatible con el Servicio
                 var usuario = new Usuario
                 {
                     Id = _usuarioSeleccionadoId,
@@ -108,19 +127,25 @@ namespace AplicativoDeAlmacen.Views
                     Estado = estadoActivo
                 };
 
+                int idUsuarioFinal;
+
                 if (_usuarioSeleccionadoId == 0)
                 {
-                    await _usuarioService.InsertarAsync(usuario);
+                    idUsuarioFinal = await _usuarioService.InsertarAsync(usuario);
                     MessageBox.Show("Usuario incorporado con éxito al sistema corporativo.", "Confirmación", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
                     await _usuarioService.ActualizarAsync(usuario);
+                    idUsuarioFinal = _usuarioSeleccionadoId;
                     MessageBox.Show("Registro de usuario actualizado correctamente.", "Confirmación", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
 
+                // Guardar la pertenencia en la tabla usuario_almacenes a través del servicio
+                await _usuarioService.GuardarUsuarioAlmacenAsync(idUsuarioFinal, almacenIdSel);
+
                 CargarUsuarios();
-                BtnNuevo_Click(null, null); // Limpieza de campos post-transacción
+                BtnNuevo_Click(null, null);
                 EventBus.NotificarUsuariosChanged();
             }
             catch (Exception ex)
@@ -136,24 +161,16 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnAccesos_Click(object sender, RoutedEventArgs e)
         {
-            // Verificamos que el usuario haya seleccionado un rol válido
             if (CboRol.SelectedItem == null)
             {
                 MessageBox.Show("Debe seleccionar un Rol Principal antes de configurar los permisos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 1. Obtenemos el ID del Rol (gracias al SelectedValuePath = "Id")
             int rolId = (int)CboRol.SelectedValue;
-
-            // 2. CORRECCIÓN: Como ahora está conectado a la base de datos, 
-            // simplemente leemos el texto que está mostrando el ComboBox
             string rolNombre = CboRol.Text;
 
-            // Instanciamos la nueva ventana flotante y le pasamos los datos
             PermisosRolWindow ventanaPermisos = new PermisosRolWindow(rolId, rolNombre);
-
-            // Abrimos la ventana Modal
             ventanaPermisos.ShowDialog();
         }
     }

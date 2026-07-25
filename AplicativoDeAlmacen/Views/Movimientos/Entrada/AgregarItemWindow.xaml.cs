@@ -381,23 +381,25 @@ namespace AplicativoDeAlmacen.Views
                     string query = QueryAdapter.EsMySQL
                         ? @"SELECT COUNT(*)
                     FROM codigos_creados cc
-                    LEFT JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-                    LEFT JOIN movimientos m ON mc.movimiento_id = m.id
-                    LEFT JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                    INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                    INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
                     WHERE cc.codigo = @codigoExacto
+                      AND m.estado_id = 1
                       AND (
-                          cc.estado_id IN (4, 5)
-                          OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2)
+                          cc.estado_id IN (4, 5) 
+                          OR (mp.tipo_movimiento_id = 2)
                       );"
                         : @"SELECT COUNT(*)
                     FROM codigos_creados cc WITH (NOLOCK)
-                    LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                    LEFT JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                    LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                    INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
                     WHERE cc.codigo = @codigoExacto
+                      AND m.estado_id = 1
                       AND (
-                          cc.estado_id IN (4, 5)
-                          OR (m.estado_id = 1 AND mp.tipo_movimiento_id = 2)
+                          cc.estado_id IN (4, 5) 
+                          OR (mp.tipo_movimiento_id = 2)
                       )";
 
                     using var cmd = dbConn.CreateCommand();
@@ -480,46 +482,69 @@ namespace AplicativoDeAlmacen.Views
                 // Evaluamos los códigos que estaban al inicio de la edición vs los que quedaron ahora en ListaRangosAgregados
                 if (IsEdit && _rangosOriginalesEdicion.Any())
                 {
-                    var codigosOriginales = new HashSet<string>();
+                    // A. Reconstruimos todos los códigos exactos que traía el producto originalmente
+                    var codigosOriginales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var r in _rangosOriginalesEdicion)
                     {
-                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G")
+                            ? "-"
+                            : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+
+                        if (r.DesdeNum == -1)
                         {
-                            codigosOriginales.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                            codigosOriginales.Add(r.AbreviaturaBase);
+                        }
+                        else
+                        {
+                            for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                            {
+                                codigosOriginales.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                            }
                         }
                     }
 
-                    var codigosActuales = new HashSet<string>();
+                    // B. Reconstruimos todos los códigos que están QUEDANDO actualmente en la grilla (sin importar si los reagrupó o desglosó)
+                    var codigosActuales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var r in ListaRangosAgregados)
                     {
-                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G")
+                            ? "-"
+                            : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+
+                        if (r.DesdeNum == -1)
                         {
-                            codigosActuales.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                            codigosActuales.Add(r.AbreviaturaBase);
+                        }
+                        else
+                        {
+                            for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                            {
+                                codigosActuales.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                            }
                         }
                     }
 
-                    // Obtenemos únicamente los códigos que el usuario retiró al editar o fraccionar
+                    // C. Determinamos los códigos que REALMENTE fueron omitidos/retirados de forma definitiva
                     var codigosQuitados = codigosOriginales.Where(c => !codigosActuales.Contains(c)).ToList();
 
                     if (codigosQuitados.Any())
                     {
-                        // Consultamos a la BD si alguno de los retirados tiene devoluciones/movimientos posteriores
+                        // Consultamos a SQL si entre los quitados hay alguno con salidas/despachos posteriores
                         var conflictos = ObtenerCodigosConMovimientosPosteriores(this._productoSeleccionado.Id, codigosQuitados);
 
                         if (conflictos.Any())
                         {
                             MessageBox.Show(
                                 $"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\n" +
-                                $"No se pueden quitar los siguientes códigos del producto porque ya registran reingresos o devoluciones posteriores:\n\n" +
-                                $"{string.Join("\n", conflictos.Select(c => $"• {c}"))}\n\n" +
-                                $"Si necesita retirar estos códigos, primero debe anular o modificar las devoluciones asociadas.",
+                                $"No puede guardar el producto sin los siguientes códigos porque ya registran despachos o salidas posteriores en el sistema:\n\n" +
+                                $"{string.Join("\n", conflictos.Take(5).Select(c => $"• {c}"))}\n" +
+                                $"{(conflictos.Count > 5 ? $"... y {conflictos.Count - 5} códigos más." : "")}\n\n" +
+                                $"Debe volver a incluir estos códigos en la lista (individualmente o en rango) para poder guardar.",
                                 "Restricción de Kárdex",
                                 MessageBoxButton.OK,
-                                MessageBoxImage.Warning);
+                                MessageBoxImage.Stop);
 
-                            return; // 🛑 Impide cerrar o guardar la ventana azul
+                            return; // 🛑 Cancela el guardado y mantiene la ventana abierta para que los reincorpore
                         }
                     }
                 }

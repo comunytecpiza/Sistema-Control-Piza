@@ -243,6 +243,38 @@ namespace AplicativoDeAlmacen.Views
             }
 
             int categoriaId = rbLibroGuia.IsChecked == true ? 1 : 2;
+            string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+
+            // 🌟 VALIDACIÓN DE CATEGORÍA CONTRA LA BASE DE DATOS (MERCADERÍA EN STOCK)
+            // Se valida únicamente al CREAR un rango o agregar unidades nuevas (no en modo edición limpia)
+            if (!this.EsModoEdicion)
+            {
+                bool existeRangoEnBD = ValidarExistenciaRangoEnBD(
+                    this._productoId,
+                    this._abreviaturaProducto,
+                    categoriaId,
+                    intDesde,
+                    intHasta,
+                    out int totalEncontrados,
+                    this.EstadoPermitido);
+
+                int cantidadEsperada = (intHasta - intDesde + 1);
+
+                if (!existeRangoEnBD || totalEncontrados < cantidadEsperada)
+                {
+                    MessageBox.Show(
+                        $"⚠️ Incompatibilidad de Lote o Serie Inexistente:\n\n" +
+                        $"No se encontraron {cantidadEsperada} códigos disponibles de tipo '{tipoTexto}' para este producto en su stock actual.\n\n" +
+                        $"• Códigos solicitados: {cantidadEsperada} unidades ({intDesde} al {intHasta}).\n" +
+                        $"• Encontrados en stock como {tipoTexto}: {totalEncontrados} unidades.\n\n" +
+                        $"Verifique si el producto seleccionado realmente cuenta con series registradas como '{tipoTexto}' o cambie el tipo de categoría.",
+                        "Categoría / Serie Inexistente",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Stop);
+
+                    return; // 🛑 Cancela la asignación y no deja guardar el rango
+                }
+            }
 
             // 🛡️ CANDADO ÚNICO: Prevenir solapamiento entre los rangos que están en la grilla temporal
             if (_itemsEnGrilla != null)
@@ -278,9 +310,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
             string baseLimpia = _abreviaturaProducto.Trim();
-
             string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
             string desdeFormatted = $"{baseLimpia}{separador}{intDesde:D7}";
             string hastaFormatted = $"{baseLimpia}{separador}{intHasta:D7}";
@@ -295,7 +325,7 @@ namespace AplicativoDeAlmacen.Views
                 this.RangoProcesado.Cantidad = cantidadSolicitada.ToString();
                 this.RangoProcesado.Desde = desdeFormatted;
                 this.RangoProcesado.Hasta = hastaFormatted;
-                this.RangoProcesado.ColeccionTipo = coleccionTipoDinamica; // 👈 AHORA ES DINÁMICO
+                this.RangoProcesado.ColeccionTipo = coleccionTipoDinamica;
                 this.RangoProcesado.DesdeNum = intDesde;
                 this.RangoProcesado.HastaNum = intHasta;
                 this.RangoProcesado.CategoriaProductoId = categoriaId;
@@ -308,7 +338,7 @@ namespace AplicativoDeAlmacen.Views
                     Cantidad = cantidadSolicitada.ToString(),
                     Desde = desdeFormatted,
                     Hasta = hastaFormatted,
-                    ColeccionTipo = coleccionTipoDinamica, // 👈 AHORA ES DINÁMICO
+                    ColeccionTipo = coleccionTipoDinamica,
                     DesdeNum = intDesde,
                     HastaNum = intHasta,
                     CategoriaProductoId = categoriaId,

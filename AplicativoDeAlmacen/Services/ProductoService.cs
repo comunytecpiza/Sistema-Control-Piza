@@ -7,6 +7,7 @@ using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
+using AplicativoDeAlmacen.Core;
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -427,28 +428,33 @@ namespace AplicativoDeAlmacen.Services
         {
             List<Producto> resultados = new List<Producto>();
 
+            // Obtenemos el ID del almacén actual de la sesión de manera segura
+            int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
             string subconsultaCantidad = QueryAdapter.EsMySQL
                 ? "COALESCE((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)"
                 : "ISNULL((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)";
 
+            // 🌟 SE REMEDIÓ: Se quitó 'p.cantidad' y se reemplazó por el stock de 'stock_almacen'
             string query = $@"
-        SELECT 
-            p.id, 
-            p.descripcion, 
-            p.abreviatura, 
-            p.unidad_medida_id, 
-            um.descripcion AS unidad_medida,
-            p.precio_unitario,
-            p.porcentaje,
-            p.afectacion_igv_id,
-            ai.nombre AS afectacion_igv,
-            p.cantidad, 
-            {subconsultaCantidad} AS cantidad_codigos
-        FROM productos p
-        LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
-        LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
-        WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
-          AND p.estado_id = 1";
+SELECT 
+    p.id, 
+    p.descripcion, 
+    p.abreviatura, 
+    p.unidad_medida_id, 
+    um.descripcion AS unidad_medida,
+    p.precio_unitario,
+    p.porcentaje,
+    p.afectacion_igv_id,
+    ai.nombre AS afectacion_igv,
+    COALESCE(sa.stock_actual, 0) AS stock_actual,
+    {subconsultaCantidad} AS cantidad_codigos
+FROM productos p
+LEFT JOIN stock_almacen sa ON sa.producto_id = p.id AND sa.almacen_id = @AlmacenId
+LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
+LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
+WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
+  AND p.estado_id = 1";
 
             using (var conn = _database.GetConnection())
             {
@@ -463,6 +469,7 @@ namespace AplicativoDeAlmacen.Services
                     {
                         cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                         AgregarParametro(cmd, "@Texto", "%" + texto + "%");
+                        AgregarParametro(cmd, "@AlmacenId", almacenActualId); // 👈 Parámetro del almacén actual
 
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
@@ -479,7 +486,9 @@ namespace AplicativoDeAlmacen.Services
                                 prod.Porcentaje = reader["porcentaje"] != DBNull.Value ? Convert.ToDecimal(reader["porcentaje"]) : 0.00m;
                                 prod.AfectacionIgvId = reader["afectacion_igv_id"] != DBNull.Value ? Convert.ToInt32(reader["afectacion_igv_id"]) : (int?)null;
                                 prod.afectacion = new AfectacionIgv { Nombre = reader["afectacion_igv"] != DBNull.Value ? reader["afectacion_igv"].ToString() : string.Empty };
-                                prod.Cantidad = reader["cantidad"] != DBNull.Value ? Convert.ToInt32(reader["cantidad"]) : 0;
+
+                                // 🌟 SE MAPEA EL STOCK REAL OBTENIDO DESDE 'stock_almacen'
+                                prod.Cantidad = reader["stock_actual"] != DBNull.Value ? Convert.ToInt32(reader["stock_actual"]) : 0;
                                 prod.CantidadCodigos = reader["cantidad_codigos"] != DBNull.Value ? Convert.ToInt32(reader["cantidad_codigos"]) : 0;
 
                                 resultados.Add(prod);

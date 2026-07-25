@@ -79,16 +79,19 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-        public async Task InsertarAsync(Usuario u)
+        public async Task<int> InsertarAsync(Usuario u)
         {
             using (var conn = _database.GetConnection())
             {
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string queryRaw = @"
-                    INSERT INTO usuarios (username, nombres, password, rol_usuario_id, estado, created_at, updated_at)
-                    VALUES (@Username, @Nombres, @Password, @Rol, @Estado, GETDATE(), GETDATE())";
+                string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
+                string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
+
+                string queryRaw = $@"
+            INSERT INTO usuarios (username, nombres, password, rol_usuario_id, estado, created_at, updated_at)
+            VALUES (@Username, @Nombres, @Password, @Rol, @Estado, {nowFunc}, {nowFunc}); {selectId}";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
@@ -100,6 +103,96 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmd, "@Password", u.Password);
                     AgregarParametro(cmd, "@Rol", u.RolUsuarioId);
                     AgregarParametro(cmd, "@Estado", u.Estado ? 1 : 0);
+
+                    object res = await cmd.ExecuteScalarAsync();
+                    return Convert.ToInt32(res);
+                }
+            }
+        }
+        public async Task<List<dynamic>> ObtenerAlmacenesActivosAsync()
+        {
+            var lista = new List<dynamic>();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = "SELECT id, nombre FROM almacenes WHERE estado_id = 1 ORDER BY nombre ASC";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
+
+        // 🟢 2. Obtener el AlmacenId asignado a un Usuario
+        public async Task<int?> ObtenerAlmacenPorUsuarioAsync(int usuarioId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = "SELECT almacen_id FROM usuario_almacenes WHERE usuario_id = @UsuarioId";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@UsuarioId", usuarioId);
+
+                    var res = await cmd.ExecuteScalarAsync();
+                    if (res != null && res != DBNull.Value)
+                    {
+                        return Convert.ToInt32(res);
+                    }
+                }
+            }
+            return null;
+        }
+
+        // 🟢 3. Asignar/Actualizar Almacén de Usuario
+        public async Task GuardarUsuarioAlmacenAsync(int usuarioId, int almacenId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string queryUpsert;
+                if (QueryAdapter.EsMySQL)
+                {
+                    queryUpsert = @"
+                INSERT INTO usuario_almacenes (usuario_id, almacen_id, created_at)
+                VALUES (@UsuarioId, @AlmacenId, NOW())
+                ON DUPLICATE KEY UPDATE almacen_id = @AlmacenId;";
+                }
+                else
+                {
+                    queryUpsert = @"
+                IF EXISTS (SELECT 1 FROM usuario_almacenes WHERE usuario_id = @UsuarioId)
+                BEGIN
+                    UPDATE usuario_almacenes SET almacen_id = @AlmacenId WHERE usuario_id = @UsuarioId;
+                END
+                ELSE
+                BEGIN
+                    INSERT INTO usuario_almacenes (usuario_id, almacen_id, created_at) VALUES (@UsuarioId, @AlmacenId, GETDATE());
+                END";
+                }
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryUpsert);
+                    AgregarParametro(cmd, "@UsuarioId", usuarioId);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     await cmd.ExecuteNonQueryAsync();
                 }

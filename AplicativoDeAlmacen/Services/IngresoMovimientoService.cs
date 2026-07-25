@@ -162,16 +162,32 @@ namespace AplicativoDeAlmacen.Services
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            // 🌟 CONSULTA POR ID ÚNICO FILTRANDO QUE SEA SALIDA (tipo_movimiento_id = 2)
-            string query = @"
-    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
-           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
-           m.almacen_origen_id, m.almacen_destino_id
-    FROM movimientos m WITH (NOLOCK)
-    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-    WHERE m.id = @movId 
-      AND mp.tipo_movimiento_id = 2 -- 👈 2 = SALIDA EXCLUSIVAMENTE
-      AND m.estado_id = 1";
+            // 🌟 1. CONSULTA DE CABECERA MULTI-MOTOR (Permite Entradas [1] y Salidas [2] con Motivo Transferencia 4 u 10)
+            string query;
+            if (QueryAdapter.EsMySQL)
+            {
+                query = @"
+            SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+                   m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+                   m.almacen_origen_id, m.almacen_destino_id
+            FROM movimientos m
+            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+            WHERE m.id = @movId 
+              AND m.motivo_producto_id IN (4, 10) -- 👈 Acepta tanto Entrada como Salida de Transferencias
+              AND m.estado_id = 1";
+            }
+            else
+            {
+                query = @"
+            SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+                   m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+                   m.almacen_origen_id, m.almacen_destino_id
+            FROM movimientos m WITH (NOLOCK)
+            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+            WHERE m.id = @movId 
+              AND m.motivo_producto_id IN (4, 10)
+              AND m.estado_id = 1";
+            }
 
             using (var cmd = dbConn.CreateCommand())
             {
@@ -199,11 +215,14 @@ namespace AplicativoDeAlmacen.Services
                 };
             }
 
-            // LEER DETALLES TOMANDO 'cantidad_salida'
-            string qDet = @"
-    SELECT id, producto_id, cantidad_salida, costo_unitario 
-    FROM movimiento_detalles WITH (NOLOCK)
-    WHERE movimiento_id = @movId";
+            // 🌟 2. LEER DETALLES COMPATIBLE CON AMBOS MOTORES
+            string qDet = QueryAdapter.EsMySQL
+                ? @"SELECT id, producto_id, COALESCE(cantidad_salida, cantidad_ingreso) AS cantidad, costo_unitario 
+            FROM movimiento_detalles 
+            WHERE movimiento_id = @movId"
+                : @"SELECT id, producto_id, ISNULL(cantidad_salida, cantidad_ingreso) AS cantidad, costo_unitario 
+            FROM movimiento_detalles WITH (NOLOCK)
+            WHERE movimiento_id = @movId";
 
             using (var cmdDet = dbConn.CreateCommand())
             {
@@ -212,20 +231,27 @@ namespace AplicativoDeAlmacen.Services
                 using var rdrDet = await cmdDet.ExecuteReaderAsync();
                 while (await rdrDet.ReadAsync())
                 {
-                    int cantSalida = Convert.ToInt32(rdrDet.GetValue(2));
+                    int cantidadTotal = Convert.ToInt32(rdrDet.GetValue(2));
                     result.Detalles.Add(new MovimientoDetalle
                     {
                         Id = rdrDet.GetInt32(0),
                         ProductoId = rdrDet.GetInt32(1),
-                        CantidadIngreso = cantSalida, // Se asigna a Ingreso para que la grilla de entrada lo muestre
-                        CantidadSalida = cantSalida,
+                        CantidadIngreso = cantidadTotal, // Se asigna para mapear correctamente en la vista
+                        CantidadSalida = cantidadTotal,
                         CostoUnitario = rdrDet.IsDBNull(3) ? (decimal?)null : rdrDet.GetDecimal(3)
                     });
                 }
             }
 
-            // LEER RANGOS DE LA SALIDA
-            string qRangos = @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id FROM registro_rangos WITH (NOLOCK) WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+            // 🌟 3. LEER RANGOS COMPATIBLE CON AMBOS MOTORES
+            string qRangos = QueryAdapter.EsMySQL
+                ? @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id 
+            FROM registro_rangos 
+            WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)"
+                : @"SELECT id, producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id 
+            FROM registro_rangos WITH (NOLOCK) 
+            WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+
             using (var cmdR = dbConn.CreateCommand())
             {
                 cmdR.CommandText = QueryAdapter.FormatearConsulta(qRangos);
@@ -259,6 +285,7 @@ namespace AplicativoDeAlmacen.Services
                     });
                 }
             }
+
             return result;
         }
 
@@ -551,63 +578,69 @@ namespace AplicativoDeAlmacen.Services
         {
             string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
 
+            // 🌟 VALIDACIÓN CLAVE: Si es transferencia o no hay ubicación seleccionada (<= 0), pasa NULL
+            object valUbicacion = (ubicacionId > 0) ? ubicacionId : DBNull.Value;
+
             if (existingId.HasValue)
             {
                 string updateCab = @"
-    UPDATE movimientos 
-    SET fecha_movimiento = @fecha, 
-        motivo_producto_id = @motivoId, 
-        ubicacion_id = @ubicacionId, 
-        almacen_id = @almId,
-        almacen_origen_id = @almOrigen,
-        almacen_destino_id = @almDestino,
-        persona_comercial_id = @personaId, 
-        observacion = @observacion, 
-        serie_guia = @serieGuia, 
-        numero_guia = @numeroGuia 
-    WHERE id = @id";
+            UPDATE movimientos 
+            SET fecha_movimiento = @fecha, 
+                motivo_producto_id = @motivoId, 
+                ubicacion_id = @ubicacionId, 
+                almacen_id = @almId,
+                almacen_origen_id = @almOrigen,
+                almacen_destino_id = @almDestino,
+                persona_comercial_id = @personaId, 
+                observacion = @observacion, 
+                serie_guia = @serieGuia, 
+                numero_guia = @numeroGuia 
+            WHERE id = @id";
 
                 using var cmd = conn.CreateCommand();
                 cmd.Transaction = trans;
                 cmd.CommandText = QueryAdapter.FormatearConsulta(updateCab);
+
                 AgregarParametro(cmd, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
                 AgregarParametro(cmd, "@motivoId", cabecera.MotivoProductoId);
-                AgregarParametro(cmd, "@ubicacionId", ubicacionId);
-                AgregarParametro(cmd, "@almId", cabecera.AlmacenId); // 👈 Asigna almacén creador
+                AgregarParametro(cmd, "@ubicacionId", valUbicacion); // 👈 Pasa NULL si es 0
+                AgregarParametro(cmd, "@almId", cabecera.AlmacenId);
                 AgregarParametro(cmd, "@almOrigen", cabecera.AlmacenOrigenId);
                 AgregarParametro(cmd, "@almDestino", cabecera.AlmacenDestinoId);
                 AgregarParametro(cmd, "@personaId", cabecera.PersonaComercialId);
                 AgregarParametro(cmd, "@observacion", cabecera.Observacion);
-                AgregarParametro(cmd, "@serieGuia", cabecera.SerieGuia);
-                AgregarParametro(cmd, "@numeroGuia", cabecera.NumeroGuia);
+
+                // 🚚 Garantiza el guardado de la Guía de Remisión
+                AgregarParametro(cmd, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
+                AgregarParametro(cmd, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
+
                 AgregarParametro(cmd, "@id", existingId.Value);
                 await cmd.ExecuteNonQueryAsync();
                 return existingId.Value;
             }
 
-            // 🌟 CORRELATIVO ISOLADO: Calcula el número usando estrictamente almacen_id de la sesión
+            // --- CÁLCULO DE CORRELATIVO MANTENIDO IGUAL ---
             string queryLock = @"
         SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
-        FROM movimientos m WITH (TABLOCKX, HOLDLOCK)
+        FROM movimientos m
         INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
         WHERE m.serie_documento = @serie 
           AND mp.tipo_movimiento_id = 1
-          AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @almId";
+          AND COALESCE(m.almacen_id, m.almacen_destino_id, 1) = @almId";
 
             int nuevoNumero;
-
             using (var cmdLock = conn.CreateCommand())
             {
                 cmdLock.Transaction = trans;
                 cmdLock.CommandText = QueryAdapter.FormatearConsulta(queryLock);
                 AgregarParametro(cmdLock, "@serie", cabecera.SerieDocumento);
-                AgregarParametro(cmdLock, "@almId", cabecera.AlmacenId ?? 1); // 👈 Filtra por la sesión actual
+                AgregarParametro(cmdLock, "@almId", cabecera.AlmacenId ?? 1);
                 nuevoNumero = Convert.ToInt32(await cmdLock.ExecuteScalarAsync());
             }
 
             cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
 
-            // 🌟 INSERCIÓN REGISTRANDO EL ALMACÉN TITULAR DEL DOCUMENTO
+            // 🌟 INSERCIÓN LIMPIA QUE GUARDA ALMACENES, UBICACIÓN (SI EXISTE) Y GUÍA DE REMISIÓN
             string qCab = $@"
         INSERT INTO movimientos 
         (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
@@ -623,15 +656,17 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmdCab, "@serie", cabecera.SerieDocumento);
             AgregarParametro(cmdCab, "@numero", nuevoNumero.ToString("D7"));
             AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
-            AgregarParametro(cmdCab, "@ubicacionId", ubicacionId);
-            AgregarParametro(cmdCab, "@almId", cabecera.AlmacenId ?? 1); // 👈 Guarda el almacén creador
+            AgregarParametro(cmdCab, "@ubicacionId", valUbicacion); // 👈 Pasa NULL si es 0
+            AgregarParametro(cmdCab, "@almId", cabecera.AlmacenId ?? 1);
             AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
             AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId);
             AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId > 0 ? cabecera.UsuarioId : 1);
             AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
-            AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
-            AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia);
+
+            // 🚚 Garantiza el guardado de la Guía de Remisión
+            AgregarParametro(cmdCab, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
+            AgregarParametro(cmdCab, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
 
             int idCabeceraObtenido = Convert.ToInt32(await cmdCab.ExecuteScalarAsync());
             return idCabeceraObtenido;
@@ -1478,7 +1513,6 @@ namespace AplicativoDeAlmacen.Services
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            // 🟢 PROCESAMOS EN BLOQUES DE 500 PARÁMETROS PARA EVITAR LÍMITES Y SIN TABLAS TEMPORALES
             const int batchSize = 500;
             for (int i = 0; i < listaNormalizada.Count; i += batchSize)
             {
@@ -1499,6 +1533,7 @@ namespace AplicativoDeAlmacen.Services
 
                 string hintIndex = QueryAdapter.EsMySQL ? "" : "WITH (INDEX(IX_codigos_creados_codigo_perf))";
 
+                // 🟢 SE AGREGA cc.almacen_id A LA CONSULTA
                 string queryMaster = $@"
             SELECT 
                 cc.id, 
@@ -1506,6 +1541,7 @@ namespace AplicativoDeAlmacen.Services
                 cc.codigo, 
                 cc.es_manual, 
                 cc.estado_id, 
+                cc.almacen_id, -- 👈 COLUMNA CLAVE AGREGADA
                 rc.producto_id
             FROM codigos_creados cc {hintIndex}
             LEFT JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
@@ -1527,10 +1563,12 @@ namespace AplicativoDeAlmacen.Services
                             RegistroCodigoId = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
                             Codigo = codigoRaw,
                             EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
-                            EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4)
+                            EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+                            // 🟢 MAPEO DEL ALMACÉN FÍSICO
+                            AlmacenId = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5)
                         };
 
-                        int? productoId = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5);
+                        int? productoId = reader.IsDBNull(6) ? (int?)null : reader.GetInt32(6);
                         resultado.Add(codigoNorm, (codigoCreado, productoId));
                     }
                 }

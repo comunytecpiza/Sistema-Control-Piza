@@ -11,7 +11,6 @@ namespace AplicativoDeAlmacen.Data
 
         public static bool ExisteConfiguracion() => File.Exists(RutaArchivo);
 
-        // Extrae el motor seleccionado
         public static string ObtenerMotor()
         {
             var config = LeerArchivo();
@@ -23,31 +22,31 @@ namespace AplicativoDeAlmacen.Data
             if (!ExisteConfiguracion()) throw new FileNotFoundException("ARCHIVO_NO_ENCONTRADO");
 
             var diccionario = LeerArchivo();
-            string server = diccionario.ContainsKey("Server") ? diccionario["Server"] : "";
-            string database = diccionario.ContainsKey("DataBase") ? diccionario["DataBase"] : "";
-            string user = diccionario.ContainsKey("Usuario") ? diccionario["Usuario"] : "";
-            string pass = diccionario.ContainsKey("Password") ? diccionario["Password"] : "";
-            string motor = diccionario.ContainsKey("Motor") ? diccionario["Motor"] : "";
+            string server = diccionario.ContainsKey("Server") ? diccionario["Server"].Trim() : "";
+            string database = diccionario.ContainsKey("DataBase") ? diccionario["DataBase"].Trim() : "";
+            string user = diccionario.ContainsKey("Usuario") ? diccionario["Usuario"].Trim() : "";
+            string pass = diccionario.ContainsKey("Password") ? diccionario["Password"].Trim() : "";
+            string motor = diccionario.ContainsKey("Motor") ? diccionario["Motor"].Trim() : "";
 
-            // Si el archivo dice MySQL, armamos la estructura que entiende MySQL
             if (motor.Contains("MySQL"))
             {
-                // Si el usuario no puso puerto en la IP, le asignamos el 3306 por defecto
                 string puerto = "3306";
-                if (server.Contains(",")) { var p = server.Split(','); server = p[0]; puerto = p[1]; }
-                else if (server.Contains(":")) { var p = server.Split(':'); server = p[0]; puerto = p[1]; }
+                if (server.Contains(",")) { var p = server.Split(','); server = p[0].Trim(); puerto = p[1].Trim(); }
+                else if (server.Contains(":")) { var p = server.Split(':'); server = p[0].Trim(); puerto = p[1].Trim(); }
 
-                return $"Server={server};Port={puerto};Database={database};Uid={user};Pwd={pass};Convert Zero Datetime=True;";
+                // 🌟 Se elimina SslMode para evitar conflictos con la versión del conector
+                return $"Server={server};Port={puerto};Database={database};Uid={user};Password={pass};Convert Zero Datetime=True;";
             }
 
-            // Si no, devolvemos la cadena estándar de SQL Server
             return $"Server={server};Database={database};User Id={user};Password={pass};TrustServerCertificate=True;";
         }
 
         public static void GuardarConfiguracion(string motor, string server, string database, string user, string password)
         {
             if (!Directory.Exists(CarpetaConfig)) Directory.CreateDirectory(CarpetaConfig);
-            string contenido = $"Motor={motor}\nServer={server}\nDataBase={database}\nUsuario={user}\nPassword={password}";
+
+            // Limpiamos cualquier salto de línea o espacio fantasma antes de guardarlo en texto plano
+            string contenido = $"Motor={motor?.Trim()}\nServer={server?.Trim()}\nDataBase={database?.Trim()}\nUsuario={user?.Trim()}\nPassword={password?.Trim()}";
             File.WriteAllText(RutaArchivo, contenido);
         }
 
@@ -61,6 +60,7 @@ namespace AplicativoDeAlmacen.Data
             {
                 if (string.IsNullOrWhiteSpace(linea) || !linea.Contains("=")) continue;
                 var partes = linea.Split('=', 2);
+                // .Trim() elimina espacios o retornos de carro '\r' invisibles al final de la contraseña
                 diccionario[partes[0].Trim()] = partes[1].Trim();
             }
             return diccionario;

@@ -52,7 +52,7 @@ namespace AplicativoDeAlmacen.Views
         private bool _isUpdatingFromSelection = false;
         private int? _personaComercialIdSeleccionada = null;
         private int? _idUbicacionSeleccionada = null;
-        private const int UBICACION_ID_SELECCIONADA = 1; // ID Fijo de Almacén Central
+        
         private bool _isRegistrandoMovimiento = false;
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
@@ -173,11 +173,9 @@ namespace AplicativoDeAlmacen.Views
                 cboAlmacenDestino.DisplayMemberPath = "Nombre";
                 cboAlmacenDestino.SelectedValuePath = "Id";
 
-                // Si es sub-almacén, selecciona automáticamente "Almacén Central Trujillo"
-                if (miAlmacenId != ALMACEN_CENTRAL_ID && listaAlmacenes.Any())
-                {
-                    cboAlmacenDestino.SelectedIndex = 0;
-                }
+                // 🌟 CAMBIO PUNTUAL: NUNCA pre-cargar ningún almacén por defecto
+                cboAlmacenDestino.SelectedIndex = -1;
+                cboAlmacenDestino.SelectedValue = null;
             }
             catch (Exception ex)
             {
@@ -863,7 +861,7 @@ namespace AplicativoDeAlmacen.Views
                         solicitud.Movimiento,
                         solicitud.Productos.ToList(),
                         _rangosProcesadosGlobal.ToList(),
-                        solicitud.Movimiento.UbicacionId ?? UBICACION_ID_SELECCIONADA,
+                        solicitud.Movimiento.UbicacionId ?? 0, // 👈 0 o neutral en vez de UBICACION_ID_SELECCIONADA
                         solicitud.MovimientoId,
                         progress)
                 );
@@ -942,6 +940,7 @@ namespace AplicativoDeAlmacen.Views
                 almacenDestinoReal = miAlmacenActual; // Mi sede actual que recibe (Ej: Lima = 3)
             }
 
+            // En CrearSolicitudMovimiento():
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
@@ -953,12 +952,14 @@ namespace AplicativoDeAlmacen.Views
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = idMotivoIngreso,
 
-                    UbicacionId = _idUbicacionSeleccionada ?? UBICACION_ID_SELECCIONADA,
+                    // 🟢 SI SE ELIGIÓ ALMACÉN DE ORIGEN, LA UBICACIÓN QUEDA STRICTAMENTE EN NULL
+                    UbicacionId = (almacenOrigenReal.HasValue || string.IsNullOrWhiteSpace(txtUbicacion.Text))
+                        ? (int?)null
+                        : _idUbicacionSeleccionada,
 
-                    // 🌟 ASIGNACIÓN MÁSTER BLINDADA PARA KÁRDEX Y STOCK INDEPENDIENTE
-                    AlmacenId = miAlmacenActual,           // Sede que genera el registro de entrada (Lima)
-                    AlmacenOrigenId = almacenOrigenReal,   // Procedencia real de los libros (Trujillo)
-                    AlmacenDestinoId = almacenDestinoReal, // Destino final de los libros (Lima)
+                    AlmacenId = miAlmacenActual,
+                    AlmacenOrigenId = almacenOrigenReal,
+                    AlmacenDestinoId = almacenDestinoReal,
 
                     UsuarioId = SesionSistema.UsuarioActual?.Id ?? 1,
                     PersonaComercialId = _personaComercialIdSeleccionada,
@@ -1688,6 +1689,21 @@ namespace AplicativoDeAlmacen.Views
             if (!cboAlmacenDestino.IsEnabled)
             {
                 cboAlmacenDestino.SelectedIndex = -1;
+                cboAlmacenDestino.SelectedValue = null; // 🌟 CAMBIO PUNTUAL: Limpia el valor interno
+            }
+        }
+
+        private void CboAlmacenDestino_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (cboAlmacenDestino.SelectedValue != null)
+            {
+                txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                txtUbicacion.Clear();
+                txtCodigoUbicacion.Clear();
+                txtDireccionUbicacion.Clear();
+                _idUbicacionSeleccionada = null;
+                if (popupUbicacion != null) popupUbicacion.IsOpen = false;
+                txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
             }
         }
 

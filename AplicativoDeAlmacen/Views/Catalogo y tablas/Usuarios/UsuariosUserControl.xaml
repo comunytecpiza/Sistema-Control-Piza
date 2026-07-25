@@ -91,6 +91,7 @@
 
                 <TextBlock Text="Ficha del Usuario" FontSize="22" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,30"/>
 
+                <!-- En UsuariosUserControl.xaml[cite: 9] -->
                 <StackPanel Grid.Row="1">
                     <TextBlock Text="CÓDIGO DE ACCESO" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
                     <TextBox x:Name="TxtCodigo" IsReadOnly="True" Background="#F8FAFC" Height="42" Padding="15,0" VerticalContentAlignment="Center" Foreground="#3B82F6" FontWeight="Bold" FontSize="15" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,20"/>
@@ -101,7 +102,7 @@
                     <TextBlock Text="CLAVE SECRETA" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
                     <PasswordBox x:Name="TxtPassword" Height="42" Padding="15,0" VerticalContentAlignment="Center" FontSize="15" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,20"/>
 
-                    <Grid Margin="0,0,0,25">
+                    <Grid Margin="0,0,0,20">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="20"/>
@@ -122,15 +123,16 @@
                         </StackPanel>
                     </Grid>
 
+                    <!-- 🌟 ESTE ES EL CONTROL QUE FALTA DECLARAR EN EL XAML -->
+                    <TextBlock Text="ALMACÉN ASIGNADO" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <ComboBox x:Name="CboAlmacen" Height="42" VerticalContentAlignment="Center" Padding="10,0" FontSize="15" BorderBrush="#CBD5E1" Margin="0,0,0,25"/>
+
                     <Button x:Name="BtnAccesos" Content="🔐 Configurar Permisos Detallados" Height="48" Background="#F59E0B" Foreground="White" FontWeight="Bold" FontSize="15" Cursor="Hand" BorderThickness="0" Click="BtnAccesos_Click">
                         <Button.Resources>
                             <Style TargetType="{x:Type Border}">
                                 <Setter Property="CornerRadius" Value="8"/>
                             </Style>
                         </Button.Resources>
-                        <Button.Effect>
-                            <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.2" Color="#F59E0B"/>
-                        </Button.Effect>
                     </Button>
                 </StackPanel>
 

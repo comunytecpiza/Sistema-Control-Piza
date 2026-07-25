@@ -20,6 +20,8 @@ namespace AplicativoDeAlmacen.Models.Facturación
 
         public string CodigoCompleto { get; set; }
 
+        public int? AlmacenId { get; set; }
+
         public int MovimientoId { get; set; }
 
         public int EstadoId { get; set; }

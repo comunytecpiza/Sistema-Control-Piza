@@ -856,23 +856,25 @@ namespace AplicativoDeAlmacen.Views
                     }
 
                     // =========================================================================
-                    // 🚀 EXTRAORDINARIA OPTIMIZACIÓN INDUSTRIAL: LECTURA EN BLOQUE UNIFICADA
+                    // 🚀 LECTURA EN BLOQUE UNIFICADA COMPATIBLE CON MYSQL Y SQL SERVER
                     // =========================================================================
-                    // Traemos TODOS los códigos de todos los detalles de este movimiento en un solo viaje SQL
                     var todosLosCodigosPlanos = new List<(int DetId, int CodId, string CodString)>();
+
+                    // 🌟 SUGERENCIA DE ÍNDICE DINÁMICA
+                    string indexHint = QueryAdapter.EsMySQL ? "" : "WITH (INDEX(IX_codigos_creados_codigo_perf))";
 
                     using (var conn = new DatabaseConnection().GetConnection())
                     {
                         await ((DbConnection)conn).OpenAsync();
                         using (var cmd = ((DbConnection)conn).CreateCommand())
                         {
-                            cmd.CommandText = QueryAdapter.FormatearConsulta(@"
-                            SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, c.ano, rc.categoria_producto_id
-                            FROM movimiento_codigos mc 
-                            INNER JOIN codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf)) ON mc.codigo_creado_id = cc.id 
-                            LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                            LEFT JOIN colecciones c ON rc.coleccion_id = c.id
-                            WHERE mc.movimiento_id = @movId");
+                            cmd.CommandText = QueryAdapter.FormatearConsulta($@"
+                    SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, c.ano, rc.categoria_producto_id
+                    FROM movimiento_codigos mc 
+                    INNER JOIN codigos_creados cc {indexHint} ON mc.codigo_creado_id = cc.id 
+                    LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                    WHERE mc.movimiento_id = @movId");
 
                             var p = cmd.CreateParameter(); p.ParameterName = "@movId"; p.Value = _idMovimientoActual.Value; cmd.Parameters.Add(p);
 
@@ -1348,14 +1350,18 @@ namespace AplicativoDeAlmacen.Views
                     SerieDocumento = txtSerieSalida.Text,
                     NumeroDocumento = txtNumeroSalida.Text,
                     FechaMovimiento = dtpFechaDespacho.SelectedDate.HasValue ? DateOnly.FromDateTime(dtpFechaDespacho.SelectedDate.Value) : DateOnly.FromDateTime(DateTime.Now),
-                    UbicacionId = txtUbicacion.IsEnabled ? _idUbicacionSeleccionada : null,
+
+                    // 🟢 REGLA DE EXCLUSIÓN: Si hay Almacén Destino seleccionado, la Ubicación DEBE SER NULL
+                    UbicacionId = (almacenDestinoSel.HasValue || string.IsNullOrWhiteSpace(txtUbicacion.Text))
+                        ? (int?)null
+                        : _idUbicacionSeleccionada,
+
                     PersonaComercialId = txtCliente.IsEnabled ? _idClienteSeleccionado : null,
                     MotivoProductoId = idMotivo,
 
-                    // 🌟 ASIGNACIÓN MÁSTER DE ALMACENES
-                    AlmacenId = miAlmacenOrigen,         // 👈 ALMACÉN TITULAR QUE CREA Y EMITE LA SALIDA
-                    AlmacenOrigenId = miAlmacenOrigen,   // Sede física de procedencia de los libros
-                    AlmacenDestinoId = almacenDestinoSel,// Sede física de destino (si es transferencia)
+                    AlmacenId = miAlmacenOrigen,
+                    AlmacenOrigenId = miAlmacenOrigen,
+                    AlmacenDestinoId = almacenDestinoSel,
 
                     UsuarioId = usuarioActivoId,
                     Observacion = txtObservacionSalida.Text,
@@ -1595,10 +1601,25 @@ namespace AplicativoDeAlmacen.Views
         // 🌟 CAMBIADO A Task<bool> PARA RESOLVER EL ERROR CS0029
         private async Task<bool> ProcesarCodigoEscaneadoAsync(LectoraResultDTO resultado)
         {
+            int miAlmacenIdSesion = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            // 🔒 1. Candado de seguridad: Verificar si el código pertenece a la sede de la sesión activa
+            if (resultado.AlmacenId != miAlmacenIdSesion)
+            {
+                MessageBox.Show(
+                    $"El código '{resultado.CodigoCompleto}' no se encuentra en su stock.",
+                    "Aviso de Stock",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return false;
+            }
+
+            // 2. Verificar estado físico en almacén (Estado 3 = Disponible en Almacén)
             if (resultado.EstadoId != 3)
             {
                 MessageBox.Show(
-                    $"El código '{resultado.CodigoCompleto}' no está en almacén.",
+                    $"El código '{resultado.CodigoCompleto}' no está disponible para despacho en almacén.",
                     "Aviso",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
@@ -1606,11 +1627,11 @@ namespace AplicativoDeAlmacen.Views
                 return false;
             }
 
+            // 3. Evitar duplicados dentro de la misma grilla activa
             if (_codigosLista.Any(x => x.MovCodigo.CodigoCreadoId == resultado.CodigoCreadoId))
             {
                 return false;
             }
-            
 
             string tipoBD = await ObtenerColeccionTipoBDAsync(resultado.CodigoCreadoId);
 
@@ -1686,21 +1707,11 @@ namespace AplicativoDeAlmacen.Views
                 await dbConn.OpenAsync();
 
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-                const int ALMACEN_CENTRAL_ID = 1; // ID oficial de Trujillo Central
+                const int ALMACEN_CENTRAL_ID = 1;
 
-                string query;
-
-                // 🌟 APLICACIÓN DE LA REGLA DE JERARQUÍA LOGÍSTICA
-                if (miAlmacenId == ALMACEN_CENTRAL_ID)
-                {
-                    // 🟢 Almacén Central puede transferir a todos los sub-almacenes (excepto a sí mismo)
-                    query = "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC";
-                }
-                else
-                {
-                    // 🟡 Un Sub-Almacén SOLO puede ver y devolver mercadería al Almacén Central
-                    query = "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
-                }
+                string query = (miAlmacenId == ALMACEN_CENTRAL_ID)
+                    ? "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC"
+                    : "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -1717,17 +1728,17 @@ namespace AplicativoDeAlmacen.Views
 
                 cboAlmacenDestino.ItemsSource = listaAlmacenes;
 
-                // Si es sub-almacén, seleccionamos "Almacén Central" por defecto en el Combo para facilitarle el trabajo
-                if (miAlmacenId != ALMACEN_CENTRAL_ID && listaAlmacenes.Any())
-                {
-                    cboAlmacenDestino.SelectedIndex = 0;
-                }
+                // 🟢 NUNCA PRE-CARGAR NINGÚN ALMACÉN POR DEFECTO
+                cboAlmacenDestino.SelectedIndex = -1;
+                cboAlmacenDestino.SelectedValue = null;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error al cargar almacenes destino con jerarquía: {ex.Message}");
+                Debug.WriteLine($"Error al cargar almacenes destino: {ex.Message}");
             }
         }
+
+
         private void CboMotivoSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (cboMotivoSalida.SelectedValue == null) return;
@@ -1770,18 +1781,18 @@ namespace AplicativoDeAlmacen.Views
             txtUbicacion.IsEnabled = false;
             cboAlmacenDestino.IsEnabled = false;
 
-            // Ventas / Consignaciones / Donaciones -> Solo Cliente
+            // 🔴 Ventas / Consignación / Donación (IDs 5, 6, 7, 8, 11)
             if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
             {
                 txtCliente.IsEnabled = true;
             }
-            // Transferencia entre almacenes -> Ubicación Referencial y Almacén Destino
-            else if (idMotivo == 10)
+            // 🔵 Transferencias (ID 4 o 10)
+            else if (idMotivo == 4 || idMotivo == 10)
             {
                 txtUbicacion.IsEnabled = true;
                 cboAlmacenDestino.IsEnabled = true;
             }
-            // Promotoría / Otros -> Cliente, Ubicación y Almacén Destino
+            // 🟣 Otros / Promotoría (IDs 9, 12)
             else if (idMotivo == 9 || idMotivo == 12)
             {
                 txtCliente.IsEnabled = true;
@@ -1789,11 +1800,41 @@ namespace AplicativoDeAlmacen.Views
                 cboAlmacenDestino.IsEnabled = true;
             }
 
-            if (!txtCliente.IsEnabled) { txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear(); _idClienteSeleccionado = null; }
-            if (!txtUbicacion.IsEnabled) { txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); _idUbicacionSeleccionada = null; }
-            if (!cboAlmacenDestino.IsEnabled) { cboAlmacenDestino.SelectedIndex = -1; }
+            // 🟢 LIMPIEZA FORZOSA SI EL CAMPO NO APLICA
+            if (!txtCliente.IsEnabled)
+            {
+                txtCliente.Clear(); txtCodigoCliente.Clear(); txtDireccionCliente.Clear();
+                _idClienteSeleccionado = null;
+            }
+
+            if (!txtUbicacion.IsEnabled)
+            {
+                txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear();
+                _idUbicacionSeleccionada = null;
+            }
+
+            if (!cboAlmacenDestino.IsEnabled)
+            {
+                cboAlmacenDestino.SelectedIndex = -1;
+                cboAlmacenDestino.SelectedValue = null;
+            }
         }
 
+        // 🟢 EVENTO DE EXCLUSIÓN MUTUA AL ELEGIR ALMACÉN
+        private void CboAlmacenDestino_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (cboAlmacenDestino.SelectedValue != null)
+            {
+                // Si elije Almacén Físico, vaciamos Ubicación Referencial
+                txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                txtUbicacion.Clear();
+                txtCodigoUbicacion.Clear();
+                txtDireccionUbicacion.Clear();
+                _idUbicacionSeleccionada = null;
+                txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+            }
+        }
+        
         private void BtnCancelar_Click(object sender, RoutedEventArgs e)
         {
             if (MessageBox.Show("¿Desea cancelar la operación actual?", "Confirmación", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)

@@ -214,6 +214,8 @@ namespace AplicativoDeAlmacen.Views
                     var dictTemp = new Dictionary<string, List<ItemCodigoPreview>>();
                     int total = rawList.Count;
 
+                    int miAlmacenIdSesion = AplicativoDeAlmacen.Core.SesionSistema.AlmacenActual?.Id ?? 1;
+
                     for (int i = 0; i < total; i++)
                     {
                         string raw = rawList[i];
@@ -244,19 +246,30 @@ namespace AplicativoDeAlmacen.Views
                         }
                         else if (existeEnBD)
                         {
-                            if (coincidencia.ProductoId.HasValue && prodMap.TryGetValue(coincidencia.ProductoId.Value, out string pDesc))
-                            {
-                                nombreProd = pDesc;
-                            }
+                            // 🔒 Validación por Almacén de Sesión
+                            bool perteneceAMiAlmacen = coincidencia.CodigoObj.AlmacenId == miAlmacenIdSesion;
 
-                            if (EstadoPermitido != 0 && coincidencia.CodigoObj?.EstadoId != EstadoPermitido)
+                            if (!perteneceAMiAlmacen)
                             {
-                                observacion = $"❌ ESTADO INVÁLIDO (Estado: {coincidencia.CodigoObj?.EstadoId})";
+                                nombreProd = "⚠️ CÓDIGOS NO DISPONIBLES EN SU STOCK";
+                                observacion = "❌ NO ESTÁ EN TU STOCK ACTUAL"; // 👈 MENSAJE CONFIDENCIAL ACTUALIZADO
                             }
                             else
                             {
-                                esValido = true;
-                                observacion = "✅ LISTO PARA IMPORTAR";
+                                if (coincidencia.ProductoId.HasValue && prodMap.TryGetValue(coincidencia.ProductoId.Value, out string pDesc))
+                                {
+                                    nombreProd = pDesc;
+                                }
+
+                                if (EstadoPermitido != 0 && coincidencia.CodigoObj?.EstadoId != EstadoPermitido)
+                                {
+                                    observacion = $"❌ ESTADO INVÁLIDO (Estado: {coincidencia.CodigoObj?.EstadoId})";
+                                }
+                                else
+                                {
+                                    esValido = true;
+                                    observacion = "✅ LISTO PARA IMPORTAR";
+                                }
                             }
                         }
 
