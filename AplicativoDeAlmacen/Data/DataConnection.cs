@@ -1,31 +1,28 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.SqlClient;       // Para SQL Server
+using MySql.Data.MySqlClient;     // Para MySQL / MariaDB (XAMPP o Hosting)
 
 namespace AplicativoDeAlmacen.Data
 {
-    class DataConnection
+    public class DataConnection
     {
         public class DatabaseConnection
         {
-            private readonly string _connectionString;
-
-            public DatabaseConnection()
+            public IDbConnection GetConnection()
             {
-                // ¡CORREGIDO! Sin Integrated Security, para que obligatoriamente use 'sa'
-                _connectionString = @"Server=192.168.1.103;
-                                      Database=EdicionesPizaControl;
-                                      User Id=sa;
-                                      Password=123456;
-                                      TrustServerCertificate=True;";
-            }
+                string connectionString = ConfigManager.ObtenerCadenaConexion();
+                string motor = ConfigManager.ObtenerMotor();
 
-            public SqlConnection GetConnection()
-            {
-                return new SqlConnection(_connectionString);
+                // Evaluamos dinámicamente qué objeto instanciar
+                if (motor.Contains("MySQL"))
+                {
+                    return new MySqlConnection(connectionString);
+                }
+                else
+                {
+                    return new SqlConnection(connectionString);
+                }
             }
         }
     }

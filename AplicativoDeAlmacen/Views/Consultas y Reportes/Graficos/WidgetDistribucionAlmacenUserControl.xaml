@@ -1,0 +1,110 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos.WidgetDistribucionAlmacenUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
+
+    <Grid Margin="10">
+
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0"
+                Padding="10"
+                CornerRadius="8"
+                BorderBrush="#D6D6D6"
+                BorderThickness="1"
+                Background="White">
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+
+                    <TextBlock Text="Comparar Producto 1" FontSize="14" FontWeight="SemiBold" Foreground="#374151"/>
+
+                    <TextBox x:Name="TxtBuscarA"
+                             Height="30"
+                             Margin="0,5,0,0"
+                             TextChanged="TxtBuscarA_TextChanged"
+                             ToolTip="Escriba para buscar el primer producto"/>
+
+                    <ListBox x:Name="LstProductosA"
+                             Margin="0,5,0,10"
+                             MaxHeight="100"
+                             Visibility="Collapsed"
+                             SelectionChanged="LstProductosA_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="70"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Descripcion}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Cantidad}" HorizontalAlignment="Right" FontWeight="Bold" Foreground="#2563EB"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Margin="0,5,0,20">
+                        <TextBlock Text="Selección 1:" FontWeight="SemiBold" FontSize="12" Foreground="#6B7280"/>
+                        <TextBlock x:Name="TxtProductoA" Text="Ninguno" TextWrapping="Wrap" Margin="0,2,0,0" FontWeight="Bold" Foreground="#1F2937"/>
+                        <TextBlock x:Name="TxtStockA" Text="Stock: 0" Foreground="#2563EB" FontWeight="Bold"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,0,0,15"/>
+
+                    <TextBlock Text="Comparar Producto 2" FontSize="14" FontWeight="SemiBold" Foreground="#374151"/>
+
+                    <TextBox x:Name="TxtBuscarB"
+                             Height="30"
+                             Margin="0,5,0,0"
+                             TextChanged="TxtBuscarB_TextChanged"
+                             ToolTip="Escriba para buscar el segundo producto"/>
+
+                    <ListBox x:Name="LstProductosB"
+                             Margin="0,5,0,10"
+                             MaxHeight="100"
+                             Visibility="Collapsed"
+                             SelectionChanged="LstProductosB_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="70"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Descripcion}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Cantidad}" HorizontalAlignment="Right" FontWeight="Bold" Foreground="#DC2626"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Margin="0,5,0,10">
+                        <TextBlock Text="Selección 2:" FontWeight="SemiBold" FontSize="12" Foreground="#6B7280"/>
+                        <TextBlock x:Name="TxtProductoB" Text="Ninguno" TextWrapping="Wrap" Margin="0,2,0,0" FontWeight="Bold" Foreground="#1F2937"/>
+                        <TextBlock x:Name="TxtStockB" Text="Stock: 0" Foreground="#DC2626" FontWeight="Bold"/>
+                    </StackPanel>
+
+                </StackPanel>
+            </ScrollViewer>
+
+        </Border>
+
+        <Border Grid.Column="1"
+                Margin="15,0,0,0"
+                BorderBrush="#D6D6D6"
+                BorderThickness="1"
+                CornerRadius="8"
+                Background="White">
+
+            <lvc:PieChart Series="{Binding Series}" 
+                          LegendPosition="Right"/>
+
+        </Border>
+
+    </Grid>
+
+</UserControl>

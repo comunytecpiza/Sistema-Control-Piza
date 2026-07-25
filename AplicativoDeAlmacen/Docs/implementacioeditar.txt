@@ -1,0 +1,99 @@
+CASO DE USO: Manejo de validación de estados de códigos en registro de movimientos
+
+Identificador: CU-ALM-IMPL-001
+Título: Validación de estados de códigos y opción segura para forzar actualización
+Actor principal: Usuario de Almacén con permiso (Operativo / Supervisor)
+Objetivo: Evitar registros inconsistentes de movimiento cuando los códigos físicos no cumplen el estado esperado; proveer una opción segura, auditada y controlada para resolver casos masivos sin mostrar miles de filas en UI.
+
+Resumen
+Cuando se intenta guardar o actualizar un movimiento que asigna códigos físicos, el sistema valida que cada código del rango tenga el "estado permitido" según el motivo (por ejemplo: compra requiere estado 1, otras entradas requieren estado 4). Si la validación falla, el guardado se bloquea. Este caso de uso describe una solución que no presenta listados masivos completos en la UI, y añade opciones controladas para visualizar resumidamente el problema, exportar la lista completa si se necesita y forzar una actualización de estados con auditoría y permisos.
+
+Precondiciones
+- Usuario tiene permisos para registrar movimientos.
+- La operación de guardado se ejecuta desde la interfaz de ingreso/edición de movimientos.
+- Existe conexión con la base de datos.
+
+Flujo principal (guardado estándar)
+1. Usuario completa cabecera y detalle (productos y rangos) y pulsa Guardar.
+2. Servicio del backend valida los códigos por rango:
+   - Comprueba existencia física por secuencia y categoría.
+   - Comprueba que cada código tenga el estado esperado.
+3. Si todo OK ? persistir movimiento (transacción ACID) y confirmar al usuario.
+
+Flujo alternativo: validación falla (códigos con estado incorrecto o faltantes)
+1. Servicio detecta error y retorna un resultado estructurado (no lanzar excepción de texto sin estructura). El resultado contiene al menos:
+   - Success = false
+   - Mensaje corto para el usuario
+   - CountInvalid (número de códigos con estado incorrecto)
+   - CountMissing (número de códigos faltantes en BD)
+   - PreviewInvalid: lista de hasta N primeros códigos inválidos (por ejemplo N = 20)
+   - (Opcional) ExportToken/Query para descargar la lista completa desde servidor (CSV/Excel)
+2. UI muestra un modal con:
+   - Mensaje claro: "Validación de códigos fallida"
+   - Resumen con conteos: "Códigos inválidos: 1,234; códigos faltantes: 2"
+   - Tabla con PreviewInvalid (máx 20 filas)
+   - Botones:
+     a) "Abrir gestor de códigos" (navegar a módulo de códigos para corrección manual)
+     b) "Exportar lista completa" (descargar CSV/XLSX con todos los códigos inválidos/faltantes) — el servidor genera el archivo y retorna URL temporal
+     c) "Solicitar Forzar Actualización" (visible sólo si el usuario tiene permiso específico)
+     d) "Cancelar"
+3. Si el usuario elige "Abrir gestor de códigos": se redirige y la operación de guardado queda pendiente (el modal se cierra).
+4. Si el usuario elige "Exportar lista completa": el servidor genera y abre/descarga el archivo para revisión offline.
+
+Flujo para "Forzar Actualización" (solo usuarios autorizados)
+1. Usuario con permiso selecciona "Solicitar Forzar Actualización".
+2. UI muestra confirmación con advertencia (texto explicando consecuencias) y solicita motivo (campo obligatorio) y confirma identidad del usuario (ya provista por sesión).
+3. Al confirmar, UI envía una petición al servicio: ForzarActualizarEstadosAsync(List<string> codigos, int nuevoEstado, string motivo, int usuarioId).
+4. Servidor realiza en una transacción:
+   - Validaciones adicionales (re-check, evitar race condition).
+   - Actualiza estado_id de los códigos indicados a nuevoEstado.
+   - Registra auditoría por código o por lote en tabla de auditoría: auditoria_estados (codigo_id, estado_anterior, estado_nuevo, usuario_id, fecha, motivo, movimiento_relacionado).
+   - Opcional: enviar notificación o registrar evento en log.
+5. Servidor retorna resultado con conteos y resumen.
+6. La UI reintenta el guardado original automáticamente (o pide al usuario reintentar). Si vuelve a fallar, se presenta el mismo modal con nueva información.
+
+Reglas de negocio / seguridad
+- La acción "Forzar Actualización" debe requerir un permiso explícito (rol: Supervisor o permiso: FORZAR_ESTADO_CODIGO).
+- Siempre registrar auditoría por cada cambio de estado (usuario, motivo, timestamp). No permitir realizar cambios anónimos.
+- Limitar la operación: por lote máximo razonable (ej. 10k codigos) o forzar operación background y notificar cuando termine.
+- Evitar mostrar más que un preview en UI para no colapsarla con miles de filas. Usar exportación para revisar lotes grandes.
+- La actualización forzada no debe eliminar datos previos ni afectar otras transacciones; debe realizarse en una transacción separada y luego reintentar el guardado del movimiento.
+
+Interfaces del servicio (sugeridas)
+- ResultadoValidacionMovimiento ValidarMovimiento(MovimientoDto movimiento)
+  - bool Success
+  - string Mensaje
+  - int CountInvalid
+  - int CountMissing
+  - List<string> PreviewInvalid (max 20)
+  - string ExportToken (opcional, para descargar lista completa)
+
+- ResultadoOperacion ForzarActualizarEstados(string exportToken | List<string> codigos, int nuevoEstado, int usuarioId, string motivo)
+  - bool Success
+  - string Mensaje
+  - int CountUpdated
+  - List<string> Errors
+
+Operación de exportación
+- Cuando la validación descubre muchos códigos, el servidor debe generar un archivo temporal (CSV/XLSX) que el usuario pueda descargar. Retornar un token o URL temporal (expira en X minutos).
+
+Mensajes y UX
+- Mensajes claros: mostrar conteos y primeros 20 códigos para diagnóstico.
+- Evitar bloqueo total: permitir al usuario exportar y corregir sin perder los datos en formulario.
+- Registrar en log y auditoría quién realizó la forzada y por qué.
+
+Consideraciones técnicas
+- Implementar endpoints/servicios async y ejecución background si el volumen es grande.
+- Usar índices en tablas `codigos_creados` para buscar por código y por secuencia eficientemente.
+- Manejar multi-motor SQL (SQL Server / MySQL) en consultas y generación de archivos.
+
+Criterios de aceptación
+- Si la validación falla, la UI muestra modal con conteos y preview (hasta 20 filas).
+- El usuario puede exportar la lista completa en CSV/XLSX.
+- Solo usuarios con permiso pueden forzar actualización.
+- La operación forzar registra auditoría y permite reintentar el guardado automáticamente.
+
+Notas finales
+Este caso de uso evita que la UI intente renderizar miles de filas y provee una vía segura y auditada para resolver discrepancias de estado. Implementarlo mejorará la trazabilidad y reducirá errores humanos en producción.
+
+-- Documento generado por el asistente (GitHub Copilot).

@@ -1,10 +1,13 @@
-using System;
+锘縰sing System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
+using System.Data;
+using System.Data.Common; // Usamos Common para soporte Multi-Motor, adi贸s a SqlClient
 using System.Threading.Tasks;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using static AplicativoDeAlmacen.Data.DataConnection;
-using AplicativoDeAlmacen.Models.Models; // Importante para que detecte Nivele, UnidadMedidum, etc.
+using AplicativoDeAlmacen.Core;
 
 namespace AplicativoDeAlmacen.Services
 {
@@ -12,154 +15,191 @@ namespace AplicativoDeAlmacen.Services
     {
         private readonly DatabaseConnection _database;
 
+
         public ProductoService()
         {
             _database = new DatabaseConnection();
         }
 
-        // =========================================================================
-        // 1. M蒚ODOS CRUD PRINCIPALES (PRODUCTO)
-        // =========================================================================
+        // =======================================================
+        // FUNCI脫N AYUDANTE MULTI-MOTOR
+        // =======================================================
+        private void AgregarParametro(DbCommand cmd, string nombre, object valor)
+        {
+            var p = cmd.CreateParameter();
+            p.ParameterName = nombre;
+            p.Value = valor ?? DBNull.Value;
+            cmd.Parameters.Add(p);
+        }
 
         public async Task<List<Producto>> ObtenerTodosAsync()
         {
             var lista = new List<Producto>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-
-            // La consulta hace los JOIN por ID y trae los nombres exactos
-            string query = @"
-        SELECT p.id, p.descripcion, p.abreviatura, p.unidad_medida_id, um.descripcion AS unidad_medida, 
-        p.tipo_producto_id, p.precio_unitario, p.porcentaje, p.nivel_id, p.grado_id, p.curso_id,
-        p.titulo_curso_id, p.afectacion_igv_id, ai.nombre AS afectacion_igv, p.estado_id, e.nombre AS estado
-        FROM productos p
-        LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
-        LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
-        LEFT JOIN estados e ON p.estado_id = e.id";
-
-            using var cmd = new SqlCommand(query, conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new Producto
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"
+                    SELECT p.id, p.descripcion, p.abreviatura, p.unidad_medida_id,
+                           um.descripcion AS unidad_medida,
+                           p.tipo_producto_id, p.precio_unitario, p.porcentaje,
+                           p.nivel_id, p.grado_id, p.curso_id,
+                           p.titulo_curso_id, p.afectacion_igv_id,
+                           ai.nombre AS afectacion_igv,
+                           p.estado_id, e.nombre AS estado,
+                           p.stock_minimo
+                    FROM productos p
+                    LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
+                    LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
+                    LEFT JOIN estados e ON p.estado_id = e.id";
+
+                using (var cmd = dbConn.CreateCommand())
                 {
-                    Id = reader.GetInt32(reader.GetOrdinal("id")),
-                    Descripcion = reader.GetString(reader.GetOrdinal("descripcion")),
-                    Abreviatura = reader.IsDBNull(reader.GetOrdinal("abreviatura")) ? null : reader.GetString(reader.GetOrdinal("abreviatura")),
-
-                    UnidadMedidaId = reader.IsDBNull(reader.GetOrdinal("unidad_medida_id")) ? null : reader.GetInt32(reader.GetOrdinal("unidad_medida_id")),
-
-                    // 1. Instanciamos y llenamos el objeto UnidadMedida
-                    UnidadMedida = new UnidadMedida
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    using (var reader = await cmd.ExecuteReaderAsync())
                     {
-                        Descripcion = reader.IsDBNull(reader.GetOrdinal("unidad_medida")) ? string.Empty : reader.GetString(reader.GetOrdinal("unidad_medida"))
-                    },
-
-                    TipoProductoId = reader.IsDBNull(reader.GetOrdinal("tipo_producto_id")) ? null : reader.GetInt32(reader.GetOrdinal("tipo_producto_id")),
-                    PrecioUnitario = reader.IsDBNull(reader.GetOrdinal("precio_unitario")) ? 0.00m : reader.GetDecimal(reader.GetOrdinal("precio_unitario")),
-                    Porcentaje = reader.IsDBNull(reader.GetOrdinal("porcentaje")) ? 0.00m : reader.GetDecimal(reader.GetOrdinal("porcentaje")),
-
-                    NivelId = reader.IsDBNull(reader.GetOrdinal("nivel_id")) ? null : reader.GetInt32(reader.GetOrdinal("nivel_id")),
-                    GradoId = reader.IsDBNull(reader.GetOrdinal("grado_id")) ? null : reader.GetInt32(reader.GetOrdinal("grado_id")),
-                    CursoId = reader.IsDBNull(reader.GetOrdinal("curso_id")) ? null : reader.GetInt32(reader.GetOrdinal("curso_id")),
-                    TituloCursoId = reader.IsDBNull(reader.GetOrdinal("titulo_curso_id")) ? null : reader.GetInt32(reader.GetOrdinal("titulo_curso_id")),
-
-                    AfectacionIgvId = reader.IsDBNull(reader.GetOrdinal("afectacion_igv_id")) ? null : reader.GetInt32(reader.GetOrdinal("afectacion_igv_id")),
-
-                    // 2. Instanciamos y llenamos el objeto afectacion (respetando tu nombre en min鷖cula)
-                    afectacion = new AfectacionIgv
-                    {
-                        Nombre = reader.IsDBNull(reader.GetOrdinal("afectacion_igv")) ? string.Empty : reader.GetString(reader.GetOrdinal("afectacion_igv"))
-                    },
-
-                    EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? null : reader.GetInt32(reader.GetOrdinal("estado_id")),
-
-                    // 3. Instanciamos y llenamos el objeto Estado
-                    Estado = new Estado
-                    {
-                        Nombre = reader.IsDBNull(reader.GetOrdinal("estado")) ? string.Empty : reader.GetString(reader.GetOrdinal("estado"))
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new Producto
+                            {
+                                Id = reader.GetInt32(reader.GetOrdinal("id")),
+                                Descripcion = reader.GetString(reader.GetOrdinal("descripcion")),
+                                Abreviatura = reader.IsDBNull(reader.GetOrdinal("abreviatura")) ? null : reader.GetString(reader.GetOrdinal("abreviatura")),
+                                UnidadMedidaId = reader.IsDBNull(reader.GetOrdinal("unidad_medida_id")) ? null : reader.GetInt32(reader.GetOrdinal("unidad_medida_id")),
+                                UnidadMedida = new UnidadMedida { Descripcion = reader.IsDBNull(reader.GetOrdinal("unidad_medida")) ? string.Empty : reader.GetString(reader.GetOrdinal("unidad_medida")) },
+                                TipoProductoId = reader.IsDBNull(reader.GetOrdinal("tipo_producto_id")) ? null : reader.GetInt32(reader.GetOrdinal("tipo_producto_id")),
+                                PrecioUnitario = reader.IsDBNull(reader.GetOrdinal("precio_unitario")) ? 0.00m : reader.GetDecimal(reader.GetOrdinal("precio_unitario")),
+                                Porcentaje = reader.IsDBNull(reader.GetOrdinal("porcentaje")) ? 0.00m : reader.GetDecimal(reader.GetOrdinal("porcentaje")),
+                                NivelId = reader.IsDBNull(reader.GetOrdinal("nivel_id")) ? null : reader.GetInt32(reader.GetOrdinal("nivel_id")),
+                                GradoId = reader.IsDBNull(reader.GetOrdinal("grado_id")) ? null : reader.GetInt32(reader.GetOrdinal("grado_id")),
+                                CursoId = reader.IsDBNull(reader.GetOrdinal("curso_id")) ? null : reader.GetInt32(reader.GetOrdinal("curso_id")),
+                                TituloCursoId = reader.IsDBNull(reader.GetOrdinal("titulo_curso_id")) ? null : reader.GetInt32(reader.GetOrdinal("titulo_curso_id")),
+                                AfectacionIgvId = reader.IsDBNull(reader.GetOrdinal("afectacion_igv_id")) ? null : reader.GetInt32(reader.GetOrdinal("afectacion_igv_id")),
+                                afectacion = new AfectacionIgv { Nombre = reader.IsDBNull(reader.GetOrdinal("afectacion_igv")) ? string.Empty : reader.GetString(reader.GetOrdinal("afectacion_igv")) },
+                                EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? null : reader.GetInt32(reader.GetOrdinal("estado_id")),
+                                Estado = new Estado { Nombre = reader.IsDBNull(reader.GetOrdinal("estado")) ? string.Empty : reader.GetString(reader.GetOrdinal("estado")) },
+                                StockMinimo = reader.IsDBNull(reader.GetOrdinal("stock_minimo")) ? 0 : reader.GetInt32(reader.GetOrdinal("stock_minimo")) 
+                            });
+                        }
                     }
-                });
+                }
             }
             return lista;
         }
 
         public async Task InsertarAsync(Producto p)
         {
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
 
-            string query = @"INSERT INTO productos (descripcion, abreviatura, unidad_medida_id, tipo_producto_id, 
-                             precio_unitario, porcentaje, nivel_id, grado_id, curso_id, titulo_curso_id, 
-                             afectacion_igv_id, estado_id, created_at, updated_at) 
-                             VALUES (@Descripcion, @Abreviatura, @UnidadMedidaId, @TipoProductoId, @PrecioUnitario, 
-                             @Porcentaje, @NivelId, @GradoId, @CursoId, @TituloCursoId, @AfectacionIgvId, @EstadoId, 
-                             GETDATE(), GETDATE())";
+                string query = @"INSERT INTO productos
+                        (
+                            descripcion, abreviatura, unidad_medida_id, tipo_producto_id,
+                            precio_unitario, porcentaje, nivel_id, grado_id, curso_id,
+                            titulo_curso_id, afectacion_igv_id, estado_id, stock_minimo,
+                            created_at, updated_at
+                        )
+                        VALUES
+                        (
+                            @Descripcion, @Abreviatura, @UnidadMedidaId, @TipoProductoId,
+                            @PrecioUnitario, @Porcentaje, @NivelId, @GradoId, @CursoId,
+                            @TituloCursoId, @AfectacionIgvId, @EstadoId, @StockMinimo,
+                            GETDATE(), GETDATE()
+                        )";
 
-            using var cmd = new SqlCommand(query, conn);
-            MapearParametros(cmd, p);
-            await cmd.ExecuteNonQueryAsync();
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    MapearParametros(cmd, p);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
         }
 
         public async Task ActualizarAsync(Producto p)
         {
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
 
-            string query = @"UPDATE productos SET 
-                             descripcion = @Descripcion, abreviatura = @Abreviatura, unidad_medida_id = @UnidadMedidaId, 
-                             tipo_producto_id = @TipoProductoId, precio_unitario = @PrecioUnitario, porcentaje = @Porcentaje, 
-                             nivel_id = @NivelId, grado_id = @GradoId, curso_id = @CursoId, titulo_curso_id = @TituloCursoId, 
-                             afectacion_igv_id = @AfectacionIgvId, estado_id = @EstadoId, updated_at = GETDATE() 
-                             WHERE id = @Id";
+                string query = @"UPDATE productos SET
+                         descripcion = @Descripcion, abreviatura = @Abreviatura, unidad_medida_id = @UnidadMedidaId,
+                         tipo_producto_id = @TipoProductoId, precio_unitario = @PrecioUnitario, porcentaje = @Porcentaje,
+                         nivel_id = @NivelId, grado_id = @GradoId, curso_id = @CursoId,
+                         titulo_curso_id = @TituloCursoId, afectacion_igv_id = @AfectacionIgvId, estado_id = @EstadoId,
+                         stock_minimo = @StockMinimo,
+                         updated_at = GETDATE()
+                         WHERE id = @Id";
 
-            using var cmd = new SqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@Id", p.Id);
-            MapearParametros(cmd, p);
-            await cmd.ExecuteNonQueryAsync();
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@Id", p.Id);
+                    MapearParametros(cmd, p);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
         }
 
         public async Task EliminarAsync(int id)
         {
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            string query = "DELETE FROM productos WHERE id = @Id";
-            using var cmd = new SqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@Id", id);
-            await cmd.ExecuteNonQueryAsync();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM productos WHERE id = @Id");
+                    AgregarParametro(cmd, "@Id", id);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
         }
 
-        private void MapearParametros(SqlCommand cmd, Producto p)
+        private void MapearParametros(DbCommand cmd, Producto p)
         {
-            cmd.Parameters.AddWithValue("@Descripcion", p.Descripcion);
-            cmd.Parameters.AddWithValue("@Abreviatura", string.IsNullOrEmpty(p.Abreviatura) ? DBNull.Value : p.Abreviatura);
-            cmd.Parameters.AddWithValue("@UnidadMedidaId", p.UnidadMedidaId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@TipoProductoId", p.TipoProductoId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@PrecioUnitario", p.PrecioUnitario);
-            cmd.Parameters.AddWithValue("@Porcentaje", p.Porcentaje);
-            cmd.Parameters.AddWithValue("@NivelId", p.NivelId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@GradoId", p.GradoId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@CursoId", p.CursoId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@TituloCursoId", p.TituloCursoId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@AfectacionIgvId", p.AfectacionIgvId ?? (object)DBNull.Value);
-            cmd.Parameters.AddWithValue("@EstadoId", p.EstadoId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@Descripcion", p.Descripcion);
+            AgregarParametro(cmd, "@Abreviatura", string.IsNullOrEmpty(p.Abreviatura) ? DBNull.Value : p.Abreviatura);
+            AgregarParametro(cmd, "@UnidadMedidaId", p.UnidadMedidaId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@TipoProductoId", p.TipoProductoId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@PrecioUnitario", p.PrecioUnitario);
+            AgregarParametro(cmd, "@Porcentaje", p.Porcentaje);
+            AgregarParametro(cmd, "@NivelId", p.NivelId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@GradoId", p.GradoId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@CursoId", p.CursoId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@TituloCursoId", p.TituloCursoId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@AfectacionIgvId", p.AfectacionIgvId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@EstadoId", p.EstadoId ?? (object)DBNull.Value);
+            AgregarParametro(cmd, "@StockMinimo", p.StockMinimo); 
         }
 
-        // =========================================================================
-        // 2. M蒚ODOS PARA LLENAR LOS COMBOBOX (CAT罫OGOS)
-        // =========================================================================
-
+        // =======================================================
+        // CAT脕LOGOS AUXILIARES
+        // =======================================================
         public async Task<List<UnidadMedida>> ObtenerUnidadesMedidaAsync()
         {
             var lista = new List<UnidadMedida>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, descripcion FROM unidad_medida WHERE estado_id = 1 ORDER BY descripcion", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new UnidadMedida { Id = reader.GetInt32(0), Descripcion = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion FROM unidad_medida ORDER BY descripcion");
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new UnidadMedida { Id = reader.GetInt32(0), Descripcion = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
@@ -167,27 +207,45 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<TipoProducto>> ObtenerTiposProductoAsync()
         {
             var lista = new List<TipoProducto>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, nombre FROM tipo_producto ORDER BY nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new TipoProducto { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM tipo_producto ORDER BY nombre");
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new TipoProducto { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
 
-        public async Task<List<Nivele>> ObtenerNivelesAsync()
+        public async Task<List<Nivel>> ObtenerNivelesAsync()
         {
-            var lista = new List<Nivele>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, nombre FROM niveles ORDER BY nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            var lista = new List<Nivel>();
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new Nivele { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM niveles ORDER BY nombre");
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new Nivel { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
@@ -195,14 +253,24 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<Grado>> ObtenerGradosAsync(int nivelId)
         {
             var lista = new List<Grado>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, nombre FROM grados WHERE nivel_id = @NivelId ORDER BY nombre", conn);
-            cmd.Parameters.AddWithValue("@NivelId", nivelId);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new Grado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM grados WHERE nivel_id = @NivelId ORDER BY nombre");
+                    AgregarParametro(cmd, "@NivelId", nivelId);
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new Grado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
@@ -210,47 +278,70 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<Curso>> ObtenerCursosAsync(int nivelId)
         {
             var lista = new List<Curso>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, nombre FROM curso WHERE nivel_id = @NivelId ORDER BY nombre", conn);
-            cmd.Parameters.AddWithValue("@NivelId", nivelId);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new Curso { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM curso WHERE nivel_id = @NivelId ORDER BY nombre");
+                    AgregarParametro(cmd, "@NivelId", nivelId);
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new Curso { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
 
-        // Le quitamos el "(int cursoId)" de los par閚tesis
         public async Task<List<TituloCurso>> ObtenerTitulosAsync()
         {
             var lista = new List<TituloCurso>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-
-            // Ya no filtramos por curso_id en el WHERE
-            using var cmd = new SqlCommand("SELECT id, nombre FROM titulo_curso WHERE estado_id = 1 ORDER BY nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new TituloCurso { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
-            }
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
 
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM titulo_curso ORDER BY nombre");
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new TituloCurso { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
+            }
             return lista;
         }
 
         public async Task<List<AfectacionIgv>> ObtenerAfectacionesIgvAsync()
         {
             var lista = new List<AfectacionIgv>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, nombre FROM afectacion_igv ORDER BY nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new AfectacionIgv { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM afectacion_igv ORDER BY nombre");
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new AfectacionIgv { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
@@ -258,15 +349,246 @@ namespace AplicativoDeAlmacen.Services
         public async Task<List<Estado>> ObtenerEstadosAsync()
         {
             var lista = new List<Estado>();
-            using var conn = _database.GetConnection();
-            await conn.OpenAsync();
-            using var cmd = new SqlCommand("SELECT id, nombre FROM estados ORDER BY nombre", conn);
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using (var conn = _database.GetConnection())
             {
-                lista.Add(new Estado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM estados ORDER BY nombre");
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new Estado { Id = reader.GetInt32(0), Nombre = reader.GetString(1) });
+                        }
+                    }
+                }
             }
             return lista;
         }
+
+                public async Task<List<ProductoStock>> ObtenerStockCriticoAsync()
+        {
+            var lista = new List<ProductoStock>();
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                // 馃専 MAGIA: Filtramos donde el StockActual sea <= al stock_minimo del producto
+                string query = @"
+                SELECT Id, Descripcion, StockActual, StockMinimo, TipoProductoId, GradoNombre
+                FROM (
+                    SELECT p.id AS Id,
+                           p.descripcion AS Descripcion, 
+                           (ISNULL(ing.total, 0) - ISNULL(sal.total, 0)) AS StockActual,
+                           p.stock_minimo AS StockMinimo,
+                           p.tipo_producto_id AS TipoProductoId,
+                           ISNULL(g.nombre, 'Sin Grado') AS GradoNombre
+                    FROM productos p
+                    LEFT JOIN (SELECT producto_id, SUM(cantidad_ingreso) as total FROM movimiento_detalles GROUP BY producto_id) ing ON p.id = ing.producto_id
+                    LEFT JOIN (SELECT producto_id, SUM(cantidad_salida) as total FROM movimiento_detalles GROUP BY producto_id) sal ON p.id = sal.producto_id
+                    LEFT JOIN grados g ON p.grado_id = g.id
+                    WHERE p.estado_id = 1
+                ) AS Resultado
+                WHERE StockActual <= StockMinimo AND StockMinimo > 0
+                ORDER BY (StockActual - StockMinimo) ASC, Descripcion ASC";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            lista.Add(new ProductoStock
+                            {
+                                Id = reader.IsDBNull(reader.GetOrdinal("Id")) ? 0 : reader.GetInt32(reader.GetOrdinal("Id")),
+                                Descripcion = reader.IsDBNull(reader.GetOrdinal("Descripcion")) ? "Sin Descripci贸n" : reader.GetString(reader.GetOrdinal("Descripcion")),
+                                StockActual = reader.IsDBNull(reader.GetOrdinal("StockActual")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("StockActual"))),
+                                StockMinimo = reader.IsDBNull(reader.GetOrdinal("StockMinimo")) ? 0 : reader.GetInt32(reader.GetOrdinal("StockMinimo")),
+                                TipoProductoId = reader.IsDBNull(reader.GetOrdinal("TipoProductoId")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("TipoProductoId"))),
+                                GradoNombre = reader.IsDBNull(reader.GetOrdinal("GradoNombre")) ? "Sin Grado" : reader.GetString(reader.GetOrdinal("GradoNombre"))
+                            });
+                        }
+                    }
+                }
+            }
+            return lista;
+        }
+
+        // =======================================================
+        // METODO CONFLICTIVO ARREGLADO (BuscarProductosPorTexto)
+        // =======================================================
+        // Le agregamos 'Async' al nombre por convenci贸n de buenas pr谩cticas
+        public async Task<List<Producto>> BuscarProductosPorTextoAsync(string texto)
+        {
+            List<Producto> resultados = new List<Producto>();
+
+            // Obtenemos el ID del almac茅n actual de la sesi贸n de manera segura
+            int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            string subconsultaCantidad = QueryAdapter.EsMySQL
+                ? "COALESCE((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)"
+                : "ISNULL((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)";
+
+            // 馃専 SE REMEDI脫: Se quit贸 'p.cantidad' y se reemplaz贸 por el stock de 'stock_almacen'
+            string query = $@"
+SELECT 
+    p.id, 
+    p.descripcion, 
+    p.abreviatura, 
+    p.unidad_medida_id, 
+    um.descripcion AS unidad_medida,
+    p.precio_unitario,
+    p.porcentaje,
+    p.afectacion_igv_id,
+    ai.nombre AS afectacion_igv,
+    COALESCE(sa.stock_actual, 0) AS stock_actual,
+    {subconsultaCantidad} AS cantidad_codigos
+FROM productos p
+LEFT JOIN stock_almacen sa ON sa.producto_id = p.id AND sa.almacen_id = @AlmacenId
+LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
+LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
+WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
+  AND p.estado_id = 1";
+
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+
+                try
+                {
+                    if (dbConn.State == System.Data.ConnectionState.Closed)
+                        await dbConn.OpenAsync();
+
+                    using (var cmd = dbConn.CreateCommand())
+                    {
+                        cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                        AgregarParametro(cmd, "@Texto", "%" + texto + "%");
+                        AgregarParametro(cmd, "@AlmacenId", almacenActualId); // 馃憟 Par谩metro del almac茅n actual
+
+                        using (var reader = await cmd.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                Producto prod = new Producto();
+
+                                prod.Id = Convert.ToInt32(reader["id"]);
+                                prod.Descripcion = reader["descripcion"].ToString();
+                                prod.Abreviatura = reader["abreviatura"] != DBNull.Value ? reader["abreviatura"].ToString() : "";
+                                prod.UnidadMedidaId = reader["unidad_medida_id"] != DBNull.Value ? Convert.ToInt32(reader["unidad_medida_id"]) : (int?)null;
+                                prod.UnidadMedida = new UnidadMedida { Descripcion = reader["unidad_medida"] != DBNull.Value ? reader["unidad_medida"].ToString() : string.Empty };
+                                prod.PrecioUnitario = reader["precio_unitario"] != DBNull.Value ? Convert.ToDecimal(reader["precio_unitario"]) : (decimal?)null;
+                                prod.Porcentaje = reader["porcentaje"] != DBNull.Value ? Convert.ToDecimal(reader["porcentaje"]) : 0.00m;
+                                prod.AfectacionIgvId = reader["afectacion_igv_id"] != DBNull.Value ? Convert.ToInt32(reader["afectacion_igv_id"]) : (int?)null;
+                                prod.afectacion = new AfectacionIgv { Nombre = reader["afectacion_igv"] != DBNull.Value ? reader["afectacion_igv"].ToString() : string.Empty };
+
+                                // 馃専 SE MAPEA EL STOCK REAL OBTENIDO DESDE 'stock_almacen'
+                                prod.Cantidad = reader["stock_actual"] != DBNull.Value ? Convert.ToInt32(reader["stock_actual"]) : 0;
+                                prod.CantidadCodigos = reader["cantidad_codigos"] != DBNull.Value ? Convert.ToInt32(reader["cantidad_codigos"]) : 0;
+
+                                resultados.Add(prod);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception("Error al consultar productos: " + ex.Message);
+                }
+            }
+
+            return resultados;
+        }
+
+        public async Task<Producto> ObtenerPorIdAsync(int id)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string query = @"
+                SELECT p.id, p.descripcion, p.abreviatura, p.unidad_medida_id,
+                       um.descripcion AS unidad_medida,
+                       p.tipo_producto_id, p.precio_unitario, p.porcentaje,
+                       p.nivel_id, p.grado_id, p.curso_id,
+                       p.titulo_curso_id, p.afectacion_igv_id,
+                       ai.nombre AS afectacion_igv,
+                       p.estado_id, e.nombre AS estado,
+                       p.stock_minimo
+                FROM productos p
+                LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
+                LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
+                LEFT JOIN estados e ON p.estado_id = e.id
+                WHERE p.id = @Id";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@Id", id);
+
+                    using (var reader = await cmd.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
+                        {
+                            return new Producto
+                            {
+                                Id = reader.GetInt32(reader.GetOrdinal("id")),
+                                Descripcion = reader.GetString(reader.GetOrdinal("descripcion")),
+                                Abreviatura = reader.IsDBNull(reader.GetOrdinal("abreviatura")) ? null : reader.GetString(reader.GetOrdinal("abreviatura")),
+                                UnidadMedidaId = reader.IsDBNull(reader.GetOrdinal("unidad_medida_id")) ? null : reader.GetInt32(reader.GetOrdinal("unidad_medida_id")),
+                                UnidadMedida = new UnidadMedida { Descripcion = reader.IsDBNull(reader.GetOrdinal("unidad_medida")) ? string.Empty : reader.GetString(reader.GetOrdinal("unidad_medida")) },
+                                TipoProductoId = reader.IsDBNull(reader.GetOrdinal("tipo_producto_id")) ? null : reader.GetInt32(reader.GetOrdinal("tipo_producto_id")),
+                                PrecioUnitario = reader.IsDBNull(reader.GetOrdinal("precio_unitario")) ? 0.00m : reader.GetDecimal(reader.GetOrdinal("precio_unitario")),
+                                Porcentaje = reader.IsDBNull(reader.GetOrdinal("porcentaje")) ? 0.00m : reader.GetDecimal(reader.GetOrdinal("porcentaje")),
+                                NivelId = reader.IsDBNull(reader.GetOrdinal("nivel_id")) ? null : reader.GetInt32(reader.GetOrdinal("nivel_id")),
+                                GradoId = reader.IsDBNull(reader.GetOrdinal("grado_id")) ? null : reader.GetInt32(reader.GetOrdinal("grado_id")),
+                                CursoId = reader.IsDBNull(reader.GetOrdinal("curso_id")) ? null : reader.GetInt32(reader.GetOrdinal("curso_id")),
+                                TituloCursoId = reader.IsDBNull(reader.GetOrdinal("titulo_curso_id")) ? null : reader.GetInt32(reader.GetOrdinal("titulo_curso_id")),
+                                AfectacionIgvId = reader.IsDBNull(reader.GetOrdinal("afectacion_igv_id")) ? null : reader.GetInt32(reader.GetOrdinal("afectacion_igv_id")),
+                                afectacion = new AfectacionIgv { Nombre = reader.IsDBNull(reader.GetOrdinal("afectacion_igv")) ? string.Empty : reader.GetString(reader.GetOrdinal("afectacion_igv")) },
+                                EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? null : reader.GetInt32(reader.GetOrdinal("estado_id")),
+                                Estado = new Estado { Nombre = reader.IsDBNull(reader.GetOrdinal("estado")) ? string.Empty : reader.GetString(reader.GetOrdinal("estado")) },
+                                StockMinimo = reader.IsDBNull(reader.GetOrdinal("stock_minimo")) ? 0 : reader.GetInt32(reader.GetOrdinal("stock_minimo"))
+                            };
+                        }
+                    }
+                }
+            }
+
+            return null; 
+        }
+
+        public async Task<int> ObtenerIdCodigoPorProductoAsync(string codigo, int productoId)
+        {
+            using (var conn = _database.GetConnection())
+            {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                // 馃専 FILTRO CLAVE: ProductoId + Codigo
+                string query = @"SELECT cc.id 
+                         FROM codigos_creados cc
+                         INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                         WHERE cc.codigo = @codigo AND rc.producto_id = @prodId";
+
+                using (var cmd = dbConn.CreateCommand())
+                {
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@codigo", codigo);
+                    AgregarParametro(cmd, "@prodId", productoId);
+
+                    object result = await cmd.ExecuteScalarAsync();
+                    return result != null ? Convert.ToInt32(result) : 0;
+                }
+            }
+        }
+
+        
     }
 }

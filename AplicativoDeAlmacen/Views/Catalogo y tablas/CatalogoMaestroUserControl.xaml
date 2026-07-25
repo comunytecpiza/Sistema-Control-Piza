@@ -1,0 +1,129 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.CatalogoMaestroUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#F3F4F6" FontFamily="Segoe UI">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Background="White" CornerRadius="12" Padding="20" Margin="0,0,0,15">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.05"/>
+            </Border.Effect>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="⚙️ Gestor de Catálogos Maestros" FontWeight="Bold" FontSize="20" Foreground="#1E293B" VerticalAlignment="Center" Margin="0,0,30,0"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="Seleccione Catálogo:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,15,0"/>
+                    <ComboBox x:Name="CboCatalogo" Width="250" Height="38" FontSize="14" SelectionChanged="CboCatalogo_SelectionChanged">
+                        <ComboBoxItem Content="Unidades de Medida" Tag="unidad_medida"/>
+                        <ComboBoxItem Content="Motivos de Movimiento" Tag="motivo_productos"/>
+                        <ComboBoxItem Content="Tipos de Ubicación" Tag="tipo_ubicacion"/>
+                        <ComboBoxItem Content="Tipos de Persona" Tag="tipo_persona"/>
+                        <ComboBoxItem Content="Tipos de Libro" Tag="tipos_libro"/>
+                        <ComboBoxItem Content="Categorías de Producto" Tag="categoria_producto"/>
+                        <ComboBoxItem Content="Afectación IGV" Tag="afectacion_igv"/>
+                    </ComboBox>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6.5*"/>
+                <ColumnDefinition Width="3.5*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="White" CornerRadius="12" Margin="0,0,15,0" ClipToBounds="True">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.05"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Background="#4338CA" Padding="15,12">
+                        <TextBlock x:Name="TxtTituloGrid" Text="Registros del Catálogo" Foreground="White" FontWeight="Bold" FontSize="15"/>
+                    </Border>
+
+                    <DataGrid x:Name="CatalogosDataGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" HeadersVisibility="Column" RowHeight="38" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" AlternatingRowBackground="#F8FAFC">
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Background" Value="#F1F5F9"/>
+                                <Setter Property="Foreground" Value="#475569"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Padding" Value="15,12"/>
+                                <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                            </Style>
+                        </DataGrid.ColumnHeaderStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
+                            <DataGridTextColumn Header="Nombre / Descripción" Binding="{Binding Descripcion}" Width="*"/>
+
+                            <DataGridTextColumn x:Name="ColInfoExtra" Header="Atributo Extra" Binding="{Binding InfoExtra}" Width="130" FontWeight="SemiBold" Foreground="#059669"/>
+
+                            <DataGridTemplateColumn Header="Acciones" Width="100">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <Button Content="✏️" Width="30" Height="30" Margin="0,0,5,0" Background="Transparent" BorderThickness="0" Cursor="Hand" Click="BtnEditarFila_Click"/>
+                                            <Button Content="🗑️" Width="30" Height="30" Background="Transparent" BorderThickness="0" Cursor="Hand" Click="BtnEliminarFila_Click"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1" Background="White" CornerRadius="12" Padding="25">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="10" ShadowDepth="2" Direction="270" Color="Black" Opacity="0.05"/>
+                </Border.Effect>
+                <StackPanel>
+                    <TextBlock Text="Detalle del Registro" FontWeight="ExtraBold" FontSize="18" Foreground="#1E293B" Margin="0,0,0,25"/>
+
+                    <TextBlock Text="Nombre / Descripción:" FontWeight="Bold" Foreground="#64748B" Margin="0,0,0,8"/>
+                    <TextBox x:Name="TxtDescripcion" Height="40" FontSize="14" Padding="10,0" VerticalContentAlignment="Center" BorderBrush="#CBD5E1" Margin="0,0,0,20"/>
+
+                    <StackPanel x:Name="PanelTipoMovimiento" Visibility="Collapsed" Margin="0,0,0,25">
+                        <TextBlock Text="Tipo de Movimiento:" FontWeight="Bold" Foreground="#64748B" Margin="0,0,0,8"/>
+                        <Border BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Padding="10">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="RbEntrada" Content="Entrada" Margin="0,0,20,0" Foreground="#059669" FontWeight="Bold"/>
+                                <RadioButton x:Name="RbSalida" Content="Salida" Foreground="#DC2626" FontWeight="Bold"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <Button Content="💾 Guardar Registro" Height="45" Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="15" Margin="0,0,0,10" Cursor="Hand" BorderThickness="0" Click="BtnGuardar_Click">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="8"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+                    <Button Content="❌ Cancelar / Limpiar" Height="45" Background="#F1F5F9" Foreground="#475569" FontWeight="Bold" FontSize="14" Cursor="Hand" BorderThickness="0" Click="BtnLimpiar_Click">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="8"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

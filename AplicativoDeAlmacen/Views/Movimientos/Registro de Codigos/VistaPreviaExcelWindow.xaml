@@ -1,0 +1,60 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.VistaPreviaExcelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Inspección de Códigos Base" Height="500" Width="550"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Background="#F8FAFC">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="📋 Inspección y Saneamiento de Códigos" FontSize="20" FontWeight="Bold" Foreground="#1E293B"/>
+
+        <Border Grid.Row="1" Background="#F1F5F9" CornerRadius="6" Padding="12" Margin="0,10,0,15" BorderBrush="#E2E8F0" BorderThickness="1">
+            <TextBlock x:Name="TxtResumen" Text="Analizando..." FontWeight="Bold" Foreground="#475569" HorizontalAlignment="Center"/>
+        </Border>
+
+        <DataGrid x:Name="DgCodigos" Grid.Row="2" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" Background="White" RowHeight="35" BorderBrush="#E2E8F0" BorderThickness="1" EnableRowVirtualization="True">
+            <DataGrid.ColumnHeaderStyle>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="#F8FAFC"/>
+                    <Setter Property="Padding" Value="10,5"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                </Style>
+            </DataGrid.ColumnHeaderStyle>
+
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Fila" Binding="{Binding Numero}" Width="60" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Código Extraído" Binding="{Binding Codigo}" Width="*" IsReadOnly="True" FontWeight="Bold"/>
+
+                <DataGridTextColumn Header="Diagnóstico" Binding="{Binding Estado}" Width="200" IsReadOnly="True">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#10B981"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding EsValido}" Value="False">
+                                    <Setter Property="Foreground" Value="#EF4444"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="Cancelar" Click="BtnCancelar_Click" Background="Transparent" Foreground="#64748B" FontWeight="Bold" Margin="0,0,10,0" BorderThickness="0" Cursor="Hand" Height="40" Width="90"/>
+            <Button x:Name="BtnConfirmar" Content="Confirmar Lote" Click="BtnConfirmar_Click" Background="#3B82F6" Foreground="White" Padding="15,8" FontWeight="Bold" Cursor="Hand" Height="40" Width="180">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="6"/>
+                    </Style>
+                </Button.Resources>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

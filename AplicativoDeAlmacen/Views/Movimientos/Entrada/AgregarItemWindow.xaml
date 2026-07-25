@@ -1,0 +1,177 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.AgregarItemWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Gestión de Producto y Códigos" 
+        Height="580" Width="720"
+        WindowStartupLocation="CenterOwner" 
+        ResizeMode="NoResize"
+        Background="#F8FAFC">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- CABECERA -->
+        <Border Grid.Row="0" Background="#2563EB" CornerRadius="8" Padding="14,10" Margin="0,0,0,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="📦" FontSize="22" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Registro e Inspección de Producto" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                    <TextBlock Text="Verifique los datos generales y asigne las series numéricas correspondientes." FontSize="11" Foreground="#93C5FD"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- FORMULARIO PRINCIPAL -->
+        <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,14">
+            <StackPanel>
+                <!-- Producto -->
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Producto:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
+
+                    <Grid Grid.Column="1">
+                        <TextBox x:Name="txtProducto" Height="34" VerticalContentAlignment="Center" Padding="8,0" FontSize="13" BorderBrush="#CBD5E1"/>
+
+                        <Popup x:Name="popupProductos" PlacementTarget="{Binding ElementName=txtProducto}" Placement="Bottom" AllowsTransparency="True" PopupAnimation="Slide">
+                            <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Width="{Binding ElementName=txtProducto, Path=ActualWidth}" MaxHeight="180">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="10" ShadowDepth="4" Direction="270" Color="Black" Opacity="0.15"/>
+                                </Border.Effect>
+                                <ListBox x:Name="lstSugerenciasProductos" DisplayMemberPath="Descripcion" BorderThickness="0" Background="Transparent" Padding="4"/>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </Grid>
+
+                <!-- Unidad Medida -->
+                <!-- Unidad Medida y Stock Disponible -->
+                <UniformGrid Columns="2" Margin="0,0,0,10">
+                    <Grid Margin="0,0,8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="U. Medida:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBox x:Name="txtUMedida" Grid.Column="1" Height="34" IsReadOnly="True" Background="#F1F5F9" Foreground="#64748B" FontWeight="Bold" VerticalContentAlignment="Center" Padding="8,0" FontSize="13" BorderBrush="#E2E8F0"/>
+                    </Grid>
+
+                    <Grid Margin="8,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Stock Actual:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBox x:Name="txtStockDisponible" Grid.Column="1" Height="34" IsReadOnly="True" Background="#ECFDF5" Foreground="#047857" FontWeight="Black" VerticalContentAlignment="Center" HorizontalContentAlignment="Right" Padding="8,0" FontSize="14" BorderBrush="#A7F3D0" Text="0"/>
+                    </Grid>
+                </UniformGrid>
+
+                <UniformGrid Columns="2">
+                    <!-- Cantidad -->
+                    <Grid Margin="0,0,8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Cantidad:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBox x:Name="txtCantidad" Grid.Column="1" Height="34" Text="0" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Padding="8,0" FontSize="14" FontWeight="Black" Foreground="#0F172A"
+                                 ToolTip="La cantidad se calcula automáticamente sumando los códigos de la lista de abajo."/>
+                    </Grid>
+
+                    <!-- Costo Unitario -->
+                    <Grid Margin="8,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="C. Unitario:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
+                        <TextBox x:Name="txtCUnitario" Grid.Column="1" Height="34" Text="0.00" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Padding="8,0" FontSize="13" FontWeight="SemiBold" BorderBrush="#CBD5E1"/>
+                    </Grid>
+                </UniformGrid>
+            </StackPanel>
+        </Border>
+
+        <!-- GRILLA DE CÓDIGOS -->
+        <GroupBox Grid.Row="2" BorderBrush="#E2E8F0" Foreground="#1E293B" FontWeight="Bold" FontSize="13" Margin="0,0,0,14">
+            <GroupBox.Header>
+                <DockPanel Width="640">
+                    <TextBlock Text="🔑 Series de Códigos Asignadas" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
+                        <TextBlock Text="🔍 Filtrar:" FontSize="11" Foreground="#64748B" FontWeight="Medium" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox x:Name="txtBuscarRangoInterno" Width="180" Height="24" FontSize="11" FontWeight="Normal" VerticalContentAlignment="Center" Padding="4,0" BorderBrush="#CBD5E1"/>
+                    </StackPanel>
+                </DockPanel>
+            </GroupBox.Header>
+
+            <DataGrid x:Name="dgDetalleCodigos" 
+                      Margin="0,6,0,0"
+                      AutoGenerateColumns="False" 
+                      HeadersVisibility="Column" 
+                      Background="White" 
+                      BorderThickness="1" 
+                      BorderBrush="#E2E8F0"
+                      GridLinesVisibility="Horizontal"
+                      HorizontalGridLinesBrush="#F1F5F9"
+                      RowHeight="32"
+                      CanUserAddRows="False"
+                      SelectionMode="Single"
+                      IsReadOnly="True"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling">
+
+                <DataGrid.Resources>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#1E293B"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                        <Setter Property="Padding" Value="10,6"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                    </Style>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Padding" Value="6,0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridCell">
+                                    <Border Background="{TemplateBinding Background}">
+                                        <ContentPresenter VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </DataGrid.Resources>
+
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Cantidad" Width="85" Binding="{Binding Cantidad}"/>
+                    <DataGridTextColumn Header="Desde (Inicio)" Width="150" Binding="{Binding Desde}"/>
+                    <DataGridTextColumn Header="Hasta (Fin)" Width="150" Binding="{Binding Hasta}"/>
+                    <DataGridTextColumn Header="Colección / Tipo" Width="*" Binding="{Binding ColeccionTipo}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+
+        <!-- BOTONES DE ACCIÓN -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="btnAgregarFilaCodigo" Content="➕ Agregar Rango" Width="130" Height="38" Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Margin="0,0,8,0" Cursor="Hand" Click="BtnAgregarRangoCodigo_Click"/>
+            <Button x:Name="btnModificar" Content="✏️ Modificar" Width="110" Height="38" Background="#D97706" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Margin="0,0,8,0" Cursor="Hand" Click="BtnModificarRango_Click"/>
+            <Button Content="🗑️ Eliminar" Width="100" Height="38" Background="#EF4444" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Margin="0,0,8,0" Cursor="Hand" Click="BtnEliminarRango_Click"/>
+            <Button x:Name="btnGrabar" Content="💾 Guardar Ítem" Width="130" Height="38" Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Margin="0,0,8,0" Cursor="Hand" Click="BtnGrabar_Click"/>
+            <Button x:Name="btnSalir" Content="❌ Salir" Width="90" Height="38" Background="#64748B" Foreground="White" FontWeight="Bold" FontSize="12" BorderThickness="0" Cursor="Hand" Click="BtnSalir_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
