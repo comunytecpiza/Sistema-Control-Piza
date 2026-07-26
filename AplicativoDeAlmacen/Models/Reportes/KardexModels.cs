@@ -17,7 +17,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public int AlmacenId { get; set; }
         public string AlmacenNombre { get; set; } = string.Empty;
 
-        // Columnas desglosadas
+        // Columnas desglosadas originales (NO SE TOCAN NI ELIMINAN)
         public decimal IngresoNormal { get; set; }
         public decimal IngresoDevolucion { get; set; }
         public decimal SalidaNormal { get; set; }
@@ -27,6 +27,11 @@ namespace AplicativoDeAlmacen.Models.Models
 
         // Indica si el movimiento fue anulado
         public bool IsAnulado { get; set; }
+
+        // 🌟 CAMPOS AÑADIDOS PARA EL KÁRDEX UNIFICADO (SIN BORRAR NADA)
+        public decimal Ingreso { get; set; }
+        public decimal Salida { get; set; }
+        public decimal SaldoAcumulado { get; set; }
     }
 
     // Representa el reporte completo con sus totales
@@ -39,20 +44,24 @@ namespace AplicativoDeAlmacen.Models.Models
         public List<KardexFisicoItem> Detalles { get; set; } = new List<KardexFisicoItem>();
         public List<ConsultaCodigoItem> Codigos { get; set; } = new List<ConsultaCodigoItem>();
 
-        // Totales de Entradas
+        // Totales originales de Entradas y Salidas
         public decimal TotalIngresos { get; set; }
         public decimal TotalDevIngresos { get; set; }
 
-        // Totales de Salidas
         public decimal TotalSalidas { get; set; }
         public decimal TotalDevSalidas { get; set; }
         public string NumeroRegistro { get; set; } = string.Empty;
 
-        // Resumen Final
+        
+
+        // 🌟 CAMPOS AÑADIDOS PARA LAS NUEVAS 5 TARJETAS CONTABLES
+        public decimal StockInicial { get; set; }
+        public decimal TotalDevoluciones { get; set; }
+        public decimal SalidasFijas => TotalSalidas - TotalDevoluciones;
         public decimal StockFinal { get; set; }
     }
 
-    // Item de Kárdex Valorizado
+    // Item de Kárdex Valorizado (ORIGINAL CON CAMPOS DE ALMACÉN)
     public class KardexValorizadoItem
     {
         public DateTime? Fecha { get; set; }
@@ -81,7 +90,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public bool IsAnulado { get; set; }
     }
 
-    // Reporte Kárdex Valorizado Completo
+    // Reporte Kárdex Valorizado Completo (ORIGINAL)
     public class KardexValorizadoReporte
     {
         // 🌟 Información del Almacén Filtrado

@@ -38,6 +38,7 @@ namespace AplicativoDeAlmacen.Views
         private readonly bool isAdmin;
 
         private readonly TransaccionesService _transaccionesService = new TransaccionesService();
+        private readonly SincronizadorLeroService _sincronizador;
         private DispatcherTimer _timerPollingTransacciones;
         private int _ultimoConteoPendientes = -1;
 
@@ -58,7 +59,7 @@ namespace AplicativoDeAlmacen.Views
             InitializeComponent();
             this.isAdmin = isAdmin;
             EventBus.OnRolesPermisosChanged += EventBus_OnRolesPermisosChanged;
-
+            _sincronizador = new SincronizadorLeroService();
             SetupWelcomeMessage(userNames);
             StartClock();
 

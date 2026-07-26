@@ -1,19 +1,23 @@
-﻿using System;
+﻿using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Services;
 
 namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
 {
     public partial class HistorialPorCodigoUserControl : UserControl
     {
         private readonly KardexService _kardexService;
-        private readonly ProductoService _productoService; // Ajusta el nombre si tu servicio se llama distinto
+        private readonly ProductoService _productoService;
 
         private int _productoIdSeleccionado = 0;
         private int _categoriaProductoIdSeleccionada = 0; // 1 = Libro Guía, 2 = Libro Venta
@@ -21,13 +25,12 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
         public HistorialPorCodigoUserControl()
         {
             InitializeComponent();
-            _kardexService = new KardexService(); 
-            _productoService = new ProductoService(); 
+            _kardexService = new KardexService();
+            _productoService = new ProductoService();
 
-            TxtCodigoEscaneado.IsEnabled = false; 
-            TxtProducto.Focus(); 
+            TxtCodigoEscaneado.IsEnabled = false;
+            TxtProducto.Focus();
 
-            // 🌟 CANDADO DE SOMBREADO EN VIVO PARA ANULADOS
             DgHistorial.LoadingRow += DgHistorial_LoadingRow;
         }
 
@@ -35,20 +38,15 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
         {
             if (e.Row.Item is KardexFisicoItem item)
             {
-                // 🌟 Buscamos el prefijo 'ANULADO' que inyectamos en la propiedad Tipo
-                if (item.Tipo != null && item.Tipo.ToUpperInvariant().Contains("ANULADO"))
+                if (item.IsAnulado || (item.Tipo != null && item.Tipo.ToUpperInvariant().Contains("ANULADO")))
                 {
-                    // Sombreado en gris claro y letras opacas de advertencia
-                    e.Row.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F3F4F6"));
-                    e.Row.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
+                    e.Row.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FEF2F2"));
+                    e.Row.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#DC2626"));
                     e.Row.FontStyle = FontStyles.Italic;
-
-                    // Tooltip real de WPF explicativo para el usuario al pasar el mouse
-                    e.Row.ToolTip = "Este movimiento fue ANULADO. Sus cantidades físicas fueron reducidas a 0.00 para no alterar los saldos actuales.";
+                    e.Row.ToolTip = "Movimiento ANULADO. Sin efecto sobre el stock.";
                 }
                 else
                 {
-                    // Restaurar valores limpios por defecto para las filas recicladas por el motor de virtualización de WPF
                     e.Row.Background = Brushes.White;
                     e.Row.Foreground = Brushes.Black;
                     e.Row.FontStyle = FontStyles.Normal;
@@ -57,10 +55,8 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             }
         }
 
-        // 1. Buscador que activa el Popup
         private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // Si el usuario borra o edita el texto, invalidamos la selección anterior
             _productoIdSeleccionado = 0;
             _categoriaProductoIdSeleccionada = 0;
             TxtIdProducto.Text = string.Empty;
@@ -77,7 +73,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             if (TxtProducto.Text.Trim().Length >= 2)
             {
                 var resultados = await _productoService.BuscarProductosPorTextoAsync(TxtProducto.Text.Trim());
-
                 LbProducto.ItemsSource = resultados;
                 PopupResultados.IsOpen = resultados != null && resultados.Any();
             }
@@ -87,52 +82,57 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             }
         }
 
-        // 2. Selección del producto
         private void LbProducto_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (LbProducto.SelectedItem is Producto p)
             {
                 _productoIdSeleccionado = p.Id;
 
-                // Quitamos el handler momentáneamente para no relanzar la búsqueda al setear el texto
                 TxtProducto.TextChanged -= TxtProducto_TextChanged;
                 TxtProducto.Text = p.Descripcion;
                 TxtProducto.TextChanged += TxtProducto_TextChanged;
 
                 TxtIdProducto.Text = p.Id.ToString();
-
-                TxtAbreviatura.Text =
-                    string.IsNullOrWhiteSpace(p.Abreviatura)
-                    ? ""
-                    : p.Abreviatura;
-
+                TxtAbreviatura.Text = string.IsNullOrWhiteSpace(p.Abreviatura) ? "" : p.Abreviatura;
                 TxtColeccion.Text = "";
 
                 PopupResultados.IsOpen = false;
 
-                // 🌟 Ahora se desbloquea el TIPO, no el código directamente 🌟
-                // El código depende de si es Guía o Venta, así que primero hay que elegir eso.
-                _categoriaProductoIdSeleccionada = 0;
-                RbLibroGuia.IsEnabled = true;
-                RbLibroVenta.IsEnabled = true;
-                RbLibroGuia.IsChecked = false;
-                RbLibroVenta.IsChecked = false;
+                // Restricción inteligente por nombre del producto
+                string abrevUpper = p.Abreviatura?.Trim().ToUpperInvariant() ?? "";
+                if (abrevUpper.EndsWith("-V") || abrevUpper.EndsWith(" V"))
+                {
+                    _categoriaProductoIdSeleccionada = 2;
+                    RbLibroVenta.IsChecked = true;
+                    RbLibroGuia.IsEnabled = false;
+                    RbLibroVenta.IsEnabled = true;
+                }
+                else if (abrevUpper.EndsWith("-G") || abrevUpper.EndsWith(" G"))
+                {
+                    _categoriaProductoIdSeleccionada = 1;
+                    RbLibroGuia.IsChecked = true;
+                    RbLibroGuia.IsEnabled = true;
+                    RbLibroVenta.IsEnabled = false;
+                }
+                else
+                {
+                    _categoriaProductoIdSeleccionada = 0;
+                    RbLibroGuia.IsEnabled = true;
+                    RbLibroVenta.IsEnabled = true;
+                    RbLibroGuia.IsChecked = false;
+                    RbLibroVenta.IsChecked = false;
+                }
 
-                TxtCodigoEscaneado.IsEnabled = false;
-                TxtCodigoEscaneado.Text = string.Empty;
-
-                RbLibroGuia.Focus();
+                HabilitarCampoCodigo();
             }
         }
 
-        // Se dispara al elegir "Libro Guía"
         private void RbLibroGuia_Checked(object sender, RoutedEventArgs e)
         {
             _categoriaProductoIdSeleccionada = 1;
             HabilitarCampoCodigo();
         }
 
-        // Se dispara al elegir "Libro Venta"
         private void RbLibroVenta_Checked(object sender, RoutedEventArgs e)
         {
             _categoriaProductoIdSeleccionada = 2;
@@ -143,14 +143,45 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
         {
             TxtCodigoEscaneado.IsEnabled = true;
             TxtCodigoEscaneado.Focus();
-            TxtCodigoEscaneado.SelectAll();
+        }
+
+        // 🌟 BOTÓN LECTOR: Abre la lectora modal para buscar 1 código por lectura
+        private async void BtnLector_Click(object sender, RoutedEventArgs e)
+        {
+            if (_productoIdSeleccionado == 0)
+            {
+                MessageBox.Show("Seleccione un producto primero.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (_categoriaProductoIdSeleccionada == 0)
+            {
+                MessageBox.Show("Seleccione si es Libro Guía o Libro Venta.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Creamos una colección temporal para la LectorWindow
+            var itemsTemp = new ObservableCollection<ItemGridDTO>();
+            var lectorModal = new LectorWindow(itemsTemp)
+            {
+                Owner = Window.GetWindow(this)
+            };
+
+            lectorModal.ShowDialog();
+
+            // Al cerrar la lectora, recuperamos el código si se leyó alguno
+            if (itemsTemp.Any() && itemsTemp.First().Codigos.Any())
+            {
+                string codigoLeido = itemsTemp.First().Codigos.First().CodigoString;
+                TxtCodigoEscaneado.Text = codigoLeido;
+                await ProcesarLecturaAsync();
+            }
         }
 
         private async Task ProcesarLecturaAsync()
         {
             string codigo = TxtCodigoEscaneado.Text.Trim();
 
-            // 1. Validaciones de seguridad antes de llamar al servicio
             if (_productoIdSeleccionado == 0)
             {
                 MessageBox.Show("Primero debe seleccionar un producto.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -167,7 +198,8 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
 
             try
             {
-                // 🌟 CORRECCIÓN: Ahora pasamos los 3 argumentos que pide el servicio 🌟
+                Mouse.OverrideCursor = Cursors.Wait;
+
                 var historial = await _kardexService.ObtenerHistorialCompletoPorCodigoAsync(
                     _productoIdSeleccionado,
                     codigo,
@@ -180,13 +212,17 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
                 }
                 else
                 {
-                    MessageBox.Show("No se encontró historial para este código y categoría.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"No se encontró ningún historial para el código '{codigo}'.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                     DgHistorial.ItemsSource = null;
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error al consultar trazabilidad: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
             }
         }
 
@@ -195,7 +231,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             await ProcesarLecturaAsync();
         }
 
-        // 3. Método para cuando escanean
         private async void TxtCodigoEscaneado_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
@@ -207,13 +242,12 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (DgHistorial.ItemsSource == null) return;
-            MessageBox.Show("Generando formato de impresión...", "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Generando reporte de trazabilidad...", "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
             LimpiarPantalla();
-            // Lógica adicional si quieres que se cierre la pestaña en tu TabControl
         }
 
         private void LimpiarPantalla()
@@ -237,7 +271,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             RbLibroVenta.IsEnabled = false;
 
             DgHistorial.ItemsSource = null;
-
             TxtProducto.Focus();
         }
     }

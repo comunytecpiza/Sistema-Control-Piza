@@ -187,29 +187,26 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                // Cambiamos temporalmente el cursor al reloj de arena
                 Mouse.OverrideCursor = Cursors.Wait;
 
-                // Ejecutamos el servicio del Kardex multimotor con rango de fechas
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
                 _ultimoReporte = await _kardexService.GenerarKardexFisicoAsync(
                     _productoSeleccionadoId,
                     DpDesde.SelectedDate ?? DateTime.Today,
                     DpHasta.SelectedDate ?? DateTime.Today,
-                    miAlmacenId); // 👈 4to parámetro obligatorio
+                    miAlmacenId);
 
-                var reporte =
-                    _ultimoReporte;
+                var reporte = _ultimoReporte;
 
-                // Llenamos la tabla del DataGrid de forma directa
+                // Llenar grilla
                 KardexDataGrid.ItemsSource = reporte.Detalles;
 
-                // Actualizamos los cuadros de resumen (Asegurando formato de 2 decimales)
+                // 🌟 ASIGNACIÓN DE LAS 5 TARJETAS CONTABLES
+                TxtStockInicial.Text = reporte.StockInicial.ToString("N2");
                 TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N2");
-                TxtTotalDevIngresos.Text = reporte.TotalDevIngresos.ToString("N2");
                 TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N2");
-                TxtTotalDevSalidas.Text = reporte.TotalDevSalidas.ToString("N2");
+                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N2");
                 TxtStockFinal.Text = reporte.StockFinal.ToString("N2");
             }
             catch (Exception ex)
@@ -218,7 +215,7 @@ namespace AplicativoDeAlmacen.Views
             }
             finally
             {
-                Mouse.OverrideCursor = null; // Restauramos el cursor
+                Mouse.OverrideCursor = null;
             }
         }
 

@@ -40,6 +40,7 @@
                 </Grid.ColumnDefinitions>
 
                 <WrapPanel VerticalAlignment="Center">
+                    <!-- Producto Maestro -->
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Producto Maestro:" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
                         <ComboBox x:Name="CboProductos" Width="280" Height="40" IsEditable="True" 
@@ -49,6 +50,7 @@
                                   TextBoxBase.TextChanged="TxtProducto_TextChanged"/>
                     </StackPanel>
 
+                    <!-- Fechas -->
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Fechas (Desde / Hasta)" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
                         <StackPanel Orientation="Horizontal">
@@ -57,10 +59,27 @@
                         </StackPanel>
                     </StackPanel>
 
+                    <!-- Filtros Extra con Autocompletado -->
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Filtros Extra (Autocompletado):" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
 
+                            <!-- 🌟 NUEVO FILTRO DE ALMACÉN IGUAL A UBICACIÓN -->
+                            <CheckBox x:Name="ChkAlmacen" Content="Almacén:" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
+                            <Grid Margin="0,0,15,0">
+                                <TextBox x:Name="TxtAlmacen" Width="150" Height="36" IsEnabled="False" 
+                                         VerticalContentAlignment="Center" Padding="5,0" BorderBrush="#CBD5E1"
+                                         TextChanged="TxtAlmacen_TextChanged"/>
+                                <Popup x:Name="PopupAlmacen" PlacementTarget="{Binding ElementName=TxtAlmacen}" StaysOpen="False" AllowsTransparency="True">
+                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4">
+                                        <ListBox x:Name="LstAlmacen" Width="150" MaxHeight="150" BorderThickness="0" 
+                                                 DisplayMemberPath="Nombre" 
+                                                 SelectionChanged="LstAlmacen_SelectionChanged"/>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+
+                            <!-- Razón Social -->
                             <CheckBox x:Name="ChkRazonSocial" Content="Razón Social:" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
                             <Grid Margin="0,0,15,0">
                                 <TextBox x:Name="TxtRazonSocial" Width="150" Height="36" IsEnabled="False" 
@@ -75,6 +94,7 @@
                                 </Popup>
                             </Grid>
 
+                            <!-- Ubicación -->
                             <CheckBox x:Name="ChkUbicacion" Content="Ubicación:" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" Click="ChkFiltros_Click"/>
                             <Grid Margin="0,0,15,0">
                                 <TextBox x:Name="TxtUbicacion" Width="150" Height="36" IsEnabled="False" 
@@ -93,6 +113,7 @@
                         </StackPanel>
                     </StackPanel>
 
+                    <!-- Tipo de Operación -->
                     <StackPanel Margin="0,0,20,10">
                         <TextBlock Text="Tipo de Operación:" FontWeight="Bold" FontSize="13" Foreground="#475569" Margin="0,0,0,5"/>
                         <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="10,0" Height="40">
@@ -111,6 +132,7 @@
             </Grid>
         </Border>
 
+        <!-- Grilla Principal -->
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="6.8*"/>
@@ -157,23 +179,13 @@
                         </DataGrid.ColumnHeaderStyle>
 
                         <DataGrid.Columns>
-                            <!-- 0 -->
                             <DataGridTextColumn Header="FECHA" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="85"/>
-                            <!-- 1 -->
                             <DataGridTextColumn Header="COMPROBANTE" Binding="{Binding NumeroRegistro}" Width="110"/>
-                            <!-- 2 -->
                             <DataGridTextColumn Header="GUÍA" Binding="{Binding NumeroGuia}" Width="100"/>
-                            <!-- 3 -->
                             <DataGridTextColumn Header="ENTIDAD / UBICACIÓN" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
 
-                            <!-- 🌟 ORDEN LOGÍSTICO PERFECTO CON ANCHOS AMPLIOS QUE NO SE CORTAN -->
-                            <!-- 4 (Salidas/Entregado) -->
                             <DataGridTextColumn Header="INGRESO" Binding="{Binding Salida, StringFormat=N2}" Width="110" CellStyle="{StaticResource SalidaStyle}"/>
-
-                            <!-- 5 (Entradas/Devoluciones) -->
                             <DataGridTextColumn Header="SALIDA" Binding="{Binding Ingreso, StringFormat=N2}" Width="110" CellStyle="{StaticResource IngresoStyle}"/>
-
-                            <!-- 6 (Saldo en Poder) -->
                             <DataGridTextColumn Header="TOTAL EN PODER" Binding="{Binding SaldoAcumulado, StringFormat=N2}" Width="125" Visibility="Collapsed" CellStyle="{StaticResource SaldoStyle}"/>
                         </DataGrid.Columns>
                     </DataGrid>
@@ -186,7 +198,6 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <!-- 🌟 Tarjeta 1 (Entrada / Entregado) -->
                             <Border x:Name="Card1" Grid.Column="0" Background="#ECFDF5" BorderBrush="#34D399" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,10,0">
                                 <StackPanel>
                                     <TextBlock x:Name="LblCard1" Text="Total Entradas" Foreground="#065F46" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
@@ -194,7 +205,6 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- 🌟 Tarjeta 2 (Salida / Devolución) -->
                             <Border x:Name="Card2" Grid.Column="1" Background="#FEF2F2" BorderBrush="#F87171" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,10,0">
                                 <StackPanel>
                                     <TextBlock x:Name="LblCard2" Text="Total Salidas" Foreground="#991B1B" FontWeight="Bold" FontSize="12" Margin="0,0,0,5"/>
@@ -202,7 +212,6 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- 🌟 Tarjeta 3 (Saldo Pendiente en Poder) -->
                             <Border x:Name="Card3" Grid.Column="2" Background="#EFF6FF" BorderBrush="#818CF8" BorderThickness="1" CornerRadius="8" Padding="12,10" 
                                     Cursor="Hand" MouseLeftButtonUp="CardSaldoEnPoder_Click" ToolTip="Haz clic aquí para ver la lista exacta de códigos físicos que aún tiene en su poder.">
                                 <StackPanel>

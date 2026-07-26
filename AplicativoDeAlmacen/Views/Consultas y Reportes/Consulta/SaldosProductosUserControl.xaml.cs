@@ -5,7 +5,6 @@ using AplicativoDeAlmacen.Services.Reportes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -17,7 +16,6 @@ namespace AplicativoDeAlmacen.Views
         private readonly KardexService _kardexService;
         private List<SaldoProductoItem> _todosLosSaldos;
         private readonly ReporteExcelService _reporteExcel;
-        // 🌟 Candado de UX para evitar "Doble Clic"
         private bool _isCargando = false;
 
         public SaldosProductosUserControl()
@@ -26,12 +24,11 @@ namespace AplicativoDeAlmacen.Views
             _kardexService = new KardexService();
             _todosLosSaldos = new List<SaldoProductoItem>();
             _reporteExcel = new ReporteExcelService();
-            // Reactividad: Si alguien mueve inventario, esta pantalla se actualiza sola
+
             EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
                 if (this.IsVisible) BtnEjecutar_Click(null, null);
             });
 
-            // Fechas iniciales por defecto (Desde inicio de año hasta hoy)
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, 1, 1);
             DpHasta.SelectedDate = DateTime.Today;
 
@@ -40,25 +37,20 @@ namespace AplicativoDeAlmacen.Views
 
         private void SaldosProductosUserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            // 🌟 MÁSCARA: Activamos el formato inteligente en las fechas (XX/XX/XXXX)
             ConfigurarMascaraFecha(DpDesde);
             ConfigurarMascaraFecha(DpHasta);
 
-            // 🌟 TECLADO: Escuchamos el ENTER en los filtros
             DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
             TxtFiltro.PreviewKeyDown += Filtros_PreviewKeyDown;
         }
 
-        // ====================================================================
-        // 🌟 ATAJO DE TECLADO (Presionar ENTER para buscar)
-        // ====================================================================
         private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
             {
                 e.Handled = true;
-                BtnEjecutar_Click(null, null); // Simula el clic en el botón Ejecutar
+                BtnEjecutar_Click(null, null);
             }
         }
 
@@ -83,12 +75,11 @@ namespace AplicativoDeAlmacen.Views
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                // 🌟 CORRECCIÓN CRÍTICA: Llamar a ObtenerSaldosYMovimientosAsync con el Almacén activo
+                // 🌟 TOMA AUTOMÁTICAMENTE EL ALMACÉN DE LA SESIÓN ACTIVA
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
                 _todosLosSaldos = await _kardexService.ObtenerSaldosYMovimientosAsync(desde, hasta, miAlmacenId);
 
-                // Renderizar la tabla y aplicar filtros de texto si los hay
                 FiltrarData();
             }
             catch (Exception ex)
@@ -108,44 +99,21 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-
-        private async void BtnImprimir_Click(object sender,RoutedEventArgs e)
+        private async void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                if (_todosLosSaldos == null
-                    || !_todosLosSaldos.Any())
+                if (_todosLosSaldos == null || !_todosLosSaldos.Any())
                 {
-                    MessageBox.Show(
-
-                        "No existen registros para exportar.",
-
-                        "Aviso",
-
-                        MessageBoxButton.OK,
-
-                        MessageBoxImage.Information);
-
+                    MessageBox.Show("No existen registros para exportar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
-                await _reporteExcel
-                    .ExportarSaldosProductosAsync(
-
-                        _todosLosSaldos);
-
+                await _reporteExcel.ExportarSaldosProductosAsync(_todosLosSaldos);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(
-
-                    ex.Message,
-
-                    "Error",
-
-                    MessageBoxButton.OK,
-
-                    MessageBoxImage.Error);
+                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -160,7 +128,6 @@ namespace AplicativoDeAlmacen.Views
 
             string filtro = TxtFiltro.Text.ToLower().Trim();
 
-            
             if (string.IsNullOrWhiteSpace(filtro))
             {
                 SaldosDataGrid.ItemsSource = null;
@@ -168,7 +135,6 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
-                // Filtramos por descripción o código al vuelo en memoria RAM
                 var filtrados = _todosLosSaldos.Where(p =>
                     (p.Descripcion != null && p.Descripcion.ToLower().Contains(filtro)) ||
                     (p.Codigo != null && p.Codigo.ToLower().Contains(filtro))
@@ -179,9 +145,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // ====================================================================
-        // 🌟 MÁSCARA INTELIGENTE PARA FECHAS (Autocompleta las diagonales / )
-        // ====================================================================
         private bool _isFormattingDate = false;
 
         private void ConfigurarMascaraFecha(DatePicker datePicker)

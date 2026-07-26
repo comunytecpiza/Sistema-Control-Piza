@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -22,6 +23,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
         private readonly KardexService _kardexService = new KardexService();
         private int _productoSeleccionadoId;
         private double _stockMinimoSeleccionado = 0;
+
         public ObservableCollection<ISeries> Series { get; set; } = new ObservableCollection<ISeries>();
         public ObservableCollection<ICartesianAxis> XAxes { get; set; } = new ObservableCollection<ICartesianAxis>();
         public ObservableCollection<ICartesianAxis> YAxes { get; set; } = new ObservableCollection<ICartesianAxis>();
@@ -40,7 +42,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
 
         private async void TxtBuscarProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
-            string busqueda = TxtBuscarProducto.Text;
+            string busqueda = TxtBuscarProducto.Text.Trim();
             if (busqueda.Length >= 2)
             {
                 var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
@@ -63,7 +65,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
             if (LbProducto.SelectedItem is Producto p)
             {
                 _productoSeleccionadoId = p.Id;
-                _stockMinimoSeleccionado = p.StockMinimo; // ¡ATRAPAMOS EL MÍNIMO AQUÍ!
+                _stockMinimoSeleccionado = Convert.ToDouble(p.StockMinimo);
 
                 TxtBuscarProducto.TextChanged -= TxtBuscarProducto_TextChanged;
                 TxtBuscarProducto.Text = p.Descripcion;
@@ -74,209 +76,226 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
-            if (_productoSeleccionadoId == 0) return;
-
-            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-
-            // 🌟 Pasar 'miAlmacenId' como 4to parámetro obligatorio
-            var kardex = await _kardexService.GenerarKardexFisicoAsync(
-                _productoSeleccionadoId,
-                DpDesde.SelectedDate.Value,
-                DpHasta.SelectedDate.Value,
-                miAlmacenId);
-
-            // 1. Estructura intermedia para homogeneizar la agrupación seleccionada
-            var movimientosProcesados = new List<MovimientoAgrupado>();
-
-            if (CboPeriodo.SelectedIndex == 0) // VISTA: DÍA / MOVIMIENTO
+            if (_productoSeleccionadoId == 0)
             {
-                foreach (var m in kardex.Detalles)
-                {
-                    double ingreso = (double)(m.IngresoNormal + m.IngresoDevolucion);
-                    double salida = (double)(m.SalidaNormal + m.SalidaDevolucion);
-                    if (ingreso == 0 && salida == 0) continue;
-
-                    movimientosProcesados.Add(new MovimientoAgrupado
-                    {
-                        Ingreso = ingreso,
-                        Salida = salida,
-                        Label = m.Fecha?.ToString("dd/MM/yyyy") ?? "Mov"
-                    });
-                }
-            }
-            else if (CboPeriodo.SelectedIndex == 1) // VISTA: POR SEMANA
-            {
-                var gruposSemana = kardex.Detalles
-                    .Where(m => (m.IngresoNormal + m.IngresoDevolucion > 0) || (m.SalidaNormal + m.SalidaDevolucion > 0))
-                    .GroupBy(m => {
-                        DateTime date = m.Fecha ?? DateTime.Today;
-                        int numeroSemana = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(date, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-                        return new { date.Year, Semana = numeroSemana };
-                    })
-                    .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Semana);
-
-                foreach (var g in gruposSemana)
-                {
-                    double totIngreso = g.Sum(m => (double)(m.IngresoNormal + m.IngresoDevolucion));
-                    double totSalida = g.Sum(m => (double)(m.SalidaNormal + m.SalidaDevolucion));
-                    double neto = totIngreso - totSalida;
-
-                    movimientosProcesados.Add(new MovimientoAgrupado
-                    {
-                        Ingreso = neto > 0 ? neto : 0,
-                        Salida = neto < 0 ? Math.Abs(neto) : 0,
-                        Label = $"Sem {g.Key.Semana} - {g.Key.Year}"
-                    });
-                }
-            }
-            else if (CboPeriodo.SelectedIndex == 2) // VISTA: POR MES
-            {
-                var gruposMes = kardex.Detalles
-                    .Where(m => (m.IngresoNormal + m.IngresoDevolucion > 0) || (m.SalidaNormal + m.SalidaDevolucion > 0))
-                    .GroupBy(m => {
-                        DateTime date = m.Fecha ?? DateTime.Today;
-                        return new { date.Year, date.Month };
-                    })
-                    .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Month);
-
-                foreach (var g in gruposMes)
-                {
-                    double totIngreso = g.Sum(m => (double)(m.IngresoNormal + m.IngresoDevolucion));
-                    double totSalida = g.Sum(m => (double)(m.SalidaNormal + m.SalidaDevolucion));
-                    double neto = totIngreso - totSalida;
-
-                    string nombreMes = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(g.Key.Month);
-                    nombreMes = char.ToUpper(nombreMes[0]) + nombreMes.Substring(1);
-
-                    movimientosProcesados.Add(new MovimientoAgrupado
-                    {
-                        Ingreso = neto > 0 ? neto : 0,
-                        Salida = neto < 0 ? Math.Abs(neto) : 0,
-                        Label = $"{nombreMes} {g.Key.Year}"
-                    });
-                }
-            }
-
-            if (movimientosProcesados.Count == 0)
-            {
-                Series.Clear();
-                XAxes.Clear();
+                MessageBox.Show("Seleccione un producto para generar el gráfico de velas.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            var espaciadores = new List<double>();
-            var entradas = new List<double>();
-            var salidas = new List<double>();
-            var totales = new List<double>();
-            var labelsFechas = new List<string>();
+            if (!DpDesde.SelectedDate.HasValue || !DpHasta.SelectedDate.HasValue) return;
 
-            double stockActual = 0;
-
-            foreach (var item in movimientosProcesados)
+            try
             {
-                double stockAnterior = stockActual;
-                stockActual += (item.Ingreso - item.Salida);
+                // 🌟 TOMA AUTOMÁTICAMENTE EL ALMACÉN DE LA SESIÓN ACTIVA
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                if (item.Ingreso > 0)
+                var kardex = await _kardexService.GenerarKardexFisicoAsync(
+                    _productoSeleccionadoId,
+                    DpDesde.SelectedDate.Value,
+                    DpHasta.SelectedDate.Value,
+                    miAlmacenId);
+
+                if (kardex == null || kardex.Detalles == null) return;
+
+                // 1. Homogeneización de la agrupación seleccionada
+                var movimientosProcesados = new List<MovimientoAgrupado>();
+
+                if (CboPeriodo.SelectedIndex == 0) // DÍA / MOVIMIENTO
                 {
-                    espaciadores.Add(stockAnterior);
-                    entradas.Add(item.Ingreso);
-                    salidas.Add(0);
-                }
-                else
-                {
-                    espaciadores.Add(stockActual);
-                    entradas.Add(0);
-                    salidas.Add(item.Salida);
-                }
-
-                totales.Add(stockActual);
-                labelsFechas.Add(item.Label);
-            }
-
-            Series.Clear();
-
-            // Bloques Base Invisibles
-            Series.Add(new StackedColumnSeries<double>
-            {
-                Values = espaciadores,
-                Name = "",
-                Fill = new SolidColorPaint(SKColors.Transparent),
-                Stroke = null,
-                YToolTipLabelFormatter = point => ""
-            });
-
-            // Bloques de Entradas (Verdes)
-            Series.Add(new StackedColumnSeries<double>
-            {
-                Values = entradas,
-                Name = "Entrada (+)",
-                Fill = new SolidColorPaint(SKColors.Green),
-                MaxBarWidth = 40,
-                YToolTipLabelFormatter = point =>
-                {
-                    if (point.Model > 0)
+                    foreach (var m in kardex.Detalles)
                     {
-                        int index = (int)point.Coordinate.SecondaryValue;
-                        return $"Cantidad: {point.Model}\nTotal Acumulado: {totales[index]}";
-                    }
-                    return "";
-                }
-            });
+                        double ing = Convert.ToDouble(m.Ingreso > 0 ? m.Ingreso : (m.IngresoNormal + m.IngresoDevolucion));
+                        double sal = Convert.ToDouble(m.Salida > 0 ? m.Salida : (m.SalidaNormal + m.SalidaDevolucion));
 
-            // Bloques de Salidas (Rojas)
-            Series.Add(new StackedColumnSeries<double>
-            {
-                Values = salidas,
-                Name = "Salida (-)",
-                Fill = new SolidColorPaint(SKColors.Red),
-                MaxBarWidth = 40,
-                YToolTipLabelFormatter = point =>
+                        if (ing == 0 && sal == 0) continue;
+
+                        movimientosProcesados.Add(new MovimientoAgrupado
+                        {
+                            Ingreso = ing,
+                            Salida = sal,
+                            Label = m.Fecha?.ToString("dd/MM/yyyy") ?? "Mov"
+                        });
+                    }
+                }
+                else if (CboPeriodo.SelectedIndex == 1) // POR SEMANA
                 {
-                    if (point.Model > 0)
+                    var gruposSemana = kardex.Detalles
+                        .Where(m => (m.Ingreso > 0 || m.Salida > 0 || m.IngresoNormal > 0 || m.SalidaNormal > 0))
+                        .GroupBy(m => {
+                            DateTime date = m.Fecha ?? DateTime.Today;
+                            int numeroSemana = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(date, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
+                            return new { date.Year, Semana = numeroSemana };
+                        })
+                        .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Semana);
+
+                    foreach (var g in gruposSemana)
                     {
-                        int index = (int)point.Coordinate.SecondaryValue;
-                        return $"Cantidad: {point.Model}\nTotal Acumulado: {totales[index]}";
+                        double totIngreso = g.Sum(m => Convert.ToDouble(m.Ingreso > 0 ? m.Ingreso : (m.IngresoNormal + m.IngresoDevolucion)));
+                        double totSalida = g.Sum(m => Convert.ToDouble(m.Salida > 0 ? m.Salida : (m.SalidaNormal + m.SalidaDevolucion)));
+                        double neto = totIngreso - totSalida;
+
+                        movimientosProcesados.Add(new MovimientoAgrupado
+                        {
+                            Ingreso = neto > 0 ? neto : 0,
+                            Salida = neto < 0 ? Math.Abs(neto) : 0,
+                            Label = $"Sem {g.Key.Semana} - {g.Key.Year}"
+                        });
                     }
-                    return "";
                 }
-            });
-
-            if (_stockMinimoSeleccionado > 0)
-            {
-                // Le agregamos "LiveChartsCore.Defaults." para que Visual Studio no se pierda
-                var puntosLinea = new List<LiveChartsCore.Defaults.ObservablePoint>
-        {
-            new LiveChartsCore.Defaults.ObservablePoint(-0.5, _stockMinimoSeleccionado),
-            new LiveChartsCore.Defaults.ObservablePoint(movimientosProcesados.Count - 0.5, _stockMinimoSeleccionado)
-        };
-
-                Series.Add(new LineSeries<LiveChartsCore.Defaults.ObservablePoint>
+                else if (CboPeriodo.SelectedIndex == 2) // POR MES
                 {
-                    Values = puntosLinea,
-                    Name = "Stock Mínimo",
-                    Stroke = new SolidColorPaint(SKColors.Orange, 2),
-                    Fill = null,
-                    GeometrySize = 0,
-                    YToolTipLabelFormatter = point => $"Mínimo Permitido: {_stockMinimoSeleccionado}"
+                    var gruposMes = kardex.Detalles
+                        .Where(m => (m.Ingreso > 0 || m.Salida > 0 || m.IngresoNormal > 0 || m.SalidaNormal > 0))
+                        .GroupBy(m => {
+                            DateTime date = m.Fecha ?? DateTime.Today;
+                            return new { date.Year, date.Month };
+                        })
+                        .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Month);
+
+                    foreach (var g in gruposMes)
+                    {
+                        double totIngreso = g.Sum(m => Convert.ToDouble(m.Ingreso > 0 ? m.Ingreso : (m.IngresoNormal + m.IngresoDevolucion)));
+                        double totSalida = g.Sum(m => Convert.ToDouble(m.Salida > 0 ? m.Salida : (m.SalidaNormal + m.SalidaDevolucion)));
+                        double neto = totIngreso - totSalida;
+
+                        string nombreMes = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(g.Key.Month);
+                        nombreMes = char.ToUpper(nombreMes[0]) + nombreMes.Substring(1);
+
+                        movimientosProcesados.Add(new MovimientoAgrupado
+                        {
+                            Ingreso = neto > 0 ? neto : 0,
+                            Salida = neto < 0 ? Math.Abs(neto) : 0,
+                            Label = $"{nombreMes} {g.Key.Year}"
+                        });
+                    }
+                }
+
+                if (movimientosProcesados.Count == 0)
+                {
+                    Series.Clear();
+                    XAxes.Clear();
+                    return;
+                }
+
+                // 2. Construcción de Velas en Cascadas (Waterfall Chart)
+                var espaciadores = new List<double>();
+                var entradas = new List<double>();
+                var salidas = new List<double>();
+                var totales = new List<double>();
+                var labelsFechas = new List<string>();
+
+                // 🌟 Arranca sobre el Stock Inicial Real del Almacén Seleccionado
+                double stockActual = Convert.ToDouble(kardex.StockInicial);
+
+                foreach (var item in movimientosProcesados)
+                {
+                    double stockAnterior = stockActual;
+                    stockActual += (item.Ingreso - item.Salida);
+
+                    if (item.Ingreso > 0)
+                    {
+                        espaciadores.Add(stockAnterior);
+                        entradas.Add(item.Ingreso);
+                        salidas.Add(0);
+                    }
+                    else
+                    {
+                        espaciadores.Add(stockActual);
+                        entradas.Add(0);
+                        salidas.Add(item.Salida);
+                    }
+
+                    totales.Add(stockActual);
+                    labelsFechas.Add(item.Label);
+                }
+
+                Series.Clear();
+
+                // Bloques Base Invisibles
+                Series.Add(new StackedColumnSeries<double>
+                {
+                    Values = espaciadores,
+                    Name = "",
+                    Fill = new SolidColorPaint(SKColors.Transparent),
+                    Stroke = null,
+                    YToolTipLabelFormatter = point => ""
+                });
+
+                // Bloques de Entradas (Verdes)
+                Series.Add(new StackedColumnSeries<double>
+                {
+                    Values = entradas,
+                    Name = "Entrada (+)",
+                    Fill = new SolidColorPaint(SKColors.Green),
+                    MaxBarWidth = 40,
+                    YToolTipLabelFormatter = point =>
+                    {
+                        if (point.Model > 0)
+                        {
+                            int index = (int)point.Coordinate.SecondaryValue;
+                            return $"Entrada: +{point.Model}\nStock Resultante: {totales[index]}";
+                        }
+                        return "";
+                    }
+                });
+
+                // Bloques de Salidas (Rojas)
+                Series.Add(new StackedColumnSeries<double>
+                {
+                    Values = salidas,
+                    Name = "Salida (-)",
+                    Fill = new SolidColorPaint(SKColors.Red),
+                    MaxBarWidth = 40,
+                    YToolTipLabelFormatter = point =>
+                    {
+                        if (point.Model > 0)
+                        {
+                            int index = (int)point.Coordinate.SecondaryValue;
+                            return $"Salida: -{point.Model}\nStock Resultante: {totales[index]}";
+                        }
+                        return "";
+                    }
+                });
+
+                // Línea de Stock Mínimo Permitido
+                if (_stockMinimoSeleccionado > 0)
+                {
+                    var puntosLinea = new List<LiveChartsCore.Defaults.ObservablePoint>
+                    {
+                        new LiveChartsCore.Defaults.ObservablePoint(-0.5, _stockMinimoSeleccionado),
+                        new LiveChartsCore.Defaults.ObservablePoint(movimientosProcesados.Count - 0.5, _stockMinimoSeleccionado)
+                    };
+
+                    Series.Add(new LineSeries<LiveChartsCore.Defaults.ObservablePoint>
+                    {
+                        Values = puntosLinea,
+                        Name = "Stock Mínimo",
+                        Stroke = new SolidColorPaint(SKColors.Orange, 2),
+                        Fill = null,
+                        GeometrySize = 0,
+                        YToolTipLabelFormatter = point => $"Mínimo Permitido: {_stockMinimoSeleccionado}"
+                    });
+                }
+
+                XAxes.Clear();
+                XAxes.Add(new Axis
+                {
+                    Labels = labelsFechas,
+                    LabelsRotation = 15,
+                    MinStep = 1
                 });
             }
-
-            XAxes.Clear();
-            XAxes.Add(new Axis
+            catch (Exception ex)
             {
-                Labels = labelsFechas,
-                LabelsRotation = 15,
-                MinStep = 1
-            });
+                MessageBox.Show($"Error al construir gráfico de velas: {ex.Message}", "Error de Gráfico", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 
-    // Clase auxiliar para mapear las agrupaciones de tiempo de forma homogénea
     public class MovimientoAgrupado
     {
         public double Ingreso { get; set; }
         public double Salida { get; set; }
-        public string Label { get; set; }
+        public string Label { get; set; } = string.Empty;
     }
 }

@@ -1,14 +1,18 @@
 ﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using System;
+using AplicativoDeAlmacen.Models.Almacen;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -18,8 +22,10 @@ namespace AplicativoDeAlmacen.Views
         private readonly ProductoService _productoService;
         private readonly PersonaComercialService _personaService;
         private readonly UbicacionService _ubicacionService;
+        private readonly DatabaseConnection _dbConnHelper;
 
         private int _productoSeleccionadoId;
+        private int? _almacenFiltroId = null;
         private bool _estaSeleccionando;
         private bool _isUpdatingFromSelection = false;
         private bool _isCargando = false;
@@ -35,6 +41,7 @@ namespace AplicativoDeAlmacen.Views
             _productoService = new ProductoService();
             _personaService = new PersonaComercialService();
             _ubicacionService = new UbicacionService();
+            _dbConnHelper = new DatabaseConnection();
 
             _todosLosCodigos = new List<ConsultaCodigoItem>();
 
@@ -65,12 +72,20 @@ namespace AplicativoDeAlmacen.Views
             CboProductos.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
+            TxtAlmacen.PreviewKeyDown += Filtros_PreviewKeyDown;
             TxtRazonSocial.PreviewKeyDown += Filtros_PreviewKeyDown;
             TxtUbicacion.PreviewKeyDown += Filtros_PreviewKeyDown;
         }
 
         private void ChkFiltros_Click(object sender, RoutedEventArgs e)
         {
+            TxtAlmacen.IsEnabled = ChkAlmacen.IsChecked == true;
+            if (ChkAlmacen.IsChecked == false)
+            {
+                TxtAlmacen.Text = string.Empty;
+                _almacenFiltroId = null;
+            }
+
             TxtRazonSocial.IsEnabled = ChkRazonSocial.IsChecked == true;
             if (ChkRazonSocial.IsChecked == false) TxtRazonSocial.Text = string.Empty;
 
@@ -85,49 +100,163 @@ namespace AplicativoDeAlmacen.Views
             RefrescarVistaMovimientos();
         }
 
+        private async void TxtAlmacen_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!TxtAlmacen.IsEnabled || _isUpdatingFromSelection) return;
+            string filtro = TxtAlmacen.Text.Trim();
+
+            if (filtro.Length >= 1)
+            {
+                try
+                {
+                    var sugerencias = await BuscarAlmacenesFiltradosAsync(filtro);
+                    if (sugerencias != null && sugerencias.Count > 0)
+                    {
+                        LstAlmacen.ItemsSource = sugerencias;
+                        PopupAlmacen.IsOpen = true;
+                    }
+                    else PopupAlmacen.IsOpen = false;
+                }
+                catch { PopupAlmacen.IsOpen = false; }
+            }
+            else PopupAlmacen.IsOpen = false;
+        }
+
+        private async Task<List<Almacen>> BuscarAlmacenesFiltradosAsync(string filtro)
+        {
+            var lista = new List<Almacen>();
+            using var conn = _dbConnHelper.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+            const int ALMACEN_CENTRAL_ID = 1;
+
+            string query;
+            if (miAlmacenId == ALMACEN_CENTRAL_ID)
+            {
+                query = "SELECT id, nombre FROM almacenes WHERE nombre LIKE @filtro AND id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC";
+            }
+            else
+            {
+                query = "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
+            }
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+            var p1 = cmd.CreateParameter(); p1.ParameterName = "@filtro"; p1.Value = "%" + filtro + "%"; cmd.Parameters.Add(p1);
+            var p2 = cmd.CreateParameter(); p2.ParameterName = "@miAlmacen"; p2.Value = miAlmacenId; cmd.Parameters.Add(p2);
+            var p3 = cmd.CreateParameter(); p3.ParameterName = "@centralId"; p3.Value = ALMACEN_CENTRAL_ID; cmd.Parameters.Add(p3);
+
+            using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                lista.Add(new Almacen
+                {
+                    Id = rdr.GetInt32(0),
+                    Nombre = rdr.GetString(1)
+                });
+            }
+
+            return lista;
+        }
+
+        private void LstAlmacen_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (LstAlmacen.SelectedItem is Almacen almacenSeleccionado)
+            {
+                _isUpdatingFromSelection = true;
+                TxtAlmacen.Text = almacenSeleccionado.Nombre;
+                _almacenFiltroId = almacenSeleccionado.Id;
+                PopupAlmacen.IsOpen = false;
+                LstAlmacen.SelectedIndex = -1;
+                _isUpdatingFromSelection = false;
+                AjustarModoPerspectivaUI();
+            }
+        }
+
         private void AjustarModoPerspectivaUI()
         {
-            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+            bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
+            bool hayFiltroTercero = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
                                     (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
 
             if (MovimientosDataGrid.Columns.Count >= 7)
             {
-                var ingresoStyle = (Style)FindResource("IngresoStyle"); // Verde
-                var salidaStyle = (Style)FindResource("SalidaStyle");   // Rojo
+                var ingresoStyle = (Style)FindResource("IngresoStyle");
+                var salidaStyle = (Style)FindResource("SalidaStyle");
 
                 var colSalida = MovimientosDataGrid.Columns[4] as DataGridTextColumn;
                 var colIngreso = MovimientosDataGrid.Columns[5] as DataGridTextColumn;
 
-                if (hayFiltroEntidad)
+                if (hayFiltroAlmacen)
                 {
-                    // 🟢 MODO ESPECÍFICO (Promotora / Cliente)
+                    // 🏢 PERSPECTIVA ENTRE ALMACENES (Transferencias Inter-Sedes)
+                    if (colSalida != null)
+                    {
+                        colSalida.Header = "RECIBIDO";
+                        colSalida.CellStyle = ingresoStyle; // Verde para lo recibido del otro almacén
+                        colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
+                    }
+                    if (colIngreso != null)
+                    {
+                        colIngreso.Header = "ENVIADO";
+                        colIngreso.CellStyle = salidaStyle; // Rojo para lo enviado al otro almacén
+                        colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
+                    }
+
+                    MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible;
+                    var colSaldo = MovimientosDataGrid.Columns[6] as DataGridTextColumn;
+                    if (colSaldo != null) colSaldo.Header = "NETO INTER-ALMACÉN";
+
+                    LblCard1.Text = "Total Recibido";
+                    LblCard2.Text = "Total Enviado";
+                    LblCard3.Text = "Balance Neto con Almacén";
+
+                    // Tarjeta 1: Recibido -> Verde
+                    Card1.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#ECFDF5"));
+                    Card1.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#34D399"));
+                    LblCard1.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#065F46"));
+                    TxtTotalIngreso.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#047857"));
+
+                    // Tarjeta 2: Enviado -> Rojo
+                    Card2.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FEF2F2"));
+                    Card2.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F87171"));
+                    LblCard2.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#991B1B"));
+                    TxtTotalSalida.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B91C1C"));
+
+                    Card3.Visibility = Visibility.Visible;
+                }
+                else if (hayFiltroTercero)
+                {
+                    // 👤 PERSPECTIVA PROMOTORA / TERCEROS / UBICACIÓN
                     if (colSalida != null)
                     {
                         colSalida.Header = "ENVIADO";
-                        colSalida.CellStyle = salidaStyle; // Rojo para Salida/Entregado
+                        colSalida.CellStyle = salidaStyle;
                         colSalida.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
                     }
                     if (colIngreso != null)
                     {
                         colIngreso.Header = "DEVUELTO";
-                        colIngreso.CellStyle = ingresoStyle; // Verde para Devolución
+                        colIngreso.CellStyle = ingresoStyle;
                         colIngreso.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
                     }
 
-                    MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible; // Total en Poder
+                    MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible;
+                    var colSaldo = MovimientosDataGrid.Columns[6] as DataGridTextColumn;
+                    if (colSaldo != null) colSaldo.Header = "TOTAL EN PODER";
 
-                    // Nombres de Tarjetas
                     LblCard1.Text = "Total Entregado (Salidas)";
                     LblCard2.Text = "Total Devoluciones";
                     LblCard3.Text = "Saldo Pendiente en Poder";
 
-                    // Colores Tarjeta 1 (Entregado -> Rojo)
                     Card1.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FEF2F2"));
                     Card1.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F87171"));
                     LblCard1.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#991B1B"));
                     TxtTotalIngreso.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B91C1C"));
 
-                    // Colores Tarjeta 2 (Devolución -> Verde)
                     Card2.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#ECFDF5"));
                     Card2.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#34D399"));
                     LblCard2.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#065F46"));
@@ -137,34 +266,31 @@ namespace AplicativoDeAlmacen.Views
                 }
                 else
                 {
-                    // 🔵 MODO GENERAL (Almacén Central)
+                    // 🔵 VISTA GENERAL DEL ALMACÉN ACTUAL
                     if (colSalida != null)
                     {
                         colSalida.Header = "INGRESO";
-                        colSalida.CellStyle = ingresoStyle; // Verde para Entrada
+                        colSalida.CellStyle = ingresoStyle;
                         colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
                     }
                     if (colIngreso != null)
                     {
                         colIngreso.Header = "SALIDA";
-                        colIngreso.CellStyle = salidaStyle; // Rojo para Salida
+                        colIngreso.CellStyle = salidaStyle;
                         colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
                     }
 
                     MovimientosDataGrid.Columns[6].Visibility = Visibility.Collapsed;
 
-                    // Nombres de Tarjetas
                     LblCard1.Text = "Total Entradas";
                     LblCard2.Text = "Total Salidas";
                     LblCard3.Text = string.Empty;
 
-                    // Colores Tarjeta 1 (Entrada -> Verde)
                     Card1.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#ECFDF5"));
                     Card1.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#34D399"));
                     LblCard1.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#065F46"));
                     TxtTotalIngreso.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#047857"));
 
-                    // Colores Tarjeta 2 (Salida -> Rojo)
                     Card2.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FEF2F2"));
                     Card2.BorderBrush = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F87171"));
                     LblCard2.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#991B1B"));
@@ -179,54 +305,66 @@ namespace AplicativoDeAlmacen.Views
         {
             var movimientos = _todosLosMovimientosRaw.AsEnumerable();
 
-            // 1. Filtro Anulados
             bool mostrarAnulados = ChkMostrarAnulados.IsChecked == true;
             if (!mostrarAnulados)
             {
                 movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
             }
 
-            // 2. Filtros de Entidad (Razón Social o Ubicación)
-            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+            bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
+            bool hayFiltroTercero = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
                                     (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
 
             var listaFinal = movimientos.ToList();
 
-            // 3. Cálculo de Saldo Acumulado
             decimal saldoAcumulado = 0;
             foreach (var item in listaFinal)
             {
                 if (!item.IsAnulado)
                 {
-                    if (hayFiltroEntidad)
+                    if (hayFiltroAlmacen || hayFiltroTercero)
                     {
-                        saldoAcumulado += (item.Salida - item.Ingreso);
+                        // 🌟 PERSPECTIVA DE ENTIDAD/ALMACÉN EXTERNO:
+                        // Se calcula la diferencia acumulada y aseguramos el entero positivo con Math.Abs
+                        decimal diferencia = item.Salida - item.Ingreso;
+                        saldoAcumulado += diferencia;
                     }
                 }
-                item.SaldoAcumulado = hayFiltroEntidad ? saldoAcumulado : 0;
+
+                // 🌟 Muestra el acumulado acumulado siempre en positivo positivo (absoluto)
+                item.SaldoAcumulado = (hayFiltroAlmacen || hayFiltroTercero) ? Math.Abs(saldoAcumulado) : 0;
             }
 
             MovimientosDataGrid.ItemsSource = null;
             MovimientosDataGrid.ItemsSource = listaFinal;
 
-            // 4. Actualización de Valores en Tarjetas
             decimal totalIngresos = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Ingreso);
             decimal totalSalidas = listaFinal.Where(m => !m.IsAnulado).Sum(m => m.Salida);
 
-            if (hayFiltroEntidad)
+            if (hayFiltroAlmacen)
+            {
+                TxtTotalIngreso.Text = totalIngresos.ToString("N2"); // Total Recibido
+                TxtTotalSalida.Text = totalSalidas.ToString("N2");   // Total Enviado
+
+                // 🌟 QUITAMOS EL NEGATIVO: Mostrar como entero neto positivo (2000 enviado - 100 devuelto = 1900.00)
+                decimal balanceNeto = Math.Abs(totalSalidas - totalIngresos);
+                TxtTotalVendidos.Text = balanceNeto.ToString("N2");
+            }
+            else if (hayFiltroTercero)
             {
                 TxtTotalIngreso.Text = totalSalidas.ToString("N2");  // Total Entregado
                 TxtTotalSalida.Text = totalIngresos.ToString("N2");  // Total Devoluciones
-                TxtTotalVendidos.Text = (totalSalidas - totalIngresos).ToString("N2");
+
+                decimal saldoEnPoder = Math.Abs(totalSalidas - totalIngresos);
+                TxtTotalVendidos.Text = saldoEnPoder.ToString("N2");
             }
             else
             {
-                TxtTotalIngreso.Text = totalIngresos.ToString("N2"); // Total Entradas
-                TxtTotalSalida.Text = totalSalidas.ToString("N2");   // Total Salidas
+                TxtTotalIngreso.Text = totalIngresos.ToString("N2");
+                TxtTotalSalida.Text = totalSalidas.ToString("N2");
                 TxtTotalVendidos.Text = "---";
             }
 
-            // 5. Ajustar colores y perspectivas visuales
             AjustarModoPerspectivaUI();
 
             CodigosDataGrid.ItemsSource = null;
@@ -237,7 +375,7 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Key == Key.Enter)
             {
-                if (CboProductos.IsDropDownOpen || PopupRazonSocial.IsOpen || PopupUbicacion.IsOpen) return;
+                if (CboProductos.IsDropDownOpen || PopupRazonSocial.IsOpen || PopupUbicacion.IsOpen || PopupAlmacen.IsOpen) return;
                 e.Handled = true;
                 BtnEjecutar_Click(BtnEjecutar, null);
             }
@@ -337,7 +475,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 try
                 {
-                    var sugerencias = await Task.Run(() => _ubicacionService.BuscarUbicaciones(textoBusqueda));
+                    var sugerencias = await _ubicacionService.BuscarUbicacionesPorNombreAsync(textoBusqueda);
                     if (sugerencias != null && sugerencias.Count > 0)
                     {
                         LstUbicacion.ItemsSource = sugerencias;
@@ -363,11 +501,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private void RbFiltro_Click(object sender, RoutedEventArgs e)
-        {
-            // 🌟 Permitimos que selecciones libremente la opción sin ejecutar nada aún.
-            // La consulta se lanzará únicamente cuando presiones el botón "🚀 Ejecutar Consulta".
-        }
+        private void RbFiltro_Click(object sender, RoutedEventArgs e) { }
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
@@ -386,7 +520,16 @@ namespace AplicativoDeAlmacen.Views
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                string? filtroRazon = ChkRazonSocial.IsChecked == true ? TxtRazonSocial.Text : null;
+                string? filtroRazon = null;
+                if (ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text))
+                {
+                    filtroRazon = TxtAlmacen.Text;
+                }
+                else if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
+                {
+                    filtroRazon = TxtRazonSocial.Text;
+                }
+
                 string? filtroUbicacion = ChkUbicacion.IsChecked == true ? TxtUbicacion.Text : null;
 
                 int? categoriaIdFiltro = null;
@@ -395,14 +538,6 @@ namespace AplicativoDeAlmacen.Views
 
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                // 🌟 ORDEN DE PARÁMETROS CORREGIDO (Llama a KardexService con el orden exacto de sus argumentos):
-                // 1: productoId (int)
-                // 2: fechaDesde (DateTime)
-                // 3: fechaHasta (DateTime)
-                // 4: razonSocial (string?)
-                // 5: ubicacion (string?)
-                // 6: categoriaProductoId (int?)
-                // 7: almacenId (int)
                 var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(
                     _productoSeleccionadoId,
                     desde,
@@ -427,50 +562,40 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-
-
-        // 🌟 Muestra los códigos que le quedan actualmente en su poder al hacer clic en la tarjeta de saldo
         private void CardSaldoEnPoder_Click(object sender, MouseButtonEventArgs e)
         {
             if (_productoSeleccionadoId == 0) return;
 
-            bool hayFiltroEntidad = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
+            bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
+            bool hayFiltroTercero = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
                                     (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text));
 
-            string entidadSeleccionada = hayFiltroEntidad
-                ? (!string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text : TxtRazonSocial.Text)
-                : "ALMACÉN CENTRAL";
-
-            // Lógica inteligente: 
-            // Si es una entidad (Promotora), filtramos los códigos que salieron hacia ella 
-            // y que no figuran en ningún movimiento de devolución posterior.
-            // O de forma práctica para tu inventario físico con los datos que ya cargó el reporte:
+            string entidadSeleccionada = hayFiltroAlmacen
+                ? TxtAlmacen.Text
+                : (hayFiltroTercero ? (!string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text : TxtRazonSocial.Text) : "MI ALMACÉN");
 
             var codigosEnPoder = _todosLosCodigos
                 .GroupBy(c => c.Codigo)
-                .Where(g => g.Count() % 2 != 0) // Si un código tiene salidas impares sin contraparte de devolución equilibrada
+                .Where(g => g.Count() % 2 != 0)
                 .Select(g => g.First())
                 .ToList();
 
             CodigosDataGrid.ItemsSource = null;
             CodigosDataGrid.ItemsSource = codigosEnPoder;
 
-            TxtTotalCodigos.Text = $"📦 Hay {codigosEnPoder.Count} códigos físicos pendientes en poder de: {entidadSeleccionada}";
+            TxtTotalCodigos.Text = $"📦 Hay {codigosEnPoder.Count} códigos físicos asociados a: {entidadSeleccionada}";
         }
-        
+
         private void MovimientosDataGrid_SelectedCellsChanged(object sender, SelectedCellsChangedEventArgs e)
         {
             if (MovimientosDataGrid.CurrentCell.Column != null)
             {
                 int columnIndex = MovimientosDataGrid.Columns.IndexOf(MovimientosDataGrid.CurrentCell.Column);
 
-                // Si la columna seleccionada es la 6 (TOTAL EN PODER)
                 if (columnIndex == 6 && MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem itemSeleccionado)
                 {
                     MostrarCodigosPendientesEnPoder();
                 }
-                // Si el usuario hace clic en las columnas de INGRESO (4) o SALIDA (5) sin cambiar la fila,
-                // refrescamos la lista de códigos para reflejar el tipo actual (ENTRADA/SALIDA).
                 else if ((columnIndex == 4 || columnIndex == 5) && MovimientosDataGrid.CurrentItem is ConsultaMovimientoItem current)
                 {
                     MostrarCodigosParaMovimiento(current);
@@ -478,7 +603,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // Se factoriza la lógica para mostrar códigos de un movimiento específico
         private void MostrarCodigosParaMovimiento(ConsultaMovimientoItem movimiento)
         {
             if (movimiento == null) return;
@@ -513,13 +637,10 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_productoSeleccionadoId == 0) return;
 
-            // Obtenemos todos los códigos que salieron (Salidas/Entregados) menos los que ya volvieron (Devoluciones)
-            // Agrupamos por código físico para ver su balance actual
             var balanceCodigos = _todosLosCodigos
                 .GroupBy(c => c.Codigo)
                 .Select(g => new {
                     CodigoItem = g.First(),
-                    // Si el código tiene un número impar de movimientos o su última operación fue salida sin retorno
                     UltimoMovimiento = g.OrderByDescending(x => x.NumeroRegistro).FirstOrDefault()
                 })
                 .Where(x => x.UltimoMovimiento != null && x.UltimoMovimiento.TipoMovimiento == "SALIDA")
@@ -530,6 +651,7 @@ namespace AplicativoDeAlmacen.Views
             CodigosDataGrid.ItemsSource = balanceCodigos;
             TxtTotalCodigos.Text = $"📦 Hay {balanceCodigos.Count} códigos físicos pendientes en su poder.";
         }
+
         private void MovimientosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
@@ -558,17 +680,18 @@ namespace AplicativoDeAlmacen.Views
                     {
                         var salidasControl = new SalidasUserControl();
                         mainShell.AbrirPestaña($"Salida {serie}-{numero} (Consulta)", salidasControl);
-                        salidasControl.CargarDocumentoParaConsulta(serie, numero); // 🌟 Carga automática
+                        salidasControl.CargarDocumentoParaConsulta(serie, numero);
                     }
                     else
                     {
                         var ingresoControl = new IngresoUserControl();
                         mainShell.AbrirPestaña($"Ingreso {serie}-{numero} (Consulta)", ingresoControl);
-                        ingresoControl.CargarDocumentoParaConsulta(serie, numero); // 🌟 Carga automática
+                        ingresoControl.CargarDocumentoParaConsulta(serie, numero);
                     }
                 }
             }
         }
+
         private bool _isFormattingDate = false;
         private void ConfigurarMascaraFecha(DatePicker dp)
         {

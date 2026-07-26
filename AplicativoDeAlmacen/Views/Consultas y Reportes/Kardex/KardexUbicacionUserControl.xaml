@@ -3,6 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="#F3F4F6" FontFamily="Segoe UI">
 
+    <UserControl.Resources>
+        <Style x:Key="RightAlignStyle" TargetType="DataGridCell">
+            <Setter Property="TextBlock.TextAlignment" Value="Right"/>
+            <Setter Property="Padding" Value="0,0,10,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -14,98 +22,111 @@
                 <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.1" Direction="270"/>
             </Border.Effect>
 
-            <WrapPanel Orientation="Horizontal">
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- Buscador de Producto -->
                 <StackPanel Margin="0,0,20,10">
-                    <TextBlock Text="Producto:" FontWeight="Bold" Foreground="#4B5563"/>
+                    <TextBlock Text="Producto:" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5"/>
                     <StackPanel Orientation="Horizontal">
                         <Grid>
-                            <TextBox x:Name="TxtProducto" Width="250" Height="30" VerticalContentAlignment="Center" TextChanged="TxtProducto_TextChanged"/>
+                            <TextBox x:Name="TxtProducto" Width="250" Height="34" VerticalContentAlignment="Center" Padding="5,0" TextChanged="TxtProducto_TextChanged"/>
                             <Popup x:Name="PopupProducto" PlacementTarget="{Binding ElementName=TxtProducto}" StaysOpen="False" AllowsTransparency="True">
-                                <ListBox x:Name="LstProducto" Width="250" MaxHeight="150" SelectionChanged="LstProducto_SelectionChanged" DisplayMemberPath="Descripcion"/>
+                                <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4">
+                                    <ListBox x:Name="LstProducto" Width="250" MaxHeight="150" SelectionChanged="LstProducto_SelectionChanged" DisplayMemberPath="Descripcion"/>
+                                </Border>
                             </Popup>
                         </Grid>
-                        <TextBox x:Name="TxtCodProducto" Width="70" Height="30" IsReadOnly="True" Background="#F9FAFB" Margin="5,0,0,0" VerticalContentAlignment="Center"/>
+                        <TextBox x:Name="TxtCodProducto" Width="70" Height="34" IsReadOnly="True" Background="#F9FAFB" Margin="5,0,0,0" VerticalContentAlignment="Center" TextAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
 
+                <!-- Buscador de Ubicación -->
                 <StackPanel Margin="0,0,20,10">
-                    <TextBlock Text="Ubicación:" FontWeight="Bold" Foreground="#4B5563"/>
+                    <TextBlock Text="Ubicación:" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5"/>
                     <StackPanel Orientation="Horizontal">
                         <Grid>
-                            <TextBox x:Name="TxtUbicacion" Width="200" Height="30" VerticalContentAlignment="Center" TextChanged="TxtUbicacion_TextChanged"/>
+                            <TextBox x:Name="TxtUbicacion" Width="200" Height="34" VerticalContentAlignment="Center" Padding="5,0" TextChanged="TxtUbicacion_TextChanged"/>
                             <Popup x:Name="PopupUbicacion" PlacementTarget="{Binding ElementName=TxtUbicacion}" StaysOpen="False" AllowsTransparency="True">
-                                <ListBox x:Name="LstUbicacion" Width="200" MaxHeight="150" SelectionChanged="LstUbicacion_SelectionChanged" DisplayMemberPath="Descripcion"/>
+                                <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4">
+                                    <ListBox x:Name="LstUbicacion" Width="200" MaxHeight="150" SelectionChanged="LstUbicacion_SelectionChanged" DisplayMemberPath="Descripcion"/>
+                                </Border>
                             </Popup>
                         </Grid>
-                        <TextBox x:Name="TxtCodUbicacion" Width="70" Height="30" IsReadOnly="True" Background="#F9FAFB" Margin="5,0,0,0" VerticalContentAlignment="Center"/>
+                        <TextBox x:Name="TxtCodUbicacion" Width="70" Height="34" IsReadOnly="True" Background="#F9FAFB" Margin="5,0,0,0" VerticalContentAlignment="Center" TextAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
 
+                <!-- Fecha Desde -->
                 <StackPanel Margin="0,0,20,10">
-                    <TextBlock Text="Desde:" FontWeight="Bold" Foreground="#4B5563"/>
-                    <DatePicker x:Name="DpDesde" Width="120" Height="30"/>
+                    <TextBlock Text="Desde:" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5"/>
+                    <DatePicker x:Name="DpDesde" Width="130" Height="34"/>
                 </StackPanel>
 
+                <!-- Fecha Hasta -->
                 <StackPanel Margin="0,0,20,10">
-                    <TextBlock Text="Hasta:" FontWeight="Bold" Foreground="#4B5563"/>
-                    <DatePicker x:Name="DpHasta" Width="120" Height="30"/>
+                    <TextBlock Text="Hasta:" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5"/>
+                    <DatePicker x:Name="DpHasta" Width="130" Height="34"/>
                 </StackPanel>
 
+                <!-- Botones de Acción -->
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,10">
-                    <Button Content="Ejecutar" Click="BtnEjecutar_Click" Background="#4CAF50" Foreground="White" Width="90" Height="30" Margin="0,0,5,0"/>
-                    <Button Content="Imprimir" Click="BtnImprimir_Click" Background="#2196F3" Foreground="White" Width="90" Height="30" Margin="5,0"/>
-                    <Button Content="Salir" Click="BtnSalir_Click" Background="#F44336" Foreground="White" Width="90" Height="30" Margin="5,0"/>
+                    <Button Content="🚀 Ejecutar" Click="BtnEjecutar_Click" Background="#4CAF50" Foreground="White" FontWeight="Bold" Width="100" Height="34" Margin="0,0,8,0" Cursor="Hand" BorderThickness="0"/>
+                    <Button Content="🖨️ Imprimir" Click="BtnImprimir_Click" Background="#2196F3" Foreground="White" FontWeight="Bold" Width="100" Height="34" Margin="0,0,8,0" Cursor="Hand" BorderThickness="0"/>
+                    <Button Content="🚪 Salir" Click="BtnSalir_Click" Background="#F44336" Foreground="White" FontWeight="Bold" Width="90" Height="34" Cursor="Hand" BorderThickness="0"/>
                 </StackPanel>
             </WrapPanel>
         </Border>
 
+        <!-- Tablas de Resultados -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="65*"/>
                 <ColumnDefinition Width="35*"/>
             </Grid.ColumnDefinitions>
 
+            <!-- Resumen Izquierda -->
             <Border Grid.Column="0" Margin="0,0,10,0" CornerRadius="8" Background="White" ClipToBounds="True">
                 <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="#B71C1C" Padding="10">
-                        <TextBlock Text="Resumen de Movimientos" Foreground="White" FontWeight="Bold" FontSize="14"/>
+                    <Border DockPanel.Dock="Top" Background="#1E293B" Padding="12">
+                        <TextBlock Text="📋 Resumen de Movimientos por Ubicación" Foreground="White" FontWeight="Bold" FontSize="14"/>
                     </Border>
-                    <DataGrid x:Name="DgResumen" AutoGenerateColumns="False" SelectionMode="Single" SelectionChanged="DgResumen_SelectionChanged" BorderThickness="0">
+                    <DataGrid x:Name="DgResumen" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" SelectionChanged="DgResumen_SelectionChanged" BorderThickness="0" RowHeight="32">
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#FFE699"/>
+                                <Setter Property="Background" Value="#F1F5F9"/>
+                                <Setter Property="Foreground" Value="#475569"/>
                                 <Setter Property="FontWeight" Value="Bold"/>
-                                <Setter Property="Padding" Value="5"/>
+                                <Setter Property="Padding" Value="8"/>
                             </Style>
                         </DataGrid.ColumnHeaderStyle>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Fecha" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="*"/>
-                            <DataGridTextColumn Header="Documento" Binding="{Binding NumeroRegistro}" Width="*"/>
-                            <DataGridTextColumn Header="Razón Social" Binding="{Binding RazonSocialUbicacion}" Width="2*"/>
-                            <DataGridTextColumn Header="Ingreso" Binding="{Binding Ingreso}" Width="*"/>
-                            <DataGridTextColumn Header="Salida" Binding="{Binding Salida}" Width="*"/>
-                            <DataGridTextColumn Header="Saldo" Binding="{Binding Saldo}" Width="*"/>
+                            <DataGridTextColumn Header="Fecha" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="100"/>
+                            <DataGridTextColumn Header="Documento" Binding="{Binding NumeroRegistro}" Width="120"/>
+                            <DataGridTextColumn Header="Ubicación / Entidad" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
+                            <DataGridTextColumn Header="Ingreso" Binding="{Binding Ingreso, StringFormat=N2}" Width="90" CellStyle="{StaticResource RightAlignStyle}"/>
+                            <DataGridTextColumn Header="Salida" Binding="{Binding Salida, StringFormat=N2}" Width="90" CellStyle="{StaticResource RightAlignStyle}"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
             </Border>
 
+            <!-- Detalle Derecha -->
             <Border Grid.Column="1" Margin="10,0,0,0" CornerRadius="8" Background="White" ClipToBounds="True">
                 <DockPanel>
-                    <Border DockPanel.Dock="Top" Background="#B71C1C" Padding="10">
-                        <TextBlock Text="Detalle de Códigos" Foreground="White" FontWeight="Bold" FontSize="14"/>
+                    <Border DockPanel.Dock="Top" Background="#4338CA" Padding="12">
+                        <TextBlock Text="🏷️ Códigos en este Movimiento" Foreground="White" FontWeight="Bold" FontSize="14"/>
                     </Border>
-                    <DataGrid x:Name="DgDetalles" AutoGenerateColumns="False" BorderThickness="0">
+                    <DataGrid x:Name="DgDetalles" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" RowHeight="32">
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#FFE699"/>
+                                <Setter Property="Background" Value="#EEF2FF"/>
+                                <Setter Property="Foreground" Value="#3730A3"/>
                                 <Setter Property="FontWeight" Value="Bold"/>
-                                <Setter Property="Padding" Value="5"/>
+                                <Setter Property="Padding" Value="8"/>
                             </Style>
                         </DataGrid.ColumnHeaderStyle>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Código" Binding="{Binding Codigo}" Width="*"/>
-                            <DataGridTextColumn Header="Colección / Tipo" Binding="{Binding ColeccionTipo}" Width="*"/>
+                            <DataGridTextColumn Header="Código QR / Físico" Binding="{Binding Codigo}" Width="*"/>
+                            <DataGridTextColumn Header="Tipo" Binding="{Binding ColeccionTipo}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </DockPanel>
