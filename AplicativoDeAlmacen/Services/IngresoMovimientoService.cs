@@ -578,24 +578,30 @@ namespace AplicativoDeAlmacen.Services
         {
             string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
 
-            // 🌟 VALIDACIÓN CLAVE: Si es transferencia o no hay ubicación seleccionada (<= 0), pasa NULL
-            object valUbicacion = (ubicacionId > 0) ? ubicacionId : DBNull.Value;
+            // 🌟 VALIDACIÓN DE NULOS: Si es <= 0, envía DBNull.Value para evitar romper claves foráneas en MySQL
+            object valUbicacion = (cabecera.UbicacionId.HasValue && cabecera.UbicacionId.Value > 0)
+                ? (object)cabecera.UbicacionId.Value
+                : ((ubicacionId > 0) ? (object)ubicacionId : DBNull.Value);
+
+            object valPersona = (cabecera.PersonaComercialId.HasValue && cabecera.PersonaComercialId.Value > 0)
+                ? (object)cabecera.PersonaComercialId.Value
+                : DBNull.Value;
 
             if (existingId.HasValue)
             {
                 string updateCab = @"
-            UPDATE movimientos 
-            SET fecha_movimiento = @fecha, 
-                motivo_producto_id = @motivoId, 
-                ubicacion_id = @ubicacionId, 
-                almacen_id = @almId,
-                almacen_origen_id = @almOrigen,
-                almacen_destino_id = @almDestino,
-                persona_comercial_id = @personaId, 
-                observacion = @observacion, 
-                serie_guia = @serieGuia, 
-                numero_guia = @numeroGuia 
-            WHERE id = @id";
+    UPDATE movimientos 
+    SET fecha_movimiento = @fecha, 
+        motivo_producto_id = @motivoId, 
+        ubicacion_id = @ubicacionId, 
+        almacen_id = @almId,
+        almacen_origen_id = @almOrigen,
+        almacen_destino_id = @almDestino,
+        persona_comercial_id = @personaId, 
+        observacion = @observacion, 
+        serie_guia = @serieGuia, 
+        numero_guia = @numeroGuia 
+    WHERE id = @id";
 
                 using var cmd = conn.CreateCommand();
                 cmd.Transaction = trans;
@@ -603,14 +609,13 @@ namespace AplicativoDeAlmacen.Services
 
                 AgregarParametro(cmd, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
                 AgregarParametro(cmd, "@motivoId", cabecera.MotivoProductoId);
-                AgregarParametro(cmd, "@ubicacionId", valUbicacion); // 👈 Pasa NULL si es 0
+                AgregarParametro(cmd, "@ubicacionId", valUbicacion);
                 AgregarParametro(cmd, "@almId", cabecera.AlmacenId);
                 AgregarParametro(cmd, "@almOrigen", cabecera.AlmacenOrigenId);
                 AgregarParametro(cmd, "@almDestino", cabecera.AlmacenDestinoId);
-                AgregarParametro(cmd, "@personaId", cabecera.PersonaComercialId);
+                AgregarParametro(cmd, "@personaId", valPersona);
                 AgregarParametro(cmd, "@observacion", cabecera.Observacion);
 
-                // 🚚 Garantiza el guardado de la Guía de Remisión
                 AgregarParametro(cmd, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
                 AgregarParametro(cmd, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
 
@@ -619,14 +624,13 @@ namespace AplicativoDeAlmacen.Services
                 return existingId.Value;
             }
 
-            // --- CÁLCULO DE CORRELATIVO MANTENIDO IGUAL ---
             string queryLock = @"
-        SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
-        FROM movimientos m
-        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-        WHERE m.serie_documento = @serie 
-          AND mp.tipo_movimiento_id = 1
-          AND COALESCE(m.almacen_id, m.almacen_destino_id, 1) = @almId";
+SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
+FROM movimientos m
+INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+WHERE m.serie_documento = @serie 
+  AND mp.tipo_movimiento_id = 1
+  AND COALESCE(m.almacen_id, m.almacen_destino_id, 1) = @almId";
 
             int nuevoNumero;
             using (var cmdLock = conn.CreateCommand())
@@ -640,13 +644,12 @@ namespace AplicativoDeAlmacen.Services
 
             cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
 
-            // 🌟 INSERCIÓN LIMPIA QUE GUARDA ALMACENES, UBICACIÓN (SI EXISTE) Y GUÍA DE REMISIÓN
             string qCab = $@"
-        INSERT INTO movimientos 
-        (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
-         almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
-        VALUES 
-        (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
+INSERT INTO movimientos 
+(fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
+ almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
+VALUES 
+(@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
 
             using var cmdCab = conn.CreateCommand();
             cmdCab.Transaction = trans;
@@ -656,15 +659,14 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmdCab, "@serie", cabecera.SerieDocumento);
             AgregarParametro(cmdCab, "@numero", nuevoNumero.ToString("D7"));
             AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
-            AgregarParametro(cmdCab, "@ubicacionId", valUbicacion); // 👈 Pasa NULL si es 0
+            AgregarParametro(cmdCab, "@ubicacionId", valUbicacion);
             AgregarParametro(cmdCab, "@almId", cabecera.AlmacenId ?? 1);
             AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
             AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId);
             AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId > 0 ? cabecera.UsuarioId : 1);
-            AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId);
+            AgregarParametro(cmdCab, "@personaId", valPersona);
             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
 
-            // 🚚 Garantiza el guardado de la Guía de Remisión
             AgregarParametro(cmdCab, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
             AgregarParametro(cmdCab, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
 

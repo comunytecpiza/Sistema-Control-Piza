@@ -55,9 +55,12 @@ namespace AplicativoDeAlmacen.Views
 
             txtCantidad.IsReadOnly = false;
 
+            // 🚀 BÚSQUEDA INTERNA ULTRARRÁPIDA EN RAM (Filtro sin congelamiento)
             txtBuscarRangoInterno.TextChanged += (s, e) =>
             {
                 string filtro = txtBuscarRangoInterno.Text.Trim().ToLower();
+                dgDetalleCodigos.ItemsSource = null; // Pausa el renderizado
+
                 if (string.IsNullOrEmpty(filtro))
                 {
                     dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
@@ -85,11 +88,11 @@ namespace AplicativoDeAlmacen.Views
 
                 string query = QueryAdapter.EsMySQL
                     ? @"SELECT IFNULL(stock_actual, 0)
-                FROM stock_almacen
-                WHERE producto_id = @productoId AND almacen_id = @almacenId;"
+                        FROM stock_almacen
+                        WHERE producto_id = @productoId AND almacen_id = @almacenId;"
                     : @"SELECT ISNULL(stock_actual, 0)
-                FROM stock_almacen WITH (NOLOCK)
-                WHERE producto_id = @productoId AND almacen_id = @almacenId";
+                        FROM stock_almacen WITH (NOLOCK)
+                        WHERE producto_id = @productoId AND almacen_id = @almacenId";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -150,6 +153,7 @@ namespace AplicativoDeAlmacen.Views
             txtUMedida.Text = !string.IsNullOrWhiteSpace(item.UnidadMedida) ? item.UnidadMedida.ToUpperInvariant() : "UNIDAD";
             txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
 
+            dgDetalleCodigos.ItemsSource = null; // Pausa temporal de UI
             ListaRangosAgregados.Clear();
             _rangosOriginalesEdicion.Clear();
 
@@ -201,7 +205,6 @@ namespace AplicativoDeAlmacen.Views
 
                     ListaRangosAgregados.Add(nuevoRangoItem);
 
-                    // Guardamos una copia exacta para saber qué teníamos al iniciar la edición
                     _rangosOriginalesEdicion.Add(new RangoCodigoItem
                     {
                         DesdeNum = desdeN,
@@ -212,6 +215,8 @@ namespace AplicativoDeAlmacen.Views
                     });
                 }
             }
+
+            dgDetalleCodigos.ItemsSource = ListaRangosAgregados; // Re-vinculación en bloque
 
             decimal cantidadOriginal = item.Detalle != null ? (item.Detalle.CantidadIngreso > 0 ? item.Detalle.CantidadIngreso : item.Detalle.CantidadSalida) : item.Cantidad;
             txtCantidad.Text = cantidadOriginal > 0 ? Convert.ToInt32(cantidadOriginal).ToString() : ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0).ToString();
@@ -345,10 +350,11 @@ namespace AplicativoDeAlmacen.Views
                     RangoCodigoItem nuevoRango = ventanaCodigo.RangoProcesado;
                     if (nuevoRango != null)
                     {
+                        dgDetalleCodigos.ItemsSource = null; // Pausa el renderizado
                         ListaRangosAgregados.Add(nuevoRango);
+                        dgDetalleCodigos.ItemsSource = ListaRangosAgregados; // Inyecta en lote
                     }
 
-                    dgDetalleCodigos.Items.Refresh();
                     RecalcularCantidadTotalEnVivo();
 
                     btnGrabar.IsEnabled = true;
@@ -363,8 +369,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // 🌟 CONSULTA SQL: VERIFICA SI LOS CÓDIGOS QUITADOS REGISTRAN MOVIMIENTOS POSTERIORES
-        // 🌟 CONSULTA SQL CORREGIDA: SOLO DETECTA SALIDAS O DESPACHOS REALES
         private List<string> ObtenerCodigosConMovimientosPosteriores(int productoId, List<string> codigosQuitados)
         {
             var conflictos = new List<string>();
@@ -380,27 +384,27 @@ namespace AplicativoDeAlmacen.Views
                 {
                     string query = QueryAdapter.EsMySQL
                         ? @"SELECT COUNT(*)
-                    FROM codigos_creados cc
-                    INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-                    INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                    WHERE cc.codigo = @codigoExacto
-                      AND m.estado_id = 1
-                      AND (
-                          cc.estado_id IN (4, 5) 
-                          OR (mp.tipo_movimiento_id = 2)
-                      );"
+                            FROM codigos_creados cc
+                            INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                            INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                            WHERE cc.codigo = @codigoExacto
+                              AND m.estado_id = 1
+                              AND (
+                                  cc.estado_id IN (4, 5) 
+                                  OR (mp.tipo_movimiento_id = 2)
+                              );"
                         : @"SELECT COUNT(*)
-                    FROM codigos_creados cc WITH (NOLOCK)
-                    INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                    WHERE cc.codigo = @codigoExacto
-                      AND m.estado_id = 1
-                      AND (
-                          cc.estado_id IN (4, 5) 
-                          OR (mp.tipo_movimiento_id = 2)
-                      )";
+                            FROM codigos_creados cc WITH (NOLOCK)
+                            INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                            WHERE cc.codigo = @codigoExacto
+                              AND m.estado_id = 1
+                              AND (
+                                  cc.estado_id IN (4, 5) 
+                                  OR (mp.tipo_movimiento_id = 2)
+                              )";
 
                     using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -478,11 +482,8 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 🌟 BARRERA DE SEGURIDAD AL GUARDAR ÍTEM:
-                // Evaluamos los códigos que estaban al inicio de la edición vs los que quedaron ahora en ListaRangosAgregados
                 if (IsEdit && _rangosOriginalesEdicion.Any())
                 {
-                    // A. Reconstruimos todos los códigos exactos que traía el producto originalmente
                     var codigosOriginales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var r in _rangosOriginalesEdicion)
                     {
@@ -503,7 +504,6 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // B. Reconstruimos todos los códigos que están QUEDANDO actualmente en la grilla (sin importar si los reagrupó o desglosó)
                     var codigosActuales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var r in ListaRangosAgregados)
                     {
@@ -524,12 +524,10 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // C. Determinamos los códigos que REALMENTE fueron omitidos/retirados de forma definitiva
                     var codigosQuitados = codigosOriginales.Where(c => !codigosActuales.Contains(c)).ToList();
 
                     if (codigosQuitados.Any())
                     {
-                        // Consultamos a SQL si entre los quitados hay alguno con salidas/despachos posteriores
                         var conflictos = ObtenerCodigosConMovimientosPosteriores(this._productoSeleccionado.Id, codigosQuitados);
 
                         if (conflictos.Any())
@@ -544,7 +542,7 @@ namespace AplicativoDeAlmacen.Views
                                 MessageBoxButton.OK,
                                 MessageBoxImage.Stop);
 
-                            return; // 🛑 Cancela el guardado y mantiene la ventana abierta para que los reincorpore
+                            return;
                         }
                     }
                 }
@@ -618,10 +616,11 @@ namespace AplicativoDeAlmacen.Views
                     int index = ListaRangosAgregados.IndexOf(rangoSeleccionado);
                     if (index >= 0)
                     {
+                        dgDetalleCodigos.ItemsSource = null; // Pausa de UI
                         ListaRangosAgregados[index] = rangoModificado;
+                        dgDetalleCodigos.ItemsSource = ListaRangosAgregados; // Inyección rápida
                     }
 
-                    dgDetalleCodigos.Items.Refresh();
                     RecalcularCantidadTotalEnVivo();
 
                     btnGrabar.IsEnabled = true;

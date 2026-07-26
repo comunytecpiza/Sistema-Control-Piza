@@ -360,13 +360,13 @@ namespace AplicativoDeAlmacen.Services
         }
 
         public async Task<bool> RegistrarSalidaCompletaAsync(
-            Movimiento cabecera,
-            List<VistaProductoGrid> listaProductos,
-            List<VistaCodigoGrid> listaCodigos,
-            int usuarioId,
-            int estadoId,
-            int? existingMovimientoId = null,
-            IProgress<int>? progress = null)
+    Movimiento cabecera,
+    List<VistaProductoGrid> listaProductos,
+    List<VistaCodigoGrid> listaCodigos,
+    int usuarioId,
+    int estadoId,
+    int? existingMovimientoId = null,
+    IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
@@ -381,6 +381,15 @@ namespace AplicativoDeAlmacen.Services
                 string castInt = QueryAdapter.EsMySQL ? "CAST(m.numero_documento AS SIGNED)" : "CAST(m.numero_documento AS INT)";
                 int movimientoIdInserted = 0;
 
+                // 🌟 SANITIZACIÓN DE PARÁMETROS OPCIONALES
+                object valUbicacionSalida = (cabecera.UbicacionId.HasValue && cabecera.UbicacionId.Value > 0)
+                    ? (object)cabecera.UbicacionId.Value
+                    : DBNull.Value;
+
+                object valPersonaSalida = (cabecera.PersonaComercialId.HasValue && cabecera.PersonaComercialId.Value > 0)
+                    ? (object)cabecera.PersonaComercialId.Value
+                    : DBNull.Value;
+
                 var detectorDuplicadosInternos = new HashSet<int>();
                 foreach (var cod in listaCodigos)
                 {
@@ -394,7 +403,6 @@ namespace AplicativoDeAlmacen.Services
                 {
                     string serieParaGenerar = string.IsNullOrWhiteSpace(cabecera.SerieDocumento) ? "0001" : cabecera.SerieDocumento;
 
-                    // 🟢 Separamos los bloqueos para colocarlos en su posición sintáctica exacta
                     string hintSqlTable = QueryAdapter.EsMySQL ? "" : "WITH (TABLOCKX, HOLDLOCK)";
                     string hintSqlForUpdate = QueryAdapter.EsMySQL ? "FOR UPDATE" : "";
 
@@ -402,13 +410,13 @@ namespace AplicativoDeAlmacen.Services
                     {
                         cmdGen.Transaction = transaccion;
                         cmdGen.CommandText = QueryAdapter.FormatearConsulta($@"
-                        SELECT COALESCE(MAX({castInt}), 0) + 1 
-                        FROM movimientos m {hintSqlTable}
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        WHERE m.serie_documento = @serie 
-                          AND mp.tipo_movimiento_id = 2
-                          AND {coalesceFunc}(m.almacen_id, {coalesceFunc}(m.almacen_origen_id, 1)) = @almId 
-                        {hintSqlForUpdate}");
+                SELECT COALESCE(MAX({castInt}), 0) + 1 
+                FROM movimientos m {hintSqlTable}
+                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                WHERE m.serie_documento = @serie 
+                  AND mp.tipo_movimiento_id = 2
+                  AND {coalesceFunc}(m.almacen_id, {coalesceFunc}(m.almacen_origen_id, 1)) = @almId 
+                {hintSqlForUpdate}");
 
                         AgregarParametro(cmdGen, "@serie", serieParaGenerar);
                         AgregarParametro(cmdGen, "@almId", cabecera.AlmacenId ?? cabecera.AlmacenOrigenId ?? 1);
@@ -420,11 +428,11 @@ namespace AplicativoDeAlmacen.Services
                     }
 
                     string queryCabecera = $@"
-                        INSERT INTO movimientos 
-                        (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
-                         almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, serie_guia, numero_guia, observacion, estado_id, created_at)
-                        VALUES 
-                        (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @serieGuia, @numeroGuia, @observacion, 1, {nowFunc}); {selectId}";
+                INSERT INTO movimientos 
+                (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
+                 almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, serie_guia, numero_guia, observacion, estado_id, created_at)
+                VALUES 
+                (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @serieGuia, @numeroGuia, @observacion, 1, {nowFunc}); {selectId}";
 
                     using var cmdCab = dbConn.CreateCommand();
                     cmdCab.Transaction = transaccion;
@@ -433,12 +441,12 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdCab, "@serie", cabecera.SerieDocumento);
                     AgregarParametro(cmdCab, "@numero", cabecera.NumeroDocumento);
                     AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
-                    AgregarParametro(cmdCab, "@ubicacionId", cabecera.UbicacionId > 0 ? (object)cabecera.UbicacionId : DBNull.Value);
+                    AgregarParametro(cmdCab, "@ubicacionId", valUbicacionSalida);
                     AgregarParametro(cmdCab, "@almId", cabecera.AlmacenId ?? cabecera.AlmacenOrigenId ?? 1);
                     AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
                     AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId);
                     AgregarParametro(cmdCab, "@usuarioId", usuarioId);
-                    AgregarParametro(cmdCab, "@personaId", cabecera.PersonaComercialId > 0 ? (object)cabecera.PersonaComercialId : DBNull.Value);
+                    AgregarParametro(cmdCab, "@personaId", valPersonaSalida);
                     AgregarParametro(cmdCab, "@serieGuia", cabecera.SerieGuia);
                     AgregarParametro(cmdCab, "@numeroGuia", cabecera.NumeroGuia);
                     AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
@@ -449,31 +457,31 @@ namespace AplicativoDeAlmacen.Services
                 {
                     movimientoIdInserted = existingMovimientoId.Value;
                     string updateCab = @"
-                        UPDATE movimientos 
-                        SET fecha_movimiento = @fecha, 
-                            motivo_producto_id = @motivoId, 
-                            ubicacion_id = @ubicacionId, 
-                            almacen_id = @almId,
-                            almacen_origen_id = @almOrigen,
-                            almacen_destino_id = @almDestino,
-                            usuario_id = @usuarioId, 
-                            persona_comercial_id = @personaId, 
-                            observacion = @observacion, 
-                            serie_guia = @serieGuia, 
-                            numero_guia = @numeroGuia 
-                        WHERE id = @id";
+                UPDATE movimientos 
+                SET fecha_movimiento = @fecha, 
+                    motivo_producto_id = @motivoId, 
+                    ubicacion_id = @ubicacionId, 
+                    almacen_id = @almId,
+                    almacen_origen_id = @almOrigen,
+                    almacen_destino_id = @almDestino,
+                    usuario_id = @usuarioId, 
+                    persona_comercial_id = @personaId, 
+                    observacion = @observacion, 
+                    serie_guia = @serieGuia, 
+                    numero_guia = @numeroGuia 
+                WHERE id = @id";
 
                     using var cmdUpdCab = dbConn.CreateCommand();
                     cmdUpdCab.Transaction = transaccion;
                     cmdUpdCab.CommandText = QueryAdapter.FormatearConsulta(updateCab);
                     AgregarParametro(cmdUpdCab, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Now);
                     AgregarParametro(cmdUpdCab, "@motivoId", cabecera.MotivoProductoId);
-                    AgregarParametro(cmdUpdCab, "@ubicacionId", cabecera.UbicacionId > 0 ? (object)cabecera.UbicacionId : DBNull.Value);
+                    AgregarParametro(cmdUpdCab, "@ubicacionId", valUbicacionSalida);
                     AgregarParametro(cmdUpdCab, "@almId", cabecera.AlmacenId ?? cabecera.AlmacenOrigenId ?? 1);
                     AgregarParametro(cmdUpdCab, "@almOrigen", cabecera.AlmacenOrigenId);
                     AgregarParametro(cmdUpdCab, "@almDestino", cabecera.AlmacenDestinoId);
                     AgregarParametro(cmdUpdCab, "@usuarioId", usuarioId);
-                    AgregarParametro(cmdUpdCab, "@personaId", cabecera.PersonaComercialId > 0 ? (object)cabecera.PersonaComercialId : DBNull.Value);
+                    AgregarParametro(cmdUpdCab, "@personaId", valPersonaSalida);
                     AgregarParametro(cmdUpdCab, "@serieGuia", cabecera.SerieGuia);
                     AgregarParametro(cmdUpdCab, "@numeroGuia", cabecera.NumeroGuia);
                     AgregarParametro(cmdUpdCab, "@observacion", cabecera.Observacion);
@@ -527,7 +535,7 @@ namespace AplicativoDeAlmacen.Services
                     else
                     {
                         string queryDetalle = $@"INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
-                                                 VALUES (@movId, @prodId, 0, @cant, @costo, {nowFunc}); {selectId}";
+                                         VALUES (@movId, @prodId, 0, @cant, @costo, {nowFunc}); {selectId}";
                         using var cmdDet = dbConn.CreateCommand();
                         cmdDet.Transaction = transaccion;
                         cmdDet.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
@@ -558,13 +566,12 @@ namespace AplicativoDeAlmacen.Services
                             }
                         }
 
-                        // Reconstrucción de rangos
                         var serviceIng = new IngresoMovimientoService();
                         var rangosReconstruidos = serviceIng.GenerarRangosDesdeCodigos(codigosProd);
                         foreach (var r in rangosReconstruidos)
                         {
                             string sqlInsRango = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                               VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, {nowFunc})";
+                       VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, {nowFunc})";
                             using var cmdR = dbConn.CreateCommand();
                             cmdR.Transaction = transaccion;
                             cmdR.CommandText = QueryAdapter.FormatearConsulta(sqlInsRango);
@@ -590,7 +597,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // Limpieza de códigos descartados al modificar
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
                 foreach (var codId in codigosAEliminar)
                 {
@@ -617,19 +623,19 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 string sqlPurgarDetallesVacios = @"
-            DELETE FROM registro_rangos 
-            WHERE movimiento_detalle_id IN (
-                SELECT id FROM movimiento_detalles 
-                WHERE movimiento_id = @movId AND (cantidad_salida <= 0 OR id NOT IN (
-                    SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId
-                ))
-            );
+    DELETE FROM registro_rangos 
+    WHERE movimiento_detalle_id IN (
+        SELECT id FROM movimiento_detalles 
+        WHERE movimiento_id = @movId AND (cantidad_salida <= 0 OR id NOT IN (
+            SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId
+        ))
+    );
 
-            DELETE FROM movimiento_detalles 
-            WHERE movimiento_id = @movId 
-              AND (cantidad_salida <= 0 OR id NOT IN (
-                  SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId
-              ));";
+    DELETE FROM movimiento_detalles 
+    WHERE movimiento_id = @movId 
+      AND (cantidad_salida <= 0 OR id NOT IN (
+          SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId
+      ));";
 
                 using (var cmdPurga = dbConn.CreateCommand())
                 {
@@ -639,7 +645,6 @@ namespace AplicativoDeAlmacen.Services
                     await cmdPurga.ExecuteNonQueryAsync();
                 }
 
-                // 🌟 RECALCULAR STOCK EN stock_almacen
                 int almacenEmisor = cabecera.AlmacenOrigenId ?? 1;
                 var productosUnicos = listaProductos.Select(p => p.ProductoId).Distinct();
                 foreach (var pid in productosUnicos)

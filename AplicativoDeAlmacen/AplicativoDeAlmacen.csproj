@@ -27,11 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="FontAwesomeInstaller\" />
-    <Folder Include="Helpers\" />
-    <Folder Include="Icon\" />
-    <Folder Include="Videos\" />
-    <Folder Include="ViewModels\" />
+    <Folder Include="FontAwesomeInstaller\NewFolder\" />
+    <Folder Include="Helpers\NewFolder\" />
+    <Folder Include="Icon\NewFolder\" />
+    <Folder Include="Images\NewFolder\" />
+    <Folder Include="Videos\NewFolder\" />
+    <Folder Include="ViewModels\NewFolder\" />
     <Folder Include="Views\Elementos Visuales\" />
   </ItemGroup>
 

@@ -11,10 +11,6 @@ using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Services
 {
-    /// <summary>
-    /// KardexService Agnóstico, Multi-Motor y Anti-Trampa Multi-Almacén.
-    /// Aisla de forma estricta los reportes por sede/almacén activo.
-    /// </summary>
     public class KardexService
     {
         private readonly DatabaseConnection _database;
@@ -24,9 +20,6 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
-        // =========================================================
-        // HELPER INTERNO — crea y agrega un parámetro genérico
-        // =========================================================
         private static void AgregarParametro(IDbCommand cmd, string nombre, object? valor)
         {
             var p = cmd.CreateParameter();
@@ -40,17 +33,26 @@ namespace AplicativoDeAlmacen.Services
         // =========================================================
         public async Task<KardexFisicoReporte> GenerarKardexFisicoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta, int almacenId)
         {
-            var reporte = new KardexFisicoReporte();
+            var reporte = new KardexFisicoReporte
+            {
+                AlmacenId = almacenId
+            };
 
             using (IDbConnection conn = _database.GetConnection())
             {
                 await ((DbConnection)conn).OpenAsync();
 
+                // 🌟 Obtener Nombre del Almacén Activo
+                using (IDbCommand cmdNombre = conn.CreateCommand())
+                {
+                    cmdNombre.CommandText = QueryAdapter.FormatearConsulta("SELECT nombre FROM almacenes WHERE id = @almId");
+                    AgregarParametro(cmdNombre, "@almId", almacenId);
+                    var nomObj = await ((DbCommand)cmdNombre).ExecuteScalarAsync();
+                    reporte.AlmacenNombre = nomObj?.ToString() ?? "Almacén " + almacenId;
+                }
+
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    // 🌟 FILTRO BLINDADO ANTI-TRAMPA MULTI-ALMACÉN:
-                    // Entradas: Tienen destino en mi almacén.
-                    // Salidas: Tienen origen en mi almacén.
                     string queryRaw = @"
         SELECT
             m.fecha_movimiento,
@@ -66,17 +68,19 @@ namespace AplicativoDeAlmacen.Services
             CASE WHEN m.motivo_producto_id != 2 AND mp.tipo_movimiento_id = 1 AND ISNULL(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END AS IngresoDoc,
             CASE WHEN m.motivo_producto_id = 6 AND ISNULL(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS SalidaDev,
             CASE WHEN m.motivo_producto_id != 6 AND mp.tipo_movimiento_id = 2 AND ISNULL(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS SalidaDoc,
-            m.estado_id
+            m.estado_id,
+            alm.id AS alm_id,
+            alm.nombre AS alm_nombre
         FROM movimiento_detalles md WITH (NOLOCK)
         INNER JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id
         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
         LEFT JOIN personas_comerciales pc WITH (NOLOCK) ON m.persona_comercial_id = pc.id
         LEFT JOIN ubicaciones u WITH (NOLOCK) ON m.ubicacion_id = u.id
+        LEFT JOIN almacenes alm WITH (NOLOCK) ON alm.id = @AlmacenId
         WHERE md.producto_id = @ProductoId
           AND m.fecha_movimiento >= @FechaDesde
           AND m.fecha_movimiento <= @FechaHasta
-          AND m.estado_id != 2 -- 2 = Anulado
-          -- 🌟 FILTRO ESTRICTO DE PERTENENCIA LOGÍSTICA
+          AND m.estado_id != 2
           AND (
              (mp.tipo_movimiento_id = 1 AND ISNULL(m.almacen_destino_id, 1) = @AlmacenId) OR
              (mp.tipo_movimiento_id = 2 AND ISNULL(m.almacen_origen_id, 1) = @AlmacenId)
@@ -114,7 +118,9 @@ namespace AplicativoDeAlmacen.Services
                                 IngresoNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("IngresoDoc")),
                                 SalidaDevolucion = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDev")),
                                 SalidaNormal = isAnulado ? 0 : reader.GetDecimal(reader.GetOrdinal("SalidaDoc")),
-                                IsAnulado = isAnulado
+                                IsAnulado = isAnulado,
+                                AlmacenId = reader.IsDBNull(reader.GetOrdinal("alm_id")) ? almacenId : reader.GetInt32(reader.GetOrdinal("alm_id")),
+                                AlmacenNombre = reader.IsDBNull(reader.GetOrdinal("alm_nombre")) ? reporte.AlmacenNombre : reader.GetString(reader.GetOrdinal("alm_nombre"))
                             };
 
                             if (!item.IsAnulado)
@@ -142,7 +148,6 @@ namespace AplicativoDeAlmacen.Services
             return reporte;
         }
 
-        
         // =========================================================
         // 2. SALDOS Y MOVIMIENTOS INDEPENDIENTES POR ALMACÉN
         // =========================================================
@@ -156,7 +161,6 @@ namespace AplicativoDeAlmacen.Services
 
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    // 🌟 CÁLCULO DE STOCK INICIAL Y MOVIMIENTOS EXCLUSIVAMENTE PARA EL ALMACÉN SELECCIONADO
                     string queryRaw = @"
             WITH MovimientosRango AS (
                 SELECT
@@ -230,7 +234,6 @@ namespace AplicativoDeAlmacen.Services
             {
                 await ((DbConnection)conn).OpenAsync();
 
-                // 1. TABLA IZQUIERDA — Movimientos filtrados por mi Almacén
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
@@ -310,7 +313,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // 2. TABLA DERECHA — Códigos físicos
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = @"
@@ -388,11 +390,22 @@ namespace AplicativoDeAlmacen.Services
         // =========================================================
         public async Task<KardexValorizadoReporte> GenerarKardexValorizadoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta, int almacenId)
         {
-            var reporte = new KardexValorizadoReporte();
+            var reporte = new KardexValorizadoReporte
+            {
+                AlmacenId = almacenId
+            };
 
             using (IDbConnection conn = _database.GetConnection())
             {
                 await ((DbConnection)conn).OpenAsync();
+
+                using (IDbCommand cmdNombre = conn.CreateCommand())
+                {
+                    cmdNombre.CommandText = QueryAdapter.FormatearConsulta("SELECT nombre FROM almacenes WHERE id = @almId");
+                    AgregarParametro(cmdNombre, "@almId", almacenId);
+                    var nomObj = await ((DbCommand)cmdNombre).ExecuteScalarAsync();
+                    reporte.AlmacenNombre = nomObj?.ToString() ?? "Almacén " + almacenId;
+                }
 
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
@@ -407,13 +420,16 @@ namespace AplicativoDeAlmacen.Services
             CASE WHEN mp.tipo_movimiento_id = 1 THEN COALESCE(md.cantidad_ingreso, 0) ELSE 0 END AS cantidad_ingreso,
             CASE WHEN mp.tipo_movimiento_id = 2 THEN COALESCE(md.cantidad_salida, 0) ELSE 0 END AS cantidad_salida,
             COALESCE(p.precio_unitario, 0) AS costo_base,
-            m.estado_id
+            m.estado_id,
+            alm.id AS alm_id,
+            alm.nombre AS alm_nombre
         FROM movimiento_detalles md WITH (NOLOCK)
         INNER JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id
         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
         INNER JOIN productos p WITH (NOLOCK) ON md.producto_id = p.id
         LEFT JOIN personas_comerciales pc WITH (NOLOCK) ON m.persona_comercial_id = pc.id
         LEFT JOIN ubicaciones u WITH (NOLOCK) ON m.ubicacion_id = u.id
+        LEFT JOIN almacenes alm WITH (NOLOCK) ON alm.id = @AlmacenId
         WHERE md.producto_id = @ProductoId
           AND m.fecha_movimiento >= @FechaDesde
           AND m.fecha_movimiento <= @FechaHasta
@@ -450,7 +466,9 @@ namespace AplicativoDeAlmacen.Services
                                 IngresoFisico = reader.GetDecimal(6),
                                 SalidaFisico = reader.GetDecimal(7),
                                 CostoUnitario = reader.GetDecimal(8),
-                                IsAnulado = isAnulado
+                                IsAnulado = isAnulado,
+                                AlmacenId = reader.IsDBNull(reader.GetOrdinal("alm_id")) ? almacenId : reader.GetInt32(reader.GetOrdinal("alm_id")),
+                                AlmacenNombre = reader.IsDBNull(reader.GetOrdinal("alm_nombre")) ? reporte.AlmacenNombre : reader.GetString(reader.GetOrdinal("alm_nombre"))
                             };
 
                             if (costoPromedioActual == 0 && item.CostoUnitario > 0)
@@ -517,7 +535,7 @@ namespace AplicativoDeAlmacen.Services
                 await ((DbConnection)conn).OpenAsync();
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT DISTINCT razon_social FROM personas_comerciales WHERE razon_social IS NOT NULL";
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT razon_social FROM personas_comerciales WHERE razon_social IS NOT NULL");
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
                         while (await ((DbDataReader)reader).ReadAsync())
@@ -538,7 +556,7 @@ namespace AplicativoDeAlmacen.Services
                 await ((DbConnection)conn).OpenAsync();
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT DISTINCT descripcion FROM ubicaciones WHERE descripcion IS NOT NULL";
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT descripcion FROM ubicaciones WHERE descripcion IS NOT NULL");
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
                         while (await ((DbDataReader)reader).ReadAsync())
@@ -613,4 +631,4 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
     }
-}
+}   

@@ -8,16 +8,12 @@ using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using AplicativoDeAlmacen.Views.Movimientos.Lectora;
-using MediaColor = System.Windows.Media.Color;
-using MediaConverter = System.Windows.Media.ColorConverter;
 using HandyControl.Controls;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Diagnostics;
-using System.Drawing;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -52,11 +48,15 @@ namespace AplicativoDeAlmacen.Views
         private bool _isUpdatingFromSelection = false;
         private int? _personaComercialIdSeleccionada = null;
         private int? _idUbicacionSeleccionada = null;
-        
+
         private bool _isRegistrandoMovimiento = false;
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
         private readonly DatabaseConnection _dbConnHelper = new DatabaseConnection();
+
+        // ⏱️ TEMPORIZADORES PARA DEBOUNCE (PARTE A)
+        private System.Windows.Threading.DispatcherTimer _timerRazonSocial;
+        private System.Windows.Threading.DispatcherTimer _timerUbicacion;
 
         // ==========================================
         // CONSTRUCTOR
@@ -71,6 +71,22 @@ namespace AplicativoDeAlmacen.Views
             _serviceMovimiento = new IngresoMovimientoService();
             _ubicacionService = new UbicacionService();
             _reporteService = new ReporteExcelService();
+
+            // ⏱️ CONFIGURACIÓN DEL TIMER DE RAZÓN SOCIAL (300 ms)
+            _timerRazonSocial = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _timerRazonSocial.Tick += async (s, e) =>
+            {
+                _timerRazonSocial.Stop();
+                await EjecutarBusquedaRazonSocialAsync();
+            };
+
+            // ⏱️ CONFIGURACIÓN DEL TIMER DE UBICACIÓN (300 ms)
+            _timerUbicacion = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _timerUbicacion.Tick += async (s, e) =>
+            {
+                _timerUbicacion.Stop();
+                await EjecutarBusquedaUbicacionAsync();
+            };
 
             InitializeComponent();
 
@@ -121,7 +137,7 @@ namespace AplicativoDeAlmacen.Views
         {
             ConfigurarDataGridsParaVirtualizacion();
             await CargarMotivosAsync();
-            await CargarComboAlmacenesOrigenAsync(); // 🌟 OBLIGATORIO: Carga la lista de almacenes al abrir
+            await CargarComboAlmacenesOrigenAsync();
         }
 
         private void EstablecerEstadoInicial()
@@ -142,18 +158,9 @@ namespace AplicativoDeAlmacen.Views
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
                 const int ALMACEN_CENTRAL_ID = 1;
 
-                string query;
-
-                if (miAlmacenId == ALMACEN_CENTRAL_ID)
-                {
-                    // 🟢 Almacén Central puede recibir transferencias de TODOS los sub-almacenes
-                    query = "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC";
-                }
-                else
-                {
-                    // 🟡 Un Sub-Almacén SOLO puede seleccionar ALMACÉN CENTRAL
-                    query = "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
-                }
+                string query = (miAlmacenId == ALMACEN_CENTRAL_ID)
+                    ? "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC"
+                    : "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -168,12 +175,10 @@ namespace AplicativoDeAlmacen.Views
                     listaAlmacenes.Add(new { Id = rdr.GetInt32(0), Nombre = rdr.GetString(1) });
                 }
 
-                // Asignamos al ComboBox (cboAlmacenDestino es la referencia física en pantalla)
                 cboAlmacenDestino.ItemsSource = listaAlmacenes;
                 cboAlmacenDestino.DisplayMemberPath = "Nombre";
                 cboAlmacenDestino.SelectedValuePath = "Id";
 
-                // 🌟 CAMBIO PUNTUAL: NUNCA pre-cargar ningún almacén por defecto
                 cboAlmacenDestino.SelectedIndex = -1;
                 cboAlmacenDestino.SelectedValue = null;
             }
@@ -183,7 +188,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // 🌟 SOBRECARGA 1: Recepción de Transferencias desde Campana/Bandeja (por ID de movimiento único)
         public async void CargarDocumentoParaConsulta(int movimientoSalidaId)
         {
             try
@@ -198,16 +202,15 @@ namespace AplicativoDeAlmacen.Views
                 }
 
                 LimpiarFormulario();
-
                 await CargarComboAlmacenesOrigenAsync();
 
-                cboMotivo.SelectedValue = 4; // Transferencia
+                cboMotivo.SelectedValue = 4;
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
 
                 if (movCompleto.Movimiento.AlmacenOrigenId.HasValue)
                 {
                     cboAlmacenDestino.SelectedValue = movCompleto.Movimiento.AlmacenOrigenId.Value;
-                    cboAlmacenDestino.IsEnabled = false; // Bloqueado porque viene predeterminado de la guía de salida
+                    cboAlmacenDestino.IsEnabled = false;
                 }
 
                 txtSerieGuia.Clear();
@@ -274,7 +277,6 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // 🌟 SOBRECARGA 2: Búsqueda normal de Ingresos previos por Serie y Número (Soporta 2 argumentos string)
         public async void CargarDocumentoParaConsulta(string serie, string numero)
         {
             try
@@ -302,7 +304,6 @@ namespace AplicativoDeAlmacen.Views
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
                 const int ALMACEN_CENTRAL_ID = 1;
 
-                // 🌟 REGLA DE NEGOCIO: Si NO es Almacén Central, eliminamos la opción "COMPRA" (ID 1)
                 if (miAlmacenId != ALMACEN_CENTRAL_ID)
                 {
                     todosLosMotivos = todosLosMotivos.Where(m => m.Id != 1).ToList();
@@ -319,9 +320,6 @@ namespace AplicativoDeAlmacen.Views
             finally { this.Cursor = Cursors.Arrow; }
         }
 
-        // ==========================================
-        // LÓGICA DE CARGA (EDITAR E IMPRIMIR)
-        // ==========================================
         private async void TxtNumDocumento_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
@@ -461,10 +459,8 @@ namespace AplicativoDeAlmacen.Views
         {
             LimpiarFormulario();
 
-            // 🌟 FILTRO ABSOLUTO: Captura el almacén de la sesión activa
             int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-            // 🛡️ Pasa el almacén actual para que la búsqueda solo jale registros de este almacén
             var movimientoComp = await _serviceMovimiento.GetMovimientoCompletoAsync(serie, numero, miAlmacenId);
 
             if (movimientoComp == null)
@@ -476,7 +472,7 @@ namespace AplicativoDeAlmacen.Views
             var movimiento = movimientoComp.Movimiento;
             _currentMovimientoId = movimiento.Id;
 
-            if (movimiento.EstadoId == 2) // 2 = ANULADO
+            if (movimiento.EstadoId == 2)
             {
                 if (!_printMode && !_anularMode)
                 {
@@ -527,7 +523,8 @@ namespace AplicativoDeAlmacen.Views
             {
                 try
                 {
-                    var todas = _ubicacionService.ObtenerTodas();
+                    // 🌟 SOLUCIÓN AL ERROR CS1061: Llama al método asíncrono optimizado
+                    var todas = await _ubicacionService.ObtenerTodasAsync();
                     var ubic = todas?.FirstOrDefault(u => u.Id == movimiento.UbicacionId.Value);
                     if (ubic != null)
                     {
@@ -601,7 +598,6 @@ namespace AplicativoDeAlmacen.Views
             dgCodigos.ItemsSource = null;
             dgCodigos.ItemsSource = _codigosGridList;
 
-            // 🌟 EVALUACIÓN ESTRICTA Y EXCLUSIVA SEGÚN EL MODO ACTIVO
             if (_anularMode)
             {
                 BloquearParaAnulacionVisual();
@@ -616,25 +612,19 @@ namespace AplicativoDeAlmacen.Views
             }
             else if (_printMode)
             {
-                // 🔒 GARANTÍA: Bloquea 100% controles y tablas para evitar edición involuntaria
                 BloquearParaImpresion();
                 ShowPrintButtonNearSave();
             }
             else
             {
-                // ✏️ MODO EDICIÓN NORMAL
                 HabilitarCamposFormulario(true);
                 GestionarBotonesPrincipales(enEdicion: true);
                 if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
-                // Reevaluar visibilidad de Razón Social / Ubicación según el motivo cargado
                 CboMotivo_SelectionChanged(cboMotivo, null);
             }
         }
 
-        // ==========================================
-        // BOTONES DE CABECERA
-        // ==========================================
         private async void BtnAgregar_Click(object sender, RoutedEventArgs e)
         {
             this.Cursor = Cursors.Wait;
@@ -649,7 +639,6 @@ namespace AplicativoDeAlmacen.Views
 
                 txtNumSerie.Text = "0001";
 
-                // 🌟 CORRELATIVO INDEPENDIENTE BASADO EN ALMACÉN CREADOR (almacen_id)
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
                 string siguienteCorrelativo = "0000001";
 
@@ -738,7 +727,6 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
-            // Permitir cancelar en modo impresión
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
             System.Windows.MessageBox.Show("Modo Imprimir activado. Ingrese el número de documento de ingreso y presione ENTER.",
@@ -772,11 +760,6 @@ namespace AplicativoDeAlmacen.Views
 
             int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
 
-            // =========================================================
-            // 1. VALIDACIONES SEGÚN EL MOTIVO SELECCIONADO
-            // =========================================================
-
-            // 🔴 IDs 5, 6, 7, 8, 11 -> Exigen Razón Social obligatoria
             if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
             {
                 if (string.IsNullOrWhiteSpace(txtRazonSocial.Text) || !_personaComercialIdSeleccionada.HasValue)
@@ -785,8 +768,6 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
             }
-            // 🔵 IDs 4, 10 -> TRANSFERENCIA INTER-ALMACÉN (OBLIGA ALMACÉN DESTINO U UBICACIÓN REFERENCIAL)
-            // 🔵 ID 4 -> RECEPCIÓN DE TRANSFERENCIA INTER-ALMACÉN
             else if (idMotivo == 4)
             {
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
@@ -798,7 +779,6 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
             }
-            // 🟣 IDs 9, 12 -> Regla Flexible (Requiere al menos Razón Social O Ubicación)
             else if (idMotivo == 9 || idMotivo == 12)
             {
                 bool tieneRazonSocial = !string.IsNullOrWhiteSpace(txtRazonSocial.Text) && _personaComercialIdSeleccionada.HasValue;
@@ -811,14 +791,12 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // 2. Validación de Guía / Comprobante
             if (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text))
             {
                 MessageBox.Show("Debe ingresar la Serie y el Número de Guía o Comprobante.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // 3. Validación de Tabla de Productos
             if (_productosGridList == null || !_productosGridList.Any())
             {
                 MessageBox.Show("Debe agregar al menos un producto antes de registrar la operación.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -837,7 +815,6 @@ namespace AplicativoDeAlmacen.Views
                 btnCancelar.IsEnabled = false;
                 Cursor = Cursors.Wait;
 
-                // 🌟 Regeneración de rangos basada en los códigos presentes en la grilla
                 _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
 
                 var solicitud = CrearSolicitudMovimiento();
@@ -861,7 +838,7 @@ namespace AplicativoDeAlmacen.Views
                         solicitud.Movimiento,
                         solicitud.Productos.ToList(),
                         _rangosProcesadosGlobal.ToList(),
-                        solicitud.Movimiento.UbicacionId ?? 0, // 👈 0 o neutral en vez de UBICACION_ID_SELECCIONADA
+                        solicitud.Movimiento.UbicacionId ?? 0,
                         solicitud.MovimientoId,
                         progress)
                 );
@@ -919,28 +896,25 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // 🌟 DECLARACIÓN DE LA VARIABLE QUE FALTABA
             int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
 
             int? almacenDestinoId = cboAlmacenDestino.SelectedValue != null
                 ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
                 : (int?)null;
 
-            // 🌟 DETECCIÓN INTELIGENTE DE ORIGEN Y DESTINO SEGÚN EL MOTIVO
             int idMotivoIngreso = Convert.ToInt32(cboMotivo.SelectedValue);
             int? almacenOrigenReal = null;
             int? almacenDestinoReal = miAlmacenActual;
 
-            if (idMotivoIngreso == 4) // Si es Recepción por Transferencia
+            if (idMotivoIngreso == 4)
             {
                 almacenOrigenReal = cboAlmacenDestino.SelectedValue != null
                     ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
-                    : (int?)null; // El almacén que me envió (Ej: Trujillo = 1)
+                    : (int?)null;
 
-                almacenDestinoReal = miAlmacenActual; // Mi sede actual que recibe (Ej: Lima = 3)
+                almacenDestinoReal = miAlmacenActual;
             }
 
-            // En CrearSolicitudMovimiento():
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
@@ -952,7 +926,6 @@ namespace AplicativoDeAlmacen.Views
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = idMotivoIngreso,
 
-                    // 🟢 SI SE ELIGIÓ ALMACÉN DE ORIGEN, LA UBICACIÓN QUEDA STRICTAMENTE EN NULL
                     UbicacionId = (almacenOrigenReal.HasValue || string.IsNullOrWhiteSpace(txtUbicacion.Text))
                         ? (int?)null
                         : _idUbicacionSeleccionada,
@@ -972,7 +945,6 @@ namespace AplicativoDeAlmacen.Views
                 MovimientoId = _currentMovimientoId
             };
         }
-
 
         private void ShowPrintButtonNearSave()
         {
@@ -1019,7 +991,6 @@ namespace AplicativoDeAlmacen.Views
             if (dgProductos != null) { dgProductos.IsEnabled = true; dgProductos.IsReadOnly = true; }
             if (dgCodigos != null) { dgCodigos.IsEnabled = true; dgCodigos.IsReadOnly = true; }
 
-            // Deshabilitar todas las acciones de edición de cabecera y detalle
             dtpFechaRecepcion.IsEnabled = false;
             cboMotivo.IsEnabled = false;
             txtRazonSocial.IsEnabled = false;
@@ -1038,7 +1009,6 @@ namespace AplicativoDeAlmacen.Views
             btnImprimir.IsEnabled = false;
             btnGrabar.IsEnabled = false;
 
-            // El botón Cancelar siempre se mantiene activo para poder salir
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
         }
 
@@ -1180,13 +1150,11 @@ namespace AplicativoDeAlmacen.Views
                 seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
                 seleccionado.Cantidad = (int)seleccionado.Detalle.CantidadIngreso;
 
-                // 🌟 REEMPLAZO LIMPIO: Borramos los códigos previos del producto y ponemos los nuevos que aprobó el modal
                 _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
 
                 var nuevosCodigos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(modal.ListaRangosAgregados.ToList());
                 _codigosGridList.AddRange(nuevosCodigos);
 
-                // Regeneramos el mapa global de rangos
                 _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
 
                 dgProductos.CommitEdit(DataGridEditingUnit.Row, true);
@@ -1228,7 +1196,6 @@ namespace AplicativoDeAlmacen.Views
             GestionarBotonesPrincipales(enEdicion: true);
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
-            // 🌟 ARREGLO: Forzar la aparición del botón de confirmación inmediatamente al activar el modo
             ShowAnularButtonNearSave();
 
             MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento de ingreso que desea anular y presione Enter para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1248,95 +1215,91 @@ namespace AplicativoDeAlmacen.Views
                 if (productoSelected == null) return;
                 int idProducto = productoSelected.Id;
 
-                var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == idProducto);
+                this.Cursor = Cursors.Wait;
 
-                var progressModal = new ProgressWindow("Procesando Lote Manual", "Generando y sincronizando códigos en el kárdex local...", async (progress) =>
+                try
                 {
-                    int nuevosCodigosCount = rangosDelModal.Sum(r => r.DesdeNum == -1 ? 1 : (r.HastaNum - r.DesdeNum + 1));
-                    _codigosGridList.Capacity = _codigosGridList.Count + nuevosCodigosCount;
+                    dgCodigos.ItemsSource = null;
+                    dgProductos.ItemsSource = null;
 
-                    var listaStrings = new List<string>(nuevosCodigosCount);
-                    int totalRangos = rangosDelModal.Count;
+                    int ignoradosPorDuplicado = 0;
 
-                    for (int rIdx = 0; rIdx < totalRangos; rIdx++)
+                    foreach (var rango in rangosDelModal)
                     {
-                        var rango = rangosDelModal[rIdx];
                         rango.productoId = idProducto;
+                        _rangosProcesadosGlobal.Add(rango);
 
-                        int pctRango = (rIdx * 30) / (totalRangos == 0 ? 1 : totalRangos);
-                        progress.Report(pctRango);
+                        string etiquetaColeccion = string.IsNullOrEmpty(rango.ColeccionTipo) ? "LIBRO VENTA" : rango.ColeccionTipo;
 
                         if (rango.DesdeNum == -1)
                         {
-                            listaStrings.Add(rango.AbreviaturaBase);
+                            string codNorm = _serviceMovimiento.NormalizarCodigo(rango.AbreviaturaBase);
+                            if (!_codigosGridList.Any(c => c.ProductoId == idProducto && _serviceMovimiento.NormalizarCodigo(c.CodigoUnique) == codNorm))
+                            {
+                                _codigosGridList.Add(new VistaCodigoGrid
+                                {
+                                    CodigoUnique = rango.AbreviaturaBase,
+                                    ColeccionTipo = etiquetaColeccion,
+                                    ProductoId = idProducto
+                                });
+                            }
+                            else
+                            {
+                                ignoradosPorDuplicado++;
+                            }
                         }
                         else
                         {
                             for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
                             {
-                                listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                                string codGenerado = $"{rango.AbreviaturaBase}-{i:D7}";
+                                string codNorm = _serviceMovimiento.NormalizarCodigo(codGenerado);
+
+                                // 🛡️ CANDADO ANTI-DUPLICADOS: Si el código ya está en la grilla, NO SE AGREGA
+                                if (!_codigosGridList.Any(c => c.ProductoId == idProducto && _serviceMovimiento.NormalizarCodigo(c.CodigoUnique) == codNorm))
+                                {
+                                    _codigosGridList.Add(new VistaCodigoGrid
+                                    {
+                                        CodigoUnique = codGenerado,
+                                        ColeccionTipo = etiquetaColeccion,
+                                        ProductoId = idProducto
+                                    });
+                                }
+                                else
+                                {
+                                    ignoradosPorDuplicado++;
+                                }
                             }
                         }
                     }
 
-                    progress.Report(40);
-                    var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaStrings);
-
-                    int totalStrings = listaStrings.Count;
-                    for (int sIdx = 0; sIdx < totalStrings; sIdx++)
+                    if (ignoradosPorDuplicado > 0)
                     {
-                        string codStr = listaStrings[sIdx];
-                        string norm = _serviceMovimiento.NormalizarCodigo(codStr);
-
-                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
-                        {
-                            string tipoColeccionReal = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
-
-                            Application.Current.Dispatcher.Invoke(() =>
-                            {
-                                _codigosGridList.Add(new VistaCodigoGrid
-                                {
-                                    CodigoUnique = tup.CodigoObj.Codigo,
-                                    ColeccionTipo = tipoColeccionReal,
-                                    ProductoId = idProducto,
-                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
-                                });
-                            });
-                        }
-
-                        int pctFinal = 40 + ((sIdx * 60) / (totalStrings == 0 ? 1 : totalStrings));
-                        progress.Report(pctFinal);
+                        MessageBox.Show($"Se ignoraron {ignoradosPorDuplicado} código(s) porque ya se encontraban registrados previamente en la tabla.", "Aviso de Duplicados", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
 
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        foreach (var rango in rangosDelModal)
-                        {
-                            _rangosProcesadosGlobal.Add(rango);
-                        }
-                    });
-                });
+                    // 🚀 Actualizamos la cantidad según los códigos reales que quedaron en la grilla
+                    int totalCodigosProducto = _codigosGridList.Count(c => c.ProductoId == idProducto);
 
-                progressModal.Owner = Window.GetWindow(this);
-
-                if (progressModal.ShowDialog() == true)
-                {
-                    this.Cursor = Cursors.Wait;
-                    if (existente != null && modal.MergeWithExisting)
+                    var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == idProducto);
+                    if (existente != null)
                     {
-                        existente.Detalle = existente.Detalle ?? new MovimientoDetalle { ProductoId = existente.ProductoId };
-                        existente.Detalle.CantidadIngreso += modal.CantidadProductoIngresada;
+                        existente.Detalle ??= new MovimientoDetalle { ProductoId = idProducto };
+                        existente.Detalle.CantidadIngreso = totalCodigosProducto > 0 ? totalCodigosProducto : modal.CantidadProductoIngresada;
+                        existente.Cantidad = (int)existente.Detalle.CantidadIngreso;
                         existente.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
                     }
                     else
                     {
+                        int cantReal = totalCodigosProducto > 0 ? totalCodigosProducto : modal.CantidadProductoIngresada;
                         var nuevoProductoGrid = new VistaProductoGrid
                         {
-                            Detalle = new MovimientoDetalle { ProductoId = idProducto, CantidadIngreso = modal.CantidadProductoIngresada, CostoUnitario = modal.CostoUnitarioIngresado },
+                            Detalle = new MovimientoDetalle { ProductoId = idProducto, CantidadIngreso = cantReal, CostoUnitario = modal.CostoUnitarioIngresado },
                             CodigoProducto = idProducto.ToString(),
                             Descripcion = productoSelected.Descripcion,
                             UnidadMedida = productoSelected.UnidadMedida?.Descripcion ?? "UNIDAD",
-                            ProductoId = idProducto
+                            ProductoId = idProducto,
+                            Cantidad = cantReal
                         };
                         _productosGridList.Add(nuevoProductoGrid);
                         existente = nuevoProductoGrid;
@@ -1344,6 +1307,9 @@ namespace AplicativoDeAlmacen.Views
 
                     RefrescarGrillas();
                     dgProductos.SelectedItem = existente;
+                }
+                finally
+                {
                     this.Cursor = Cursors.Arrow;
                 }
             }
@@ -1451,7 +1417,6 @@ namespace AplicativoDeAlmacen.Views
         {
             var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
 
-
             if (_codigosGridList != null && _codigosGridList.Any())
             {
                 win.CodigosYaAgregadosEnMovimiento = _codigosGridList
@@ -1489,14 +1454,25 @@ namespace AplicativoDeAlmacen.Views
                     string norm = _serviceMovimiento.NormalizarCodigo(raw);
                     if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
 
+                    int pId = tup.ProductoId.Value;
+
+                    // 🛡️ CANDADO ANTI-DUPLICADOS: Verificar contra la grilla activa en memoria
+                    bool yaExiste = false;
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        yaExiste = _codigosGridList.Any(c => c.ProductoId == pId && _serviceMovimiento.NormalizarCodigo(c.CodigoUnique) == norm);
+                    });
+
+                    if (yaExiste) continue; // Si ya está, se omite
+
                     string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
 
-                    if (!codigosFisicosAgrupados.ContainsKey(tup.ProductoId.Value))
-                        codigosFisicosAgrupados[tup.ProductoId.Value] = new List<VistaCodigoGrid>();
+                    if (!codigosFisicosAgrupados.ContainsKey(pId))
+                        codigosFisicosAgrupados[pId] = new List<VistaCodigoGrid>();
 
-                    codigosFisicosAgrupados[tup.ProductoId.Value].Add(new VistaCodigoGrid
+                    codigosFisicosAgrupados[pId].Add(new VistaCodigoGrid
                     {
-                        ProductoId = tup.ProductoId.Value,
+                        ProductoId = pId,
                         CodigoUnique = tup.CodigoObj.Codigo,
                         ColeccionTipo = tipoBD,
                         MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
@@ -1526,9 +1502,6 @@ namespace AplicativoDeAlmacen.Views
                         var prodData = await prodService.ObtenerPorIdAsync(productoId);
                         string unidadDeBD = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD";
 
-                        _codigosGridList.RemoveAll(c => c.ProductoId == productoId);
-                        _rangosProcesadosGlobal.RemoveAll(r => r.productoId == productoId);
-
                         var producto = AgregarOActualizarProducto(productoId, prodData?.Descripcion ?? "Desconocido", 0, prodData?.PrecioUnitario ?? 0, unidadDeBD);
 
                         _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, productoId, kvp.Value);
@@ -1552,10 +1525,6 @@ namespace AplicativoDeAlmacen.Views
                 {
                     this.Cursor = Cursors.Arrow;
                 }
-            }
-            else if (loadingTransfer.ErrorResult != null)
-            {
-                MessageBox.Show($"Error crítico al procesar la lista en kárdex:\n{loadingTransfer.ErrorResult.Message}", "Error de Negocio", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -1641,25 +1610,18 @@ namespace AplicativoDeAlmacen.Views
             txtSerieGuia.IsEnabled = true;
             txtNumeroGuia.IsEnabled = true;
 
-            // 🔴 MOTIVO 1 (COMPRA / INGRESO DE IMPRENTA)
             if (idMotivo == 1 || idMotivo == 2)
             {
                 txtRazonSocial.IsEnabled = true;
-
-                // Bloqueados porque el ingreso es directo a tu almacén de sesión
                 txtUbicacion.IsEnabled = false;
                 cboAlmacenDestino.IsEnabled = false;
             }
-            // 🔵 MOTIVO 4 / 10 (TRANSFERENCIA INTER-ALMACÉN)
             else if (idMotivo == 4)
             {
                 txtRazonSocial.IsEnabled = false;
-
-                // Se habilitan Ubicación (Referencial) y el Almacén Origen/Destino de procedencia
                 txtUbicacion.IsEnabled = true;
                 cboAlmacenDestino.IsEnabled = true;
             }
-            // 🟣 OTROS MOTIVOS (Flexible)
             else
             {
                 txtRazonSocial.IsEnabled = true;
@@ -1667,7 +1629,6 @@ namespace AplicativoDeAlmacen.Views
                 cboAlmacenDestino.IsEnabled = true;
             }
 
-            // Limpieza de campos si son deshabilitados
             if (!txtRazonSocial.IsEnabled)
             {
                 txtRazonSocial.Clear();
@@ -1689,7 +1650,7 @@ namespace AplicativoDeAlmacen.Views
             if (!cboAlmacenDestino.IsEnabled)
             {
                 cboAlmacenDestino.SelectedIndex = -1;
-                cboAlmacenDestino.SelectedValue = null; // 🌟 CAMBIO PUNTUAL: Limpia el valor interno
+                cboAlmacenDestino.SelectedValue = null;
             }
         }
 
@@ -1707,53 +1668,98 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private async void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
+        // ==========================================
+        // EVENTOS DE BÚSQUEDA OPTIMIZADOS (DEBOUNCE)
+        // ==========================================
+        private void TxtRazonSocial_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (!txtRazonSocial.IsEnabled || _isUpdatingFromSelection) return;
+
+            _timerRazonSocial.Stop();
+            _timerRazonSocial.Start();
+        }
+
+        private async Task EjecutarBusquedaRazonSocialAsync()
+        {
             string textoBusqueda = txtRazonSocial.Text.Trim();
             if (textoBusqueda.Length >= 2)
             {
-                try { var sugerencias = await _service.BuscarPorRazonSocialAsync(textoBusqueda); lstSugerencias.ItemsSource = sugerencias; popupSugerencias.IsOpen = sugerencias != null && sugerencias.Count > 0; } catch { }
+                try
+                {
+                    var sugerencias = await _service.BuscarPorRazonSocialAsync(textoBusqueda);
+                    lstSugerencias.ItemsSource = sugerencias;
+                    popupSugerencias.IsOpen = sugerencias != null && sugerencias.Count > 0;
+                }
+                catch
+                {
+                    popupSugerencias.IsOpen = false;
+                }
             }
-            else popupSugerencias.IsOpen = false;
+            else
+            {
+                popupSugerencias.IsOpen = false;
+            }
         }
 
+        // 🌟 EVENTO RESTAURADO: Selección de cliente
         private void LstSugerencias_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (lstSugerencias.SelectedItem is PersonaComercial personaSeleccionada)
             {
-                _isUpdatingFromSelection = true; _personaComercialIdSeleccionada = personaSeleccionada.Id;
-                txtRazonSocial.Text = !string.IsNullOrEmpty(personaSeleccionada.RazonSocial) ? personaSeleccionada.RazonSocial : $"{personaSeleccionada.Nombres} {personaSeleccionada.ApellidoPaterno}";
-                txtCodigoRazonSocial.Text = personaSeleccionada.Id.ToString("D6"); txtDireccion.Text = personaSeleccionada.Direccion ?? "Sin dirección registrada";
-                popupSugerencias.IsOpen = false; lstSugerencias.SelectedIndex = -1; _isUpdatingFromSelection = false;
+                _isUpdatingFromSelection = true;
+                _personaComercialIdSeleccionada = personaSeleccionada.Id;
+                txtRazonSocial.Text = !string.IsNullOrEmpty(personaSeleccionada.RazonSocial)
+                    ? personaSeleccionada.RazonSocial
+                    : $"{personaSeleccionada.Nombres} {personaSeleccionada.ApellidoPaterno}";
+                txtCodigoRazonSocial.Text = personaSeleccionada.Id.ToString("D6");
+                txtDireccion.Text = personaSeleccionada.Direccion ?? "Sin dirección registrada";
+                popupSugerencias.IsOpen = false;
+                lstSugerencias.SelectedIndex = -1;
+                _isUpdatingFromSelection = false;
             }
         }
 
         private void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // 🛡️ Si Ubicación no está habilitada para este motivo, oculta el desplegable y sale
             if (!txtUbicacion.IsEnabled || _isUpdatingFromSelection)
             {
                 if (popupUbicacion != null) popupUbicacion.IsOpen = false;
                 return;
             }
 
-            string busqueda = txtUbicacion.Text;
-            if (string.IsNullOrWhiteSpace(busqueda))
+            _timerUbicacion.Stop();
+            _timerUbicacion.Start();
+        }
+
+        private async Task EjecutarBusquedaUbicacionAsync()
+        {
+            string busqueda = txtUbicacion.Text.Trim();
+            if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Length < 2)
             {
-                popupUbicacion.IsOpen = false;
+                if (popupUbicacion != null) popupUbicacion.IsOpen = false;
                 return;
             }
 
-            var resultados = _ubicacionService.BuscarUbicaciones(busqueda);
-            if (resultados != null && resultados.Count > 0)
+            try
             {
-                lstSugerenciasUbicacion.ItemsSource = resultados;
-                popupUbicacion.IsOpen = true;
+                var resultados = await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                if (resultados != null && resultados.Count > 0)
+                {
+                    lstSugerenciasUbicacion.ItemsSource = resultados;
+                    popupUbicacion.IsOpen = true;
+                }
+                else
+                {
+                    popupUbicacion.IsOpen = false;
+                }
             }
-            else popupUbicacion.IsOpen = false;
+            catch
+            {
+                if (popupUbicacion != null) popupUbicacion.IsOpen = false;
+            }
         }
 
+        // 🌟 EVENTO RESTAURADO: Selección de ubicación
         private void LstSugerenciasUbicacion_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (lstSugerenciasUbicacion.SelectedItem is Ubicacion itemSeleccionado)
@@ -1761,15 +1767,11 @@ namespace AplicativoDeAlmacen.Views
                 txtUbicacion.Text = itemSeleccionado.Descripcion;
                 txtCodigoUbicacion.Text = itemSeleccionado.Id.ToString();
                 txtDireccionUbicacion.Text = string.IsNullOrWhiteSpace(itemSeleccionado.Direccion) ? "Sin dirección registrada" : itemSeleccionado.Direccion;
-
-                // 🌟 CAMBIO CLAVE: Almacenamos el ID seleccionado para persistirlo en SQL
                 _idUbicacionSeleccionada = itemSeleccionado.Id;
-
                 popupUbicacion.IsOpen = false;
             }
         }
-        // 🌟 Método público para cargar directamente el documento al abrir la pestaña
-       
+
         private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (sender is DependencyObject dep)
@@ -1785,8 +1787,6 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
         }
-
-
 
         private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
         {

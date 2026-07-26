@@ -42,10 +42,8 @@ namespace AplicativoDeAlmacen.Views
             this._productoId = itemAEditar.productoId;
             this._categoriaActualId = itemAEditar.CategoriaProductoId;
 
-            // 🌟 LEEMOS LA CANTIDAD EXACTA ACTUAL DEL RANGO (ej. 50)
             int cantidadItemActual = int.TryParse(itemAEditar.Cantidad, out int cant) ? cant : 1;
 
-            // Configuramos los controles SIN disparar recálculos automáticos indeseados
             txtSubCantidad.Text = cantidadItemActual.ToString();
             txtSubCantidad.IsReadOnly = false;
 
@@ -59,6 +57,9 @@ namespace AplicativoDeAlmacen.Views
             txtHasta.Text = itemAEditar.HastaNum.ToString();
 
             if (_categoriaActualId == 1) rbLibroGuia.IsChecked = true; else rbLibroVenta.IsChecked = true;
+
+            // 🌟 BLOQUEO AUTOMÁTICO SEGÚN EL TIPO DE PRODUCTO
+            ConfigurarRestriccionCategoriaProducto();
 
             RecalcularRangoAutomatico();
         }
@@ -85,10 +86,37 @@ namespace AplicativoDeAlmacen.Views
             rbLibroGuia.Checked += (s, e) => { _categoriaActualId = 1; RecalcularRangoAutomatico(); };
             rbLibroVenta.Checked += (s, e) => { _categoriaActualId = 2; RecalcularRangoAutomatico(); };
 
+            // 🌟 BLOQUEO AUTOMÁTICO SEGÚN EL TIPO DE PRODUCTO
+            ConfigurarRestriccionCategoriaProducto();
+
             int sugeridoBD = ObtenerSiguienteNumeroDesdeBD(_abreviaturaProducto, _categoriaActualId);
             txtDesde.Text = sugeridoBD.ToString();
 
             RecalcularRangoAutomatico();
+        }
+
+        // 🌟 MÉTODO NUEVO: Detecta si el producto es Venta (V) o Guía (G) y bloquea el RadioButton opuesto
+        private void ConfigurarRestriccionCategoriaProducto()
+        {
+            if (string.IsNullOrWhiteSpace(_abreviaturaProducto)) return;
+
+            string abrevUpper = _abreviaturaProducto.Trim().ToUpperInvariant();
+
+            bool esProductoVenta = abrevUpper.EndsWith("-V") || abrevUpper.EndsWith(" V") || abrevUpper.EndsWith("VENTA");
+            bool esProductoGuia = abrevUpper.EndsWith("-G") || abrevUpper.EndsWith(" G") || abrevUpper.EndsWith("GUIA") || abrevUpper.EndsWith("GUÍA");
+
+            if (esProductoVenta)
+            {
+                _categoriaActualId = 2; // Forzar Libro Venta
+                rbLibroVenta.IsChecked = true;
+                rbLibroGuia.IsEnabled = false; // 🚫 Inhabilita la opción de Guía
+            }
+            else if (esProductoGuia)
+            {
+                _categoriaActualId = 1; // Forzar Libro Guía
+                rbLibroGuia.IsChecked = true;
+                rbLibroVenta.IsEnabled = false; // 🚫 Inhabilita la opción de Venta
+            }
         }
 
         private void AgregarParametro(DbCommand cmd, string nombre, object valor)
@@ -245,8 +273,38 @@ namespace AplicativoDeAlmacen.Views
             int categoriaId = rbLibroGuia.IsChecked == true ? 1 : 2;
             string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
 
+            // 🌟 VALIDACIÓN DE COINCIDENCIA DE CATEGORÍA
+            string abrevUpper = _abreviaturaProducto?.Trim().ToUpperInvariant() ?? "";
+            bool esProductoVenta = abrevUpper.EndsWith("-V") || abrevUpper.EndsWith(" V") || abrevUpper.EndsWith("VENTA");
+            bool esProductoGuia = abrevUpper.EndsWith("-G") || abrevUpper.EndsWith(" G") || abrevUpper.EndsWith("GUIA") || abrevUpper.EndsWith("GUÍA");
+
+            if (esProductoVenta && categoriaId == 1)
+            {
+                MessageBox.Show(
+                    $"⚠️ Incompatibilidad de Categoría:\n\n" +
+                    $"El producto seleccionado es 'LIBRO VENTA' (Alumno).\n" +
+                    $"No se puede asignar un rango como 'LIBRO GUÍA' (Docente).\n\n" +
+                    $"Seleccione 'Libro Venta (Alumno)' para continuar.",
+                    "Categoría Incorrecta",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            if (esProductoGuia && categoriaId == 2)
+            {
+                MessageBox.Show(
+                    $"⚠️ Incompatibilidad de Categoría:\n\n" +
+                    $"El producto seleccionado es 'LIBRO GUÍA' (Docente).\n" +
+                    $"No se puede asignar un rango como 'LIBRO VENTA' (Alumno).\n\n" +
+                    $"Seleccione 'Libro Guía (Docente)' para continuar.",
+                    "Categoría Incorrecta",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
             // 🌟 VALIDACIÓN DE CATEGORÍA CONTRA LA BASE DE DATOS (MERCADERÍA EN STOCK)
-            // Se valida únicamente al CREAR un rango o agregar unidades nuevas (no en modo edición limpia)
             if (!this.EsModoEdicion)
             {
                 bool existeRangoEnBD = ValidarExistenciaRangoEnBD(
@@ -272,11 +330,11 @@ namespace AplicativoDeAlmacen.Views
                         MessageBoxButton.OK,
                         MessageBoxImage.Stop);
 
-                    return; // 🛑 Cancela la asignación y no deja guardar el rango
+                    return;
                 }
             }
 
-            // 🛡️ CANDADO ÚNICO: Prevenir solapamiento entre los rangos que están en la grilla temporal
+            // 🛡️ CANDADO ÚNICO: Prevenir solapamiento entre los rangos
             if (_itemsEnGrilla != null)
             {
                 foreach (var itemObj in _itemsEnGrilla)

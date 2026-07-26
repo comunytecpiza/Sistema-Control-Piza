@@ -15,15 +15,10 @@ using AplicativoDeAlmacen.Services.facturaciòn;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using Notification.Wpf;
 
-
-
 namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 {
     public partial class RegistroComprobantesUserControl : UserControl
     {
-
-
-
         private readonly FacturacionService _facturacionService;
         private readonly SerieDocumentoService _serieService;
         private readonly UbicacionService _ubicacionService;
@@ -34,12 +29,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private bool _isUpdatingFicha = false;
         private int _idComprobanteActual = 0;
 
-        // 🌟 Máquina de estados del formulario.
-        // Ninguno              -> formulario bloqueado, sin nada cargado.
-        // Nuevo                -> formulario totalmente habilitado para crear un comprobante.
-        // BuscandoParaEditar   -> solo Tipo Doc / Serie / N° habilitados; ENTER carga TODO editable.
-        // BuscandoParaImprimir -> solo Tipo Doc / Serie / N° habilitados; ENTER carga TODO en solo lectura
-        //                         y habilita el botón "Imprimir Excel" de la fila inferior.
         private enum ModoFormulario
         {
             Ninguno,
@@ -61,6 +50,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             DgItems.ItemsSource = _itemsGrid;
             Loaded += async (s, e) => await InicializarModulo();
         }
+
         private void ActualizarNumeroCorrelativo()
         {
             if (_modoActual != ModoFormulario.Nuevo)
@@ -78,6 +68,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             TxtNumero.Text = (correlativo + 1).ToString("D7");
         }
+
         private async Task InicializarModulo()
         {
             try
@@ -85,7 +76,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 await CargarTodasLasSeries();
                 FiltrarSeriesPorTipoDocumento();
 
-                // Iniciamos con el formulario bloqueado y limpio
                 _modoActual = ModoFormulario.Ninguno;
                 PanelFormulario.IsEnabled = false;
                 LimpiarFormulario();
@@ -99,17 +89,13 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private async Task CargarTodasLasSeries()
         {
             _todasLasSeries.Clear();
-            var ubicaciones = _ubicacionService.ObtenerTodas();
+            var ubicaciones = await _ubicacionService.ObtenerTodasAsync();
             foreach (var u in ubicaciones)
             {
                 var seriesSede = await _serieService.ObtenerSeriesPorUbicacionAsync(u.Id);
                 _todasLasSeries.AddRange(seriesSede);
             }
         }
-
-        // ==========================================
-        // LÓGICA DE BUSCADORES PREDICTIVOS
-        // ==========================================
 
         private async void TxtRazonSocialBuscador_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -119,7 +105,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
             LstRazonSocial.ItemsSource = resultados.Take(10).ToList();
-            PopRazonSocial.IsOpen = resultados.Any();
+            PopRazonSocial.IsOpen = resultados != null && resultados.Any();
         }
 
         private async void TxtClienteBuscador_TextChanged(object sender, TextChangedEventArgs e)
@@ -130,7 +116,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
             LstCliente.ItemsSource = resultados.Take(10).ToList();
-            PopCliente.IsOpen = resultados.Any();
+            PopCliente.IsOpen = resultados != null && resultados.Any();
         }
 
         private void LstRazonSocial_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -138,7 +124,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             if (LstRazonSocial.SelectedItem is PersonaComercial p)
             {
                 PopRazonSocial.IsOpen = false;
-                LlenarFichaCliente(p, esRazonSocial: true); // Llena bloque Naranja
+                LlenarFichaCliente(p, esRazonSocial: true);
             }
         }
 
@@ -147,7 +133,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             if (LstCliente.SelectedItem is PersonaComercial p)
             {
                 PopCliente.IsOpen = false;
-                LlenarFichaCliente(p, esRazonSocial: false); // Llena bloque Rojo
+                LlenarFichaCliente(p, esRazonSocial: false);
             }
         }
 
@@ -158,7 +144,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             if (esRazonSocial)
             {
-                // RECUADRO NARANJA (Pagador Legal)
                 TxtRazonSocialBuscador.Text = cliente.RazonSocial ?? $"{cliente.Nombres} {cliente.ApellidoPaterno}";
                 TxtRazonSocialId.Text = cliente.Id.ToString("D6");
                 TxtDireccionPagador.Text = cliente.Direccion;
@@ -166,7 +151,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
             else
             {
-                // RECUADRO ROJO (Colegio / Destino)
                 TxtClienteBuscador.Text = cliente.RazonSocial ?? $"{cliente.Nombres} {cliente.ApellidoPaterno}";
                 TxtClienteId.Text = cliente.Id.ToString("D6");
                 TxtDireccionColegio.Text = cliente.Direccion;
@@ -179,9 +163,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             _isUpdatingFicha = false;
         }
 
-        // ==========================================
-        // CASCADA SERIE / DOCUMENTO
-        // ==========================================
         private void CmbTipoDocu_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             FiltrarSeriesPorTipoDocumento();
@@ -204,15 +185,15 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        private void CmbSerie_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private async void CmbSerie_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (TxtNumero == null || TxtPuntoVenta == null)
                 return;
 
             if (CmbSerie.SelectedItem is SerieDocumento s)
             {
-                var sede = _ubicacionService.ObtenerTodas()
-                    .FirstOrDefault(u => u.Id == s.UbicacionId);
+                var todasSedes = await _ubicacionService.ObtenerTodasAsync();
+                var sede = todasSedes.FirstOrDefault(u => u.Id == s.UbicacionId);
 
                 TxtPuntoVenta.Text = sede?.Descripcion ?? "Ubicación Desconocida";
                 TxtPuntoVenta.Tag = sede?.Id;
@@ -228,10 +209,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        // ==========================================
-        // BOTONES DE ACCIÓN PRINCIPALES (BARRA SUPERIOR)
-        // ==========================================
-
         private void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
             _modoActual = ModoFormulario.Nuevo;
@@ -244,14 +221,12 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             DpFecha.SelectedDate = DateTime.Now;
 
-            // 1. Forzamos el filtrado para que el combo tenga series
             FiltrarSeriesPorTipoDocumento();
 
-            // 2. Si el combo tiene series, seleccionamos la primera y forzamos el cálculo
             if (CmbSerie.Items.Count > 0)
             {
                 CmbSerie.SelectedIndex = 0;
-                ActualizarNumeroCorrelativo(); // Esto ya usa el s.Correlativo+1
+                ActualizarNumeroCorrelativo();
             }
 
             TxtRazonSocialBuscador.Focus();
@@ -259,7 +234,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnModificar_Click(object sender, RoutedEventArgs e)
         {
-            // Si ya estábamos en modo búsqueda para editar, solo devolvemos el foco al N°.
             if (_modoActual == ModoFormulario.BuscandoParaEditar)
             {
                 HabilitarTodoElFormulario();
@@ -281,7 +255,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
-            // Si ya estábamos en modo búsqueda para imprimir, solo devolvemos el foco al N°.
             if (_modoActual == ModoFormulario.BuscandoParaImprimir)
             {
                 TxtNumero.Focus();
@@ -312,7 +285,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)
         {
-            // Cierra la ventana que contiene a este UserControl
             var parentWindow = Window.GetWindow(this);
             if (parentWindow != null)
             {
@@ -320,15 +292,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        // ==========================================
-        // HELPERS DE HABILITADO / BLOQUEO DE CAMPOS
-        // ==========================================
-
-        /// <summary>
-        /// Deja habilitados únicamente Tipo Documento, Serie y N° Documento.
-        /// Todo lo demás (datos del cliente, items, botones de grilla) queda bloqueado
-        /// hasta que se cargue un comprobante por número.
-        /// </summary>
         private void ConfigurarModoBusqueda()
         {
             PanelFormulario.IsEnabled = true;
@@ -356,13 +319,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             BtnEliminarItem.IsEnabled = false;
             BtnLector.IsEnabled = false;
             DgItems.IsEnabled = false;
-
-            
         }
 
-        /// <summary>
-        /// Habilita todos los campos del formulario (modo edición completa).
-        /// </summary>
         private void HabilitarTodoElFormulario()
         {
             CmbTipoDocu.IsEnabled = true;
@@ -393,25 +351,21 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             _isUpdatingFicha = true;
 
-            // Limpiamos Bloque Naranja
             TxtRazonSocialBuscador.Text = string.Empty;
             TxtRazonSocialId.Text = string.Empty;
             TxtDniRuc.Text = string.Empty;
             TxtDireccionPagador.Text = string.Empty;
             if (CmbTipoIdentidad.Items.Count > 0) CmbTipoIdentidad.SelectedIndex = 0;
 
-            // Limpiamos Bloque Rojo
             TxtClienteBuscador.Text = string.Empty;
             TxtClienteId.Text = string.Empty;
             TxtDireccionColegio.Text = string.Empty;
             TxtLocalidad.Text = string.Empty;
 
-            // Otros campos
             TxtObservacion.Text = string.Empty;
             DpFecha.SelectedDate = null;
             TxtNumero.Text = string.Empty;
 
-            // Limpiamos grilla y totales
             _itemsGrid.Clear();
             ActualizarTotales();
 
@@ -426,16 +380,12 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtTotal.Text = "0.00";
         }
 
-        // ==========================================
-        // ACCIONES DE LA GRILLA (ITEMS)
-        // ==========================================
-
         private void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             AgregarItemWindow modal = new AgregarItemWindow();
             modal.Owner = Window.GetWindow(this);
 
-            if (modal.ShowDialog() == true) // Si el usuario presionó Grabar
+            if (modal.ShowDialog() == true)
             {
                 if (modal.NuevoItem != null)
                 {
@@ -449,8 +399,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             decimal subTotal = _itemsGrid.Sum(x => x.ImpTota);
 
-            // Asignamos todo a exonerado por defecto para que se guarde correctamente en BD.
-            // Si algún día venden algo con IGV, el contador tendrá que editar el TextBox a mano antes de darle a Grabar.
             TxtOpExoneradas.Text = subTotal.ToString("N2");
             TxtOpGravadas.Text = "0.00";
             TxtIgv.Text = "0.00";
@@ -459,19 +407,15 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnActivarLector_Click(object sender, RoutedEventArgs e)
         {
-            // Le pasamos tu _itemsGrid por referencia.
-            // Lo que el modal cambie, se reflejará aquí al instante.
             LectorWindow lectorModal = new LectorWindow(_itemsGrid);
             lectorModal.Owner = Window.GetWindow(this);
             lectorModal.ShowDialog();
 
-            // Cuando el usuario termine y cierre la ventana, recalculamos los totales abajo
             RecalcularTotales();
         }
 
         private async void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
-            // 1. Validaciones previas
             if (_itemsGrid.Count == 0)
             {
                 MessageBox.Show("No hay ítems para facturar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -484,7 +428,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 return;
             }
 
-            // 🌟 2. Construir la cabecera (Mapeo actualizado con Nombres Completos)
             var cabecera = new FacturacionCabecera
             {
                 TipoDocumento = (CmbTipoDocu.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "01",
@@ -499,21 +442,20 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 TotalExonerado = decimal.Parse(TxtOpExoneradas.Text),
                 TotalIgv = decimal.Parse(TxtIgv.Text),
                 ImporteTotal = decimal.Parse(TxtTotal.Text),
-                PorcentajeIgv = 18.00m, // Ajusta según tu configuración
+                PorcentajeIgv = 18.00m,
                 EstadoRegistro = true,
-                UsuarioId = 1 // 🌟 CÁMBIALO POR EL ID DE TU USUARIO LOGUEADO
+                UsuarioId = 1
             };
 
-            // 🌟 3. Mapear detalles y códigos desde _itemsGrid (Nombres Completos)
             foreach (var item in _itemsGrid)
             {
                 var detalle = new FacturacionDetalle
                 {
                     ProductoId = item.ProductoId,
-                    Cantidad = item.CanProd, // Se mapea desde la propiedad de tu DTO
+                    Cantidad = item.CanProd,
                     PrecioUnitario = item.PreUnit,
                     ImporteTotal = item.ImpTota,
-                    MovimientoId = item.MovimientoId, // Tu candado de integridad
+                    MovimientoId = item.MovimientoId,
                     Codigos = item.Codigos.Select(c => new FacturacionDetalleCodigos
                     {
                         CodigoCreadoId = c.CodigoCreadoId
@@ -526,7 +468,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             {
                 if (_idComprobanteActual > 0)
                 {
-                    // 🌟 MODO ACTUALIZAR
                     cabecera.Id = _idComprobanteActual;
                     await _facturacionService.ActualizarComprobanteAsync(cabecera);
                     MessageBox.Show("Comprobante actualizado correctamente.");
@@ -537,10 +478,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                     await _facturacionService.GuardarComprobanteAsync(cabecera, serieId);
 
-                    // Recargar correlativos reales desde BD
                     await CargarTodasLasSeries();
-                    var prueba = _todasLasSeries
-                    .FirstOrDefault(x => x.Id == serieId);
+                    var prueba = _todasLasSeries.FirstOrDefault(x => x.Id == serieId);
 
                     MessageBox.Show(
                         $"Serie: {prueba.NumeroSerie}\nFactura actual BD: {prueba.CorrelativoFactura}"
@@ -592,10 +531,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 int index = _itemsGrid.IndexOf(itemSeleccionado);
                 if (index >= 0)
                 {
-                    // Conservamos el número de línea original
                     modal.NuevoItem.NumLine = itemSeleccionado.NumLine;
-
-                    // Reemplazamos el ítem completo en la misma posición
                     _itemsGrid[index] = modal.NuevoItem;
                     RecalcularTotales();
                 }
@@ -621,12 +557,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        // ==========================================================
-        // CARGA DE COMPROBANTE POR NÚMERO (ENTER en TxtNumero)
-        // Se dispara tanto en modo "BuscandoParaEditar" como en
-        // "BuscandoParaImprimir"; la diferencia es qué se hace DESPUÉS
-        // de cargar los datos.
-        // ==========================================================
         private async void TxtNumero_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
@@ -637,7 +567,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private async Task CargarComprobantePorNumero()
         {
-            // Si el ENTER se presiona fuera de un modo de búsqueda válido, no hacemos nada.
             if (_modoActual != ModoFormulario.BuscandoParaEditar && _modoActual != ModoFormulario.BuscandoParaImprimir)
                 return;
 
@@ -649,8 +578,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             if (_modoActual == ModoFormulario.BuscandoParaImprimir)
             {
-                // Dejamos el panel habilitado.
-                // Luego bloquearemos únicamente los controles de edición.
                 PanelFormulario.IsEnabled = true;
             }
 
@@ -661,16 +588,13 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 return;
             }
 
-            // 🌟 FORMATEO A 7 DÍGITOS
             string numeroFormateado = numeroInt.ToString("D7");
-            TxtNumero.Text = numeroFormateado; // Actualizamos el UI para que el usuario vea que se completó
+            TxtNumero.Text = numeroFormateado;
 
-            // 1. Traer la cabecera completa desde la BD
             var comprobante = await _facturacionService.ObtenerComprobantePorNumeroAsync(serieSeleccionada.NumeroSerie, numeroFormateado);
 
             if (comprobante == null)
             {
-                // 🌟 CORRECCIÓN: Usamos numeroFormateado para el mensaje de error
                 MessageBox.Show($"No se encontró el comprobante {serieSeleccionada.NumeroSerie}-{numeroFormateado}.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -680,7 +604,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 MessageBox.Show("¡ATENCIÓN! Este comprobante se encuentra ANULADO.", "Comprobante Anulado", MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
-            // 2. Llenar la Cabecera Visual
             _idComprobanteActual = comprobante.Id;
             DpFecha.SelectedDate = comprobante.FechaEmision;
             TxtObservacion.Text = comprobante.Observacion;
@@ -697,7 +620,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 LlenarFichaCliente(colegio, esRazonSocial: false);
             }
 
-            // 3. Llenar la Grilla de Detalles
             _itemsGrid.Clear();
             var productoService = new ProductoService();
 
@@ -724,24 +646,20 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 });
             }
 
-            // 4. Totales
             RecalcularTotales();
             TxtOpGravadas.Text = comprobante.TotalGravado.ToString("N2");
             TxtOpExoneradas.Text = comprobante.TotalExonerado.ToString("N2");
             TxtIgv.Text = comprobante.TotalIgv.ToString("N2");
             TxtTotal.Text = comprobante.ImporteTotal.ToString("N2");
 
-            // 5. Comportamiento final
             if (_modoActual == ModoFormulario.BuscandoParaEditar)
             {
                 HabilitarTodoElFormulario();
             }
             else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
             {
-                // El panel permanece habilitado.
                 PanelFormulario.IsEnabled = true;
 
-                // Bloqueamos únicamente la edición.
                 TxtRazonSocialBuscador.IsEnabled = false;
                 TxtDniRuc.IsEnabled = false;
                 CmbTipoIdentidad.IsEnabled = false;
@@ -760,10 +678,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 BtnLector.IsEnabled = false;
                 BtnGrabar.IsEnabled = false;
 
-                // ESTE SÍ debe quedar habilitado
                 BtnImprimirExcel.IsEnabled = true;
 
-                // Buscador sigue funcionando
                 CmbTipoDocu.IsEnabled = true;
                 CmbSerie.IsEnabled = true;
 
@@ -772,11 +688,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        // ==========================================================
-        // BOTÓN "IMPRIMIR EXCEL" (fila inferior) - NUEVO
-        // Solo hace el export; nace deshabilitado y se activa recién
-        // cuando se cargó un comprobante en modo Vista Previa.
-        // ==========================================================
         private void BtnImprimirExcel_Click(object sender, RoutedEventArgs e)
         {
             if (_itemsGrid.Count == 0)
@@ -814,9 +725,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        // ==========================================================
-        // BOTÓN ANULAR (No elimina, solo cambia estado_registro a 0)
-        // ==========================================================
         private async void BtnAnular_Click(object sender, RoutedEventArgs e)
         {
             if (_idComprobanteActual == 0)
@@ -853,7 +761,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void DgItems_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-
         }
     }
 }

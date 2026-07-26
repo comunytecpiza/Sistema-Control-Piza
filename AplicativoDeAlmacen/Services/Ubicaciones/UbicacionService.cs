@@ -179,7 +179,6 @@ namespace AplicativoDeAlmacen.Services.Ubicaciones
             using var conn = _database.GetConnection();
             await ((DbConnection)conn).OpenAsync();
 
-            // 🛡️ Integridad Referencial: Verificar si tiene movimientos registrados
             string checkQuery = "SELECT COUNT(*) FROM movimientos WHERE ubicacion_id = @UbicacionId";
             using (var checkCmd = conn.CreateCommand())
             {
@@ -317,40 +316,37 @@ namespace AplicativoDeAlmacen.Services.Ubicaciones
             return lista;
         }
 
-        // Método auxiliar de compatibilidad para llamadas síncronas
-        public List<Ubicacion> ObtenerTodas() => Task.Run(() => ObtenerTodasAsync()).Result;
-        public List<Ubicacion> BuscarUbicaciones(string criterio)
-        {
-            var todas = ObtenerTodas();
-            return todas.FindAll(x => x.Descripcion.Contains(criterio, StringComparison.OrdinalIgnoreCase));
-        }
-
-        public List<Ubicacion> BuscarUbicacionesPorNombre(string criterio)
+        // 🌟 BÚSQUEDA ASÍNCRONA OPTIMIZADA CON LIMIT / TOP
+        public async Task<List<Ubicacion>> BuscarUbicacionesPorNombreAsync(string criterio)
         {
             var lista = new List<Ubicacion>();
 
             if (string.IsNullOrWhiteSpace(criterio))
                 return lista;
 
-            string query = @"
-        SELECT id, descripcion, direccion 
-        FROM ubicaciones 
-        WHERE descripcion LIKE @criterio 
-        ORDER BY descripcion ASC";
+            string topClause = QueryAdapter.EsMySQL ? "" : "TOP 30";
+            string limitClause = QueryAdapter.EsMySQL ? "LIMIT 30" : "";
+
+            string query = $@"
+                SELECT {topClause} id, descripcion, direccion 
+                FROM ubicaciones 
+                WHERE descripcion LIKE @criterio 
+                ORDER BY descripcion ASC
+                {limitClause}";
 
             try
             {
                 using var conn = _database.GetConnection();
                 var dbConn = (DbConnection)conn;
-                if (dbConn.State != ConnectionState.Open) dbConn.Open();
+                await dbConn.OpenAsync();
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                 AgregarParametro(cmd, "@criterio", "%" + criterio.Trim() + "%");
 
-                using var reader = cmd.ExecuteReader();
-                while (reader.Read())
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
                 {
                     lista.Add(new Ubicacion
                     {

@@ -36,7 +36,6 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 Añadido el JOIN para tipo_persona_comercial
                 string query = @"
                     SELECT pc.*,
                         tp.nombre AS tipo_persona,
@@ -74,6 +73,7 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
+        // 🌟 BÚSQUEDA RÁPIDA OPTIMIZADA CON LIMIT / TOP
         public async Task<List<PersonaComercial>> BuscarPorRazonSocialAsync(string filtro)
         {
             var lista = new List<PersonaComercial>();
@@ -84,8 +84,11 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string query = @"
-                    SELECT pc.*,
+                string topClause = QueryAdapter.EsMySQL ? "" : "TOP 30";
+                string limitClause = QueryAdapter.EsMySQL ? "LIMIT 30" : "";
+
+                string query = $@"
+                    SELECT {topClause} pc.*,
                         tp.nombre AS tipo_persona,
                         tpc.nombre AS tipo_persona_comercial,
                         l.nombre AS localidad,
@@ -106,12 +109,13 @@ namespace AplicativoDeAlmacen.Services
                     WHERE pc.razon_social LIKE @filtro 
                        OR pc.nombres LIKE @filtro 
                        OR pc.nombre_comercial LIKE @filtro
-                    ORDER BY pc.razon_social ASC";
+                    ORDER BY pc.razon_social ASC
+                    {limitClause}";
 
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                    AgregarParametro(cmd, "@filtro", $"%{filtro}%");
+                    AgregarParametro(cmd, "@filtro", $"%{filtro.Trim()}%");
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
@@ -195,12 +199,8 @@ namespace AplicativoDeAlmacen.Services
             }
         }
 
-        // =======================================================
-        // METODO AUXILIAR: Mapeo "a prueba de balas"
-        // =======================================================
         private PersonaComercial MapearPersonaComercial(DbDataReader reader)
         {
-            // 🌟 Solución al error de carga: Usamos "as string" para evitar InvalidCastException
             Localidad localidad = null;
             if (!reader.IsDBNull(reader.GetOrdinal("localidad_id")))
             {
@@ -231,7 +231,6 @@ namespace AplicativoDeAlmacen.Services
                 };
             }
 
-            // (El resto de objetos los mapeamos igual de forma segura)
             Departamento departamento = !reader.IsDBNull(reader.GetOrdinal("departamento_id")) ? new Departamento { Id = reader.GetInt32(reader.GetOrdinal("departamento_id")), Nombre = reader["departamento"] as string } : null;
             Provincia provincia = !reader.IsDBNull(reader.GetOrdinal("provincia_id")) ? new Provincia { Id = reader.GetInt32(reader.GetOrdinal("provincia_id")), Nombre = reader["provincia"] as string } : null;
             Distrito distrito = !reader.IsDBNull(reader.GetOrdinal("distrito_id")) ? new Distrito { Id = reader.GetInt32(reader.GetOrdinal("distrito_id")), Nombre = reader["distrito"] as string } : null;
@@ -261,15 +260,13 @@ namespace AplicativoDeAlmacen.Services
             };
         }
 
-
         public async Task<PersonaComercial> ObtenerPorIdAsync(int id)
         {
             using (var conn = _database.GetConnection())
             {
-                var dbConn = (System.Data.Common.DbConnection)conn;
+                var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 CORRECCIÓN: Nombre de tabla 'zona_promotoria' y alias correctos
                 string query = @"
                 SELECT p.id, p.razon_social, p.direccion, p.ruc, p.dni, p.nombres, p.apellido_paterno, 
                        l.nombre as localidad_nombre, z.descripcion as zona_desc
@@ -280,7 +277,7 @@ namespace AplicativoDeAlmacen.Services
 
                 using (var cmd = dbConn.CreateCommand())
                 {
-                    cmd.CommandText = AplicativoDeAlmacen.Data.QueryAdapter.FormatearConsulta(query);
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                     var p = cmd.CreateParameter();
                     p.ParameterName = "@id";
@@ -300,8 +297,6 @@ namespace AplicativoDeAlmacen.Services
                                 Dni = reader["dni"] != DBNull.Value ? reader["dni"].ToString() : null,
                                 Nombres = reader["nombres"] != DBNull.Value ? reader["nombres"].ToString() : null,
                                 ApellidoPaterno = reader["apellido_paterno"] != DBNull.Value ? reader["apellido_paterno"].ToString() : null,
-
-                                // Mapeo de objetos relacionados
                                 Localidad = new Localidad
                                 {
                                     Nombre = reader["localidad_nombre"] != DBNull.Value ? reader["localidad_nombre"].ToString() : string.Empty
