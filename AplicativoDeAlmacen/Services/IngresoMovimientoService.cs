@@ -1493,7 +1493,7 @@ VALUES
             return s;
         }
 
-        public async Task<Dictionary<string, (CodigoCreado CodigoObj, int? ProductoId)>> ObtenerCodigosPorListaAsync(IEnumerable<string> codigos)
+        public async Task<Dictionary<string, (CodigoCreado CodigoObj, int? ProductoId)>> ObtenerCodigosPorListaAsync(IEnumerable<string> codigos, int? almacenId = null)
         {
             if (codigos == null)
                 return new Dictionary<string, (CodigoCreado, int?)>();
@@ -1535,7 +1535,9 @@ VALUES
 
                 string hintIndex = QueryAdapter.EsMySQL ? "" : "WITH (INDEX(IX_codigos_creados_codigo_perf))";
 
-                // 🟢 SE AGREGA cc.almacen_id A LA CONSULTA
+                // 🌟 CONDICIÓN OPCIONAL: Si viene almacenId, agrega la cláusula a la consulta SQL
+                string sqlAlmacenFiltro = almacenId.HasValue ? " AND cc.almacen_id = @almId " : "";
+
                 string queryMaster = $@"
             SELECT 
                 cc.id, 
@@ -1543,13 +1545,21 @@ VALUES
                 cc.codigo, 
                 cc.es_manual, 
                 cc.estado_id, 
-                cc.almacen_id, -- 👈 COLUMNA CLAVE AGREGADA
+                cc.almacen_id,
                 rc.producto_id
             FROM codigos_creados cc {hintIndex}
             LEFT JOIN registro_codigos rc ON rc.id = cc.registro_codigo_id
-            WHERE cc.codigo IN ({string.Join(",", paramNames)})";
+            WHERE cc.codigo IN ({string.Join(",", paramNames)}) {sqlAlmacenFiltro}";
 
                 cmdQuery.CommandText = QueryAdapter.FormatearConsulta(queryMaster);
+
+                if (almacenId.HasValue)
+                {
+                    var pAlm = cmdQuery.CreateParameter();
+                    pAlm.ParameterName = "@almId";
+                    pAlm.Value = almacenId.Value;
+                    cmdQuery.Parameters.Add(pAlm);
+                }
 
                 using var reader = await cmdQuery.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
@@ -1566,7 +1576,6 @@ VALUES
                             Codigo = codigoRaw,
                             EsManual = !reader.IsDBNull(3) && reader.GetBoolean(3),
                             EstadoId = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                            // 🟢 MAPEO DEL ALMACÉN FÍSICO
                             AlmacenId = reader.IsDBNull(5) ? (int?)null : reader.GetInt32(5)
                         };
 

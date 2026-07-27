@@ -78,94 +78,71 @@
             </Grid>
         </Border>
 
-        <Border Grid.Column="1" Background="White" CornerRadius="12" Padding="30">
+        <Border Grid.Column="1" Background="White" CornerRadius="12" Padding="20">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="15" ShadowDepth="4" Direction="270" Color="Black" Opacity="0.05"/>
             </Border.Effect>
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
 
-                <TextBlock Text="Ficha del Usuario" FontSize="22" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,30"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="0,0,10,0">
+                    <TextBlock Text="Ficha del Usuario" FontSize="20" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,20"/>
 
-                <!-- En UsuariosUserControl.xaml[cite: 9] -->
-                <StackPanel Grid.Row="1">
-                    <TextBlock Text="CÓDIGO DE ACCESO" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
-                    <TextBox x:Name="TxtCodigo" IsReadOnly="True" Background="#F8FAFC" Height="42" Padding="15,0" VerticalContentAlignment="Center" Foreground="#3B82F6" FontWeight="Bold" FontSize="15" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,20"/>
+                    <TextBlock Text="CÓDIGO DE ACCESO" Foreground="#64748B" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <TextBox x:Name="TxtCodigo" IsReadOnly="True" Background="#F8FAFC" Height="38" Padding="10,0" VerticalContentAlignment="Center" Foreground="#3B82F6" FontWeight="Bold" FontSize="14" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,15"/>
 
-                    <TextBlock Text="APELLIDOS Y NOMBRES" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
-                    <TextBox x:Name="TxtNombres" Height="42" Padding="15,0" VerticalContentAlignment="Center" FontSize="15" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,20"/>
+                    <TextBlock Text="APELLIDOS Y NOMBRES" Foreground="#64748B" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <TextBox x:Name="TxtNombres" Height="38" Padding="10,0" VerticalContentAlignment="Center" FontSize="14" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,15"/>
 
-                    <TextBlock Text="CLAVE SECRETA" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
-                    <PasswordBox x:Name="TxtPassword" Height="42" Padding="15,0" VerticalContentAlignment="Center" FontSize="15" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,20"/>
+                    <TextBlock Text="CLAVE SECRETA" Foreground="#64748B" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <PasswordBox x:Name="TxtPassword" Height="38" Padding="10,0" VerticalContentAlignment="Center" FontSize="14" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,15"/>
 
-                    <Grid Margin="0,0,0,20">
+                    <!-- ROL Y BOTÓN PARA CREAR NUEVO ROL -->
+                    <TextBlock Text="ROL DE OPERACIÓN" Foreground="#64748B" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                    <Grid Margin="0,0,0,15">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="20"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="CboRol" Height="38" VerticalContentAlignment="Center" Padding="10,0" FontSize="14" BorderBrush="#CBD5E1"/>
+                        <Button x:Name="BtnNuevoRol" Grid.Column="1" Content="➕" Width="38" Height="38" Margin="5,0,0,0" Background="#3B82F6" Foreground="White" FontWeight="Bold" ToolTip="Crear Nuevo Rol" Click="BtnNuevoRol_Click"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0">
-                            <TextBlock Text="ROL DE OPERACIÓN" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
-                            <ComboBox x:Name="CboRol" Height="42" VerticalContentAlignment="Center" Padding="10,0" FontSize="15" BorderBrush="#CBD5E1"/>
-                        </StackPanel>
-
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="ESTADO" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
-                            <ComboBox x:Name="CboEstado" Height="42" VerticalContentAlignment="Center" Padding="10,0" FontSize="15" BorderBrush="#CBD5E1">
+                            <TextBlock Text="ESTADO" Foreground="#64748B" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CboEstado" Height="38" VerticalContentAlignment="Center" Padding="5,0" FontSize="13" BorderBrush="#CBD5E1">
                                 <ComboBoxItem Content="ACTIVO" Tag="true" IsSelected="True" Foreground="#059669" FontWeight="SemiBold"/>
                                 <ComboBoxItem Content="INACTIVO" Tag="false" Foreground="#E11D48" FontWeight="SemiBold"/>
                             </ComboBox>
                         </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="ALMACÉN" Foreground="#64748B" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                            <ComboBox x:Name="CboAlmacen" Height="38" VerticalContentAlignment="Center" Padding="5,0" FontSize="13" BorderBrush="#CBD5E1"/>
+                        </StackPanel>
                     </Grid>
 
-                    <!-- 🌟 ESTE ES EL CONTROL QUE FALTA DECLARAR EN EL XAML -->
-                    <TextBlock Text="ALMACÉN ASIGNADO" Foreground="#64748B" FontSize="12" FontWeight="Bold" Margin="0,0,0,8"/>
-                    <ComboBox x:Name="CboAlmacen" Height="42" VerticalContentAlignment="Center" Padding="10,0" FontSize="15" BorderBrush="#CBD5E1" Margin="0,0,0,25"/>
+                    <Button x:Name="BtnAccesos" Content="🔐 Configurar Permisos por Rol" Height="42" Background="#F59E0B" Foreground="White" FontWeight="Bold" FontSize="14" Cursor="Hand" BorderThickness="0" Margin="0,5,0,20" Click="BtnAccesos_Click"/>
 
-                    <Button x:Name="BtnAccesos" Content="🔐 Configurar Permisos Detallados" Height="48" Background="#F59E0B" Foreground="White" FontWeight="Bold" FontSize="15" Cursor="Hand" BorderThickness="0" Click="BtnAccesos_Click">
-                        <Button.Resources>
-                            <Style TargetType="{x:Type Border}">
-                                <Setter Property="CornerRadius" Value="8"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="BtnNuevo" Content="✨ Nuevo" Grid.Column="0" Margin="0,0,3,0" Height="40" Background="#3B82F6" Foreground="White" FontWeight="Bold" FontSize="13" BorderThickness="0" Cursor="Hand" Click="BtnNuevo_Click"/>
+                        <Button x:Name="BtnGuardar" Content="💾 Guardar" Grid.Column="1" Margin="3,0,3,0" Height="40" Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="13" BorderThickness="0" Cursor="Hand" Click="BtnGuardar_Click"/>
+                        <Button x:Name="BtnCancelar" Content="❌ Cancelar" Grid.Column="2" Margin="3,0,0,0" Height="40" Background="#EF4444" Foreground="White" FontWeight="Bold" FontSize="13" BorderThickness="0" Cursor="Hand" Click="BtnCancelar_Click"/>
+                    </Grid>
                 </StackPanel>
-
-                <Grid Grid.Row="2" Margin="0,30,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <Button x:Name="BtnNuevo" Content="✨ Nuevo" Grid.Column="0" Margin="0,0,10,0" Height="45" Background="#3B82F6" Foreground="White" FontWeight="Bold" FontSize="15" BorderThickness="0" Cursor="Hand" Click="BtnNuevo_Click">
-                        <Button.Resources>
-                            <Style TargetType="{x:Type Border}">
-                                <Setter Property="CornerRadius" Value="8"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
-                    <Button x:Name="BtnGuardar" Content="💾 Guardar" Grid.Column="1" Margin="5,0,5,0" Height="45" Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="15" BorderThickness="0" Cursor="Hand" Click="BtnGuardar_Click">
-                        <Button.Resources>
-                            <Style TargetType="{x:Type Border}">
-                                <Setter Property="CornerRadius" Value="8"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
-                    <Button x:Name="BtnCancelar" Content="❌ Cancelar" Grid.Column="2" Margin="10,0,0,0" Height="45" Background="#EF4444" Foreground="White" FontWeight="Bold" FontSize="15" BorderThickness="0" Cursor="Hand" Click="BtnCancelar_Click">
-                        <Button.Resources>
-                            <Style TargetType="{x:Type Border}">
-                                <Setter Property="CornerRadius" Value="8"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
-                </Grid>
-            </Grid>
+            </ScrollViewer>
         </Border>
     </Grid>
 </UserControl>

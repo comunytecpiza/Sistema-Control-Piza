@@ -34,8 +34,8 @@ namespace AplicativoDeAlmacen.Data
                 if (server.Contains(",")) { var p = server.Split(','); server = p[0].Trim(); puerto = p[1].Trim(); }
                 else if (server.Contains(":")) { var p = server.Split(':'); server = p[0].Trim(); puerto = p[1].Trim(); }
 
-                // 🌟 Se elimina SslMode para evitar conflictos con la versión del conector
-                return $"Server={server};Port={puerto};Database={database};Uid={user};Password={pass};Convert Zero Datetime=True;";
+                // 🌟 Se agrega CharSet=utf8mb4 para forzar el soporte completo de emojis e iconos
+                return $"Server={server};Port={puerto};Database={database};Uid={user};Password={pass};Convert Zero Datetime=True;CharSet=utf8mb4;";
             }
 
             return $"Server={server};Database={database};User Id={user};Password={pass};TrustServerCertificate=True;";

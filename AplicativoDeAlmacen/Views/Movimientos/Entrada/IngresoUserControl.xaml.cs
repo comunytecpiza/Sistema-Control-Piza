@@ -1180,7 +1180,7 @@ namespace AplicativoDeAlmacen.Views
             MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento de ingreso que desea anular y presione Enter para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private async void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
+        private void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this), IsAddAction = true };
             modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
@@ -1189,109 +1189,104 @@ namespace AplicativoDeAlmacen.Views
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
                 var productoSelected = modal._productoSeleccionado;
-                var rangosDelModal = modal.ListaRangosAgregados;
-                if (productoSelected == null || rangosDelModal == null || !rangosDelModal.Any()) return;
+                var rangosDelModal = modal.ListaRangosAgregados ?? new System.Collections.ObjectModel.ObservableCollection<RangoCodigoItem>();
 
+                if (productoSelected == null || !rangosDelModal.Any()) return;
                 int idProducto = productoSelected.Id;
 
                 this.Cursor = Cursors.Wait;
+
                 try
                 {
                     dgCodigos.ItemsSource = null;
                     dgProductos.ItemsSource = null;
 
-                    var listaStrings = new List<string>();
+                    int ignoradosPorDuplicado = 0;
 
-                    // 1. Convertimos los rangos del modal en una lista plana de textos de códigos
+                    // 🚀 PROCESAMIENTO ULTRARRÁPIDO EN MEMORIA (Sin saturar la BD)
                     foreach (var rango in rangosDelModal)
                     {
+                        rango.productoId = idProducto;
+                        _rangosProcesadosGlobal.Add(rango);
+
+                        string etiquetaColeccion = string.IsNullOrEmpty(rango.ColeccionTipo) ? "LIBRO VENTA" : rango.ColeccionTipo;
+
                         if (rango.DesdeNum == -1)
                         {
-                            listaStrings.Add(rango.AbreviaturaBase);
+                            string codNorm = _serviceMovimiento.NormalizarCodigo(rango.AbreviaturaBase);
+                            if (!_codigosGridList.Any(c => c.ProductoId == idProducto && _serviceMovimiento.NormalizarCodigo(c.CodigoUnique) == codNorm))
+                            {
+                                _codigosGridList.Add(new VistaCodigoGrid
+                                {
+                                    CodigoUnique = rango.AbreviaturaBase,
+                                    ColeccionTipo = etiquetaColeccion,
+                                    ProductoId = idProducto
+                                });
+                            }
+                            else
+                            {
+                                ignoradosPorDuplicado++;
+                            }
                         }
                         else
                         {
                             for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
                             {
-                                listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                                string codGenerado = $"{rango.AbreviaturaBase}-{i:D7}";
+                                string codNorm = _serviceMovimiento.NormalizarCodigo(codGenerado);
+
+                                // 🛡️ CANDADO ANTI-DUPLICADOS RÁPIDO EN RAM
+                                if (!_codigosGridList.Any(c => c.ProductoId == idProducto && _serviceMovimiento.NormalizarCodigo(c.CodigoUnique) == codNorm))
+                                {
+                                    _codigosGridList.Add(new VistaCodigoGrid
+                                    {
+                                        CodigoUnique = codGenerado,
+                                        ColeccionTipo = etiquetaColeccion,
+                                        ProductoId = idProducto
+                                    });
+                                }
+                                else
+                                {
+                                    ignoradosPorDuplicado++;
+                                }
                             }
-                        }
-                    }
-
-                    // 2. Consultamos masivamente a la BD para obtener los IDs reales y asegurar el guardado físico
-                    var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaStrings);
-                    int ignoradosPorDuplicado = 0;
-
-                    foreach (var codStr in listaStrings)
-                    {
-                        string norm = _serviceMovimiento.NormalizarCodigo(codStr);
-                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
-                        {
-                            int codigoCreadoId = tup.CodigoObj.Id;
-
-                            // 🛡️ CANDADO ANTI-DUPLICADOS EN MEMORIA
-                            if (_codigosGridList.Any(c => c.MovCodigo != null && c.MovCodigo.CodigoCreadoId == codigoCreadoId))
-                            {
-                                ignoradosPorDuplicado++;
-                                continue;
-                            }
-
-                            string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(codigoCreadoId);
-
-                            // 🌟 SE AGREGA EL CÓDIGO CON SU ID REAL VINCULADO
-                            _codigosGridList.Add(new VistaCodigoGrid
-                            {
-                                ProductoId = idProducto,
-                                CodigoUnique = tup.CodigoObj.Codigo,
-                                ColeccionTipo = tipoBD,
-                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoCreadoId }
-                            });
                         }
                     }
 
                     if (ignoradosPorDuplicado > 0)
                     {
-                        MessageBox.Show($"Se ignoraron {ignoradosPorDuplicado} código(s) duplicado(s) que ya estaban en la lista.", "Aviso de Duplicados", MessageBoxButton.OK, MessageBoxImage.Information);
+                        MessageBox.Show($"Se ignoraron {ignoradosPorDuplicado} código(s) porque ya se encontraban registrados previamente en la tabla.", "Aviso de Duplicados", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
 
-                    // Actualizamos también los rangos globales para mantener la coherencia
-                    _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
-
-                    var prodService = new ProductoService();
-                    var prodData = await prodService.ObtenerPorIdAsync(idProducto);
-
-                    int conteoCodigosReal = _codigosGridList.Count(c => c.ProductoId == idProducto);
-                    int cantidadFinal = conteoCodigosReal > 0 ? conteoCodigosReal : modal.CantidadProductoIngresada;
+                    // 🚀 Actualizamos la cantidad según los códigos reales que quedaron en la grilla
+                    int totalCodigosProducto = _codigosGridList.Count(c => c.ProductoId == idProducto);
 
                     var existente = _productosGridList.FirstOrDefault(p => p.ProductoId == idProducto);
                     if (existente != null)
                     {
-                        existente.Cantidad = cantidadFinal;
-                        if (existente.Detalle != null) existente.Detalle.CantidadIngreso = cantidadFinal;
+                        existente.Detalle ??= new MovimientoDetalle { ProductoId = idProducto };
+                        existente.Detalle.CantidadIngreso = totalCodigosProducto > 0 ? totalCodigosProducto : modal.CantidadProductoIngresada;
+                        existente.Cantidad = (int)existente.Detalle.CantidadIngreso;
+                        existente.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
                     }
                     else
                     {
-                        _productosGridList.Add(new VistaProductoGrid
+                        int cantReal = totalCodigosProducto > 0 ? totalCodigosProducto : modal.CantidadProductoIngresada;
+                        var nuevoProductoGrid = new VistaProductoGrid
                         {
+                            Detalle = new MovimientoDetalle { ProductoId = idProducto, CantidadIngreso = cantReal, CostoUnitario = modal.CostoUnitarioIngresado },
+                            CodigoProducto = idProducto.ToString(),
+                            Descripcion = productoSelected.Descripcion,
+                            UnidadMedida = productoSelected.UnidadMedida?.Descripcion ?? "UNIDAD",
                             ProductoId = idProducto,
-                            CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
-                            Descripcion = prodData?.Descripcion ?? "Desconocido",
-                            UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
-                            Cantidad = cantidadFinal,
-                            Detalle = new MovimientoDetalle
-                            {
-                                ProductoId = idProducto,
-                                CantidadIngreso = cantidadFinal,
-                                CostoUnitario = prodData?.PrecioUnitario ?? 0
-                            }
-                        });
+                            Cantidad = cantReal
+                        };
+                        _productosGridList.Add(nuevoProductoGrid);
+                        existente = nuevoProductoGrid;
                     }
 
                     RefrescarGrillas();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error al procesar los códigos del ítem: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    dgProductos.SelectedItem = existente;
                 }
                 finally
                 {

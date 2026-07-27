@@ -48,7 +48,10 @@ namespace AplicativoDeAlmacen.Views
         {
             if (this.IsVisible && (bool)e.NewValue == true)
             {
-                if (CmbFiltroColeccion.SelectedValue is int coleccionId)
+                // Re-verificamos permisos cada vez que la pestaña toma el foco para evitar brechas de sesión
+                AplicarPermisosRBAC();
+
+                if (this.IsEnabled && CmbFiltroColeccion.SelectedValue is int coleccionId)
                 {
                     int categoriaId = RbLibroGuia.IsChecked == true ? 1 : 2;
                     await CargarGridAsync(coleccionId, categoriaId);
@@ -590,24 +593,36 @@ namespace AplicativoDeAlmacen.Views
 
         private void AplicarPermisosRBAC()
         {
-            // 1. Buscamos los permisos asignados a esta vista en la sesión actual
+            // 1. Buscamos los permisos asignados a este módulo evaluando tanto el nombre del control como posibles alias comunes
             var permisoModulo = SesionSistema.PermisosActuales?
-                .FirstOrDefault(p => p.ControlWpf == nameof(RegistroCodigosUserControl));
+                .FirstOrDefault(p => p.ControlWpf == nameof(RegistroCodigosUserControl) ||
+                                     p.CodigoModulo.Equals("REGISTRO_CODIGOS", StringComparison.OrdinalIgnoreCase) ||
+                                     p.NombreModulo.Contains("Códigos", StringComparison.OrdinalIgnoreCase));
 
             if (permisoModulo != null)
             {
-                // 2. Si el rol del usuario no tiene 'puede_crear = true', ocultamos el botón de "+ Generar Nuevo Lote"
-                BtnNuevoLote.Visibility = permisoModulo.PuedeCrear ? Visibility.Visible : Visibility.Collapsed;
+                // 🛡️ SEGURIDAD TOTAL: Si el usuario NO tiene permiso de Ver, bloqueamos o cerramos la vista completa de inmediato
+                if (!permisoModulo.PuedeVer)
+                {
+                    MessageBox.Show("No cuenta con autorización para acceder a este módulo de Registro de Códigos.", "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    this.IsEnabled = false;
+                    this.Visibility = Visibility.Collapsed;
+                    return;
+                }
 
-                // 3. Si el rol del usuario no tiene 'puede_eliminar = true', ocultamos el botón de "Eliminar Lote"
+                // 2. Control granular de botones según la base de datos
+                BtnNuevoLote.Visibility = permisoModulo.PuedeCrear ? Visibility.Visible : Visibility.Collapsed;
                 BtnEliminarLote.Visibility = permisoModulo.PuedeEliminar ? Visibility.Visible : Visibility.Collapsed;
             }
             else
             {
-                // 🛡️ CANDADO DE SEGURIDAD: Si no se encuentra permiso cargado, ocultamos ambos botones por defecto
-                BtnNuevoLote.Visibility = Visibility.Collapsed;
-                BtnEliminarLote.Visibility = Visibility.Collapsed;
+                // 🛡️ CANDADO ESTRICTO POR DEFECTO: Si no hay registro de permisos para este rol, se deniega el acceso total
+                MessageBox.Show("No se encontraron privilegios configurados para este módulo. Acceso denegado por seguridad.", "Seguridad RBAC", MessageBoxButton.OK, MessageBoxImage.Stop);
+                this.IsEnabled = false;
+                this.Visibility = Visibility.Collapsed;
             }
         }
+
+       
     }
 }

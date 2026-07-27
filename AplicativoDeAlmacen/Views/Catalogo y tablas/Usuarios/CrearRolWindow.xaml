@@ -1,0 +1,21 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.CrearRolWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nuevo Rol" Height="280" Width="400" WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Background="#F8FAFC">
+    <Grid Margin="20">
+        <StackPanel>
+            <TextBlock Text="✨ Crear Nuevo Rol de Usuario" FontSize="16" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,15"/>
+
+            <TextBlock Text="NOMBRE DEL ROL" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="0,0,0,5"/>
+            <TextBox x:Name="TxtNombreRol" Height="38" FontSize="14" Padding="8,0" VerticalContentAlignment="Center" Margin="0,0,0,10"/>
+
+            <TextBlock Text="DESCRIPCIÓN" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="0,0,0,5"/>
+            <TextBox x:Name="TxtDescripcionRol" Height="38" FontSize="14" Padding="8,0" VerticalContentAlignment="Center" Margin="0,0,0,20"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnGuardar" Content="💾 Guardar Rol" Width="120" Height="38" Background="#10B981" Foreground="White" FontWeight="Bold" Margin="0,0,10,0" Click="BtnGuardar_Click"/>
+                <Button x:Name="BtnCancelar" Content="Cancelar" Width="90" Height="38" Background="#94A3B8" Foreground="White" Click="BtnCancelar_Click"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

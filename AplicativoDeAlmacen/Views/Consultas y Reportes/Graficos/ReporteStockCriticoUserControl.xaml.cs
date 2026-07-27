@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using LiveChartsCore;
@@ -44,7 +45,9 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
         {
             try
             {
-                // Obtenemos los productos cuyo stock actual es <= al stock mínimo
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                // Obtenemos la lista crítica basada en el almacén actual y estado 3
                 var listaCritica = await _productoService.ObtenerStockCriticoAsync();
 
                 // 1. Llenamos el DataGrid
@@ -55,36 +58,33 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                 YAxes.Clear();
                 XAxes.Clear();
 
-                if (listaCritica.Count == 0) return;
+                if (listaCritica == null || listaCritica.Count == 0) return;
 
-                // Tomamos solo los 10 peores (con más faltante) para que el gráfico no se sature
+                // 🌟 Usamos la propiedad calculada Faltante para ordenar el top 10
                 var topCriticos = listaCritica.OrderByDescending(p => p.Faltante).Take(10).ToList();
 
                 var nombresProductos = topCriticos.Select(p => p.Descripcion).ToList();
                 var stockActual = topCriticos.Select(p => (double)p.StockActual).ToList();
                 var stockMinimo = topCriticos.Select(p => (double)p.StockMinimo).ToList();
 
-                // Serie del Stock Actual (Rojo porque es crítico)
                 Series.Add(new RowSeries<double>
                 {
                     Values = stockActual,
-                    Name = "Stock Actual",
+                    Name = "Stock Actual (Disponible)",
                     Fill = new SolidColorPaint(SKColors.Red),
                     MaxBarWidth = 25,
                     DataLabelsPaint = new SolidColorPaint(SKColors.White),
                     DataLabelsPosition = LiveChartsCore.Measure.DataLabelsPosition.Middle
                 });
 
-                // Serie del Stock Mínimo (Gris/Naranja como referencia)
                 Series.Add(new RowSeries<double>
                 {
                     Values = stockMinimo,
                     Name = "Mínimo Requerido",
-                    Fill = new SolidColorPaint(new SKColor(251, 146, 60, 150)), // Naranja con opacidad
+                    Fill = new SolidColorPaint(new SKColor(251, 146, 60, 150)),
                     MaxBarWidth = 25
                 });
 
-                // Eje Y: Muestra los nombres de los productos a la izquierda
                 YAxes.Add(new Axis
                 {
                     Labels = nombresProductos,
@@ -92,7 +92,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
                     TextSize = 12
                 });
 
-                // Eje X: Empieza en 0
                 XAxes.Add(new Axis
                 {
                     MinLimit = 0

@@ -369,7 +369,7 @@ namespace AplicativoDeAlmacen.Services
             return lista;
         }
 
-                public async Task<List<ProductoStock>> ObtenerStockCriticoAsync()
+        public async Task<List<ProductoStock>> ObtenerStockCriticoAsync()
         {
             var lista = new List<ProductoStock>();
             using (var conn = _database.GetConnection())
@@ -377,47 +377,85 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // 🌟 MAGIA: Filtramos donde el StockActual sea <= al stock_minimo del producto
+                // 🌟 Obtenemos el ID del almacén actual de la sesión de manera segura
+                int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                // 🛡️ CONSULTA BLINDADA: Cuenta únicamente los códigos físicos con estado 3 (Disponible) 
+                // y que pertenecen físicamente al almacén actual de la sesión.
                 string query = @"
-                SELECT Id, Descripcion, StockActual, StockMinimo, TipoProductoId, GradoNombre
-                FROM (
-                    SELECT p.id AS Id,
-                           p.descripcion AS Descripcion, 
-                           (ISNULL(ing.total, 0) - ISNULL(sal.total, 0)) AS StockActual,
-                           p.stock_minimo AS StockMinimo,
-                           p.tipo_producto_id AS TipoProductoId,
-                           ISNULL(g.nombre, 'Sin Grado') AS GradoNombre
-                    FROM productos p
-                    LEFT JOIN (SELECT producto_id, SUM(cantidad_ingreso) as total FROM movimiento_detalles GROUP BY producto_id) ing ON p.id = ing.producto_id
-                    LEFT JOIN (SELECT producto_id, SUM(cantidad_salida) as total FROM movimiento_detalles GROUP BY producto_id) sal ON p.id = sal.producto_id
-                    LEFT JOIN grados g ON p.grado_id = g.id
-                    WHERE p.estado_id = 1
-                ) AS Resultado
-                WHERE StockActual <= StockMinimo AND StockMinimo > 0
-                ORDER BY (StockActual - StockMinimo) ASC, Descripcion ASC";
+            SELECT 
+                p.id AS Id,
+                p.descripcion AS Descripcion,
+                ISNULL(p.stock_minimo, 0) AS StockMinimo,
+                p.tipo_producto_id AS TipoProductoId,
+                ISNULL(g.nombre, 'Sin Grado') AS GradoNombre,
+                (
+                    SELECT COUNT(cc.id) 
+                    FROM codigos_creados cc WITH (NOLOCK)
+                    INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
+                    WHERE rc.producto_id = p.id 
+                      AND cc.almacen_id = @AlmacenId 
+                      AND cc.estado_id = 3
+                ) AS StockActual
+            FROM productos p WITH (NOLOCK)
+            LEFT JOIN grados g WITH (NOLOCK) ON p.grado_id = g.id
+            WHERE p.estado_id = 1
+              AND p.stock_minimo > 0";
+
+                if (QueryAdapter.EsMySQL)
+                {
+                    query = @"
+            SELECT 
+                p.id AS Id,
+                p.descripcion AS Descripcion,
+                COALESCE(p.stock_minimo, 0) AS StockMinimo,
+                p.tipo_producto_id AS TipoProductoId,
+                COALESCE(g.nombre, 'Sin Grado') AS GradoNombre,
+                (
+                    SELECT COUNT(cc.id) 
+                    FROM codigos_creados cc
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    WHERE rc.producto_id = p.id 
+                      AND cc.almacen_id = @AlmacenId 
+                      AND cc.estado_id = 3
+                ) AS StockActual
+            FROM productos p
+            LEFT JOIN grados g ON p.grado_id = g.id
+            WHERE p.estado_id = 1
+              AND p.stock_minimo > 0";
+                }
 
                 using (var cmd = dbConn.CreateCommand())
                 {
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                    AgregarParametro(cmd, "@AlmacenId", almacenActualId);
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
                         while (await reader.ReadAsync())
                         {
-                            lista.Add(new ProductoStock
+                            int stockMinimo = reader.IsDBNull(reader.GetOrdinal("StockMinimo")) ? 0 : reader.GetInt32(reader.GetOrdinal("StockMinimo"));
+                            int stockActual = reader.IsDBNull(reader.GetOrdinal("StockActual")) ? 0 : reader.GetInt32(reader.GetOrdinal("StockActual"));
+
+                            // Filtramos estrictamente donde el stock actual disponible sea menor o igual al mínimo
+                            if (stockActual <= stockMinimo)
                             {
-                                Id = reader.IsDBNull(reader.GetOrdinal("Id")) ? 0 : reader.GetInt32(reader.GetOrdinal("Id")),
-                                Descripcion = reader.IsDBNull(reader.GetOrdinal("Descripcion")) ? "Sin Descripción" : reader.GetString(reader.GetOrdinal("Descripcion")),
-                                StockActual = reader.IsDBNull(reader.GetOrdinal("StockActual")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("StockActual"))),
-                                StockMinimo = reader.IsDBNull(reader.GetOrdinal("StockMinimo")) ? 0 : reader.GetInt32(reader.GetOrdinal("StockMinimo")),
-                                TipoProductoId = reader.IsDBNull(reader.GetOrdinal("TipoProductoId")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("TipoProductoId"))),
-                                GradoNombre = reader.IsDBNull(reader.GetOrdinal("GradoNombre")) ? "Sin Grado" : reader.GetString(reader.GetOrdinal("GradoNombre"))
-                            });
+                                lista.Add(new ProductoStock
+                                {
+                                    Id = reader.IsDBNull(reader.GetOrdinal("Id")) ? 0 : reader.GetInt32(reader.GetOrdinal("Id")),
+                                    Descripcion = reader.IsDBNull(reader.GetOrdinal("Descripcion")) ? "Sin Descripción" : reader.GetString(reader.GetOrdinal("Descripcion")),
+                                    StockActual = stockActual,
+                                    StockMinimo = stockMinimo,
+                                    
+                                    TipoProductoId = reader.IsDBNull(reader.GetOrdinal("TipoProductoId")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("TipoProductoId"))),
+                                    GradoNombre = reader.IsDBNull(reader.GetOrdinal("GradoNombre")) ? "Sin Grado" : reader.GetString(reader.GetOrdinal("GradoNombre"))
+                                });
+                            }
                         }
                     }
                 }
             }
-            return lista;
+            return lista.OrderBy(p => p.Faltante).ThenBy(p => p.Descripcion).ToList();
         }
 
         // =======================================================

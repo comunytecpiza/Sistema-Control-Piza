@@ -1116,7 +1116,7 @@ namespace AplicativoDeAlmacen.Views
         // ==========================================
         // DETALLE: AGREGAR (OPTIMIZADO TRASPASO RÁPIDO)
         // ==========================================
-        
+
         private async void btnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
@@ -1130,6 +1130,7 @@ namespace AplicativoDeAlmacen.Views
                 if (productoSelected == null || rangosDelModal == null || !rangosDelModal.Any()) return;
 
                 int idProducto = productoSelected.Id;
+                int miAlmacenActualId = SesionSistema.AlmacenActual?.Id ?? 1; // 👈 Almacén activo de la sesión
 
                 this.Cursor = Cursors.Wait;
                 try
@@ -1140,7 +1141,7 @@ namespace AplicativoDeAlmacen.Views
                     var ingService = new IngresoMovimientoService();
                     var listaStrings = new List<string>();
 
-                    // 1. Convertimos los rangos del modal en una lista plana de textos de códigos (ej. LMA4-0002001)
+                    // 1. Desglosamos los rangos a textos planos en RAM
                     foreach (var rango in rangosDelModal)
                     {
                         if (rango.DesdeNum == -1)
@@ -1156,35 +1157,52 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // 2. Consultamos masivamente a la BD para obtener sus IDs reales y evitar el error de llave foránea
-                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
+                    // 2. 🚀 BATCH CON FILTRO POR ALMACÉN ACTUAL: Trae solo códigos que pertenecen físicamente a MI almacén activo
+                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, miAlmacenActualId);
                     int ignoradosPorDuplicado = 0;
+                    int ignoradosPorAlmacenOEstado = 0;
+
+                    string primerRangoTipo = rangosDelModal.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
 
                     foreach (var codStr in listaStrings)
                     {
                         string norm = ingService.NormalizarCodigo(codStr);
+
+                        // 🛡️ CANDADO ESTRICTO DE STOCK: Si no está en el diccionario es porque pertenece a OTRO almacén o NO está en estado 3
                         if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
                         {
+                            if (tup.CodigoObj.EstadoId != 3)
+                            {
+                                ignoradosPorAlmacenOEstado++;
+                                continue;
+                            }
+
                             int codigoCreadoId = tup.CodigoObj.Id;
 
-                            // 🛡️ CANDADO ANTI-DUPLICADOS EN MEMORIA
+                            // Candado anti-duplicados en la misma grilla
                             if (_codigosLista.Any(c => c.MovCodigo != null && c.MovCodigo.CodigoCreadoId == codigoCreadoId))
                             {
                                 ignoradosPorDuplicado++;
                                 continue;
                             }
 
-                            string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(codigoCreadoId);
-
-                            // 🌟 AQUÍ SE ASIGNA EL ID REAL DE LA BD REQUERIDO POR LA SALIDA
                             _codigosLista.Add(new VistaCodigoGrid
                             {
                                 ProductoId = idProducto,
                                 CodigoUnique = tup.CodigoObj.Codigo,
-                                ColeccionTipo = tipoColeccionReal,
+                                ColeccionTipo = primerRangoTipo,
                                 MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoCreadoId }
                             });
                         }
+                        else
+                        {
+                            ignoradosPorAlmacenOEstado++;
+                        }
+                    }
+
+                    if (ignoradosPorAlmacenOEstado > 0)
+                    {
+                        MessageBox.Show($"⚠️ Advertencia de Stock:\n\nSe omitieron {ignoradosPorAlmacenOEstado} código(s) porque NO pertenecen a su Almacén actual o ya fueron transferidos / despachados.", "Stock No Disponible", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
 
                     if (ignoradosPorDuplicado > 0)
@@ -1195,9 +1213,9 @@ namespace AplicativoDeAlmacen.Views
                     var prodService = new ProductoService();
                     var prodData = await prodService.ObtenerPorIdAsync(idProducto);
 
-                    // Recalcular cantidad total real basándonos en los códigos reales de la grilla
+                    // Recalcular cantidad total real basándonos en los códigos que SI pasaron los filtros de almacén
                     int conteoCodigosReal = _codigosLista.Count(c => c.ProductoId == idProducto);
-                    int cantidadFinal = conteoCodigosReal > 0 ? conteoCodigosReal : modal.CantidadProductoIngresada;
+                    int cantidadFinal = conteoCodigosReal;
 
                     var existente = _productosLista.FirstOrDefault(p => p.ProductoId == idProducto);
                     if (existente != null)
@@ -1205,7 +1223,7 @@ namespace AplicativoDeAlmacen.Views
                         existente.Cantidad = cantidadFinal;
                         if (existente.Detalle != null) existente.Detalle.CantidadSalida = cantidadFinal;
                     }
-                    else
+                    else if (cantidadFinal > 0)
                     {
                         _productosLista.Add(new VistaProductoGrid
                         {

@@ -173,5 +173,17 @@ namespace AplicativoDeAlmacen.Views
             PermisosRolWindow ventanaPermisos = new PermisosRolWindow(rolId, rolNombre);
             ventanaPermisos.ShowDialog();
         }
+
+        private async void BtnNuevoRol_Click(object sender, RoutedEventArgs e)
+        {
+            var modal = new CrearRolWindow { Owner = Window.GetWindow(this) };
+            if (modal.ShowDialog() == true && modal.RolCreadoId > 0)
+            {
+                // Recargar los roles y seleccionar el recién creado
+                var roles = await _usuarioService.ObtenerRolesActivosAsync();
+                CboRol.ItemsSource = roles;
+                CboRol.SelectedValue = modal.RolCreadoId;
+            }
+        }
     }
 }
