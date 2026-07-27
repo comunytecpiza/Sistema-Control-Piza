@@ -19,6 +19,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
         private readonly ProductoService _productoService = new ProductoService();
         private readonly UbicacionService _ubicacionService = new UbicacionService();
 
+        private bool _necesitaRecargar = false;
         private int _productoSeleccionadoId = 0;
         private int _ubicacionSeleccionadaId = 0;
         private ConsultaMovimientoReporte _reporteActual;
@@ -28,6 +29,25 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             InitializeComponent();
             DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
             DpHasta.SelectedDate = DateTime.Now;
+
+            EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
+                if (this.IsVisible && _productoSeleccionadoId > 0)
+                {
+                    BtnEjecutar_Click(null, null);
+                }
+                else
+                {
+                    _necesitaRecargar = true;
+                }
+            });
+
+            this.IsVisibleChanged += (s, e) => {
+                if (this.IsVisible && _necesitaRecargar && _productoSeleccionadoId > 0)
+                {
+                    _necesitaRecargar = false;
+                    BtnEjecutar_Click(null, null);
+                }
+            };
         }
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)

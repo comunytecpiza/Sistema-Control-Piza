@@ -206,30 +206,25 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
-                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-
                 string baseLimpia = abreviaturaRaw.Trim();
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
                 string prefijoBuscado = baseLimpia.EndsWith("-") ? baseLimpia : $"{baseLimpia}-";
 
-                // 🌟 AGREGAMOS cc.almacen_id = @almacenId PARA AISLAR LA BÚSQUEDA POR SEDE
+                // 🌟 CONSULTA FLEXIBLE Y SEGURA: Verifica existencia y estado operativo permitido
                 string query = @"
             SELECT COUNT(*)
-            FROM codigos_creados cc WITH (NOLOCK)
+            FROM codigos_creados cc
             INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
             WHERE rc.producto_id = @productoId
-              AND cc.almacen_id = @almacenId -- 👈 FILTRO POR ALMACÉN ACTIVO
-              AND cc.estado_id = @estadoPermitido
+              AND cc.estado_id = @estadoPermitido -- 👈 Valida que el código esté disponible (ej. Estado 3 = En Almacén)
               AND rc.categoria_producto_id = @categoriaId
               AND cc.codigo LIKE @prefijoPattern
-              AND ISNUMERIC(RIGHT(cc.codigo, 7)) = 1
-              AND CAST(RIGHT(cc.codigo, 7) AS INT) BETWEEN @desde AND @hasta";
+              AND CAST(RIGHT(cc.codigo, 7) AS SIGNED) BETWEEN @desde AND @hasta";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                 AgregarParametro(cmd, "@productoId", productoId);
-                AgregarParametro(cmd, "@almacenId", miAlmacenId);
                 AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
                 AgregarParametro(cmd, "@categoriaId", categoriaId);
                 AgregarParametro(cmd, "@prefijoPattern", prefijoBuscado + "%");

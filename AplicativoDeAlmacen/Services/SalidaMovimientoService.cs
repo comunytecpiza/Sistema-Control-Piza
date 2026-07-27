@@ -556,6 +556,12 @@ namespace AplicativoDeAlmacen.Services
 
                         foreach (var cod in codigosProd)
                         {
+                            // ✅ VALIDACIÓN: Solo procesar si tiene ID válido
+                            if (cod.MovCodigo == null || cod.MovCodigo.CodigoCreadoId <= 0)
+                            {
+                                continue;  // Saltar códigos sin ID resuelto
+                            }
+
                             int cId = cod.MovCodigo.CodigoCreadoId;
                             nuevosCodigosIds.Add(cId);
                             todosLosCodigosDelDetalle.Add(cId);
@@ -600,6 +606,7 @@ namespace AplicativoDeAlmacen.Services
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
                 foreach (var codId in codigosAEliminar)
                 {
+                    if (codId <= 0) continue;
                     bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, movimientoIdInserted, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
 
                     if (tieneFuturo)
@@ -679,15 +686,15 @@ namespace AplicativoDeAlmacen.Services
             using (var cmd = dbConn.CreateCommand())
             {
                 cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-                SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, 
-                       m.persona_comercial_id, m.ubicacion_id, m.almacen_id, m.almacen_origen_id, m.almacen_destino_id,
-                       m.serie_guia, m.numero_guia, m.observacion, m.estado_id
-                FROM movimientos m {nolock}
-                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-                WHERE m.serie_documento = @serie 
-                AND m.numero_documento = @numero
-                AND mp.tipo_movimiento_id = 2
-                AND {coalesceFunc}(m.almacen_id, {coalesceFunc}(m.almacen_origen_id, 1)) = @miAlmacen");
+        SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, 
+               m.persona_comercial_id, m.ubicacion_id, m.almacen_id, m.almacen_origen_id, m.almacen_destino_id,
+               m.serie_guia, m.numero_guia, m.observacion, m.estado_id
+        FROM movimientos m {nolock}
+        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+        WHERE m.serie_documento = @serie 
+        AND m.numero_documento = @numero
+        AND mp.tipo_movimiento_id = 2
+        AND {coalesceFunc}(m.almacen_id, {coalesceFunc}(m.almacen_origen_id, 1)) = @miAlmacen");
 
                 AgregarParametro(cmd, "@serie", serie);
                 AgregarParametro(cmd, "@numero", numero);
@@ -695,8 +702,6 @@ namespace AplicativoDeAlmacen.Services
 
                 using var rd = await cmd.ExecuteReaderAsync();
                 if (!await rd.ReadAsync()) return null;
-
-                if (rd.GetInt32(rd.GetOrdinal("estado_id")) == 2) return null; // 2 = Movimiento Anulado
 
                 resultado.Movimiento = new Movimiento
                 {
@@ -712,16 +717,17 @@ namespace AplicativoDeAlmacen.Services
                     AlmacenDestinoId = rd.IsDBNull(rd.GetOrdinal("almacen_destino_id")) ? (int?)null : rd.GetInt32(rd.GetOrdinal("almacen_destino_id")),
                     SerieGuia = rd["serie_guia"]?.ToString(),
                     NumeroGuia = rd["numero_guia"]?.ToString(),
-                    Observacion = rd["observacion"]?.ToString()
+                    Observacion = rd["observacion"]?.ToString(),
+                    EstadoId = rd.GetInt32(rd.GetOrdinal("estado_id"))
                 };
             }
 
             using (var cmd = dbConn.CreateCommand())
             {
                 cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-                    SELECT id, movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario 
-                    FROM movimiento_detalles {nolock}
-                    WHERE movimiento_id = @id");
+            SELECT id, movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario 
+            FROM movimiento_detalles {nolock}
+            WHERE movimiento_id = @id");
 
                 AgregarParametro(cmd, "@id", resultado.Movimiento.Id);
 

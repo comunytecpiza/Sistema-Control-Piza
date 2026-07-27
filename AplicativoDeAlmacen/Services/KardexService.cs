@@ -105,6 +105,7 @@ namespace AplicativoDeAlmacen.Services
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
                         decimal saldoAcumulado = reporte.StockInicial;
+                        const int ALMACEN_CENTRAL_ID = 1;
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
@@ -135,11 +136,32 @@ namespace AplicativoDeAlmacen.Services
                                 reporte.TotalIngresos += ing;
                                 reporte.TotalSalidas += sal;
 
-                                // 🌟 Identificamos si es devolución / retorno
-                                string motivoUpper = motivoTexto.ToUpperInvariant();
-                                if (ing > 0 && (motivoId == 2 || motivoUpper.Contains("DEVOLUCION") || motivoUpper.Contains("TRANSFERENCIA")))
+                                // 🌟 RECONOCIMIENTO INTELIGENTE DE DEVOLUCIÓN:
+                                if (ing > 0)
                                 {
-                                    reporte.TotalDevoluciones += ing;
+                                    string motivoUpper = motivoTexto.ToUpperInvariant();
+                                    bool esCompra = motivoUpper.Contains("COMPRA");
+                                    bool esTransferencia = motivoUpper.Contains("TRANSFERENCIA");
+
+                                    // Si es Almacén Central (Trujillo):
+                                    // Solo las COMPRAS son abastecimiento real. Todo el resto de ingresos son devoluciones.
+                                    if (almacenId == ALMACEN_CENTRAL_ID)
+                                    {
+                                        if (!esCompra)
+                                        {
+                                            reporte.TotalDevoluciones += ing;
+                                        }
+                                    }
+                                    // Si es Sub-Almacén (Lima, Chiclayo, etc.):
+                                    // Las COMPRAS y las TRANSFERENCIAS DESDE TRUJILLO son abastecimiento real.
+                                    // Las promociones/promotorías devueltas SÍ son devoluciones de salidas.
+                                    else
+                                    {
+                                        if (!esCompra && !esTransferencia)
+                                        {
+                                            reporte.TotalDevoluciones += ing;
+                                        }
+                                    }
                                 }
 
                                 saldoAcumulado += (ing - sal);
@@ -150,7 +172,7 @@ namespace AplicativoDeAlmacen.Services
                             reporte.Detalles.Add(item);
                         }
 
-                        // 🌟 AQUÍ SE GUARDA EL VALOR FINAL EXACTO DE LA PANTALLA:
+                        // 🌟 STOCK FINAL DEL ALMACÉN
                         reporte.StockFinal = saldoAcumulado;
                     }
                 }

@@ -18,6 +18,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
     {
         private readonly KardexService _kardexService;
         private readonly ProductoService _productoService;
+        private bool _necesitaRecargar = false;
 
         private int _productoIdSeleccionado = 0;
         private int _categoriaProductoIdSeleccionada = 0; // 1 = Libro Guía, 2 = Libro Venta
@@ -32,6 +33,26 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             TxtProducto.Focus();
 
             DgHistorial.LoadingRow += DgHistorial_LoadingRow;
+
+            // 🌟 SUSCRIPCIÓN AL EVENTBUS
+            EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(async () => {
+                if (this.IsVisible && _productoIdSeleccionado > 0 && !string.IsNullOrWhiteSpace(TxtCodigoEscaneado.Text))
+                {
+                    await ProcesarLecturaAsync();
+                }
+                else
+                {
+                    _necesitaRecargar = true;
+                }
+            });
+
+            this.IsVisibleChanged += async (s, e) => {
+                if (this.IsVisible && _necesitaRecargar && _productoIdSeleccionado > 0 && !string.IsNullOrWhiteSpace(TxtCodigoEscaneado.Text))
+                {
+                    _necesitaRecargar = false;
+                    await ProcesarLecturaAsync();
+                }
+            };
         }
 
         private void DgHistorial_LoadingRow(object sender, DataGridRowEventArgs e)

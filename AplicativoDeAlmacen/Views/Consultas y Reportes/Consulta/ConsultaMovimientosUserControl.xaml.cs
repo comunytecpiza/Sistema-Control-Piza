@@ -29,6 +29,7 @@ namespace AplicativoDeAlmacen.Views
         private bool _estaSeleccionando;
         private bool _isUpdatingFromSelection = false;
         private bool _isCargando = false;
+        private bool _necesitaRecargar = false;
 
         private List<ConsultaCodigoItem> _todosLosCodigos;
         private List<Producto> _todosLosProductos = new List<Producto>();
@@ -49,6 +50,26 @@ namespace AplicativoDeAlmacen.Views
             DpHasta.SelectedDate = DateTime.Today;
 
             Loaded += Control_Loaded;
+
+            // 🌟 SUSCRIPCIÓN AL EVENTBUS
+            EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
+                if (this.IsVisible && _productoSeleccionadoId > 0)
+                {
+                    BtnEjecutar_Click(null, null);
+                }
+                else
+                {
+                    _necesitaRecargar = true;
+                }
+            });
+
+            this.IsVisibleChanged += (s, e) => {
+                if (this.IsVisible && _necesitaRecargar && _productoSeleccionadoId > 0)
+                {
+                    _necesitaRecargar = false;
+                    BtnEjecutar_Click(null, null);
+                }
+            };
         }
 
         private async void Control_Loaded(object sender, RoutedEventArgs e)
@@ -664,26 +685,34 @@ namespace AplicativoDeAlmacen.Views
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem seleccionado)
             {
-                string registroLimpio = seleccionado.NumeroRegistro?.Replace("❌ ANULADO - ", "").Trim() ?? string.Empty;
+                string registroLimpio = seleccionado.NumeroRegistro?
+                    .Replace("❌ ANULADO - ", "")
+                    .Trim() ?? string.Empty;
+
                 var partes = registroLimpio.Split('-');
 
                 if (partes.Length >= 2)
                 {
                     string serie = partes[0];
                     string numero = partes[1];
-                    bool esSalida = seleccionado.Salida > 0;
+
+                    // 🌟 DETECCIÓN DIRECTA E INFALIBLE:
+                    // Si en la fila seleccionada el valor de Salida es mayor que 0, ES UNA SALIDA.
+                    bool esSalidaReal = seleccionado.Salida > 0;
 
                     var mainShell = Application.Current.Windows.OfType<MainShell>().FirstOrDefault();
                     if (mainShell == null) return;
 
-                    if (esSalida)
+                    if (esSalidaReal)
                     {
+                        // 📤 Abrir Vista de SALIDA en modo consulta
                         var salidasControl = new SalidasUserControl();
                         mainShell.AbrirPestaña($"Salida {serie}-{numero} (Consulta)", salidasControl);
                         salidasControl.CargarDocumentoParaConsulta(serie, numero);
                     }
                     else
                     {
+                        // 📥 Abrir Vista de INGRESO en modo consulta
                         var ingresoControl = new IngresoUserControl();
                         mainShell.AbrirPestaña($"Ingreso {serie}-{numero} (Consulta)", ingresoControl);
                         ingresoControl.CargarDocumentoParaConsulta(serie, numero);

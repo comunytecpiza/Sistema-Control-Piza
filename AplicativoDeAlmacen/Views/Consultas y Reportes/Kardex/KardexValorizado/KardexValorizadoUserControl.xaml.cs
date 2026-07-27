@@ -15,7 +15,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
         private readonly KardexService _kardexService = new KardexService();
         private readonly ProductoService _productoService = new ProductoService();
         private readonly ReporteExcelService _reporteExcel = new ReporteExcelService();
-
+        private bool _necesitaRecargar = false;
         private int _productoSeleccionadoId = 0;
         private KardexValorizadoReporte _reporteActual;
 
@@ -23,19 +23,34 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
         {
             InitializeComponent();
 
-            // =======================================================
-            // FECHAS POR DEFECTO 
-            // =======================================================
-            // Desde: Primer día del mes actual (ej. 01/07/2026)
             DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-            // Hasta: Siempre la fecha de hoy
             DpHasta.SelectedDate = DateTime.Now;
+
+            // 🌟 SUSCRIPCIÓN AL EVENTBUS
+            EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
+                if (this.IsVisible && _productoSeleccionadoId > 0)
+                {
+                    BtnEjecutar_Click(null, null);
+                }
+                else
+                {
+                    _necesitaRecargar = true;
+                }
+            });
+
+            this.IsVisibleChanged += (s, e) => {
+                if (this.IsVisible && _necesitaRecargar && _productoSeleccionadoId > 0)
+                {
+                    _necesitaRecargar = false;
+                    BtnEjecutar_Click(null, null);
+                }
+            };
         }
 
         // ==========================================
         // AUTOCOMPLETADO DE PRODUCTO MULTICOLUMNA
         // ==========================================
-        
+
         private async void CboProducto_KeyUp(object sender, KeyEventArgs e) // 🌟 AGREGADO 'async' AQUÍ
         {
             if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Escape || e.Key == Key.Tab) return;
