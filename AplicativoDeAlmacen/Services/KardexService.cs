@@ -29,9 +29,6 @@ namespace AplicativoDeAlmacen.Services
             cmd.Parameters.Add(p);
         }
 
-        // =========================================================
-        // 1. KARDEX FÍSICO INDEPENDIENTE POR ALMACÉN
-        // =========================================================
         public async Task<KardexFisicoReporte> GenerarKardexFisicoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta, int almacenId)
         {
             var reporte = new KardexFisicoReporte { AlmacenId = almacenId };
@@ -42,19 +39,19 @@ namespace AplicativoDeAlmacen.Services
 
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
-                // 1. CÁLCULO DE STOCK INICIAL (Movimientos estrictamente anteriores a FechaDesde)
+                // 1. CÁLCULO DE STOCK INICIAL (Excluye explícitamente m.estado_id != 2)
                 using (IDbCommand cmdInit = conn.CreateCommand())
                 {
                     string qInit = $@"
-                SELECT 
-                    COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
-                FROM movimiento_detalles md {nolock}
-                INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-                WHERE md.producto_id = @ProductoId
-                  AND m.fecha_movimiento < @FechaDesde
-                  AND m.estado_id != 2";
+        SELECT 
+            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
+        FROM movimiento_detalles md {nolock}
+        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+        WHERE md.producto_id = @ProductoId
+          AND m.fecha_movimiento < @FechaDesde
+          AND m.estado_id != 2"; // 👈 NUNCA CONSIDERA ANULADOS
 
                     cmdInit.CommandText = QueryAdapter.FormatearConsulta(qInit);
                     AgregarParametro(cmdInit, "@ProductoId", productoId);
@@ -65,36 +62,37 @@ namespace AplicativoDeAlmacen.Services
                     reporte.StockInicial = (resInit != null && resInit != DBNull.Value) ? Convert.ToDecimal(resInit) : 0m;
                 }
 
-                // 2. MOVIMIENTOS EN EL RANGO DE FECHAS
+                // 2. CONSULTA DE MOVIMIENTOS EN RANGO (Filtro m.estado_id != 2 en SQL)
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = $@"
-                SELECT
-                    m.fecha_movimiento,
-                    mp.descripcion AS motivo,
-                    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_movimiento,
-                    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
-                    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-                    COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS entidad,
-                    CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END AS Ingreso,
-                    CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
-                    m.estado_id,
-                    m.motivo_producto_id
-                FROM movimiento_detalles md {nolock}
-                INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-                LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-                LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-                LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-                LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-                WHERE md.producto_id = @ProductoId
-                  AND m.fecha_movimiento >= @FechaDesde
-                  AND m.fecha_movimiento <= @FechaHasta
-                  AND (
-                     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-                     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-                  )
-                ORDER BY m.fecha_movimiento ASC, m.id ASC";
+        SELECT
+            m.fecha_movimiento,
+            mp.descripcion AS motivo,
+            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_movimiento,
+            CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+            CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+            COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS entidad,
+            CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END AS Ingreso,
+            CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
+            m.estado_id,
+            m.motivo_producto_id
+        FROM movimiento_detalles md {nolock}
+        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+        LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+        LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+        LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+        LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+        WHERE md.producto_id = @ProductoId
+          AND m.fecha_movimiento >= @FechaDesde
+          AND m.fecha_movimiento <= @FechaHasta
+          AND m.estado_id != 2 -- 👈 FILTRO ESTRICTO ANTI-ANULADOS
+          AND (
+             (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+             (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+          )
+        ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -106,16 +104,15 @@ namespace AplicativoDeAlmacen.Services
                     {
                         decimal saldoAcumulado = reporte.StockInicial;
                         const int ALMACEN_CENTRAL_ID = 1;
+                        bool esAlmacenCentral = (almacenId == ALMACEN_CENTRAL_ID);
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
-                            int estId = reader.IsDBNull(8) ? 1 : reader.GetInt32(8);
                             int motivoId = reader.IsDBNull(9) ? 0 : reader.GetInt32(9);
                             string motivoTexto = Convert.ToString(reader.GetValue(1)) ?? "";
-                            bool isAnulado = (estId == 2);
 
-                            decimal ing = isAnulado ? 0 : reader.GetDecimal(6);
-                            decimal sal = isAnulado ? 0 : reader.GetDecimal(7);
+                            decimal ing = reader.GetDecimal(6);
+                            decimal sal = reader.GetDecimal(7);
 
                             var item = new KardexFisicoItem
                             {
@@ -128,51 +125,51 @@ namespace AplicativoDeAlmacen.Services
                                 Salida = sal,
                                 IngresoNormal = ing,
                                 SalidaNormal = sal,
-                                IsAnulado = isAnulado
+                                IsAnulado = false
                             };
 
-                            if (!isAnulado)
+                            reporte.TotalSalidas += sal;
+
+                            // 🌟 LÓGICA DE TARJETAS DE INGRESOS
+                            if (ing > 0)
                             {
-                                reporte.TotalIngresos += ing;
-                                reporte.TotalSalidas += sal;
+                                string motivoUpper = motivoTexto.ToUpperInvariant();
+                                bool esCompra = motivoUpper.Contains("COMPRA") || motivoId == 1;
+                                bool esTransferencia = motivoUpper.Contains("TRANSFERENCIA") || motivoId == 4;
 
-                                // 🌟 RECONOCIMIENTO INTELIGENTE DE DEVOLUCIÓN:
-                                if (ing > 0)
+                                if (esAlmacenCentral)
                                 {
-                                    string motivoUpper = motivoTexto.ToUpperInvariant();
-                                    bool esCompra = motivoUpper.Contains("COMPRA");
-                                    bool esTransferencia = motivoUpper.Contains("TRANSFERENCIA");
-
-                                    // Si es Almacén Central (Trujillo):
-                                    // Solo las COMPRAS son abastecimiento real. Todo el resto de ingresos son devoluciones.
-                                    if (almacenId == ALMACEN_CENTRAL_ID)
+                                    // Almacén Central: Solo COMPRA es Ingreso Principal. El resto son Devoluciones.
+                                    if (esCompra)
                                     {
-                                        if (!esCompra)
-                                        {
-                                            reporte.TotalDevoluciones += ing;
-                                        }
+                                        reporte.TotalIngresos += ing;
                                     }
-                                    // Si es Sub-Almacén (Lima, Chiclayo, etc.):
-                                    // Las COMPRAS y las TRANSFERENCIAS DESDE TRUJILLO son abastecimiento real.
-                                    // Las promociones/promotorías devueltas SÍ son devoluciones de salidas.
                                     else
                                     {
-                                        if (!esCompra && !esTransferencia)
-                                        {
-                                            reporte.TotalDevoluciones += ing;
-                                        }
+                                        reporte.TotalDevoluciones += ing;
                                     }
                                 }
-
-                                saldoAcumulado += (ing - sal);
+                                else
+                                {
+                                    // Sucursales: TRANSFERENCIAS (y Compras si aplica) son Ingreso Principal. El resto son Devoluciones.
+                                    if (esTransferencia || esCompra)
+                                    {
+                                        reporte.TotalIngresos += ing;
+                                    }
+                                    else
+                                    {
+                                        reporte.TotalDevoluciones += ing;
+                                    }
+                                }
                             }
 
+                            saldoAcumulado += (ing - sal);
                             item.SaldoAcumulado = saldoAcumulado;
                             item.SaldoFinal = saldoAcumulado;
+
                             reporte.Detalles.Add(item);
                         }
 
-                        // 🌟 STOCK FINAL DEL ALMACÉN
                         reporte.StockFinal = saldoAcumulado;
                     }
                 }

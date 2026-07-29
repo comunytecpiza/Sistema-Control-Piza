@@ -95,44 +95,52 @@
 
         <!-- 🌟 LAS 5 TARJETAS SOLICITADAS -->
         <Border Grid.Row="3" Margin="0,15,0,0" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="10">
-            <UniformGrid Columns="5">
+            <UniformGrid Columns="6">
                 <!-- 1. Stock Inicial -->
-                <Border Background="#F3F4F6" CornerRadius="8" Margin="5" Padding="12">
+                <Border Background="#F3F4F6" CornerRadius="8" Margin="4" Padding="10">
                     <StackPanel>
-                        <TextBlock Text="Stock Inicial" FontSize="12" Foreground="#4B5563" FontWeight="Bold"/>
-                        <TextBlock x:Name="TxtStockInicial" Text="0.00" FontSize="20" FontWeight="Black" Foreground="#374151"/>
+                        <TextBlock Text="Stock Inicial" FontSize="11" Foreground="#4B5563" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtStockInicial" Text="0.00" FontSize="18" FontWeight="Black" Foreground="#374151"/>
                     </StackPanel>
                 </Border>
 
-                <!-- 2. Ingresos -->
-                <Border Background="#ECFDF5" CornerRadius="8" Margin="5" Padding="12">
+                <!-- 2. Ingresos Principales (Compras / Transferencias) -->
+                <Border Background="#ECFDF5" CornerRadius="8" Margin="4" Padding="10">
                     <StackPanel>
-                        <TextBlock Text="Ingresos Totales" FontSize="12" Foreground="#065F46" FontWeight="Bold"/>
-                        <TextBlock x:Name="TxtTotalIngresos" Text="0.00" FontSize="20" FontWeight="Black" Foreground="#059669"/>
+                        <TextBlock x:Name="LblTituloIngresos" Text="Ingresos Principales" FontSize="11" Foreground="#065F46" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtTotalIngresos" Text="0.00" FontSize="18" FontWeight="Black" Foreground="#059669"/>
                     </StackPanel>
                 </Border>
 
-                <!-- 3. Salidas Brutas -->
-                <Border Background="#FEF2F2" CornerRadius="8" Margin="5" Padding="12">
+                <!-- 3. 🌟 NUEVA TARJETA: Devoluciones / Reingresos -->
+                <Border Background="#F0F9FF" CornerRadius="8" Margin="4" Padding="10">
                     <StackPanel>
-                        <TextBlock Text="Salidas Totales" FontSize="12" Foreground="#991B1B" FontWeight="Bold"/>
-                        <TextBlock x:Name="TxtTotalSalidas" Text="0.00" FontSize="20" FontWeight="Black" Foreground="#DC2626"/>
+                        <TextBlock Text="Devoluciones / Reingresos" FontSize="11" Foreground="#0369A1" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtTotalDevoluciones" Text="0.00" FontSize="18" FontWeight="Black" Foreground="#0284C7"/>
                     </StackPanel>
                 </Border>
 
-                <!-- 4. Salidas Fijas (Salidas - Devoluciones) -->
-                <Border Background="#FFF7ED" CornerRadius="8" Margin="5" Padding="12">
+                <!-- 4. Salidas Totales -->
+                <Border Background="#FEF2F2" CornerRadius="8" Margin="4" Padding="10">
                     <StackPanel>
-                        <TextBlock Text="Salidas Fijas (Netas)" FontSize="12" Foreground="#9A3412" FontWeight="Bold"/>
-                        <TextBlock x:Name="TxtSalidasFijas" Text="0.00" FontSize="20" FontWeight="Black" Foreground="#EA580C"/>
+                        <TextBlock Text="Salidas Totales" FontSize="11" Foreground="#991B1B" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtTotalSalidas" Text="0.00" FontSize="18" FontWeight="Black" Foreground="#DC2626"/>
                     </StackPanel>
                 </Border>
 
-                <!-- 5. Stock Final -->
-                <Border Background="#EFF6FF" CornerRadius="8" Margin="5" Padding="12">
+                <!-- 5. Salidas Fijas (Netas) -->
+                <Border Background="#FFF7ED" CornerRadius="8" Margin="4" Padding="10">
                     <StackPanel>
-                        <TextBlock Text="Stock Final Almacén" FontSize="12" Foreground="#1E3A8A" FontWeight="Bold"/>
-                        <TextBlock x:Name="TxtStockFinal" Text="0.00" FontSize="20" FontWeight="Black" Foreground="#2563EB"/>
+                        <TextBlock Text="Salidas Fijas (Netas)" FontSize="11" Foreground="#9A3412" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtSalidasFijas" Text="0.00" FontSize="18" FontWeight="Black" Foreground="#EA580C"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 6. Stock Final Almacén -->
+                <Border Background="#EFF6FF" CornerRadius="8" Margin="4" Padding="10">
+                    <StackPanel>
+                        <TextBlock Text="Stock Final Almacén" FontSize="11" Foreground="#1E3A8A" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtStockFinal" Text="0.00" FontSize="18" FontWeight="Black" Foreground="#2563EB"/>
                     </StackPanel>
                 </Border>
             </UniformGrid>

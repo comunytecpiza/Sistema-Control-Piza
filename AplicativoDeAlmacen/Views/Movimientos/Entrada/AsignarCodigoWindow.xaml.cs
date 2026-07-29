@@ -206,17 +206,30 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
+                int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
                 string baseLimpia = abreviaturaRaw.Trim();
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
                 string prefijoBuscado = baseLimpia.EndsWith("-") ? baseLimpia : $"{baseLimpia}-";
 
-                // 🌟 CONSULTA FLEXIBLE Y SEGURA: Verifica existencia y estado operativo permitido
-                string query = @"
+                // 🌟 CONDICIONAL DE ESTADOS:
+                // - Si estadoPermitido == 1 (Compra/Ingreso Inicial), acepta Estado 1 (Creado) o Estado 3 (Almacén)
+                // - Si es Salida/Despacho (3), exige que esté en Estado 3 de MI Almacén
+                // - Para Devolución/Reingreso (4), acepta Estado 4 (Vendido) o Estado 5 (En Tránsito)
+                string condicionEstado;
+                if (estadoPermitido == 1)
+                    condicionEstado = " (cc.estado_id IN (1, 3)) ";
+                else if (estadoPermitido == 3)
+                    condicionEstado = " (cc.estado_id = 3 AND cc.almacen_id = @almacenId) ";
+                else
+                    condicionEstado = " (cc.estado_id IN (4, 5)) ";
+
+                string query = $@"
             SELECT COUNT(*)
             FROM codigos_creados cc
             INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
             WHERE rc.producto_id = @productoId
-              AND cc.estado_id = @estadoPermitido -- 👈 Valida que el código esté disponible (ej. Estado 3 = En Almacén)
+              AND {condicionEstado}
               AND rc.categoria_producto_id = @categoriaId
               AND cc.codigo LIKE @prefijoPattern
               AND CAST(RIGHT(cc.codigo, 7) AS SIGNED) BETWEEN @desde AND @hasta";
@@ -225,7 +238,7 @@ namespace AplicativoDeAlmacen.Views
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
                 AgregarParametro(cmd, "@productoId", productoId);
-                AgregarParametro(cmd, "@estadoPermitido", estadoPermitido);
+                AgregarParametro(cmd, "@almacenId", almacenActualId);
                 AgregarParametro(cmd, "@categoriaId", categoriaId);
                 AgregarParametro(cmd, "@prefijoPattern", prefijoBuscado + "%");
                 AgregarParametro(cmd, "@desde", desde);

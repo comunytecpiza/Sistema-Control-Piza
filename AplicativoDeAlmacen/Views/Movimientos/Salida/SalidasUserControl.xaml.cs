@@ -380,17 +380,23 @@ namespace AplicativoDeAlmacen.Views
 
             dgProductosSalida.Items.Refresh();
 
+            if (dgProductosSalida.SelectedItem == null && _productosLista.Any())
+            {
+                dgProductosSalida.SelectedItem = _productosLista.First();
+            }
+
             if (dgProductosSalida.SelectedItem is VistaProductoGrid seleccionado)
             {
-                var codigosDelProducto = _codigosLista.Where(x => x.ProductoId == seleccionado.ProductoId);
-                int totalCodigosProducto = codigosDelProducto.Count();
+                var codigosDelProducto = _codigosLista.Where(x => x.ProductoId == seleccionado.ProductoId).ToList();
+                int totalCodigosProducto = codigosDelProducto.Count;
 
-                dgCodigosSalida.ItemsSource = codigosDelProducto.Take(500).ToList();
+                // 🌟 RENDERIZADO SEGURO EN UI: Máximo 300 elementos visibles simultáneamente para evitar congelamiento de RAM
+                dgCodigosSalida.ItemsSource = codigosDelProducto.Take(500);
 
                 if (totalCodigosProducto > 500)
                 {
                     lblResumenCodigos.Text = $"500 (Viendo) / {totalCodigosProducto}";
-                    lblResumenCodigos.ToolTip = "La vista previa lateral se limita a 500 ítems por rendimiento físico. El lote completo está cargado en memoria para guardado.";
+                    lblResumenCodigos.ToolTip = "La vista previa muestra los primeros 500 códigos por rendimiento de pantalla. El lote completo está resguardado en memoria RAM para el despacho.";
                 }
                 else
                 {
@@ -400,8 +406,8 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
-                dgCodigosSalida.ItemsSource = _codigosLista.Take(500).ToList();
-                lblResumenCodigos.Text = $"500 (Viendo) / {_codigosLista.Count}";
+                dgCodigosSalida.ItemsSource = _codigosLista.Take(500);
+                lblResumenCodigos.Text = $"500 / {_codigosLista.Count}";
             }
 
             dgCodigosSalida.Items.Refresh();
@@ -863,20 +869,18 @@ namespace AplicativoDeAlmacen.Views
                     var movimiento = movCompleto.Movimiento;
                     _idMovimientoActual = movimiento.Id;
 
-                    // 1. CARGA DE CABECERA (Campos de Control)
+                    // 1. CARGA DE CABECERA
                     dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento?.ToDateTime(TimeOnly.MinValue);
                     cboMotivoSalida.SelectedValue = movimiento.MotivoProductoId;
                     txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
                     txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
                     txtObservacionSalida.Text = movimiento.Observacion ?? string.Empty;
 
-                    // 🌟 Cargar Almacén Destino si fue una transferencia física entre sedes
                     if (movimiento.AlmacenDestinoId.HasValue)
                     {
                         cboAlmacenDestino.SelectedValue = movimiento.AlmacenDestinoId.Value;
                     }
 
-                    // 🌟 Cargar Razón Social (Cliente / Promotora)
                     if (movimiento.PersonaComercialId.HasValue)
                     {
                         _idClienteSeleccionado = movimiento.PersonaComercialId;
@@ -893,7 +897,6 @@ namespace AplicativoDeAlmacen.Views
                         catch { txtCliente.Text = $"ID CLIENTE: {_idClienteSeleccionado}"; }
                     }
 
-                    // 🌟 Cargar Ubicación Referencial
                     if (movimiento.UbicacionId.HasValue)
                     {
                         _idUbicacionSeleccionada = movimiento.UbicacionId;
@@ -911,13 +914,13 @@ namespace AplicativoDeAlmacen.Views
                         catch { txtUbicacion.Text = $"ID UBIC: {_idUbicacionSeleccionada}"; }
                     }
 
-                    // 2. CARGA DE GRILLAS (Productos y Códigos Físicos)
+                    // 2. 🚀 CARGA DE GRILLAS ULTRA-OPTIMIZADA (1 Sola consulta JOIN a la BD)
                     _productosLista.Clear();
                     _codigosLista.Clear();
 
                     if (movCompleto.Detalles != null && movCompleto.Detalles.Any())
                     {
-                        var todosLosCodigosPlanos = new List<(int DetId, int CodId, string CodString)>();
+                        var todosLosCodigosPlanos = new List<(int DetId, int CodId, string CodString, string TipoColeccion)>();
                         string indexHint = QueryAdapter.EsMySQL ? "" : "WITH (INDEX(IX_codigos_creados_codigo_perf))";
 
                         using (var conn = new DatabaseConnection().GetConnection())
@@ -925,8 +928,13 @@ namespace AplicativoDeAlmacen.Views
                             await ((DbConnection)conn).OpenAsync();
                             using (var cmd = ((DbConnection)conn).CreateCommand())
                             {
+                                // 🌟 LA CLAVE DE VELOCIDAD: Se trae la colección en el mismo JOIN sin hacer bucles
                                 cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-                            SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, c.ano, rc.categoria_producto_id
+                            SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, 
+                                   CASE 
+                                       WHEN rc.categoria_producto_id = 1 THEN CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO GUÍA')
+                                       ELSE CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO VENTA')
+                                   END AS tipo_coleccion
                             FROM movimiento_codigos mc 
                             INNER JOIN codigos_creados cc {indexHint} ON mc.codigo_creado_id = cc.id 
                             LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
@@ -939,7 +947,12 @@ namespace AplicativoDeAlmacen.Views
                                 {
                                     while (await rdr.ReadAsync())
                                     {
-                                        todosLosCodigosPlanos.Add((rdr.GetInt32(0), rdr.GetInt32(1), rdr.GetString(2)));
+                                        todosLosCodigosPlanos.Add((
+                                            rdr.GetInt32(0),
+                                            rdr.GetInt32(1),
+                                            rdr.GetString(2),
+                                            rdr.IsDBNull(3) ? "LIBRO VENTA" : rdr.GetString(3)
+                                        ));
                                     }
                                 }
                             }
@@ -967,26 +980,27 @@ namespace AplicativoDeAlmacen.Views
                             {
                                 foreach (var c in lookupCodigos[det.Id])
                                 {
-                                    string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(c.CodId);
-
+                                    // 🌟 Cero consultas SQL aquí (Súper rápido)
                                     _codigosLista.Add(new VistaCodigoGrid
                                     {
                                         ProductoId = det.ProductoId,
                                         CodigoUnique = c.CodString,
-                                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = c.CodId },
-                                        ColeccionTipo = tipoColeccionReal
+                                        ColeccionTipo = c.TipoColeccion,
+                                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = c.CodId }
                                     });
                                 }
                             }
                         }
                     }
 
+                    dgProductosSalida.ItemsSource = null;
+                    dgProductosSalida.ItemsSource = _productosLista;
                     RefrescarGrillas();
 
                     txtNumeroSalida.IsReadOnly = true;
                     txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
 
-                    // 🛑 3. EVALUACIÓN DE RESTRICCIONES (Bloquea botones sin borrar la pantalla)
+                    // 3. EVALUACIÓN DE RESTRICCIONES
                     if (movimiento.EstadoId == 2)
                     {
                         if (_modoActual != ModoFormulario.BuscandoParaImprimir && !_anularMode)
@@ -1009,7 +1023,6 @@ namespace AplicativoDeAlmacen.Views
                         return;
                     }
 
-                    // 4. MODO NORMAL O ANULACIÓN/IMPRESIÓN
                     if (_modoActual == ModoFormulario.BuscandoParaEditar)
                     {
                         if (_anularMode)
@@ -1130,18 +1143,15 @@ namespace AplicativoDeAlmacen.Views
                 if (productoSelected == null || rangosDelModal == null || !rangosDelModal.Any()) return;
 
                 int idProducto = productoSelected.Id;
-                int miAlmacenActualId = SesionSistema.AlmacenActual?.Id ?? 1; // 👈 Almacén activo de la sesión
+                int miAlmacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
 
                 this.Cursor = Cursors.Wait;
                 try
                 {
-                    dgCodigosSalida.ItemsSource = null;
-                    dgProductosSalida.ItemsSource = null;
-
                     var ingService = new IngresoMovimientoService();
                     var listaStrings = new List<string>();
 
-                    // 1. Desglosamos los rangos a textos planos en RAM
+                    // 1. Desglosamos los rangos a textos planos en RAM (Ultrarrápido)
                     foreach (var rango in rangosDelModal)
                     {
                         if (rango.DesdeNum == -1)
@@ -1157,18 +1167,20 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    // 2. 🚀 BATCH CON FILTRO POR ALMACÉN ACTUAL: Trae solo códigos que pertenecen físicamente a MI almacén activo
+                    // 2. 🚀 ÚNICA CONSULTA BATCH: Trae todos los códigos del rango en 1 solo viaje a la BD
                     var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, miAlmacenActualId);
                     int ignoradosPorDuplicado = 0;
                     int ignoradosPorAlmacenOEstado = 0;
 
                     string primerRangoTipo = rangosDelModal.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
 
+                    // 🌟 Lista temporal en memoria para evitar refrescos visuales innecesarios en bucle
+                    var nuevosCodigosBatch = new List<VistaCodigoGrid>();
+
                     foreach (var codStr in listaStrings)
                     {
                         string norm = ingService.NormalizarCodigo(codStr);
 
-                        // 🛡️ CANDADO ESTRICTO DE STOCK: Si no está en el diccionario es porque pertenece a OTRO almacén o NO está en estado 3
                         if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
                         {
                             if (tup.CodigoObj.EstadoId != 3)
@@ -1179,14 +1191,15 @@ namespace AplicativoDeAlmacen.Views
 
                             int codigoCreadoId = tup.CodigoObj.Id;
 
-                            // Candado anti-duplicados en la misma grilla
-                            if (_codigosLista.Any(c => c.MovCodigo != null && c.MovCodigo.CodigoCreadoId == codigoCreadoId))
+                            // Candado anti-duplicados en memoria general
+                            if (_codigosLista.Any(c => c.MovCodigo != null && c.MovCodigo.CodigoCreadoId == codigoCreadoId) ||
+                                nuevosCodigosBatch.Any(c => c.MovCodigo?.CodigoCreadoId == codigoCreadoId))
                             {
                                 ignoradosPorDuplicado++;
                                 continue;
                             }
 
-                            _codigosLista.Add(new VistaCodigoGrid
+                            nuevosCodigosBatch.Add(new VistaCodigoGrid
                             {
                                 ProductoId = idProducto,
                                 CodigoUnique = tup.CodigoObj.Codigo,
@@ -1202,7 +1215,7 @@ namespace AplicativoDeAlmacen.Views
 
                     if (ignoradosPorAlmacenOEstado > 0)
                     {
-                        MessageBox.Show($"⚠️ Advertencia de Stock:\n\nSe omitieron {ignoradosPorAlmacenOEstado} código(s) porque NO pertenecen a su Almacén actual o ya fueron transferidos / despachados.", "Stock No Disponible", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show($"⚠️ Advertencia de Stock:\n\nSe omitieron {ignoradosPorAlmacenOEstado} código(s) porque NO pertenecen a su Almacén actual o ya fueron despachados.", "Stock No Disponible", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
 
                     if (ignoradosPorDuplicado > 0)
@@ -1210,10 +1223,15 @@ namespace AplicativoDeAlmacen.Views
                         MessageBox.Show($"Se ignoraron {ignoradosPorDuplicado} código(s) duplicado(s) que ya estaban en la lista.", "Aviso de Duplicados", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
 
+                    // 🌟 Inyección masiva fuera de los ciclos individuales de validación
+                    foreach (var nc in nuevosCodigosBatch)
+                    {
+                        _codigosLista.Add(nc);
+                    }
+
                     var prodService = new ProductoService();
                     var prodData = await prodService.ObtenerPorIdAsync(idProducto);
 
-                    // Recalcular cantidad total real basándonos en los códigos que SI pasaron los filtros de almacén
                     int conteoCodigosReal = _codigosLista.Count(c => c.ProductoId == idProducto);
                     int cantidadFinal = conteoCodigosReal;
 
@@ -1254,6 +1272,8 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+
+
         private async void DgProductosSalida_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (dgProductosSalida.SelectedItem is VistaProductoGrid)
@@ -1276,10 +1296,6 @@ namespace AplicativoDeAlmacen.Views
         {
             if (dgProductosSalida.SelectedItem is not VistaProductoGrid seleccionado) return;
 
-            var todosLosCodigosDelProducto = _codigosLista
-         .Where(c => c.ProductoId == seleccionado.ProductoId)
-         .ToList();
-
             var rangos = ReconstruirRangosDeCodigos(seleccionado.ProductoId);
 
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
@@ -1292,64 +1308,71 @@ namespace AplicativoDeAlmacen.Views
                 seleccionado.Detalle.CostoUnitario = prodActualizado?.PrecioUnitario ?? 0;
             }
 
-            seleccionado.Detalle.CantidadIngreso = seleccionado.Detalle.CantidadSalida;
-            var rangosReconstruidos = ReconstruirRangosDeCodigos(seleccionado.ProductoId);
-
-            modal.InitializeForEdit(seleccionado, rangosReconstruidos);
             modal.EstadoPermitido = 3;
 
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
-                seleccionado.Detalle.CantidadSalida = modal.CantidadProductoIngresada;
-                seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
-                seleccionado.Cantidad = modal.CantidadProductoIngresada;
-
-                if (modal.ListaRangosAgregados != null)
+                this.Cursor = Cursors.Wait;
+                try
                 {
-                    var codigosViejos = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
-                    foreach (var cv in codigosViejos) _codigosLista.Remove(cv);
+                    seleccionado.Detalle.CantidadSalida = modal.CantidadProductoIngresada;
+                    seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
+                    seleccionado.Cantidad = modal.CantidadProductoIngresada;
 
-                    var ingService = new IngresoMovimientoService();
-                    var listaStrings = new List<string>();
-                    foreach (var rango in modal.ListaRangosAgregados)
+                    if (modal.ListaRangosAgregados != null)
                     {
-                        if (rango.DesdeNum == -1)
+                        // Limpiamos los códigos anteriores de este producto en RAM
+                        var codigosViejos = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
+                        foreach (var cv in codigosViejos) _codigosLista.Remove(cv);
+
+                        var ingService = new IngresoMovimientoService();
+                        var listaStrings = new List<string>();
+                        foreach (var rango in modal.ListaRangosAgregados)
                         {
-                            listaStrings.Add(rango.AbreviaturaBase);
-                        }
-                        else
-                        {
-                            for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                            if (rango.DesdeNum == -1)
                             {
-                                listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                                listaStrings.Add(rango.AbreviaturaBase);
+                            }
+                            else
+                            {
+                                for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                                {
+                                    listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                                }
+                            }
+                        }
+
+                        // 🌟 BATCH MASIVO TAMBIÉN EN EDICIÓN (Elimina la lentitud al modificar ítems)
+                        var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, SesionSistema.AlmacenActual?.Id ?? 1);
+                        string primerRangoTipo = modal.ListaRangosAgregados.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
+
+                        foreach (var codStr in listaStrings)
+                        {
+                            string norm = ingService.NormalizarCodigo(codStr);
+                            if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
+                            {
+                                if (_codigosLista.Any(x => x.MovCodigo?.CodigoCreadoId == tup.CodigoObj.Id)) continue;
+
+                                _codigosLista.Add(new VistaCodigoGrid
+                                {
+                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
+                                    CodigoUnique = tup.CodigoObj.Codigo,
+                                    ProductoId = seleccionado.ProductoId,
+                                    ColeccionTipo = primerRangoTipo
+                                });
                             }
                         }
                     }
-
-                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings);
-
-                    foreach (var codStr in listaStrings)
-                    {
-                        string norm = ingService.NormalizarCodigo(codStr);
-                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
-                        {
-                            string tipoColeccionReal = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
-
-                            if (_codigosLista.Any(x => x.MovCodigo.CodigoCreadoId == tup.CodigoObj.Id))
-                            {
-                                continue;
-                            }
-                            _codigosLista.Add(new VistaCodigoGrid
-                            {
-                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
-                                CodigoUnique = tup.CodigoObj.Codigo,
-                                ProductoId = seleccionado.ProductoId,
-                                ColeccionTipo = tipoColeccionReal
-                            });
-                        }
-                    }
+                    RefrescarGrillas();
                 }
-                RefrescarGrillas();
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error al actualizar los códigos del producto: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    this.Cursor = Cursors.Arrow;
+                }
             }
         }
 

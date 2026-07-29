@@ -157,7 +157,7 @@
                 <!-- ENCABEZADO -->
                 <Border Grid.Row="0" BorderBrush="#6366F1" BorderThickness="4,0,0,0" Padding="12,2,0,2" Margin="0,0,0,24">
                     <StackPanel>
-                        <TextBlock Text="Registro de Ingreso de Productos" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Height="34"/>
+                        <TextBlock Text="Ingreso de Productos" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Height="34"/>
                         <TextBlock Text="Gestión de inventario, proveedores y asignación de códigos únicos" FontSize="12" Foreground="#64748B" Margin="0,2,0,0" Height="21"/>
                     </StackPanel>
                 </Border>
@@ -433,7 +433,7 @@
                                     IsReadOnly="True"
                                     CanUserAddRows="False"
 
-                                    Height="285"
+                                    Height="750"
 
                                     SelectionMode="Extended"
                                     SelectionUnit="FullRow"

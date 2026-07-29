@@ -335,13 +335,19 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Key == Key.Enter)
             {
-                string serie = txtNumSerie?.Text?.Trim();
-                string numero = txtNumDocumento?.Text?.Trim();
+                string serie = txtNumSerie?.Text?.Trim() ?? "0001";
+                string numero = txtNumDocumento?.Text?.Trim() ?? "";
 
                 if (string.IsNullOrEmpty(numero))
                 {
                     MessageBox.Show("Ingrese el número de documento para cargar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
+                }
+
+                if (int.TryParse(numero, out int numVal))
+                {
+                    numero = numVal.ToString("D7");
+                    txtNumDocumento.Text = numero;
                 }
 
                 try
@@ -353,7 +359,7 @@ namespace AplicativoDeAlmacen.Views
 
                     if (!_currentMovimientoId.HasValue)
                     {
-                        MessageBox.Show("Movimiento no encontrado. Verifique el número e intente de nuevo.",
+                        MessageBox.Show("Movimiento de ingreso no encontrado en este almacén. Verifique el número e intente de nuevo.",
                                         "Búsqueda fallida", MessageBoxButton.OK, MessageBoxImage.Warning);
 
                         txtNumDocumento.Focus();
@@ -362,7 +368,7 @@ namespace AplicativoDeAlmacen.Views
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error al buscar: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Error al buscar movimiento: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     _currentMovimientoId = null;
                 }
                 finally
@@ -507,10 +513,10 @@ namespace AplicativoDeAlmacen.Views
                     var persona = await _service.ObtenerPorIdAsync(movimiento.PersonaComercialId.Value);
                     if (persona != null)
                     {
-                        _isUpdatingFromSelection = true; // 🌟 BLOQUEA EL POPUP DE BÚSQUEDA
+                        _isUpdatingFromSelection = true;
                         txtRazonSocial.Text = !string.IsNullOrEmpty(persona.RazonSocial) ? persona.RazonSocial : $"{persona.Nombres} {persona.ApellidoPaterno}";
                         txtDireccion.Text = persona.Direccion ?? "Sin dirección registrada";
-                        _isUpdatingFromSelection = false; // 🌟 LIBERA EL BLOQUEO
+                        _isUpdatingFromSelection = false;
                     }
                 }
                 catch { txtRazonSocial.Text = $"Cliente ID: {movimiento.PersonaComercialId.Value}"; }
@@ -528,10 +534,12 @@ namespace AplicativoDeAlmacen.Views
                     var ubic = todas?.FirstOrDefault(u => u.Id == movimiento.UbicacionId.Value);
                     if (ubic != null)
                     {
-                        _isUpdatingFromSelection = true; // 🌟 BLOQUEA EL POPUP DE BÚSQUEDA
+                        _isUpdatingFromSelection = true;
                         txtUbicacion.Text = ubic.Descripcion ?? string.Empty;
                         txtDireccionUbicacion.Text = string.IsNullOrWhiteSpace(ubic.Direccion) ? "Sin dirección registrada" : ubic.Direccion;
-                        _isUpdatingFromSelection = false; // 🌟 LIBERA EL BLOQUEO
+                        _idUbicacionSeleccionada = ubic.Id;
+                        txtCodigoUbicacion.Text = ubic.Id.ToString();
+                        _isUpdatingFromSelection = false;
                     }
                 }
                 catch { }
@@ -600,8 +608,56 @@ namespace AplicativoDeAlmacen.Views
             else if (movimiento.AlmacenDestinoId.HasValue)
                 cboAlmacenDestino.SelectedValue = movimiento.AlmacenDestinoId.Value;
 
-            BloquearParaImpresion();
-            ShowPrintButtonNearSave();
+            txtNumDocumento.IsReadOnly = true;
+            txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+            // 🌟 EVALUACIÓN SEGÚN EL MODO ACTIVADO POR EL USUARIO:
+            if (_printMode)
+            {
+                // Modo Consulta / Imprimir: Bloquea los campos e inserta botón "Imprimir Registro"
+                BloquearParaImpresion();
+                ShowPrintButtonNearSave();
+            }
+            else if (_anularMode)
+            {
+                // Modo Anulación: Bloquea controles visualmente e inserta botón "Confirmar Anulación"
+                BloquearParaAnulacionVisual();
+                ShowAnularButtonNearSave();
+            }
+            else
+            {
+                // Modo Edición Normal: Permite modificar el formulario y guardar cambios
+                HabilitarCamposFormulario(true);
+                btnGrabar.IsEnabled = true;
+                btnCancelar.IsEnabled = true;
+
+                cboMotivo.IsEnabled = true;
+                dtpFechaRecepcion.IsEnabled = true;
+                txtObservacion.IsEnabled = true;
+                txtSerieGuia.IsEnabled = true;
+                txtNumeroGuia.IsEnabled = true;
+
+                btnAgregarProducto.IsEnabled = true;
+                btnModificar.IsEnabled = true;
+                btnEliminar.IsEnabled = true;
+                btnImportar.IsEnabled = true;
+                btnEscanear.IsEnabled = true;
+            }
+        }
+
+        private void LimpiarBotonesDinamicosCompletamente()
+        {
+            if (_btnPrintNearSave != null && _btnPrintNearSave.Parent is Panel p1)
+            {
+                p1.Children.Remove(_btnPrintNearSave);
+                _btnPrintNearSave = null;
+            }
+
+            if (_btnAnularNearSave != null && _btnAnularNearSave.Parent is Panel p2)
+            {
+                p2.Children.Remove(_btnAnularNearSave);
+                _btnAnularNearSave = null;
+            }
         }
 
         private async void BtnAgregar_Click(object sender, RoutedEventArgs e)
@@ -680,6 +736,10 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnEditar_Click(object sender, RoutedEventArgs e)
         {
+            _printMode = false;
+            _anularMode = false;
+
+            LimpiarBotonesDinamicosCompletamente();
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
@@ -691,12 +751,17 @@ namespace AplicativoDeAlmacen.Views
 
             GestionarBotonesPrincipales(enEdicion: true);
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+            MessageBox.Show("Modo Edición activado.\n\nEscriba el N° de Documento de ingreso y presione ENTER para cargar y modificar sus datos.", "Editar Movimiento", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_printMode) return;
             _printMode = true;
+            _anularMode = false;
+
+            LimpiarBotonesDinamicosCompletamente();
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
@@ -706,10 +771,11 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
+            GestionarBotonesPrincipales(enEdicion: true);
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
-            System.Windows.MessageBox.Show("Modo Imprimir activado. Ingrese el número de documento de ingreso y presione ENTER.",
-                                           "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Modo Imprimir / Consulta activado.\n\nIngrese el número de documento de ingreso y presione ENTER para visualizar el registro.",
+                           "Modo Consulta", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void BtnCancelar_Click(object sender, RoutedEventArgs e)
@@ -1050,10 +1116,20 @@ namespace AplicativoDeAlmacen.Views
 
         private void MostrarCodigosProductoSeleccionado()
         {
+            if (dgProductos == null) return;
+
+            // 🌟 Si no hay ningún producto seleccionado, seleccionar automáticamente el primero
+            if (dgProductos.SelectedItem == null && _productosGridList.Any())
+            {
+                dgProductos.SelectedItem = _productosGridList.First();
+                return; // Al asignar SelectedItem, el evento SelectionChanged se volverá a disparar de forma transparente
+            }
+
             if (dgProductos.SelectedItem is not VistaProductoGrid producto)
             {
-                dgCodigos.ItemsSource = null;
-                lblResumenCodigos.Text = "0 / 0";
+                // Si no hay productos en la lista general, mostramos todos los códigos o dejamos vacío
+                dgCodigos.ItemsSource = _codigosGridList.Take(500).ToList();
+                lblResumenCodigos.Text = $"500 (Viendo) / {_codigosGridList.Count}";
                 return;
             }
 

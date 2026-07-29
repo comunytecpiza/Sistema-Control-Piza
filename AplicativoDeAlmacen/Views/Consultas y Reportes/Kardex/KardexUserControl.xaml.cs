@@ -190,6 +190,7 @@ namespace AplicativoDeAlmacen.Views
                 Mouse.OverrideCursor = Cursors.Wait;
 
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                const int ALMACEN_CENTRAL_ID = 1;
 
                 _ultimoReporte = await _kardexService.GenerarKardexFisicoAsync(
                     _productoSeleccionadoId,
@@ -199,14 +200,18 @@ namespace AplicativoDeAlmacen.Views
 
                 var reporte = _ultimoReporte;
 
-                // Llenar grilla
+                // Llenar grilla con los movimientos activos
                 KardexDataGrid.ItemsSource = reporte.Detalles;
 
-                // 🌟 ASIGNACIÓN DE LAS 5 TARJETAS CONTABLES
+                // Título dinámico según la sede
+                LblTituloIngresos.Text = (miAlmacenId == ALMACEN_CENTRAL_ID) ? "Ingresos (Compras)" : "Ingresos (Transferencias)";
+
+                // 🌟 ASIGNACIÓN DE LAS TARJETAS CONTABLES Y OPERATIVAS
                 TxtStockInicial.Text = reporte.StockInicial.ToString("N2");
-                TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N2");
+                TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N2");       // Ingresos Principales (Compra o Transferencia)
+                TxtTotalDevoluciones.Text = reporte.TotalDevoluciones.ToString("N2"); // Devoluciones / Reingresos
                 TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N2");
-                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N2");
+                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N2");           // Salidas Netas
                 TxtStockFinal.Text = reporte.StockFinal.ToString("N2");
             }
             catch (Exception ex)

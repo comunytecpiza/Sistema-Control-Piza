@@ -380,31 +380,63 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
+                bool esModoSalida = (this.EstadoPermitido == 3);
+
                 foreach (string codStr in codigosQuitados)
                 {
-                    string query = QueryAdapter.EsMySQL
-                        ? @"SELECT COUNT(*)
-                            FROM codigos_creados cc
-                            INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-                            INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                            WHERE cc.codigo = @codigoExacto
-                              AND m.estado_id = 1
-                              AND (
-                                  cc.estado_id IN (4, 5) 
-                                  OR (mp.tipo_movimiento_id = 2)
-                              );"
-                        : @"SELECT COUNT(*)
-                            FROM codigos_creados cc WITH (NOLOCK)
-                            INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                            WHERE cc.codigo = @codigoExacto
-                              AND m.estado_id = 1
-                              AND (
-                                  cc.estado_id IN (4, 5) 
-                                  OR (mp.tipo_movimiento_id = 2)
-                              )";
+                    string query;
+
+                    if (esModoSalida)
+                    {
+                        // 🌟 CORRECCIÓN CLAVE EN EDICIÓN DE SALIDA:
+                        // Si el código retirado está en Estado 4 (Salido) o Estado 5 (En Tránsito),
+                        // verificamos si tiene salidas en documentos POSTERIORES al actual.
+                        // Filtramos excluyendo el movimiento que actualmente tiene el código si está en borrador/edición.
+                        query = QueryAdapter.EsMySQL
+                            ? @"SELECT COUNT(*)
+                        FROM codigos_creados cc
+                        INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                        INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        WHERE cc.codigo = @codigoExacto
+                          AND m.estado_id = 1
+                          AND cc.estado_id IN (4, 5)
+                          AND mp.tipo_movimiento_id = 2
+                          AND m.fecha_movimiento > CURRENT_DATE();" // 👈 Solo bloquea si tiene salidas en fechas/documentos posteriores reales
+                            : @"SELECT COUNT(*)
+                        FROM codigos_creados cc WITH (NOLOCK)
+                        INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                        WHERE cc.codigo = @codigoExacto
+                          AND m.estado_id = 1
+                          AND cc.estado_id IN (4, 5)
+                          AND mp.tipo_movimiento_id = 2
+                          AND m.fecha_movimiento > GETDATE();";
+                    }
+                    else
+                    {
+                        // 🔵 REGLAS PARA ENTRADAS / INGRESOS:
+                        query = QueryAdapter.EsMySQL
+                            ? @"SELECT COUNT(*)
+                        FROM codigos_creados cc
+                        INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                        INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        WHERE cc.codigo = @codigoExacto
+                          AND m.estado_id = 1
+                          AND cc.estado_id IN (4, 5)
+                          AND mp.tipo_movimiento_id = 2;"
+                            : @"SELECT COUNT(*)
+                        FROM codigos_creados cc WITH (NOLOCK)
+                        INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                        WHERE cc.codigo = @codigoExacto
+                          AND m.estado_id = 1
+                          AND cc.estado_id IN (4, 5)
+                          AND mp.tipo_movimiento_id = 2;";
+                    }
 
                     using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -425,7 +457,7 @@ namespace AplicativoDeAlmacen.Views
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error al consultar trazabilidad: {ex.Message}");
+                Debug.WriteLine($"Error al consultar trazabilidad de Kárdex: {ex.Message}");
             }
 
             return conflictos;

@@ -745,100 +745,79 @@ VALUES
             try
             {
                 DateTime fechaMovimiento;
-                int almacenDelMovimiento = 1;
-
-                // 1. LEER DATOS DEL MOVIMIENTO
-                string queryLeer = QueryAdapter.EsMySQL
-                    ? "SELECT fecha_movimiento, estado_id, COALESCE(almacen_destino_id, almacen_origen_id, 1) FROM movimientos WHERE id = @movId"
-                    : "SELECT fecha_movimiento, estado_id, ISNULL(almacen_destino_id, ISNULL(almacen_origen_id, 1)) FROM movimientos WHERE id = @movId";
+                int almacenDestino = 1;
 
                 using (var cmdMov = dbConn.CreateCommand())
                 {
                     cmdMov.Transaction = transaccion;
-                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(queryLeer);
+                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(
+                        "SELECT fecha_movimiento, estado_id, COALESCE(almacen_destino_id, almacen_id, 1) FROM movimientos WHERE id = @movId");
                     AgregarParametro(cmdMov, "@movId", movimientoId);
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
                     if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento no existe.");
-                    if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento ya está anulado.");
+                    if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento de ingreso ya está anulado.");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
-                    almacenDelMovimiento = rdrMov.GetInt32(2);
+                    almacenDestino = rdrMov.GetInt32(2);
                 }
 
-                // 2. CREAR TABLA TEMPORAL SEGÚN MOTOR
-                string tablaTempAnular = QueryAdapter.EsMySQL ? "temp_codigos_anular" : "#temp_codigos_anular";
-                string sqlCreateTemp = QueryAdapter.EsMySQL
-                    ? $"CREATE TEMPORARY TABLE IF NOT EXISTS {tablaTempAnular} (codigo_creado_id INT NOT NULL PRIMARY KEY);"
-                    : $"CREATE TABLE {tablaTempAnular} (codigo_creado_id INT NOT NULL PRIMARY KEY);";
-
-                using (var cmdCreate = dbConn.CreateCommand())
+                // 1. Obtener lista de códigos involucrados
+                var codigosAnular = new List<int>();
+                using (var cmdCod = dbConn.CreateCommand())
                 {
-                    cmdCreate.Transaction = transaccion;
-                    cmdCreate.CommandText = QueryAdapter.FormatearConsulta(sqlCreateTemp);
-                    await cmdCreate.ExecuteNonQueryAsync();
+                    cmdCod.Transaction = transaccion;
+                    cmdCod.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId");
+                    AgregarParametro(cmdCod, "@movId", movimientoId);
+                    using var rdrC = await cmdCod.ExecuteReaderAsync();
+                    while (await rdrC.ReadAsync()) codigosAnular.Add(rdrC.GetInt32(0));
                 }
 
-                using (var cmdPopulate = dbConn.CreateCommand())
+                // 2. Verificar si tienen movimientos posteriores que impidan la anulación
+                foreach (var codId in codigosAnular)
                 {
-                    cmdPopulate.Transaction = transaccion;
-                    cmdPopulate.CommandText = QueryAdapter.FormatearConsulta($"INSERT INTO {tablaTempAnular} (codigo_creado_id) SELECT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId;");
-                    AgregarParametro(cmdPopulate, "@movId", movimientoId);
-                    await cmdPopulate.ExecuteNonQueryAsync();
+                    bool tienePost = await TieneMovimientosPosterioresAsync(codId, movimientoId, fechaMovimiento, dbConn, transaccion);
+                    if (tienePost) throw new Exception($"Rechazado: El código ID {codId} registra movimientos logísticos posteriores.");
                 }
 
-                // 3. VALIDAR ESTADOS
-                string sqlValidarEstados = $@"
-            SELECT COUNT(*) 
-            FROM codigos_creados cc
-            INNER JOIN {tablaTempAnular} tmp ON tmp.codigo_creado_id = cc.id
-            WHERE cc.estado_id != 3";
+                progress?.Report(30);
 
-                using (var cmdCheckStock = dbConn.CreateCommand())
+                // 3. Eliminar rangos asignados en este movimiento
+                string sqlEliminarRangos = "DELETE FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
+                using (var cmdDelR = dbConn.CreateCommand())
                 {
-                    cmdCheckStock.Transaction = transaccion;
-                    cmdCheckStock.CommandText = QueryAdapter.FormatearConsulta(sqlValidarEstados);
-                    int enMovimiento = Convert.ToInt32(await cmdCheckStock.ExecuteScalarAsync());
-                    if (enMovimiento > 0)
-                    {
-                        throw new Exception($"Operación Denegada: Hay {enMovimiento} códigos de este ingreso que ya registraron Despachos o Salidas activas.");
-                    }
+                    cmdDelR.Transaction = transaccion;
+                    cmdDelR.CommandText = QueryAdapter.FormatearConsulta(sqlEliminarRangos);
+                    AgregarParametro(cmdDelR, "@movId", movimientoId);
+                    await cmdDelR.ExecuteNonQueryAsync();
                 }
 
-                progress?.Report(40);
+                progress?.Report(60);
 
-                // 4. ELIMINAR RANGOS ASOCIADOS
-                string sqlEliminarRangosAnulados = @"
-            DELETE FROM registro_rangos 
-            WHERE movimiento_detalle_id IN (
-                SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId
-            )";
-
-                using (var cmdDelRangos = dbConn.CreateCommand())
+                // 4. 🌟 REVERSIÓN HISTÓRICA EXACTA CÓDIGO POR CÓDIGO
+                foreach (var codId in codigosAnular)
                 {
-                    cmdDelRangos.Transaction = transaccion;
-                    cmdDelRangos.CommandText = QueryAdapter.FormatearConsulta(sqlEliminarRangosAnulados);
-                    AgregarParametro(cmdDelRangos, "@movId", movimientoId);
-                    await cmdDelRangos.ExecuteNonQueryAsync();
-                }
+                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(codId, movimientoId, dbConn, transaccion);
 
-                // 5. REVERTIR ESTADO A CREADO (1)
-                string sqlRevertir = QueryAdapter.EsMySQL
-                    ? $@"UPDATE codigos_creados cc
-                 INNER JOIN {tablaTempAnular} tmp ON tmp.codigo_creado_id = cc.id
-                 SET cc.estado_id = 1;"
-                    : $@"UPDATE cc SET cc.estado_id = 1
-                 FROM codigos_creados cc WITH (INDEX(IX_codigos_creados_codigo_perf))
-                 INNER JOIN {tablaTempAnular} tmp ON tmp.codigo_creado_id = cc.id;";
-
-                using (var cmdRevert = dbConn.CreateCommand())
-                {
+                    using var cmdRevert = dbConn.CreateCommand();
                     cmdRevert.Transaction = transaccion;
-                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta(sqlRevertir);
+                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = @est, almacen_id = @alm WHERE id = @codId");
+                    AgregarParametro(cmdRevert, "@est", estadoAnterior);
+                    AgregarParametro(cmdRevert, "@alm", almacenAnterior);
+                    AgregarParametro(cmdRevert, "@codId", codId);
                     await cmdRevert.ExecuteNonQueryAsync();
                 }
 
-                // 6. MARCAR CABECERA COMO ANULADA (2)
+                // 5. Desvincular de movimiento_codigos
+                using (var cmdDelMC = dbConn.CreateCommand())
+                {
+                    cmdDelMC.Transaction = transaccion;
+                    cmdDelMC.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_id = @movId");
+                    AgregarParametro(cmdDelMC, "@movId", movimientoId);
+                    await cmdDelMC.ExecuteNonQueryAsync();
+                }
+
+                // 6. Marcar la cabecera como anulada (estado_id = 2)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
@@ -847,12 +826,13 @@ VALUES
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
 
-                // 7. RECALCULAR STOCK POR ALMACÉN
+                // 7. Recalcular el stock físico del almacén
                 using (var cmdProds = dbConn.CreateCommand())
                 {
                     cmdProds.Transaction = transaccion;
                     cmdProds.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT producto_id FROM movimiento_detalles WHERE movimiento_id = @movId");
                     AgregarParametro(cmdProds, "@movId", movimientoId);
+
                     using var rdrP = await cmdProds.ExecuteReaderAsync();
                     var prodIds = new List<int>();
                     while (await rdrP.ReadAsync()) prodIds.Add(rdrP.GetInt32(0));
@@ -860,16 +840,9 @@ VALUES
 
                     foreach (var pid in prodIds)
                     {
-                        await ActualizarStockProductoPorKardexAsync(pid, almacenDelMovimiento, dbConn, transaccion);
+                        await ActualizarStockProductoPorKardexAsync(pid, almacenDestino, dbConn, transaccion);
                     }
                 }
-
-                // 8. BORRAR TABLA TEMPORAL
-                string dropSql = QueryAdapter.EsMySQL ? $"DROP TEMPORARY TABLE IF EXISTS {tablaTempAnular};" : $"DROP TABLE IF EXISTS {tablaTempAnular};";
-                using var cmdDrop = dbConn.CreateCommand();
-                cmdDrop.Transaction = transaccion;
-                cmdDrop.CommandText = QueryAdapter.FormatearConsulta(dropSql);
-                await cmdDrop.ExecuteNonQueryAsync();
 
                 progress?.Report(100);
                 transaccion.Commit();
@@ -878,7 +851,7 @@ VALUES
             catch (Exception ex)
             {
                 transaccion.Rollback();
-                throw new Exception(ex.Message);
+                throw new Exception(ex.Message, ex);
             }
         }
 
@@ -1259,16 +1232,44 @@ VALUES
                 }
 
                 // 🌟 4. Reversión/Limpieza de códigos que fueron descartados en la edición
+                // 🌟 REVERSIÓN / LIMPIEZA DINÁMICA DE CÓDIGOS DESCHAZADOS O REDUCIDOS EN LA EDICIÓN
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
+
                 if (codigosAEliminar.Any())
                 {
                     foreach (var codId in codigosAEliminar)
                     {
-                        // Si fue el primer ingreso del código, ObtenerEstadoAnteriorAsync retornará 1 (Estado Creado)
-                        int estadoAnterior = await ObtenerEstadoAnteriorAsync(codId, movimientoId, dbConn, transaccion);
-                        await ActualizarEstadoCodigo(codId, estadoAnterior, dbConn, transaccion);
+                        // 1. Verificar si el código que se intenta quitar sufrió movimientos futuros verdaderos
+                        bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, movimientoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+
+                        if (tieneFuturo)
+                        {
+                            string codigoTexto = "";
+                            using (var cmdName = dbConn.CreateCommand())
+                            {
+                                cmdName.Transaction = transaccion;
+                                cmdName.CommandText = QueryAdapter.FormatearConsulta("SELECT codigo FROM codigos_creados WHERE id = @cId");
+                                AgregarParametro(cmdName, "@cId", codId);
+                                var resName = await cmdName.ExecuteScalarAsync();
+                                if (resName != null) codigoTexto = resName.ToString()!;
+                            }
+
+                            throw new Exception($"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\nEl código '{codigoTexto}' no puede ser reducido/retirado de este documento porque ya registra despachos o ventas posteriores.");
+                        }
+
+                        // 2. 🌟 Trazabilidad real: Devuelve al código su estado y almacén del historial PREVIO a este ingreso
+                        var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(codId, movimientoId, dbConn, transaccion);
+
+                        using var cmdUpdCod = dbConn.CreateCommand();
+                        cmdUpdCod.Transaction = transaccion;
+                        cmdUpdCod.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = @est, almacen_id = @alm WHERE id = @codId");
+                        AgregarParametro(cmdUpdCod, "@est", estadoAnterior);
+                        AgregarParametro(cmdUpdCod, "@alm", almacenAnterior);
+                        AgregarParametro(cmdUpdCod, "@codId", codId);
+                        await cmdUpdCod.ExecuteNonQueryAsync();
                     }
 
+                    // 3. Desvincular de la tabla relacional movimiento_codigos los códigos retirados
                     const int deleteBatchSize = 1000;
                     for (int i = 0; i < codigosAEliminar.Count; i += deleteBatchSize)
                     {
@@ -2142,17 +2143,20 @@ VALUES
         }
 
 
-        public async Task<int> ObtenerEstadoAnteriorAsync(int codigoId, int movimientoActualId, DbConnection conn, DbTransaction trans)
+        public async Task<(int EstadoId, int AlmacenId)> ObtenerEstadoYAlmacenAnteriorAsync(int codigoId, int movimientoActualId, DbConnection conn, DbTransaction trans)
         {
             string query;
 
             if (QueryAdapter.EsMySQL)
             {
-                // 🟢 MySQL: Usa LIMIT 1 al final
                 query = @"
-            SELECT m.motivo_producto_id 
+            SELECT m.motivo_producto_id, 
+                   mp.tipo_movimiento_id,
+                   COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
+                   COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
             FROM movimiento_codigos mc
-            JOIN movimientos m ON mc.movimiento_id = m.id
+            INNER JOIN movimientos m ON mc.movimiento_id = m.id
+            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
             WHERE mc.codigo_creado_id = @codId 
               AND m.id < @movId
               AND m.estado_id = 1
@@ -2161,15 +2165,18 @@ VALUES
             }
             else
             {
-                // 🛡️ SQL Server: Tu consulta original
                 query = @"
-            SELECT TOP 1 m.motivo_producto_id 
-            FROM movimiento_codigos mc
-            JOIN movimientos m ON mc.movimiento_id = m.id
+            SELECT TOP 1 m.motivo_producto_id, 
+                         mp.tipo_movimiento_id,
+                         ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
+                         ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen
+            FROM movimiento_codigos mc WITH (NOLOCK)
+            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
             WHERE mc.codigo_creado_id = @codId 
               AND m.id < @movId
               AND m.estado_id = 1
-            ORDER BY m.fecha_movimiento DESC, m.id DESC";
+            ORDER BY m.fecha_movimiento DESC, m.id DESC;";
             }
 
             try
@@ -2181,20 +2188,46 @@ VALUES
                 AgregarParametro(cmd, "@codId", codigoId);
                 AgregarParametro(cmd, "@movId", movimientoActualId);
 
-                object result = await cmd.ExecuteScalarAsync();
-
-                if (result != null && result != DBNull.Value)
+                using var rdr = await cmd.ExecuteReaderAsync();
+                if (await rdr.ReadAsync())
                 {
-                    int motivoId = Convert.ToInt32(result);
-                    return (motivoId == 1 || motivoId == 2 || motivoId == 3 || motivoId == 4) ? 3 : 4;
+                    int motivoId = rdr.GetInt32(0);
+                    int tipoMovimiento = rdr.GetInt32(1); // 1 = Ingreso, 2 = Salida
+                    int almDestino = rdr.GetInt32(2);
+                    int almOrigen = rdr.GetInt32(3);
+
+                    // 🌟 REGLA DE SEGURIDAD PARA TRANSFERENCIAS:
+                    // Motivos 4 o 10 representan Transferencia de Almacenes.
+                    // Si el movimiento anterior fue una Transferencia de Salida, el código debe volver a ESTADO 5 (En Tránsito).
+                    if (motivoId == 4 || motivoId == 10)
+                    {
+                        if (tipoMovimiento == 2)
+                        {
+                            // Volver a Estado 5 (En Tránsito) asignado al almacén destino de la transferencia
+                            return (5, almDestino);
+                        }
+                    }
+
+                    // 🌟 REGRESO A TRAZABILIDAD ESTÁNDAR:
+                    // Si el movimiento anterior fue un Ingreso normal (Compras/Devoluciones) -> Estado 3 (Disponible en Almacén)
+                    // Si fue una Salida/Venta común -> Estado 4 (Vendido / Fuera de Almacén)
+                    if (tipoMovimiento == 1)
+                    {
+                        return (3, almDestino);
+                    }
+                    else
+                    {
+                        return (4, almOrigen);
+                    }
                 }
 
-                return 1;
+                // Si no existe movimiento previo en el historial, regresa al origen de Creación (Estado 1)
+                return (1, 1);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error obteniendo estado anterior para código {codigoId}: {ex.Message}");
-                return 1;
+                Debug.WriteLine($"Error al consultar historial del código {codigoId}: {ex.Message}");
+                return (1, 1);
             }
         }
     }
