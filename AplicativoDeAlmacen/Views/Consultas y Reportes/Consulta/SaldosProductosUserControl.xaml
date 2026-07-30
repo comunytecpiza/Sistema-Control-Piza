@@ -101,8 +101,9 @@
             </Border.Effect>
 
             <DataGrid x:Name="SaldosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                      BorderThickness="0" RowHeight="45" HeadersVisibility="Column" 
-                      GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6" Background="Transparent">
+          BorderThickness="0" RowHeight="45" HeadersVisibility="Column" 
+          GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6" Background="Transparent"
+          MouseDoubleClick="SaldosDataGrid_MouseDoubleClick">
 
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader">

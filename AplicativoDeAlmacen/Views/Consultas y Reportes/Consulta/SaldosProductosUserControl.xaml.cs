@@ -1,13 +1,18 @@
 ﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Reportes;
+using AplicativoDeAlmacen.Views.Consultas_y_Reportes.Consulta;
+using AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex;
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -17,6 +22,8 @@ namespace AplicativoDeAlmacen.Views
         private List<SaldoProductoItem> _todosLosSaldos;
         private readonly ReporteExcelService _reporteExcel;
         private bool _isCargando = false;
+
+        private readonly DatabaseConnection _db = new DatabaseConnection();
 
         public SaldosProductosUserControl()
         {
@@ -147,6 +154,103 @@ namespace AplicativoDeAlmacen.Views
 
         private bool _isFormattingDate = false;
 
+
+
+        // 🌟 DOBLE CLIC EN STOCK INICIAL (Col 2), ENTRADAS (Col 3) O SALIDAS (Col 4)
+        private async void SaldosDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (SaldosDataGrid.SelectedItem is not SaldoProductoItem productoSeleccionado) return;
+
+            var column = SaldosDataGrid.CurrentCell.Column;
+            if (column == null) return;
+
+            string header = column.Header?.ToString() ?? string.Empty;
+
+            DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
+            DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
+            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+            // 1. 🌟 SI HACE DOBLE CLIC EN STOCK FINAL -> ABRE LA NUEVA VENTANA DE DESGLOSE
+            if (header == "STOCK FINAL")
+            {
+                // Necesitamos el ID real para buscar el desglose en la BD
+                int productoIdReal = 0;
+                using (var conn = _db.GetConnection())
+                {
+                    var dbConn = (DbConnection)conn;
+                    await dbConn.OpenAsync();
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id FROM productos WHERE abreviatura = @cod OR descripcion = @desc LIMIT 1");
+
+                    var p1 = cmd.CreateParameter(); p1.ParameterName = "@cod"; p1.Value = productoSeleccionado.Codigo ?? ""; cmd.Parameters.Add(p1);
+                    var p2 = cmd.CreateParameter(); p2.ParameterName = "@desc"; p2.Value = productoSeleccionado.Descripcion ?? ""; cmd.Parameters.Add(p2);
+
+                    var res = await cmd.ExecuteScalarAsync();
+                    if (res != null && res != DBNull.Value) productoIdReal = Convert.ToInt32(res);
+                }
+
+                if (productoIdReal > 0)
+                {
+                    var detalleWindow = new DetalleStockFinalWindow(
+                        productoIdReal,
+                        productoSeleccionado.Descripcion,
+                        miAlmacenId,
+                        hasta
+                    )
+                    {
+                        Owner = Window.GetWindow(this)
+                    };
+                    detalleWindow.ShowDialog();
+                }
+                else
+                {
+                    MessageBox.Show("No se pudo identificar el ID del producto seleccionado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            // 2. 🌟 SI HACE DOBLE CLIC EN STOCK INICIAL, ENTRADAS O SALIDAS -> ABRE EL KÁRDEX EN PESTAÑA
+            else if (header == "STOCK INICIAL" || header == "ENTRADAS" || header == "SALIDAS")
+            {
+                // 🔍 Buscamos el ID del producto consultando a la BD por su código o descripción
+                int productoIdReal = 0;
+                using (var conn = _db.GetConnection())
+                {
+                    var dbConn = (DbConnection)conn;
+                    await dbConn.OpenAsync();
+                    using var cmd = dbConn.CreateCommand();
+                    cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id FROM productos WHERE abreviatura = @cod OR descripcion = @desc LIMIT 1");
+
+                    var p1 = cmd.CreateParameter(); p1.ParameterName = "@cod"; p1.Value = productoSeleccionado.Codigo ?? ""; cmd.Parameters.Add(p1);
+                    var p2 = cmd.CreateParameter(); p2.ParameterName = "@desc"; p2.Value = productoSeleccionado.Descripcion ?? ""; cmd.Parameters.Add(p2);
+
+                    var res = await cmd.ExecuteScalarAsync();
+                    if (res != null && res != DBNull.Value) productoIdReal = Convert.ToInt32(res);
+                }
+
+                if (productoIdReal <= 0)
+                {
+                    MessageBox.Show("No se pudo identificar el ID del producto seleccionado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var mainWindow = Window.GetWindow(this);
+
+                if (mainWindow is MainShell mainShell)
+                {
+                    var kardexControl = new KardexUserControl();
+                    string tituloPestaña = $"📦 Kárdex: {productoSeleccionado.Descripcion}";
+
+                    mainShell.AbrirPestaña(tituloPestaña, kardexControl);
+
+                    // Inyectamos usando el ID real encontrado
+                    kardexControl.CargarKardexDirecto(
+                        productoIdReal,
+                        productoSeleccionado.Descripcion,
+                        desde,
+                        hasta
+                    );
+                }
+            }
+        }
         private void ConfigurarMascaraFecha(DatePicker datePicker)
         {
             datePicker.ApplyTemplate();

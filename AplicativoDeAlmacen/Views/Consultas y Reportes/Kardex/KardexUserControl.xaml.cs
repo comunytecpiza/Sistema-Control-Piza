@@ -282,5 +282,34 @@ namespace AplicativoDeAlmacen.Views
             // SOLUCIÓN: Pasamos el objeto completo, no solo la lista de detalles
             _reporteExcel.ExportarKardex(_ultimoReporte);
         }
+
+        // 🌟 MÉTODO PARA CARGAR AUTOMÁTICAMENTE DESDE OTRA VISTA (Ej: Doble clic en Saldos)
+        public async void CargarKardexDirecto(int productoId, string nombreProducto, DateTime desde, DateTime hasta)
+        {
+            try
+            {
+                // 1. Seteamos las fechas en los DatePicker
+                DpDesde.SelectedDate = desde;
+                DpHasta.SelectedDate = hasta;
+
+                // 2. 🌟 ASIGNAMOS EL ID OBLIGATORIO PARA QUE NO SALGA EL ERROR
+                _productoSeleccionadoId = productoId;
+
+                // 3. Escribimos el nombre del producto en el ComboBox autocompletable
+                var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
+                if (textBox != null)
+                {
+                    textBox.Text = nombreProducto;
+                    textBox.CaretIndex = textBox.Text.Length;
+                }
+
+                // 4. Disparamos la consulta del Kárdex de manera automática
+                BtnEjecutarKardex_Click(null, null);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al cargar el Kárdex directo: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 }

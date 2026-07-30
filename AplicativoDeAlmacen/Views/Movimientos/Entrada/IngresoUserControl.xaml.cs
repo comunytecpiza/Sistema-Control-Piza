@@ -1197,6 +1197,8 @@ namespace AplicativoDeAlmacen.Views
                 Owner = System.Windows.Window.GetWindow(this)
             };
 
+            // 🌟 ASIGNACIÓN DEL ID DE MOVIMIENTO ACTUAL Y ESTADO
+            modal.MovimientoIdActual = _currentMovimientoId;
             modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
             modal.InitializeForEdit(seleccionado, rangosExistentes);
 
