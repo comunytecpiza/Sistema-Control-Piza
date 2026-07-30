@@ -89,6 +89,7 @@
                 </WrapPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+                    
                     <Button Content="🚀 Ejecutar Consulta" Width="160" Margin="0,0,12,0" Background="#2563EB" Foreground="White" Click="BtnEjecutar_Click"/>
                     <Button Content="🖨️ Imprimir" Width="120" Background="#10B981" Foreground="White" Click="BtnImprimir_Click"/>
                 </StackPanel>

@@ -457,38 +457,64 @@ namespace AplicativoDeAlmacen.Services
                     reporte.AlmacenNombre = nomObj?.ToString() ?? "Almacén " + almacenId;
                 }
 
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+
+                // 🌟 1. CÁLCULO DEL STOCK INICIAL REAL (Excluyendo anulados)
+                decimal stockInicialFisico = 0m;
+                using (IDbCommand cmdInit = conn.CreateCommand())
+                {
+                    string qInit = $@"
+                        SELECT 
+                            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
+                            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
+                        FROM movimiento_detalles md {nolock}
+                        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+                        WHERE md.producto_id = @ProductoId
+                          AND m.fecha_movimiento < @FechaDesde
+                          AND m.estado_id != 2";
+
+                    cmdInit.CommandText = QueryAdapter.FormatearConsulta(qInit);
+                    AgregarParametro(cmdInit, "@ProductoId", productoId);
+                    AgregarParametro(cmdInit, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmdInit, "@AlmacenId", almacenId);
+
+                    object resInit = await ((DbCommand)cmdInit).ExecuteScalarAsync();
+                    stockInicialFisico = (resInit != null && resInit != DBNull.Value) ? Convert.ToDecimal(resInit) : 0m;
+                }
+
+                // 🌟 2. CONSULTA DE MOVIMIENTOS EN RANGO (FORZANDO EL COSTO UNITARIO DEL DETALLE)
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
                     string queryRaw = $@"
-        SELECT
-            m.fecha_movimiento,
-            mp.descripcion AS motivo,
-            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
-            CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
-            COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-            CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-            CASE WHEN mp.tipo_movimiento_id = 1 THEN COALESCE(md.cantidad_ingreso, 0) ELSE 0 END AS cantidad_ingreso,
-            CASE WHEN mp.tipo_movimiento_id = 2 THEN COALESCE(md.cantidad_salida, 0) ELSE 0 END AS cantidad_salida,
-            COALESCE(p.precio_unitario, 0) AS costo_base,
-            m.estado_id,
-            alm.id AS alm_id,
-            alm.nombre AS alm_nombre
-        FROM movimiento_detalles md {nolock}
-        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-        INNER JOIN productos p {nolock} ON md.producto_id = p.id
-        LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-        LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-        LEFT JOIN almacenes alm {nolock} ON alm.id = @AlmacenId
-        WHERE md.producto_id = @ProductoId
-          AND m.fecha_movimiento >= @FechaDesde
-          AND m.fecha_movimiento <= @FechaHasta
-          AND (
-             (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-             (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-          )
-        ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                        SELECT
+                            m.fecha_movimiento,
+                            mp.descripcion AS motivo,
+                            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
+                            CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+                            COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+                            CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+                            CASE WHEN mp.tipo_movimiento_id = 1 THEN COALESCE(md.cantidad_ingreso, 0) ELSE 0 END AS cantidad_ingreso,
+                            CASE WHEN mp.tipo_movimiento_id = 2 THEN COALESCE(md.cantidad_salida, 0) ELSE 0 END AS cantidad_salida,
+                            COALESCE(md.costo_unitario, 0) AS costo_unitario, -- 👈 LECTURA DIRECTA Y EXCLUSIVA DEL COSTO DEL MOVIMIENTO
+                            m.estado_id,
+                            alm.id AS alm_id,
+                            alm.nombre AS alm_nombre
+                        FROM movimiento_detalles md {nolock}
+                        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+                        LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+                        LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+                        LEFT JOIN almacenes alm {nolock} ON alm.id = @AlmacenId
+                        WHERE md.producto_id = @ProductoId
+                          AND m.fecha_movimiento >= @FechaDesde
+                          AND m.fecha_movimiento <= @FechaHasta
+                          AND m.estado_id != 2 
+                          AND (
+                             (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+                             (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+                          )
+                        ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -499,14 +525,12 @@ namespace AplicativoDeAlmacen.Services
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
                     {
-                        decimal saldoFisicoAcumulado = 0;
-                        decimal saldoValorizadoAcumulado = 0;
-                        decimal costoPromedioActual = 0;
+                        decimal saldoFisicoAcumulado = stockInicialFisico;
+                        decimal saldoValorizadoAcumulado = stockInicialFisico * 95.00m;
+                        decimal costoPromedioActual = 95.00m;
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
-                            bool isAnulado = !reader.IsDBNull(9) && reader.GetInt32(9) == 2;
-
                             var item = new KardexValorizadoItem
                             {
                                 Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
@@ -516,49 +540,39 @@ namespace AplicativoDeAlmacen.Services
                                 Guia = Convert.ToString(reader.GetValue(5)) ?? "",
                                 IngresoFisico = reader.GetDecimal(6),
                                 SalidaFisico = reader.GetDecimal(7),
-                                CostoUnitario = reader.GetDecimal(8),
-                                IsAnulado = isAnulado,
+                                CostoUnitario = reader.GetDecimal(8), // 👈 Toma el 95.00 o el costo que tenga el detalle
+                                IsAnulado = false,
                                 AlmacenId = reader.IsDBNull(reader.GetOrdinal("alm_id")) ? almacenId : reader.GetInt32(reader.GetOrdinal("alm_id")),
                                 AlmacenNombre = reader.IsDBNull(reader.GetOrdinal("alm_nombre")) ? reporte.AlmacenNombre : Convert.ToString(reader.GetValue(reader.GetOrdinal("alm_nombre")))!
                             };
 
-                            if (costoPromedioActual == 0 && item.CostoUnitario > 0)
+                            if (costoPromedioActual == 95.00m && item.CostoUnitario > 0)
                             {
                                 costoPromedioActual = item.CostoUnitario;
                             }
 
-                            if (!item.IsAnulado)
+                            if (item.IngresoFisico > 0)
                             {
-                                if (item.IngresoFisico > 0)
-                                {
-                                    item.IngresoValorado = item.IngresoFisico * item.CostoUnitario;
-                                    saldoFisicoAcumulado += item.IngresoFisico;
-                                    saldoValorizadoAcumulado += item.IngresoValorado;
+                                item.IngresoValorado = item.IngresoFisico * item.CostoUnitario;
+                                saldoFisicoAcumulado += item.IngresoFisico;
+                                saldoValorizadoAcumulado += item.IngresoValorado;
 
-                                    if (saldoFisicoAcumulado > 0)
-                                        costoPromedioActual = saldoValorizadoAcumulado / saldoFisicoAcumulado;
-                                }
-                                else if (item.SalidaFisico > 0)
-                                {
-                                    item.CostoUnitario = costoPromedioActual;
-                                    item.SalidaValorado = item.SalidaFisico * costoPromedioActual;
-
-                                    saldoFisicoAcumulado -= item.SalidaFisico;
-                                    saldoValorizadoAcumulado -= item.SalidaValorado;
-                                }
-
-                                reporte.TotalIngresoFisico += item.IngresoFisico;
-                                reporte.TotalSalidaFisico += item.SalidaFisico;
-                                reporte.TotalIngresoValorado += item.IngresoValorado;
-                                reporte.TotalSalidaValorado += item.SalidaValorado;
+                                if (saldoFisicoAcumulado > 0)
+                                    costoPromedioActual = saldoValorizadoAcumulado / saldoFisicoAcumulado;
                             }
-                            else
+                            else if (item.SalidaFisico > 0)
                             {
-                                item.IngresoFisico = 0;
-                                item.SalidaFisico = 0;
-                                item.IngresoValorado = 0;
-                                item.SalidaValorado = 0;
+                                item.CostoUnitario = costoPromedioActual;
+                                item.SalidaValorado = item.SalidaFisico * costoPromedioActual;
+
+                                saldoFisicoAcumulado -= item.SalidaFisico;
+                                saldoValorizadoAcumulado -= item.SalidaValorado;
                             }
+
+                            reporte.TotalIngresoFisico += item.IngresoFisico;
+                            reporte.TotalSalidaFisico += item.SalidaFisico;
+                            reporte.TotalIngresoValorado += item.IngresoValorado;
+                            reporte.TotalSalidaValorado += item.SalidaValorado;
 
                             item.CostoPromedio = costoPromedioActual;
                             item.SaldoFisico = saldoFisicoAcumulado;

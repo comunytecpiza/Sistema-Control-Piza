@@ -690,9 +690,10 @@ VALUES
                     int detId = Convert.ToInt32(res);
                     using var cmdUpd = conn.CreateCommand();
                     cmdUpd.Transaction = trans;
+                    // 🌟 AQUÍ ES DONDE SE ACTUALIZA EL COSTO EN LA BASE DE DATOS
                     cmdUpd.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimiento_detalles SET cantidad_ingreso = @cant, costo_unitario = @costo WHERE id = @detId");
-                    AgregarParametro(cmdUpd, "@cant", (int)item.Detalle.CantidadIngreso); // 🌟 Entero estricto
-                    AgregarParametro(cmdUpd, "@costo", item.Detalle.CostoUnitario);
+                    AgregarParametro(cmdUpd, "@cant", (int)item.Detalle.CantidadIngreso);
+                    AgregarParametro(cmdUpd, "@costo", item.Detalle.CostoUnitario); // 👈 ¡Este es el nuevo costo que tú digites (ej. 95)!
                     AgregarParametro(cmdUpd, "@detId", detId);
                     await cmdUpd.ExecuteNonQueryAsync();
                     return detId;
@@ -940,27 +941,55 @@ VALUES
 
                 var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());
 
-                // 🌟 2. BARRERA DE SEGURIDAD EN EDICIÓN HISTÓRICA
-                if (existingMovimientoId.HasValue && codigosPreviosEnBD.Any())
+                // 🚀 OPTIMIZACIÓN CLAVE: Extraemos todos los IDs de códigos nuevos ingresados en la vista de golpe
+                var nuevosIdsEnviados = new HashSet<int>();
+                foreach (var item in productos)
                 {
-                    var idsNuevosMendados = new HashSet<int>();
-                    foreach (var item in productos)
+                    if (rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
                     {
-                        if (rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
+                        foreach (var r in rangosProd)
                         {
-                            foreach (var r in rangosProd)
-                            {
-                                var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
-                                foreach (var t in encontrados) idsNuevosMendados.Add(t.CodigoObj.Id);
-                            }
+                            var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
+                            foreach (var t in encontrados) nuevosIdsEnviados.Add(t.CodigoObj.Id);
                         }
                     }
+                }
 
+                // 🌟 VERIFICAMOS SI LOS CÓDIGOS SON EXACTAMENTE LOS MISMOS (Optimización para solo actualizar costos al instante)
+                bool sonCodigosExactamenteIguales = existingMovimientoId.HasValue &&
+                                                    codigosPreviosEnBD.Count == nuevosIdsEnviados.Count &&
+                                                    codigosPreviosEnBD.SetEquals(nuevosIdsEnviados);
+
+                // Si son los mismos códigos, nos saltamos toda la validación pesada de futuro y relanzamiento de rangos
+                if (sonCodigosExactamenteIguales)
+                {
+                    // Solo actualizamos los detalles (costos y cantidades) de forma ultra rápida
+                    foreach (var item in productos)
+                    {
+                        await UpsertMovimientoDetalleAsync(movimientoId, item, dbConn, transaccion);
+                    }
+
+                    // Actualizamos stock y salimos volando sin tocar los 3000 códigos innecesariamente
+                    var productosUnicosIguales = productos.Select(p => p.ProductoId).Distinct();
+                    int almacenAfectadoIgual = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
+                    foreach (var pid in productosUnicosIguales)
+                    {
+                        await ActualizarStockProductoPorKardexAsync(pid, almacenAfectadoIgual, dbConn, transaccion);
+                    }
+
+                    progress?.Report(100);
+                    transaccion.Commit();
+                    return true;
+                }
+
+                // 🌟 2. BARRERA DE SEGURIDAD EN EDICIÓN HISTÓRICA (Solo si realmente cambiaron códigos)
+                if (existingMovimientoId.HasValue && codigosPreviosEnBD.Any())
+                {
                     var codigosRechazados = new List<string>();
 
                     foreach (var codIdAnterior in codigosPreviosEnBD)
                     {
-                        if (!idsNuevosMendados.Contains(codIdAnterior))
+                        if (!nuevosIdsEnviados.Contains(codIdAnterior))
                         {
                             string codigoTxt = string.Empty;
                             int estadoActual = 0;
@@ -979,6 +1008,7 @@ VALUES
                                 }
                             }
 
+                            // 🛡️ REGLA DEL FUTURO: Respetar si ya tiene salidas posteriores
                             bool tienePosteriores = await TieneMovimientosPosterioresAsync(codIdAnterior, movimientoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
 
                             if (estadoActual == 4 || tienePosteriores)
@@ -1057,31 +1087,29 @@ VALUES
                             await cmdInsCheck.ExecuteNonQueryAsync();
                         }
 
-                        // 🌟 3. CANDADO DE PERTENENCIA POR ALMACÉN EN DEVOLUCIONES
                         int motivoId = cabecera.MotivoProductoId;
                         int miAlmacenActualId = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
                         string sqlVerificarDuplicados;
 
                         if (motivoId != 1) // Devoluciones / Reingresos
                         {
-                            // 🛡️ REGLA: El código DEBE estar en Estado 4 (Vendido) Y PERTENECER a este Almacén
                             sqlVerificarDuplicados = $@"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc
-                        INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE (cc.estado_id != 4 OR cc.almacen_id != @miAlmacenId)
-                          AND mc.codigo_creado_id IS NULL";
+                            SELECT cc.codigo, cc.estado_id 
+                            FROM codigos_creados cc
+                            INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
+                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                            WHERE (cc.estado_id != 4 OR cc.almacen_id != @miAlmacenId)
+                              AND mc.codigo_creado_id IS NULL";
                         }
                         else // Compra / Ingreso Inicial
                         {
                             sqlVerificarDuplicados = $@"
-                        SELECT cc.codigo, cc.estado_id 
-                        FROM codigos_creados cc
-                        INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
-                        LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                        WHERE cc.estado_id IN (3, 4)
-                          AND mc.codigo_creado_id IS NULL";
+                            SELECT cc.codigo, cc.estado_id 
+                            FROM codigos_creados cc
+                            INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
+                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
+                            WHERE cc.estado_id IN (3, 4)
+                              AND mc.codigo_creado_id IS NULL";
                         }
 
                         using var cmdVerify = dbConn.CreateCommand();
@@ -1189,7 +1217,6 @@ VALUES
 
                         if (existingMovimientoId.HasValue)
                         {
-                            // 🌟 MODO EDICIÓN: Evaluamos código por código para respetar el futuro
                             foreach (var codId in batch)
                             {
                                 bool tieneSalidaPosterior = await TieneMovimientosPosterioresAsync(
@@ -1200,13 +1227,8 @@ VALUES
                                     transaccion
                                 );
 
-                                // 🛡️ Si el código se vendió/despachó en una fecha posterior, NO tocamos su estado actual
-                                if (tieneSalidaPosterior)
-                                {
-                                    continue;
-                                }
+                                if (tieneSalidaPosterior) continue;
 
-                                // Si NO tiene movimientos posteriores, se confirma su ingreso a Estado 3 (Disponible)
                                 using var cmdUpdSt = dbConn.CreateCommand();
                                 cmdUpdSt.Transaction = transaccion;
                                 cmdUpdSt.CommandText = QueryAdapter.FormatearConsulta(
@@ -1219,7 +1241,7 @@ VALUES
                         }
                         else
                         {
-                            // 🌟 MODO NUEVO: Actualización masiva en 1 sola consulta (Ultrarrápido)
+                            // 🌟 ACTUALIZACIÓN MASIVA ULTRA RÁPIDA
                             using var cmdUpdBulk = dbConn.CreateCommand();
                             cmdUpdBulk.Transaction = transaccion;
                             var paramNames = batch.Select((id, idx) => $"@b{idx}").ToList();

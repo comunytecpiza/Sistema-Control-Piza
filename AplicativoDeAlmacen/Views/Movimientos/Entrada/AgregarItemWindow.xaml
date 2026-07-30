@@ -99,7 +99,10 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="C. Unitario:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
-                        <TextBox x:Name="txtCUnitario" Grid.Column="1" Height="34" Text="0.00" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Padding="8,0" FontSize="13" FontWeight="SemiBold" BorderBrush="#CBD5E1"/>
+                        <TextBox x:Name="txtCUnitario" Grid.Column="1" Height="34" Text="0.00" 
+         HorizontalContentAlignment="Right" VerticalContentAlignment="Center" 
+         Padding="8,0" FontSize="13" FontWeight="SemiBold" BorderBrush="#CBD5E1"
+         IsReadOnly="False" IsEnabled="True"/>
                     </Grid>
                 </UniformGrid>
             </StackPanel>

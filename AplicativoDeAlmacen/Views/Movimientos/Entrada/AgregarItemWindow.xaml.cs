@@ -137,7 +137,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 Id = item.ProductoId,
                 Descripcion = item.Descripcion,
-                PrecioUnitario = item.Detalle?.CostoUnitario,
+                PrecioUnitario = item.Detalle?.CostoUnitario ?? item.Detalle?.CostoUnitario ?? 0m,
                 UnidadMedida = new UnidadMedida { Descripcion = item.UnidadMedida }
             };
 
@@ -152,7 +152,10 @@ namespace AplicativoDeAlmacen.Views
 
             txtProducto.Text = _productoSeleccionado.Descripcion;
             txtUMedida.Text = !string.IsNullOrWhiteSpace(item.UnidadMedida) ? item.UnidadMedida.ToUpperInvariant() : "UNIDAD";
-            txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
+
+            // 🌟 AQUÍ ESTABA EL FALLO: Forzamos a leer el Costo Unitario real del detalle del movimiento
+            decimal costoRealMovimiento = item.Detalle?.CostoUnitario ?? 0m;
+            txtCUnitario.Text = costoRealMovimiento.ToString("F2");
 
             dgDetalleCodigos.ItemsSource = null; // Pausa temporal de UI
             ListaRangosAgregados.Clear();
@@ -750,7 +753,7 @@ namespace AplicativoDeAlmacen.Views
             }
 
             CantidadProductoIngresada = cantidadDeclarada;
-            CostoUnitarioIngresado = costoValido;
+            CostoUnitarioIngresado = costoValido; // 👈 ¡Este es el nuevo costo base!
 
             FueGrabado = true;
             this.DialogResult = true;

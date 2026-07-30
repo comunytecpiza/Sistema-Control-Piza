@@ -251,6 +251,7 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
         }
+
         private void ConfigurarMascaraFecha(DatePicker datePicker)
         {
             datePicker.ApplyTemplate();

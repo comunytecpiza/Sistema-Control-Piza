@@ -1207,6 +1207,9 @@ namespace AplicativoDeAlmacen.Views
                 seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
                 seleccionado.Cantidad = (int)seleccionado.Detalle.CantidadIngreso;
 
+                // 🌟 AQUÍ ESTABA FALTANDO: Actualizar el costo unitario con el que modificaste en la ventana
+                seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
+
                 _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
 
                 var nuevosCodigos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(modal.ListaRangosAgregados.ToList());
