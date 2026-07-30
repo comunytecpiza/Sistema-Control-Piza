@@ -126,8 +126,16 @@
                     </StackPanel>
                 </WrapPanel>
 
-                <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="10,0,0,10">
-                    <Button x:Name="BtnEjecutar" Content="🚀 Ejecutar Consulta" Height="45" Width="160" Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="14" BorderThickness="0" Cursor="Hand" Click="BtnEjecutar_Click"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="10,0,0,10" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <!-- 🖨️ NUEVO BOTÓN DE IMPRESIÓN -->
+                    <Button x:Name="BtnAbrirOpcionesImpresion" Content="🖨️ Imprimir" Height="45" Width="110" 
+            Background="#10B981" Foreground="White" FontWeight="Bold" FontSize="13" 
+            BorderThickness="0" Cursor="Hand" Margin="0,0,8,0" Click="BtnAbrirOpcionesImpresion_Click" IsEnabled="False"/>
+
+                    <!-- Botón Ejecutar Consulta Existente -->
+                    <Button x:Name="BtnEjecutar" Content="🚀 Ejecutar" Height="45" Width="130" 
+            Background="#2563EB" Foreground="White" FontWeight="Bold" FontSize="13" 
+            BorderThickness="0" Cursor="Hand" Click="BtnEjecutar_Click"/>
                 </StackPanel>
             </Grid>
         </Border>

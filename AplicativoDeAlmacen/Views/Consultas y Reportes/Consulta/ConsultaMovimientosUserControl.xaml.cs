@@ -1,10 +1,13 @@
 ﻿using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Almacen;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Ubicaciones;
+using ClosedXML.Excel;
+using Microsoft.Win32;
 using System;
-using AplicativoDeAlmacen.Models.Almacen;
+using System.Collections;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
@@ -322,6 +325,140 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+        private void BtnAbrirOpcionesImpresion_Click(object sender, RoutedEventArgs e)
+        {
+            // Verificamos si están activos los filtros de Razón Social o Ubicación
+            bool razonSocialActiva = ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text);
+            bool ubicacionActiva = ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text);
+
+            var ventanaFiltro = new AplicativoDeAlmacen.Views.FiltroImpresionKardexWindow(razonSocialActiva, ubicacionActiva);
+
+            var windowPadre = Window.GetWindow(this);
+            if (windowPadre != null)
+            {
+                ventanaFiltro.Owner = windowPadre;
+            }
+
+            ventanaFiltro.ShowDialog();
+
+            if (ventanaFiltro.SeConfirmoImpresion)
+            {
+                bool enviar = ventanaFiltro.IncluirEnviados;
+                bool devolver = ventanaFiltro.IncluirDevueltos;
+                bool vender = ventanaFiltro.IncluirVendidos; // 🌟 Capturamos si desea incluir los vendidos
+
+                ExportarReporteExcel(enviar, devolver, vender);
+            }
+        }
+
+        private async void ExportarReporteExcel(bool enviar, bool devolver, bool vender)
+        {
+            try
+            {
+                // 1. Validar que se haya seleccionado un producto
+                if (CboProductos.SelectedItem == null && string.IsNullOrWhiteSpace(CboProductos.Text))
+                {
+                    MessageBox.Show("Seleccione un producto para exportar el reporte.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (_todosLosMovimientosRaw == null || !_todosLosMovimientosRaw.Any())
+                {
+                    MessageBox.Show("Primero haga clic en 'Ejecutar' para cargar los movimientos a exportar.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // ==========================================
+                // 2. APLICAR FILTROS (ANULADOS, ALMACÉN Y OPCIONES DE IMPRESIÓN)
+                // ==========================================
+                var movimientos = _todosLosMovimientosRaw.AsEnumerable();
+
+                // Filtrar anulados según el CheckBox
+                bool mostrarAnulados = ChkMostrarAnulados.IsChecked == true;
+                if (!mostrarAnulados)
+                {
+                    movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
+                }
+
+                // Filtrar por Almacén ID seleccionado
+                bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
+                if (hayFiltroAlmacen && LstAlmacen.SelectedItem != null)
+                {
+                    dynamic almacenSeleccionado = LstAlmacen.SelectedItem;
+                    int idAlmacenSeleccionado = almacenSeleccionado.Id;
+                    movimientos = movimientos.Where(m => m.AlmacenId == idAlmacenSeleccionado);
+                }
+
+                // 🌟 FILTRAR SEGÚN LO SELECCIONADO EN LA VENTANA DE IMPRESIÓN (Entradas / Salidas)
+                // 'enviar' representa Ingresos y 'devolver' representa Salidas
+                movimientos = movimientos.Where(m =>
+                    (enviar && m.Ingreso > 0) ||
+                    (devolver && m.Salida > 0) ||
+                    (m.Ingreso == 0 && m.Salida == 0) // Mantiene líneas neutras o saldos iniciales si los hubiera
+                );
+
+                var movimientosFiltrados = movimientos.ToList();
+
+                // 3. Enlazamos los códigos a cada movimiento filtrado limitando a la cantidad exacta del movimiento
+                foreach (var mov in movimientosFiltrados)
+                {
+                    string registroLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
+
+                    // Determinamos cuántas unidades se movieron en este registro para no traer códigos de más
+                    int cantidadMovimiento = (int)(mov.Salida > 0 ? mov.Salida : mov.Ingreso);
+
+                    mov.CodigosAsociados = _todosLosCodigos
+                        .Where(c => c.NumeroRegistro == registroLimpio)
+                        .Take(cantidadMovimiento)
+                        .ToList();
+                }
+
+                // ==========================================
+                // 4. EXTRAER LOS TEXTOS DE LA CABECERA
+                // ==========================================
+                string nombreProd = CboProductos.Text;
+
+                // Evaluación dinámica de los Radio Buttons de tipo de operación
+                string tipoProd = "TODOS";
+                if (RbGuia != null && RbGuia.IsChecked == true)
+                    tipoProd = "SOLO GUÍAS";
+                else if (RbVenta != null && RbVenta.IsChecked == true)
+                    tipoProd = "SOLO VENTAS";
+
+                string unidadMed = "PACKS";
+
+                string origenDest = "TODOS";
+                if (hayFiltroAlmacen)
+                    origenDest = TxtAlmacen.Text;
+                else if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
+                    origenDest = TxtRazonSocial.Text;
+                else if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text))
+                    origenDest = TxtUbicacion.Text;
+
+                DateTime fechaDesde = DpDesde.SelectedDate ?? DateTime.Today;
+                DateTime fechaHasta = DpHasta.SelectedDate ?? DateTime.Today;
+
+                // ==========================================
+                // 5. LLAMAR AL SERVICIO DE EXCEL
+                // ==========================================
+                var excelService = new AplicativoDeAlmacen.Services.Reportes.ReporteExcelService();
+
+                excelService.ExportarKardexConCodigos(
+                    nombreProd,
+                    tipoProd,
+                    unidadMed,
+                    origenDest,
+                    fechaDesde,
+                    fechaHasta,
+                    movimientosFiltrados,
+                    vender
+                );
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al generar el Excel: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
         private void RefrescarVistaMovimientos()
         {
             var movimientos = _todosLosMovimientosRaw.AsEnumerable();
@@ -570,7 +707,7 @@ namespace AplicativoDeAlmacen.Views
 
                 _todosLosMovimientosRaw = reporte.Movimientos;
                 _todosLosCodigos = reporte.Codigos;
-
+                BtnAbrirOpcionesImpresion.IsEnabled = true;
                 AjustarModoPerspectivaUI();
                 RefrescarVistaMovimientos();
             }

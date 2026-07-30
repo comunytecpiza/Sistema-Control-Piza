@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ClosedXML.Excel;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -15,7 +16,10 @@ namespace AplicativoDeAlmacen.Models.Models
         public bool IsAnulado { get;  set; }
         public decimal SaldoAcumulado { get; set; }
         public int CategoriaProductoId { get; set; }
-
+        // 🌟 AGREGA ESTA PROPIEDAD
+        public int AlmacenId { get; set; }
+        public XLCellValue Guia { get; internal set; }
+        public List<ConsultaCodigoItem> CodigosAsociados { get; set; } = new List<ConsultaCodigoItem>();
     }
 
     public class ConsultaCodigoItem
@@ -24,6 +28,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public string ColeccionTipo { get; set; }
         public string NumeroRegistro { get; set; }
         public string TipoMovimiento { get; set; } = string.Empty;
+    
     }
 
     public class ConsultaMovimientoReporte
@@ -36,5 +41,6 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal TotalIngresos => Movimientos.Sum(m => m.Ingreso);
         public decimal TotalSalidas => Movimientos.Sum(m => m.Salida);
         public int TotalCodigos => Codigos.Count;
+       
     }
 }
