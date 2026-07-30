@@ -1299,6 +1299,10 @@ namespace AplicativoDeAlmacen.Views
             var rangos = ReconstruirRangosDeCodigos(seleccionado.ProductoId);
 
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
+
+            // 🌟 ASIGNACIÓN DEL ID DE MOVIMIENTO ACTUAL Y ESTADO
+            modal.MovimientoIdActual = _idMovimientoActual;
+            modal.EstadoPermitido = 3;
             modal.InitializeForEdit(seleccionado, rangos);
 
             if (seleccionado.Detalle.CostoUnitario == 0)
@@ -1307,8 +1311,6 @@ namespace AplicativoDeAlmacen.Views
                 var prodActualizado = await prodService.ObtenerPorIdAsync(seleccionado.ProductoId);
                 seleccionado.Detalle.CostoUnitario = prodActualizado?.PrecioUnitario ?? 0;
             }
-
-            modal.EstadoPermitido = 3;
 
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
@@ -1321,7 +1323,6 @@ namespace AplicativoDeAlmacen.Views
 
                     if (modal.ListaRangosAgregados != null)
                     {
-                        // Limpiamos los códigos anteriores de este producto en RAM
                         var codigosViejos = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
                         foreach (var cv in codigosViejos) _codigosLista.Remove(cv);
 
@@ -1342,7 +1343,6 @@ namespace AplicativoDeAlmacen.Views
                             }
                         }
 
-                        // 🌟 BATCH MASIVO TAMBIÉN EN EDICIÓN (Elimina la lentitud al modificar ítems)
                         var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, SesionSistema.AlmacenActual?.Id ?? 1);
                         string primerRangoTipo = modal.ListaRangosAgregados.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
 
@@ -1724,35 +1724,118 @@ namespace AplicativoDeAlmacen.Views
 
         private async Task<bool> ProcesarCodigoEscaneadoAsync(LectoraResultDTO resultado)
         {
+            if (resultado == null || resultado.CodigoCreadoId <= 0)
+            {
+                MessageBox.Show("El código escaneado no existe en la base de datos.", "Código No Encontrado", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
             int miAlmacenIdSesion = SesionSistema.AlmacenActual?.Id ?? 1;
 
+            // 🛑 1. REGLA ESTADO 5: BLOQUEO DE CÓDIGOS EN TRÁNSITO
+            if (resultado.EstadoId == 5)
+            {
+                MessageBox.Show(
+                    $"⚠️ Operación Rechazada por Kárdex:\n\nEl código '{resultado.CodigoCompleto}' se encuentra EN TRÁNSITO (Estado 5). No se puede despachar ni reingresar directamente.",
+                    "Código en Tránsito",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Stop);
+                return false;
+            }
+
+            // 🔒 2. REGLA PERTENENCIA A SEDE / ALMACÉN
             if (resultado.AlmacenId != miAlmacenIdSesion)
             {
                 MessageBox.Show(
-                    $"El código '{resultado.CodigoCompleto}' no se encuentra en su stock.",
+                    $"⚠️ Restricción de Sede / Almacén:\n\nEl código '{resultado.CodigoCompleto}' pertenece a otra sede y no está disponible en su stock actual.",
                     "Aviso de Stock",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
-
                 return false;
             }
 
+            // 🌟 3. REGLA DE ESTADO OPERATIVO (DEBE ESTAR EN ESTADO 3 DISPONIBLE PARA SALIDAS)
             if (resultado.EstadoId != 3)
             {
                 MessageBox.Show(
-                    $"El código '{resultado.CodigoCompleto}' no está disponible para despacho en almacén.",
-                    "Aviso",
+                    $"El código '{resultado.CodigoCompleto}' no está disponible en almacén (Estado actual: {resultado.EstadoId}).",
+                    "Estado Inválido",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
-
                 return false;
             }
 
-            if (_codigosLista.Any(x => x.MovCodigo.CodigoCreadoId == resultado.CodigoCreadoId))
+            // 🛡️ 4. REGLA DE CONDICIÓN DEL CÓDIGO (DAÑADO O EXTRAVIADO DE LA BD)
+            bool permiteSalida = true;
+            string nombreCondicion = "OPERATIVO";
+
+            using (var conn = new DatabaseConnection().GetConnection())
             {
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+                using var cmdCond = dbConn.CreateCommand();
+
+                string qCond = QueryAdapter.EsMySQL
+                    ? @"SELECT COALESCE(cond.permitir_salida, 0), COALESCE(cond.nombre, 'SIN CONDICIÓN') 
+                FROM codigos_creados cc 
+                LEFT JOIN condiciones_codigo cond ON cc.condicion_id = cond.id 
+                WHERE cc.id = @codId;"
+                    : @"SELECT ISNULL(cond.permitir_salida, 0), ISNULL(cond.nombre, 'SIN CONDICIÓN') 
+                FROM codigos_creados cc WITH (NOLOCK) 
+                LEFT JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id 
+                WHERE cc.id = @codId;";
+
+                cmdCond.CommandText = QueryAdapter.FormatearConsulta(qCond);
+                var p = cmdCond.CreateParameter(); p.ParameterName = "@codId"; p.Value = resultado.CodigoCreadoId; cmdCond.Parameters.Add(p);
+
+                using var rdrCond = await cmdCond.ExecuteReaderAsync();
+                if (await rdrCond.ReadAsync())
+                {
+                    permiteSalida = Convert.ToBoolean(rdrCond.GetValue(0));
+                    nombreCondicion = rdrCond.GetString(1);
+                }
+            }
+
+            if (!permiteSalida)
+            {
+                MessageBox.Show(
+                    $"⚠️ Código No Permitido:\n\nEl código '{resultado.CodigoCompleto}' tiene la condición de '{nombreCondicion.ToUpper()}' y no tiene permitida la salida.",
+                    "Restricción de Condición",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Stop);
                 return false;
             }
 
+            // 🛡️ 5. ESCUDO CRONOLÓGICO FUTURO (SI ESTÁS EDITANDO UN DOCUMENTO DEL PASADO)
+            if (_idMovimientoActual.HasValue)
+            {
+                bool tieneMovPost = await _salidaService.TieneMovimientosPosterioresAsync(
+                    resultado.CodigoCreadoId,
+                    _idMovimientoActual.Value,
+                    dtpFechaDespacho.SelectedDate ?? DateTime.Today,
+                    null,
+                    null
+                );
+
+                if (tieneMovPost)
+                {
+                    MessageBox.Show(
+                        $"⚠️ Operación Rechazada por Kárdex:\n\nEl código '{resultado.CodigoCompleto}' ya registra movimientos o despachos posteriores en la línea de tiempo.",
+                        "Conflicto Cronológico",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Stop);
+                    return false;
+                }
+            }
+
+            // 🔑 6. CANDADO ANTI-DUPLICADOS EN LA GRILLA
+            if (_codigosLista.Any(x => x.MovCodigo?.CodigoCreadoId == resultado.CodigoCreadoId))
+            {
+                // Se ignora en silencio por ser repetido en la grilla
+                return false;
+            }
+
+            // ✅ INSERCIÓN EXITOSA EN MEMORIA
             string tipoBD = await ObtenerColeccionTipoBDAsync(resultado.CodigoCreadoId);
 
             _codigosLista.Add(new VistaCodigoGrid
@@ -1766,15 +1849,12 @@ namespace AplicativoDeAlmacen.Views
                 }
             });
 
-            var producto = _productosLista
-                .FirstOrDefault(x => x.ProductoId == resultado.ProductoId);
+            var producto = _productosLista.FirstOrDefault(x => x.ProductoId == resultado.ProductoId);
 
             if (producto != null)
             {
                 producto.Cantidad++;
-
-                if (producto.Detalle != null)
-                    producto.Detalle.CantidadSalida++;
+                if (producto.Detalle != null) producto.Detalle.CantidadSalida++;
             }
             else
             {
@@ -1786,7 +1866,7 @@ namespace AplicativoDeAlmacen.Views
                     ProductoId = resultado.ProductoId,
                     CodigoProducto = prodData?.Abreviatura ?? resultado.ProductoId.ToString(),
                     Descripcion = prodData?.Descripcion ?? resultado.DescripcionProducto,
-                    UnidadMedida = "UNIDAD",
+                    UnidadMedida = "PACK",
                     Cantidad = 1,
                     Detalle = new MovimientoDetalle
                     {
@@ -1798,7 +1878,6 @@ namespace AplicativoDeAlmacen.Views
             }
 
             RefrescarGrillas();
-
             return true;
         }
 

@@ -258,13 +258,15 @@ namespace AplicativoDeAlmacen.Services
 
         public async Task<bool> TieneMovimientosPosterioresAsync(int codigoId, int movimientoActualId, DateTime fechaEdicion, DbConnection conn, DbTransaction trans)
         {
-            string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
-            string query = $@"
+            // 🌟 Definición limpia de nolock adaptada al motor
+            string nolock = QueryAdapter.EsMySQL ? string.Empty : "WITH (NOLOCK)";
+
+            string query = @"
         SELECT COUNT(*) 
-        FROM movimiento_codigos mc {nolock}
-        INNER JOIN movimientos m {nolock} ON mc.movimiento_id = m.id
+        FROM movimiento_codigos mc " + nolock + @"
+        INNER JOIN movimientos m " + nolock + @" ON mc.movimiento_id = m.id
         WHERE mc.codigo_creado_id = @codId 
-          AND m.id != @movId -- 🌟 EXCLUSIÓN CLAVE: Ignora el propio documento en edición
+          AND m.id != @movId 
           AND m.estado_id = 1
           AND (
               m.fecha_movimiento > @fechaEdicion 
@@ -283,13 +285,18 @@ namespace AplicativoDeAlmacen.Services
             return result != null && Convert.ToInt32(result) > 0;
         }
 
-        public async Task<(int EstadoId, int AlmacenId)> ObtenerEstadoYAlmacenAnteriorAsync(int codigoId, int movimientoActualId, DbConnection conn, DbTransaction trans)
+        public async Task<(int EstadoId, int AlmacenId)> ObtenerEstadoYAlmacenAnteriorAsync(int codigoId, int movimientoActualId, DbConnection conn, DbTransaction trans, int? almacenContextoId = null)
         {
             string query;
 
+            // 🌟 1. FILTRO DE KÁRDEX LOCAL: Obliga a buscar el historial en el almacén emisor/local
+            string filtroAlmacen = almacenContextoId.HasValue
+                ? " AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx) "
+                : "";
+
             if (QueryAdapter.EsMySQL)
             {
-                query = @"
+                query = $@"
             SELECT m.motivo_producto_id, 
                    mp.tipo_movimiento_id,
                    COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
@@ -298,14 +305,15 @@ namespace AplicativoDeAlmacen.Services
             INNER JOIN movimientos m ON mc.movimiento_id = m.id
             INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
             WHERE mc.codigo_creado_id = @codId 
-              AND m.id < @movId
+              AND m.id != @movId
               AND m.estado_id = 1
-            ORDER BY m.fecha_movimiento DESC, m.id DESC
+              {filtroAlmacen}
+            ORDER BY m.id DESC
             LIMIT 1;";
             }
             else
             {
-                query = @"
+                query = $@"
             SELECT TOP 1 m.motivo_producto_id, 
                          mp.tipo_movimiento_id,
                          ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
@@ -314,9 +322,10 @@ namespace AplicativoDeAlmacen.Services
             INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
             INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
             WHERE mc.codigo_creado_id = @codId 
-              AND m.id < @movId
+              AND m.id != @movId
               AND m.estado_id = 1
-            ORDER BY m.fecha_movimiento DESC, m.id DESC;";
+              {filtroAlmacen}
+            ORDER BY m.id DESC;";
             }
 
             try
@@ -327,47 +336,44 @@ namespace AplicativoDeAlmacen.Services
 
                 AgregarParametro(cmd, "@codId", codigoId);
                 AgregarParametro(cmd, "@movId", movimientoActualId);
+                if (almacenContextoId.HasValue)
+                {
+                    AgregarParametro(cmd, "@almCtx", almacenContextoId.Value);
+                }
 
                 using var rdr = await cmd.ExecuteReaderAsync();
                 if (await rdr.ReadAsync())
                 {
                     int motivoId = rdr.GetInt32(0);
-                    int tipoMovimiento = rdr.GetInt32(1); // 1 = Ingreso, 2 = Salida
+                    int tipoMovimiento = rdr.GetInt32(1); // 1 = Entrada, 2 = Salida
                     int almDestino = rdr.GetInt32(2);
                     int almOrigen = rdr.GetInt32(3);
 
-                    // 🌟 1. BLINDAJE PARA TRANSFERENCIAS ENTRE ALMACENES (Motivos 4 o 10):
-                    // Si el movimiento anterior registrado fue una Transferencia de Salida (Salida en Tránsito),
-                    // el código debe retornar a ESTADO 5 (En Tránsito) asignado al Almacén Destino.
-                    if ((motivoId == 4 || motivoId == 10) && tipoMovimiento == 2)
+                    // 🌟 2. REGLA INVIOLABLE DE KÁRDEX POR ALMACÉN:
+                    // Si el código ya registra un movimiento de ENTRADA (Tipo 1) o RECEPCIÓN (Motivo 4) en esta sede,
+                    // al liberarlo de cualquier salida comercial, REGRESA SIEMPRE A ESTADO 3 (DISPONIBLE).
+                    if (tipoMovimiento == 1 || motivoId == 4)
+                    {
+                        return (3, almacenContextoId ?? almDestino);
+                    }
+
+                    // Si el último movimiento en este almacén fue una salida de transferencia (Motivo 10) aún no ingresada:
+                    if (motivoId == 10 && tipoMovimiento == 2)
                     {
                         return (5, almDestino);
                     }
 
-                    // 🌟 2. TRAZABILIDAD ESTÁNDAR DE KÁRDEX:
-                    // - Si el movimiento anterior fue un Ingreso / Compra / Reingreso (tipo_movimiento_id = 1):
-                    //   El código regresa a ESTADO 3 (Disponible en Almacén) en el Almacén Destino del ingreso.
-                    // - Si fue una Salida / Venta / Despacho a cliente (tipo_movimiento_id = 2):
-                    //   El código regresa a ESTADO 4 (Vendido / Fuera de Almacén) en el Almacén Origen del despacho.
-                    if (tipoMovimiento == 1)
-                    {
-                        return (3, almDestino);
-                    }
-                    else
-                    {
-                        return (4, almOrigen);
-                    }
+                    // Para cualquier otro movimiento de salida previo:
+                    return (4, almOrigen);
                 }
 
-                // 🌟 3. SIN HISTORIAL PREVIO EN BD:
-                // Si el código no tiene ningún movimiento anterior registrado en el Kárdex,
-                // regresa a su estado inicial de Creación (Estado 1 - Creado) en el Almacén Principal (1).
-                return (1, 1);
+                // Sin historial previo registrado en este almacén -> Regresa a Estado 3 o Estado inicial 1
+                return (3, almacenContextoId ?? 1);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error al consultar historial del código {codigoId} en Salidas: {ex.Message}");
-                return (3, 1); // Contingencia de seguridad para Salidas
+                Debug.WriteLine($"Error al consultar historial del código {codigoId}: {ex.Message}");
+                return (3, almacenContextoId ?? 1);
             }
         }
 
@@ -678,19 +684,74 @@ namespace AplicativoDeAlmacen.Services
                             await InsertarMovimientoCodigosSalidaMasivoAsync(movimientoIdInserted, idDetalle, codigosNuevosParaInsertar, dbConn, transaccion);
                         }
 
-                        bool esTransferencia = (cabecera.MotivoProductoId == 4 || cabecera.MotivoProductoId == 10) && cabecera.AlmacenDestinoId.HasValue;
-                        int estadoDestinoCodigo = esTransferencia ? 5 : 4;
-                        int? almacenAsignar = esTransferencia ? cabecera.AlmacenDestinoId : null;
+                        foreach (int cId in todosLosCodigosDelDetalle)
+                        {
+                            // 🛡️ 1. LÍNEA CRONOLÓGICA (PROTEGER EL FUTURO):
+                            // Si el código ya cuenta con un movimiento posterior (ej: una devolución), 
+                            // OMITIMOS su actualización para NO corromper su estado actual en el presente.
+                            bool tieneMovPost = await TieneMovimientosPosterioresAsync(
+                                cId,
+                                movimientoIdInserted,
+                                cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today,
+                                dbConn,
+                                transaccion
+                            );
 
-                        await ActualizarEstadoYAlmacenCodigosMasivoAsync(todosLosCodigosDelDetalle, estadoDestinoCodigo, almacenAsignar, dbConn, transaccion);
+                            if (tieneMovPost)
+                            {
+                                continue; // Respetar la línea de tiempo del kárdex
+                            }
+
+                            // 🌟 2. EVALUACIÓN EXACTA POR MOTIVO (4 vs 10):
+                            int estadoFinalCodigo;
+                            int? almacenFinalCodigo = null;
+
+                            if (cabecera.MotivoProductoId == 4)
+                            {
+                                // Motivo 4 (Entrada por Transferencia) -> Estado 3 (Disponible en Almacén Destino)
+                                estadoFinalCodigo = 3;
+                                almacenFinalCodigo = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId;
+                            }
+                            else if (cabecera.MotivoProductoId == 10)
+                            {
+                                // Motivo 10 (Salida por Transferencia) -> Estado 5 (En Tránsito hacia Almacén Destino)
+                                estadoFinalCodigo = 5;
+                                almacenFinalCodigo = cabecera.AlmacenDestinoId;
+                            }
+                            else
+                            {
+                                // Salida Comercial Estándar (Venta, Promotoría, etc.) -> Estado 4 (Fuera de Almacén)
+                                estadoFinalCodigo = 4;
+                            }
+
+                            await ActualizarEstadoYAlmacenCodigosMasivoAsync(
+                                new List<int> { cId },
+                                estadoFinalCodigo,
+                                almacenFinalCodigo,
+                                dbConn,
+                                transaccion
+                            );
+                        }
                     }
                 }
 
+                int almacenEmisor = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
+
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosCodigosIds.Contains(id)).ToList();
+                            
+
                 foreach (var codId in codigosAEliminar)
                 {
                     if (codId <= 0) continue;
-                    bool tieneFuturo = await TieneMovimientosPosterioresAsync(codId, movimientoIdInserted, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
+
+                    // 🛡️ 2. VALIDACIÓN DE ACTIVIDAD POSTERIOR (ESCUDO KÁRDEX)
+                    bool tieneFuturo = await TieneMovimientosPosterioresAsync(
+                        codId,
+                        movimientoIdInserted,
+                        cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today,
+                        dbConn,
+                        transaccion
+                    );
 
                     if (tieneFuturo)
                     {
@@ -704,11 +765,28 @@ namespace AplicativoDeAlmacen.Services
                             if (resName != null) codigoTexto = resName.ToString()!;
                         }
 
-                        throw new Exception($"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\nEl código '{codigoTexto}' no puede ser retirado de esta salida porque ya cuenta con un reingreso o devolución posterior registrada.");
+                        // 🚨 ALERTA DE RECHAZO SI EL CÓDIGO YA SE MOVIÓ EN EL FUTURO
+                        throw new Exception($"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\nEl código '{codigoTexto}' no puede ser retirado de esta salida porque ya cuenta con un reingreso, devolución o despacho posterior registrado.");
                     }
 
-                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(codId, movimientoIdInserted, dbConn, transaccion);
-                    await ActualizarEstadoYAlmacenCodigosMasivoAsync(new List<int> { codId }, estadoAnterior, almacenAnterior, dbConn, transaccion);
+                    // 🌟 3. OBTENCIÓN DEL ESTADO ANTERIOR FILTRADO RIGUROSAMENTE POR EL ALMACÉN EMISOR (LIMA)
+                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(
+                        codId,
+                        movimientoIdInserted,
+                        dbConn,
+                        transaccion,
+                        almacenEmisor
+                    );
+
+                    // 🔄 4. REVERSIÓN DE ESTADO Y DESVINCULACIÓN DEL DOCUMENTO
+                    await ActualizarEstadoYAlmacenCodigosMasivoAsync(
+                        new List<int> { codId },
+                        estadoAnterior,
+                        almacenAnterior,
+                        dbConn,
+                        transaccion
+                    );
+
                     await EliminarMovimientoCodigoAsync(movimientoIdInserted, codId, dbConn, transaccion);
                 }
 
@@ -735,11 +813,54 @@ namespace AplicativoDeAlmacen.Services
                     await cmdPurga.ExecuteNonQueryAsync();
                 }
 
-                int almacenEmisor = cabecera.AlmacenOrigenId ?? 1;
                 var productosUnicos = listaProductos.Select(p => p.ProductoId).Distinct();
                 foreach (var pid in productosUnicos)
                 {
                     await ActualizarStockProductoPorKardexAsync(pid, almacenEmisor, dbConn, transaccion);
+                }
+
+
+                using (var cmdAlmCheck = dbConn.CreateCommand())
+                {
+                    cmdAlmCheck.Transaction = transaccion;
+
+                    var idsVerificarAlmacen = listaCodigos.Where(c => c.MovCodigo?.CodigoCreadoId > 0).Select(c => c.MovCodigo!.CodigoCreadoId).Distinct().ToList();
+                    if (idsVerificarAlmacen.Any())
+                    {
+                        var paramListAlm = new List<string>();
+                        for (int i = 0; i < idsVerificarAlmacen.Count; i++)
+                        {
+                            string pNameAlm = "@al" + i;
+                            paramListAlm.Add(pNameAlm);
+                            AgregarParametro(cmdAlmCheck, pNameAlm, idsVerificarAlmacen[i]);
+                        }
+
+                        int almacenSesionActual = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
+
+                        // Valida que el código pertenezca estrictamente al almacén actual de la sesión
+                        cmdAlmCheck.CommandText = QueryAdapter.FormatearConsulta($@"
+            SELECT cc.codigo, ISNULL(a.nombre, 'OTRO ALMACÉN') 
+            FROM codigos_creados cc
+            LEFT JOIN almacenes a ON cc.almacen_id = a.id
+            WHERE cc.id IN ({string.Join(",", paramListAlm)})
+              AND (cc.almacen_id != @almSesion OR cc.almacen_id IS NULL)");
+
+                        AgregarParametro(cmdAlmCheck, "@almSesion", almacenSesionActual);
+
+                        var codigosDeOtraSede = new List<string>();
+                        using (var rdrAlm = await cmdAlmCheck.ExecuteReaderAsync())
+                        {
+                            while (rdrAlm.Read())
+                            {
+                                codigosDeOtraSede.Add($"• {rdrAlm.GetString(0)} (Pertenece a: {rdrAlm.GetString(1)})");
+                            }
+                        }
+
+                        if (codigosDeOtraSede.Any())
+                        {
+                            throw new Exception($"⚠️ Restricción de Sede / Almacén:\n\nNo se puede procesar la salida. Los siguientes códigos pertenecen a un almacén distinto al de tu sesión actual:\n\n{string.Join("\n", codigosDeOtraSede.Take(15))}");
+                        }
+                    }
                 }
 
                 transaccion.Commit();
@@ -895,7 +1016,14 @@ namespace AplicativoDeAlmacen.Services
                 // 4. 🌟 REVERSIÓN EMPRESARIAL REAL: Consultar historial individual de cada código
                 foreach (var codId in codigosAnular)
                 {
-                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(codId, movimientoId, dbConn, transaccion);
+                    // Pass almacenEmisor to force search within the local warehouse context
+                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(
+                        codId,
+                        movimientoId,
+                        dbConn,
+                        transaccion,
+                        almacenEmisor
+                    );
 
                     using var cmdRevert = dbConn.CreateCommand();
                     cmdRevert.Transaction = transaccion;
@@ -905,6 +1033,7 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdRevert, "@codId", codId);
                     await cmdRevert.ExecuteNonQueryAsync();
                 }
+            
 
                 // 5. 🌟 DESVINCULACIÓN (NUEVO): Eliminar registros de movimiento_codigos por consistencia con Ingresos
                 using (var cmdDelMC = dbConn.CreateCommand())

@@ -1197,6 +1197,8 @@ namespace AplicativoDeAlmacen.Views
                 Owner = System.Windows.Window.GetWindow(this)
             };
 
+            // 🌟 ASIGNACIÓN DEL ID DE MOVIMIENTO ACTUAL Y ESTADO
+            modal.MovimientoIdActual = _currentMovimientoId;
             modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
             modal.InitializeForEdit(seleccionado, rangosExistentes);
 
@@ -1204,6 +1206,9 @@ namespace AplicativoDeAlmacen.Views
             {
                 seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
                 seleccionado.Cantidad = (int)seleccionado.Detalle.CantidadIngreso;
+
+                // 🌟 AQUÍ ESTABA FALTANDO: Actualizar el costo unitario con el que modificaste en la ventana
+                seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
 
                 _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
 

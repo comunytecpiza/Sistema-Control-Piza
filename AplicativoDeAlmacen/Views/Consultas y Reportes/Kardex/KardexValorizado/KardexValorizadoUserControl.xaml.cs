@@ -1,8 +1,12 @@
 ﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+
 using AplicativoDeAlmacen.Services.Reportes;
+using AplicativoDeAlmacen.Views.Consultas_y_Reportes.Consulta;
 using System;
+using System.Data.Common;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -126,22 +130,47 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 
                 DgResumen.ItemsSource = _reporteActual.Detalles;
 
-                // FOOTER DINÁMICO
                 decimal saldoInicialCalculado = _reporteActual.StockFinalFisico - _reporteActual.TotalIngresoFisico + _reporteActual.TotalSalidaFisico;
-                decimal costoPromedioInicial = _reporteActual.Detalles.FirstOrDefault()?.CostoPromedio ?? 0;
+                decimal costoPromedioInicial = _reporteActual.Detalles.FirstOrDefault()?.CostoPromedio ?? 95.00m;
 
                 TxtSaldoInicial.Text = Math.Max(0, saldoInicialCalculado).ToString("N2");
                 TxtCostoInicial.Text = (saldoInicialCalculado * costoPromedioInicial).ToString("N2");
-                TxtTotalIngresos.Text = _reporteActual.TotalIngresoValorado.ToString("N2");
-                TxtTotalSalidas.Text = _reporteActual.TotalSalidaValorado.ToString("N2");
-                TxtSaldoFinal.Text = _reporteActual.SaldoFinalValorado.ToString("N2");
+
+                // 🌟 CAMBIA ESTAS DOS LÍNEAS AQUÍ:
+                TxtTotalIngresos.Text = _reporteActual.TotalIngresoFisico.ToString("N2");  // 👈 Usa TotalIngresoFisico (Cantidad de libros)
+                TxtTotalSalidas.Text = _reporteActual.TotalSalidaFisico.ToString("N2");    // 👈 Usa TotalSalidaFisico (Cantidad de libros)
+
+                TxtSaldoFinal.Text = _reporteActual.StockFinalFisico.ToString("N2");
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error al generar Kardex Valorizado: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+        // 🌟 NUEVO BOTÓN PARA RECALCULAR COSTOS MASIVAMENTE DESDE EL KÁRDEX VALORIZADO
+        private void BtnRecalcularCostos_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Abre tu ventana tal como la programaste
+                var ventana = new ValorizacionProductosWindow
+                {
+                    Owner = Window.GetWindow(this)
+                };
 
+                ventana.ShowDialog();
+
+                // Al cerrarse la ventana, refrescamos el kárdex actual para ver los cambios
+                if (_productoSeleccionadoId > 0)
+                {
+                    BtnEjecutar_Click(null, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al abrir la ventana de valorización: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_reporteActual == null || !_reporteActual.Detalles.Any())

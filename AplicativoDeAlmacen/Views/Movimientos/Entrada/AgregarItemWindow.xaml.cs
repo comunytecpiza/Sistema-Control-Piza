@@ -20,10 +20,11 @@ namespace AplicativoDeAlmacen.Views
     public partial class AgregarItemWindow : Window
     {
         public bool IsAddAction { get; set; } = false;
-        public int EstadoPermitido { get; set; } = 1; // 1 = COMPRA, 4 = DEVOLUCIÓN/VENTA
+        public int EstadoPermitido { get; set; } = 1; // 1 = COMPRA, 3 = SALIDA, 4 = DEVOLUCIÓN
 
         public bool IsEdit { get; set; } = false;
         public int? OriginalProductoId { get; set; } = null;
+        public int? MovimientoIdActual { get; set; } = null;
         public bool MergeWithExisting { get; private set; } = false;
 
         public int CantidadProductoIngresada { get; set; }
@@ -136,7 +137,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 Id = item.ProductoId,
                 Descripcion = item.Descripcion,
-                PrecioUnitario = item.Detalle?.CostoUnitario,
+                PrecioUnitario = item.Detalle?.CostoUnitario ?? item.Detalle?.CostoUnitario ?? 0m,
                 UnidadMedida = new UnidadMedida { Descripcion = item.UnidadMedida }
             };
 
@@ -151,7 +152,10 @@ namespace AplicativoDeAlmacen.Views
 
             txtProducto.Text = _productoSeleccionado.Descripcion;
             txtUMedida.Text = !string.IsNullOrWhiteSpace(item.UnidadMedida) ? item.UnidadMedida.ToUpperInvariant() : "UNIDAD";
-            txtCUnitario.Text = (_productoSeleccionado.PrecioUnitario ?? 0m).ToString("F2");
+
+            // 🌟 AQUÍ ESTABA EL FALLO: Forzamos a leer el Costo Unitario real del detalle del movimiento
+            decimal costoRealMovimiento = item.Detalle?.CostoUnitario ?? 0m;
+            txtCUnitario.Text = costoRealMovimiento.ToString("F2");
 
             dgDetalleCodigos.ItemsSource = null; // Pausa temporal de UI
             ListaRangosAgregados.Clear();
@@ -380,18 +384,21 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
-                bool esModoSalida = (this.EstadoPermitido == 3);
+                bool esModoSalida = (this.EstadoPermitido == 3);        // Salidas / Despachos
+                bool esModoDevolucion = (this.EstadoPermitido == 4);    // Ingresos por Devolución
+                bool esModoCompraInicial = (this.EstadoPermitido == 1); // Ingresos por Compra
+
+                if (esModoDevolucion)
+                {
+                    return conflictos;
+                }
 
                 foreach (string codStr in codigosQuitados)
                 {
-                    string query;
+                    string query = string.Empty;
 
                     if (esModoSalida)
                     {
-                        // 🌟 CORRECCIÓN CLAVE EN EDICIÓN DE SALIDA:
-                        // Si el código retirado está en Estado 4 (Salido) o Estado 5 (En Tránsito),
-                        // verificamos si tiene salidas en documentos POSTERIORES al actual.
-                        // Filtramos excluyendo el movimiento que actualmente tiene el código si está en borrador/edición.
                         query = QueryAdapter.EsMySQL
                             ? @"SELECT COUNT(*)
                         FROM codigos_creados cc
@@ -400,9 +407,10 @@ namespace AplicativoDeAlmacen.Views
                         INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
                         WHERE cc.codigo = @codigoExacto
                           AND m.estado_id = 1
+                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
                           AND cc.estado_id IN (4, 5)
                           AND mp.tipo_movimiento_id = 2
-                          AND m.fecha_movimiento > CURRENT_DATE();" // 👈 Solo bloquea si tiene salidas en fechas/documentos posteriores reales
+                          AND m.fecha_movimiento > CURRENT_DATE();"
                             : @"SELECT COUNT(*)
                         FROM codigos_creados cc WITH (NOLOCK)
                         INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
@@ -410,13 +418,13 @@ namespace AplicativoDeAlmacen.Views
                         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
                         WHERE cc.codigo = @codigoExacto
                           AND m.estado_id = 1
+                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
                           AND cc.estado_id IN (4, 5)
                           AND mp.tipo_movimiento_id = 2
                           AND m.fecha_movimiento > GETDATE();";
                     }
-                    else
+                    else if (esModoCompraInicial)
                     {
-                        // 🔵 REGLAS PARA ENTRADAS / INGRESOS:
                         query = QueryAdapter.EsMySQL
                             ? @"SELECT COUNT(*)
                         FROM codigos_creados cc
@@ -425,6 +433,7 @@ namespace AplicativoDeAlmacen.Views
                         INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
                         WHERE cc.codigo = @codigoExacto
                           AND m.estado_id = 1
+                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
                           AND cc.estado_id IN (4, 5)
                           AND mp.tipo_movimiento_id = 2;"
                             : @"SELECT COUNT(*)
@@ -434,17 +443,25 @@ namespace AplicativoDeAlmacen.Views
                         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
                         WHERE cc.codigo = @codigoExacto
                           AND m.estado_id = 1
+                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
                           AND cc.estado_id IN (4, 5)
                           AND mp.tipo_movimiento_id = 2;";
                     }
 
+                    if (string.IsNullOrEmpty(query)) continue;
+
                     using var cmd = dbConn.CreateCommand();
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-                    var p = cmd.CreateParameter();
-                    p.ParameterName = "@codigoExacto";
-                    p.Value = codStr;
-                    cmd.Parameters.Add(p);
+                    var pCod = cmd.CreateParameter();
+                    pCod.ParameterName = "@codigoExacto";
+                    pCod.Value = codStr;
+                    cmd.Parameters.Add(pCod);
+
+                    var pMov = cmd.CreateParameter();
+                    pMov.ParameterName = "@movIdActual";
+                    pMov.Value = (object?)this.MovimientoIdActual ?? DBNull.Value;
+                    cmd.Parameters.Add(pMov);
 
                     object res = cmd.ExecuteScalar();
                     int count = (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
@@ -461,6 +478,137 @@ namespace AplicativoDeAlmacen.Views
             }
 
             return conflictos;
+        }
+
+        /// <summary>
+        /// ✅ VALIDACIÓN MEJORADA: Diferencia entre ENTRADA (Devolución/Compra) y SALIDA (Despacho)
+        /// - ENTRADA: Solo valida que los códigos existan (sin restricción de almacén/estado)
+        /// - SALIDA: Valida que sean del almacén, estén disponibles (Estado 3) y sean operativos
+        /// - EDICIÓN: No valida códigos que ya existían originalmente
+        /// </summary>
+        // 🌟 VALIDACIÓN PURA DE EXISTENCIA Y PERMISO DE SALIDA (SIN MUTAR ESTADOS EN BD)
+        // 🌟 VALIDACIÓN INTELIGENTE: Diferencia entre SALIDA (estricta) y ENTRADA (permisiva)
+        private List<string> ValidarPertenenciaYCondicionAlmacen(List<RangoCodigoItem> rangosAgregados)
+        {
+            var codigosIncompatibles = new List<string>();
+            if (rangosAgregados == null || !rangosAgregados.Any()) return codigosIncompatibles;
+
+            int almacenSesionId = SesionSistema.AlmacenActual?.Id ?? 1;
+            bool esModoSalida = (this.EstadoPermitido == 3);        // ➡️ SALIDA (Despacho)
+            bool esModoDevolucion = (this.EstadoPermitido == 4);    // ➡️ ENTRADA (Devolución)
+            bool esModoCompra = (this.EstadoPermitido == 1);         // ➡️ ENTRADA (Compra)
+
+            // 🔑 LÓGICA DE EDICIÓN: Omitir re-validación en códigos que ya pertenecían al documento antes de editar
+            var codigosOriginalesSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (IsEdit && _rangosOriginalesEdicion.Any())
+            {
+                foreach (var r in _rangosOriginalesEdicion)
+                {
+                    string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G")
+                        ? "-"
+                        : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+
+                    if (r.DesdeNum == -1)
+                    {
+                        codigosOriginalesSet.Add(r.AbreviaturaBase);
+                    }
+                    else
+                    {
+                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                        {
+                            codigosOriginalesSet.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                        }
+                    }
+                }
+            }
+
+            try
+            {
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
+
+                foreach (var rango in rangosAgregados)
+                {
+                    var listaCodigosRango = new List<string>();
+                    if (rango.DesdeNum == -1)
+                    {
+                        listaCodigosRango.Add(rango.AbreviaturaBase);
+                    }
+                    else
+                    {
+                        string separador = rango.AbreviaturaBase.EndsWith("-V") || rango.AbreviaturaBase.EndsWith("-G")
+                            ? "-"
+                            : (rango.CategoriaProductoId == 1 ? "-G-" : "-V-");
+
+                        for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                        {
+                            listaCodigosRango.Add($"{rango.AbreviaturaBase}{separador}{i:D7}");
+                        }
+                    }
+
+                    foreach (var codStr in listaCodigosRango)
+                    {
+                        // Omitir validación si el código ya era parte del documento original en edición
+                        if (IsEdit && codigosOriginalesSet.Contains(codStr))
+                        {
+                            continue;
+                        }
+
+                        // 🌟 CONSULTA CON JOIN A condiciones_codigo PARA EVALUAR permitir_salida
+                        string query = QueryAdapter.EsMySQL
+                            ? @"SELECT cc.almacen_id, cc.estado_id, COALESCE(cond.permitir_salida, 0) AS permitir_salida 
+                        FROM codigos_creados cc 
+                        LEFT JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
+                        WHERE cc.codigo = @codigoExacto;"
+                            : @"SELECT cc.almacen_id, cc.estado_id, ISNULL(cond.permitir_salida, 0) AS permitir_salida 
+                        FROM codigos_creados cc WITH (NOLOCK) 
+                        LEFT JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
+                        WHERE cc.codigo = @codigoExacto;";
+
+                        using var cmd = dbConn.CreateCommand();
+                        cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                        var p = cmd.CreateParameter();
+                        p.ParameterName = "@codigoExacto";
+                        p.Value = codStr;
+                        cmd.Parameters.Add(p);
+
+                        using var rdr = cmd.ExecuteReader();
+                        if (rdr.Read())
+                        {
+                            int almCod = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
+                            int estadoCod = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
+                            bool permitirSalida = !rdr.IsDBNull(2) && Convert.ToBoolean(rdr.GetValue(2));
+
+                            if (esModoSalida)
+                            {
+                                // 🛡️ REGLA ESTRICTA DE SALIDA:
+                                // Debe pertenecer al almacén actual, estar en Estado 3 (Disponible) Y permitir_salida debe ser 1 (Operativo)
+                                if (almCod != almacenSesionId || estadoCod != 3 || !permitirSalida)
+                                {
+                                    codigosIncompatibles.Add(codStr);
+                                }
+                            }
+                            else if (esModoDevolucion || esModoCompra)
+                            {
+                                // En entradas solo se valida que el código exista en BD
+                            }
+                        }
+                        else
+                        {
+                            // Código no existe en la base de datos
+                            codigosIncompatibles.Add(codStr);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al validar condiciones de código en ventana modal: {ex.Message}");
+            }
+
+            return codigosIncompatibles;
         }
 
         private void BtnGrabar_Click(object sender, RoutedEventArgs e)
@@ -510,6 +658,30 @@ namespace AplicativoDeAlmacen.Views
                         "Inconsistencia de Unidades",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
+
+                    return;
+                }
+
+                // 🌟 VALIDACIÓN INTELIGENTE DE ALMACÉN Y PERMISO DE SALIDA (CONDICIÓN)
+                var incompatibles = ValidarPertenenciaYCondicionAlmacen(ListaRangosAgregados.ToList());
+                if (incompatibles.Any())
+                {
+                    string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "tu almacén actual";
+                    int totalProblematicos = incompatibles.Count;
+
+                    string mensajeAlerta = (this.EstadoPermitido == 3)
+                        ? $"Se encontraron {totalProblematicos} código(s) que NO se pueden despachar (pertenecen a otro almacén, no están disponibles o están marcados como Dañados/Perdidos):\n\n"
+                        : $"Se encontraron {totalProblematicos} código(s) inválidos:\n\n";
+
+                    MessageBox.Show(
+                        $"⚠️ Código(s) No Permitidos:\n\n" +
+                        mensajeAlerta +
+                        $"{string.Join("\n", incompatibles.Take(5).Select(c => $"• {c}"))}\n" +
+                        $"{(totalProblematicos > 5 ? $"... y {totalProblematicos - 5} códigos más." : "")}\n\n" +
+                        $"Por favor, retira o corrige estos códigos antes de continuar.",
+                        "Restricción de Inventario / Sede",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Stop);
 
                     return;
                 }
@@ -567,7 +739,7 @@ namespace AplicativoDeAlmacen.Views
                             MessageBox.Show(
                                 $"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\n" +
                                 $"No puede guardar el producto sin los siguientes códigos porque ya registran despachos o salidas posteriores en el sistema:\n\n" +
-                                $"{string.Join("\n", conflictos.Take(5).Select(c => $"• {c}"))}\n" +
+                                $"{string.Join("\n", conflictos.Take(5).Select(c => $"• {c}"))}\n\n" +
                                 $"{(conflictos.Count > 5 ? $"... y {conflictos.Count - 5} códigos más." : "")}\n\n" +
                                 $"Debe volver a incluir estos códigos en la lista (individualmente o en rango) para poder guardar.",
                                 "Restricción de Kárdex",
@@ -581,7 +753,7 @@ namespace AplicativoDeAlmacen.Views
             }
 
             CantidadProductoIngresada = cantidadDeclarada;
-            CostoUnitarioIngresado = costoValido;
+            CostoUnitarioIngresado = costoValido; // 👈 ¡Este es el nuevo costo base!
 
             FueGrabado = true;
             this.DialogResult = true;

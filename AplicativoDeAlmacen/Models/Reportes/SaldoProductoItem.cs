@@ -8,6 +8,7 @@ namespace AplicativoDeAlmacen.Models.Models
 {
     public class SaldoProductoItem
     {
+        public int ProductoId { get; set; }
         public string Codigo { get; set; }
         public string Descripcion { get; set; }
         public decimal StockInicial { get; set; }
