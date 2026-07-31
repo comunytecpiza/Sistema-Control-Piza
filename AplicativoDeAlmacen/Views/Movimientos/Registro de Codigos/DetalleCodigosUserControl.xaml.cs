@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Models.Models;
@@ -17,12 +15,14 @@ namespace AplicativoDeAlmacen.Views
     {
         private readonly CodigoCreadoService _service;
         private readonly RegistroCodigo _lote;
+        private List<CodigoCreado> _listaCodigosCompleta;
 
         public DetalleCodigosUserControl(RegistroCodigo lote)
         {
             InitializeComponent();
             _service = new CodigoCreadoService();
             _lote = lote;
+            _listaCodigosCompleta = new List<CodigoCreado>();
 
             this.Loaded += DetalleCodigosUserControl_Loaded;
         }
@@ -34,7 +34,6 @@ namespace AplicativoDeAlmacen.Views
             TxtRango.Text = $"De {_lote.Desde} a {_lote.Hasta}";
             TxtTotal.Text = $"{_lote.Cantidad} uds.";
 
-            // 🌟 PRIVILEGIO ADMINISTRADOR: Solo Administrador ve el panel de Registro Manual
             bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
             if (PanelRegistroManual != null)
             {
@@ -53,8 +52,9 @@ namespace AplicativoDeAlmacen.Views
 
                 int? filtroAlmacen = (miAlmacenId == ALMACEN_CENTRAL_ID) ? null : miAlmacenId;
 
-                var codigos = await _service.ObtenerPorRegistroIdAsync(_lote.Id, filtroAlmacen);
-                CodigosDataGrid.ItemsSource = codigos;
+                _listaCodigosCompleta = await _service.ObtenerPorRegistroIdAsync(_lote.Id, filtroAlmacen) ?? new List<CodigoCreado>();
+
+                FiltrarYRefrescarGrilla();
 
                 bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
                 if (columnaAlmacen != null)
@@ -62,16 +62,64 @@ namespace AplicativoDeAlmacen.Views
                     columnaAlmacen.Visibility = esAdmin ? Visibility.Visible : Visibility.Collapsed;
                 }
 
-                // Resumen de Mermas y Perdidos
-                int dañados = codigos.Count(c => c.CondicionId == 2);
-                int perdidos = codigos.Count(c => c.CondicionId == 3);
-                TxtExcepciones.Text = $"{dañados} dañados / {perdidos} perdidos";
-
-                CalcularSiguienteCodigo(codigos);
+                ActualizarResumenExcepciones(_listaCodigosCompleta);
+                CalcularSiguienteCodigo(_listaCodigosCompleta);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error al cargar códigos: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ActualizarResumenExcepciones(List<CodigoCreado> lista)
+        {
+            if (lista == null) return;
+            int dañados = lista.Count(c => c.CondicionId == 2);
+            int perdidos = lista.Count(c => c.CondicionId == 3);
+            TxtExcepciones.Text = $"{dañados} dañados / {perdidos} perdidos";
+        }
+
+        // 🔍 FILTRADO EN TIEMPO REAL AL ESCRIBIR EN EL BUSCADOR (EN EL CENTRO)
+        private void TxtBuscadorCodigo_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            FiltrarYRefrescarGrilla();
+        }
+
+        private void FiltrarYRefrescarGrilla()
+        {
+            if (_listaCodigosCompleta == null) return;
+
+            string filtro = TxtBuscadorCodigo?.Text?.Trim()?.ToLower() ?? "";
+
+            if (string.IsNullOrWhiteSpace(filtro))
+            {
+                CodigosDataGrid.ItemsSource = null;
+                CodigosDataGrid.ItemsSource = _listaCodigosCompleta;
+            }
+            else
+            {
+                var filtrados = _listaCodigosCompleta
+                    .Where(c => (c.Codigo != null && c.Codigo.ToLower().Contains(filtro)) ||
+                                c.Id.ToString().Contains(filtro) ||
+                                (c.AlmacenNombre != null && c.AlmacenNombre.ToLower().Contains(filtro)))
+                    .ToList();
+
+                CodigosDataGrid.ItemsSource = null;
+                CodigosDataGrid.ItemsSource = filtrados;
+            }
+        }
+
+        // 🌟 MARCAR O DESMARCAR TODOS LOS CHECKBOXES
+        private void ChkSeleccionarTodos_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is CheckBox chkMaster && CodigosDataGrid.ItemsSource is IEnumerable<CodigoCreado> listaVisible)
+            {
+                bool valor = chkMaster.IsChecked ?? false;
+                foreach (var item in listaVisible)
+                {
+                    item.IsSeleccionado = valor;
+                }
+                CodigosDataGrid.Items.Refresh();
             }
         }
 
@@ -136,19 +184,23 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // 🌟 CAMBIOS DE CONDICIÓN (1: OPERATIVO, 2: DAÑADO, 3: PERDIDO)
+        // 🌟 CAMBIO DE CONDICIÓN (POR CHECKBOXES, FILAS SELECCIONADAS O POR RANGO)
         private async void BtnConvertirMermaRango_Click(object sender, RoutedEventArgs e)
         {
             if (CboNuevaCondicion.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out int condicionId))
             {
                 string textoOperacion = item.Content.ToString() ?? "NUEVA CONDICIÓN";
-                var filasSeleccionadas = CodigosDataGrid.SelectedItems.OfType<CodigoCreado>().ToList();
 
-                // 🟢 CASO A: EL USUARIO SELECCIONÓ FILAS EN LA GRILLA (CTRL / SHIFT + CLIC)
-                if (filasSeleccionadas.Any())
+                // 🟢 CASO A: CHECKBOXES MARCADOS O FILAS SELECCIONADAS CON EL MOUSE
+                var marcadosPorCheckbox = _listaCodigosCompleta.Where(c => c.IsSeleccionado).ToList();
+                var marcadosPorFila = CodigosDataGrid.SelectedItems.OfType<CodigoCreado>().ToList();
+
+                var listaAProcesar = marcadosPorCheckbox.Union(marcadosPorFila).Distinct().ToList();
+
+                if (listaAProcesar.Any())
                 {
                     var confirmacion = MessageBox.Show(
-                        $"¿Desea cambiar la condición a '{textoOperacion.ToUpper()}' para los {filasSeleccionadas.Count} código(s) seleccionado(s) en la tabla?",
+                        $"¿Desea cambiar la condición a '{textoOperacion.ToUpper()}' para los {listaAProcesar.Count} código(s) marcado(s)?",
                         "Confirmar Cambio Masivo",
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Question);
@@ -159,7 +211,7 @@ namespace AplicativoDeAlmacen.Views
                         {
                             this.Cursor = Cursors.Wait;
                             int usuarioId = SesionSistema.UsuarioActual?.Id ?? 1;
-                            var idsAProcesar = filasSeleccionadas.Select(c => c.Id).ToList();
+                            var idsAProcesar = listaAProcesar.Select(c => c.Id).ToList();
 
                             int actualizados = await _service.CambiarCondicionPorListaIdsAsync(idsAProcesar, condicionId, usuarioId);
 
@@ -180,7 +232,7 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 🔵 CASO B: NO HAY SELECCIÓN EN GRILLA, PROCESA POR RANGO (DESDE / HASTA)
+                // 🔵 CASO B: PROCESA POR RANGO (DESDE / HASTA)
                 await ProcesarCambioCondicionRangoAsync(condicionId, textoOperacion.ToUpper());
             }
         }
@@ -189,7 +241,7 @@ namespace AplicativoDeAlmacen.Views
         {
             if (!int.TryParse(TxtRangoDesde.Text.Trim(), out int desde) || !int.TryParse(TxtRangoHasta.Text.Trim(), out int hasta))
             {
-                MessageBox.Show("Por favor, ingrese números válidos en los campos 'Desde' y 'Hasta' o seleccione las filas directamente en la tabla.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Por favor, marque los CheckBoxes de las filas, seleccione las filas directamente o ingrese un rango 'Desde / Hasta'.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -222,7 +274,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // 🌟 MODAL DE AUDITORÍA CON NOMBRE DEL USUARIO CREADOR AL HACER DOBLE CLICK (SOLO ADMIN)
+        // 🌟 MODAL DE AUDITORÍA (SOLO ADMIN AL HACER DOBLE CLIC)
         private async void DataGridRow_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
@@ -236,7 +288,7 @@ namespace AplicativoDeAlmacen.Views
                     AudCodigo.Text = audit.Codigo;
                     AudCondicion.Text = audit.CondicionNombre;
                     AudAlmacen.Text = audit.AlmacenNombre;
-                    AudUsuario.Text = audit.UsuarioCreador; // 👈 Muestra el NOMBRE DEL USUARIO
+                    AudUsuario.Text = audit.UsuarioCreador;
                     AudOrigen.Text = audit.OrigenCreacion;
                     AudFecha.Text = audit.FechaCreacion.ToString("dd/MM/yyyy HH:mm:ss");
 
@@ -250,16 +302,19 @@ namespace AplicativoDeAlmacen.Views
             ModalAuditoria.Visibility = Visibility.Collapsed;
         }
 
-        // 🌟 MANEJADOR PARA CAMBIAR CONDICIÓN A LAS FILAS SELECCIONADAS CON EL MOUSE (CTRL/SHIFT + CLIC Y CLIC DERECHO)
+        // 🌟 MENÚ CONTEXTUAL AL HACER CLIC DERECHO
         private async void MenuItemCondicion_Click(object sender, RoutedEventArgs e)
         {
             if (sender is MenuItem menuItem && int.TryParse(menuItem.Tag?.ToString(), out int nuevaCondicionId))
             {
-                var seleccionados = CodigosDataGrid.SelectedItems.OfType<CodigoCreado>().ToList();
+                var marcadosPorCheckbox = _listaCodigosCompleta.Where(c => c.IsSeleccionado).ToList();
+                var marcadosPorFila = CodigosDataGrid.SelectedItems.OfType<CodigoCreado>().ToList();
+
+                var seleccionados = marcadosPorCheckbox.Union(marcadosPorFila).Distinct().ToList();
 
                 if (!seleccionados.Any())
                 {
-                    MessageBox.Show("Seleccione primero una o varias filas (use Ctrl + Clic para selecciones intercaladas).", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("Seleccione o marque con el CheckBox las filas que desea modificar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
@@ -272,7 +327,7 @@ namespace AplicativoDeAlmacen.Views
                 };
 
                 var confirmacion = MessageBox.Show(
-                    $"¿Desea cambiar la condición a '{textoCondicion}' para los {seleccionados.Count} código(s) seleccionado(s)?",
+                    $"¿Desea cambiar la condición a '{textoCondicion}' para los {seleccionados.Count} código(s) marcado(s)?",
                     "Confirmar Cambio Masivo",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Question);
@@ -300,27 +355,6 @@ namespace AplicativoDeAlmacen.Views
                     {
                         this.Cursor = Cursors.Arrow;
                     }
-                }
-            }
-
-
-        }
-
-
-        private void CodigosDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            bool haySeleccionEnGrilla = CodigosDataGrid.SelectedItems.Count > 0;
-
-            if (TxtRangoDesde != null && TxtRangoHasta != null)
-            {
-                // Si seleccionó filas intercaladas o continuas con el ratón, deshabilitamos las cajas de texto
-                TxtRangoDesde.IsEnabled = !haySeleccionEnGrilla;
-                TxtRangoHasta.IsEnabled = !haySeleccionEnGrilla;
-
-                if (haySeleccionEnGrilla)
-                {
-                    TxtRangoDesde.Clear();
-                    TxtRangoHasta.Clear();
                 }
             }
         }

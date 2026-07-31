@@ -48,49 +48,55 @@
             </Grid>
         </Border>
 
-        <!-- BARRA DE ACCIONES Y CAMBIO DE CONDICIÓN POR RANGO -->
+        <!-- BARRA DE ACCIONES, BUSCADOR AL CENTRO Y CAMBIO MASIVO -->
         <Border Grid.Row="1" Background="White" CornerRadius="8" Padding="15" Margin="0,0,0,15">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- 1. REGISTRO MANUAL (Solo Administrador) -->
                 <StackPanel x:Name="PanelRegistroManual" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Excepción Manual N°:" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,8,0"/>
-                    <TextBox x:Name="TxtNuevoCodigo" Width="80" FontSize="14" FontWeight="Bold" Padding="6" Background="#F9FAFB"/>
-                    <Button Content="+ Registrar" Click="BtnRegistrarManual_Click" Background="#2563EB" Foreground="White" FontWeight="Bold" Padding="12,6" Margin="8,0,20,0"/>
+                    <TextBox x:Name="TxtNuevoCodigo" Width="80" Height="32" FontSize="14" FontWeight="Bold" Padding="6" Background="#F9FAFB" VerticalContentAlignment="Center"/>
+                    <Button Content="+ Registrar" Click="BtnRegistrarManual_Click" Background="#2563EB" Foreground="White" FontWeight="Bold" Padding="12,6" Height="32" Margin="8,0,0,0" Cursor="Hand"/>
                 </StackPanel>
 
-                <!-- 2. CAMBIO DE CONDICIÓN POR RANGO (3 TIPOS) -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock Text="⚠️ Cambiar Condición por Rango:" VerticalAlignment="Center" Foreground="#4B5563" FontWeight="Bold" Margin="0,0,10,0"/>
+                <!-- 2. BUSCADOR EN EL CENTRO -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Text="🔍 Buscar Código:" VerticalAlignment="Center" Foreground="#374151" FontWeight="Bold" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TxtBuscadorCodigo" Width="200" Height="32" FontSize="13" Padding="8,4" VerticalContentAlignment="Center" BorderBrush="#CBD5E1" TextChanged="TxtBuscadorCodigo_TextChanged"/>
+                </StackPanel>
 
-                    <ComboBox x:Name="CboNuevaCondicion" Width="160" Height="32" Margin="0,0,10,0" SelectedIndex="1">
+                <!-- 3. CAMBIO DE CONDICIÓN POR RANGO O SELECCIÓN -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="⚠️ Cambiar Condición:" VerticalAlignment="Center" Foreground="#4B5563" FontWeight="Bold" Margin="0,0,8,0"/>
+
+                    <ComboBox x:Name="CboNuevaCondicion" Width="150" Height="32" Margin="0,0,8,0" SelectedIndex="0">
                         <ComboBoxItem Content="OK / Operativo" Tag="1"/>
                         <ComboBoxItem Content="Dañado / Defectuoso" Tag="2"/>
                         <ComboBoxItem Content="Perdido / Extraviado" Tag="3"/>
                     </ComboBox>
 
                     <TextBlock Text="Desde:" VerticalAlignment="Center" Foreground="#6B7280" Margin="0,0,4,0"/>
-                    <TextBox x:Name="TxtRangoDesde" Width="60" TextAlignment="Center" Padding="4"/>
-                    <TextBlock Text="Hasta:" VerticalAlignment="Center" Foreground="#6B7280" Margin="8,0,4,0"/>
-                    <TextBox x:Name="TxtRangoHasta" Width="60" TextAlignment="Center" Padding="4"/>
+                    <TextBox x:Name="TxtRangoDesde" Width="50" Height="32" TextAlignment="Center" VerticalContentAlignment="Center" Padding="4"/>
+                    <TextBlock Text="Hasta:" VerticalAlignment="Center" Foreground="#6B7280" Margin="6,0,4,0"/>
+                    <TextBox x:Name="TxtRangoHasta" Width="50" Height="32" TextAlignment="Center" VerticalContentAlignment="Center" Padding="4"/>
 
-                    <Button Content="Aplicar Condición" Click="BtnConvertirMermaRango_Click" Background="#4F46E5" Foreground="White" FontWeight="Bold" Padding="10,6" Margin="10,0,0,0"/>
+                    <Button Content="Aplicar" Click="BtnConvertirMermaRango_Click" Background="#4F46E5" Foreground="White" FontWeight="Bold" Padding="10,6" Height="32" Margin="8,0,0,0" Cursor="Hand"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- TABLA PRINCIPAL DE CÓDIGOS -->
+        <!-- TABLA PRINCIPAL DE CÓDIGOS CON CHECKBOX POR FILA -->
         <Border Grid.Row="2" CornerRadius="10" Background="White" Padding="5">
             <DataGrid x:Name="CodigosDataGrid" AutoGenerateColumns="False" IsReadOnly="True" 
-                  Background="Transparent" BorderThickness="0" RowHeight="40" HeadersVisibility="Column"
-                  SelectionMode="Extended" SelectionUnit="FullRow"
-                  SelectionChanged="CodigosDataGrid_SelectionChanged">
+                      Background="Transparent" BorderThickness="0" RowHeight="40" HeadersVisibility="Column"
+                      SelectionMode="Extended" SelectionUnit="FullRow">
 
-                <!-- 🌟 MENÚ CONTEXTUAL AL HACER CLIC DERECHO SOBRE LAS FILAS SELECCIONADAS -->
+                <!-- MENÚ CONTEXTUAL (CLIC DERECHO) SOBRE LAS FILAS -->
                 <DataGrid.ContextMenu>
                     <ContextMenu FontSize="13" FontWeight="SemiBold">
                         <MenuItem Header="🟢 Cambiar a: OK / Operativo" Click="MenuItemCondicion_Click" Tag="1"/>
@@ -107,6 +113,19 @@
                 </DataGrid.RowStyle>
 
                 <DataGrid.Columns>
+                    <!-- 🌟 COLUMNA CON CHECKBOX PARA SELECCIÓN MULTIPLE -->
+                    <DataGridTemplateColumn Width="45">
+                        <DataGridTemplateColumn.Header>
+                            <CheckBox x:Name="ChkSeleccionarTodos" Click="ChkSeleccionarTodos_Click" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="Seleccionar Todo"/>
+                        </DataGridTemplateColumn.Header>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSeleccionado, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                     <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="80"/>
 
                     <DataGridTextColumn Header="CÓDIGO GENERADO" Binding="{Binding Codigo}" Width="*">
@@ -120,9 +139,9 @@
                     </DataGridTextColumn>
 
                     <DataGridTextColumn x:Name="columnaAlmacen" 
-                            Header="ALMACÉN RESIDENTE" 
-                            Binding="{Binding AlmacenNombre}" 
-                            Width="180">
+                                        Header="ALMACÉN RESIDENTE" 
+                                        Binding="{Binding AlmacenNombre}" 
+                                        Width="180">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="FontWeight" Value="Bold"/>
@@ -132,7 +151,7 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <!-- CONDICIÓN CON FORMATO DINÁMICO SEGÚN CONDICION_ID -->
+                    <!-- CONDICIÓN / CALIDAD CON FORMATO DINÁMICO -->
                     <DataGridTemplateColumn Header="CONDICIÓN / CALIDAD" Width="200">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
@@ -186,7 +205,7 @@
             </DataGrid>
         </Border>
 
-        <!-- MODAL FLOTANTE DE AUDITORÍA (SOLO ADMINISTRADOR AL HACER DOBLE CLICK) -->
+        <!-- MODAL DE AUDITORÍA -->
         <Grid x:Name="ModalAuditoria" Visibility="Collapsed" Background="#99000000" Grid.RowSpan="3" Margin="-30">
             <Border Background="White" Width="500" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="12" Padding="25">
                 <StackPanel>
@@ -223,7 +242,7 @@
                         <TextBlock x:Name="AudFecha" HorizontalAlignment="Right" FontWeight="SemiBold"/>
                     </Grid>
 
-                    <Button Content="Cerrar Auditoría" Click="BtnCerrarAuditoria_Click" Background="#374151" Foreground="White" FontWeight="Bold" Height="36"/>
+                    <Button Content="Cerrar Auditoría" Click="BtnCerrarAuditoria_Click" Background="#374151" Foreground="White" FontWeight="Bold" Height="36" Cursor="Hand"/>
                 </StackPanel>
             </Border>
         </Grid>

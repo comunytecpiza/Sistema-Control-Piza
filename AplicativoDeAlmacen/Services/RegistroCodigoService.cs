@@ -330,14 +330,17 @@ namespace AplicativoDeAlmacen.Services
                         }
 
                         // 3. Inserción en bloque con AUDITORÍA COMPLETA (codigos_creados)
+                        // 3. Inserción en bloque con AUDITORÍA COMPLETA (codigos_creados)
                         int batchSize = 1000;
+                        int almacenMaestroCentral = 1; // 👈 Declaramos la variable aquí mismo
+
                         for (int i = 0; i < cantidad; i += batchSize)
                         {
                             int currentBatch = Math.Min(batchSize, cantidad - i);
                             var queryBuilder = new StringBuilder(@"
-                        INSERT INTO codigos_creados 
-                        (registro_codigo_id, codigo, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at) 
-                        VALUES ");
+                            INSERT INTO codigos_creados 
+                            (registro_codigo_id, codigo, estado_id, condicion_id, almacen_id, usuario_id, origen_creacion, created_at) 
+                            VALUES ");
 
                             using (var cmd = dbConn.CreateCommand())
                             {
@@ -351,14 +354,14 @@ namespace AplicativoDeAlmacen.Services
                                     string codigoGenerado = lastDashIndex >= 0 ? $"{prefijo}{(desdeInt + idx):D7}" : $"{prefijo}-{idx}";
                                     codigoGenerado = codigoGenerado.Replace("'", "-");
 
-                                    // estado_id = 1 (En stock/creado), condicion_id = 1 (OK / Operativo)
+                                    // estado_id = 1 (Creado), condicion_id = 1 (OK / Operativo)
                                     queryBuilder.Append($"({registroId}, {paramCod}, 1, 1, @almId, @usrId, @origenC, GETDATE())");
                                     if (j < currentBatch - 1) queryBuilder.Append(", ");
 
                                     AgregarParametro(cmd, paramCod, codigoGenerado);
                                 }
 
-                                AgregarParametro(cmd, "@almId", almacenId);
+                                AgregarParametro(cmd, "@almId", almacenMaestroCentral); // 👈 Ya reconocida en el contexto
                                 AgregarParametro(cmd, "@usrId", usuarioId > 0 ? usuarioId : 1);
                                 AgregarParametro(cmd, "@origenC", string.IsNullOrWhiteSpace(origenRegistro) ? "SECUENCIAL" : origenRegistro);
 

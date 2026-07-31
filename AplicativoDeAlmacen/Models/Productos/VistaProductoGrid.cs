@@ -18,6 +18,7 @@ namespace AplicativoDeAlmacen.Models
         public string UnidadMedida { get; set; }
         public int ProductoId { get; set; }
 
+        public bool EsProductoSinCodigo { get; set; }
         // 🌟 SOLUCIÓN: Separamos la lógica.
         // La cantidad de la grilla debe ser solo una propiedad de lectura/escritura 
         // que NO gatilla cambios automáticos en el objeto Detalle.

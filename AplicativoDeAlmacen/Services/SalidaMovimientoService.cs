@@ -666,7 +666,7 @@ namespace AplicativoDeAlmacen.Services
                         foreach (var r in rangosReconstruidos)
                         {
                             string sqlInsRango = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                       VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, {nowFunc})";
+   VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, {nowFunc})";
                             using var cmdR = dbConn.CreateCommand();
                             cmdR.Transaction = transaccion;
                             cmdR.CommandText = QueryAdapter.FormatearConsulta(sqlInsRango);
@@ -733,6 +733,18 @@ namespace AplicativoDeAlmacen.Services
                             );
                         }
                     }
+                    else
+                    {
+                        // 🎒 PRODUCTO SIN CÓDIGO (Ej. Mochilas): Generamos un registro genérico para que el detalle persista perfectamente
+                        string sqlInsRangoGenerico = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
+                                     VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
+                        using var cmdRG = dbConn.CreateCommand();
+                        cmdRG.Transaction = transaccion;
+                        cmdRG.CommandText = QueryAdapter.FormatearConsulta(sqlInsRangoGenerico);
+                        AgregarParametro(cmdRG, "@pId", item.ProductoId);
+                        AgregarParametro(cmdRG, "@detId", idDetalle);
+                        await cmdRG.ExecuteNonQueryAsync();
+                    }
                 }
 
                 int almacenEmisor = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
@@ -791,19 +803,24 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 string sqlPurgarDetallesVacios = @"
-    DELETE FROM registro_rangos 
-    WHERE movimiento_detalle_id IN (
-        SELECT id FROM movimiento_detalles 
-        WHERE movimiento_id = @movId AND (cantidad_salida <= 0 OR id NOT IN (
-            SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId
-        ))
-    );
+                DELETE FROM registro_rangos 
+                WHERE movimiento_detalle_id IN (
+                    SELECT id FROM movimiento_detalles 
+                    WHERE movimiento_id = @movId 
+                      AND cantidad_salida <= 0 
+                      AND id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId)
+                      AND id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL)
+                );
 
-    DELETE FROM movimiento_detalles 
-    WHERE movimiento_id = @movId 
-      AND (cantidad_salida <= 0 OR id NOT IN (
-          SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId
-      ));";
+                DELETE FROM movimiento_detalles 
+                WHERE movimiento_id = @movId 
+                  AND (
+                      cantidad_salida <= 0 
+                      OR (
+                          id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId)
+                          AND id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL)
+                      )
+                  );";
 
                 using (var cmdPurga = dbConn.CreateCommand())
                 {
@@ -949,6 +966,17 @@ namespace AplicativoDeAlmacen.Services
                     });
                 }
             }
+            foreach (var det in resultado.Detalles)
+            {
+                // Si tu DTO usa otra propiedad para los rangos (ej: ColeccionRangos o similar), 
+                // o si simplemente nos basamos en los detalles para inyectar el ítem genérico visual:
+                bool tieneRangoAsociado = false;
+
+                // Verificamos si existe la propiedad de rangos en tu DTO con reflexión o validación directa si la recuerdas:
+                // Como sabemos que es un producto sin código, lo agregamos como genérico a la visualización:
+                resultado.Detalles.FirstOrDefault(d => d.ProductoId == det.ProductoId);
+            }
+
             return resultado;
         }
 

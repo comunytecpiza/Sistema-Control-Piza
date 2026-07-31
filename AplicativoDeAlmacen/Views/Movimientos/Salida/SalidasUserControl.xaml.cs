@@ -295,6 +295,16 @@ namespace AplicativoDeAlmacen.Views
                     }
                     else
                     {
+                        // 🌟 MODO EDICIÓN NORMAL: Brillo al 100% y todo habilitado
+                        grdFormularioSalida.IsEnabled = true;
+                        grdFormularioSalida.Opacity = 1.0;
+
+                        if (btnAgregarItem?.Parent is Panel panelAccionesDetalle)
+                        {
+                            panelAccionesDetalle.IsEnabled = true;
+                            panelAccionesDetalle.Opacity = 1.0;
+                        }
+
                         cboMotivoSalida.IsEnabled = true;
                         dtpFechaDespacho.IsEnabled = true;
                         txtObservacionSalida.IsEnabled = true;
@@ -307,12 +317,52 @@ namespace AplicativoDeAlmacen.Views
                         btnGrabarSalida.IsEnabled = true;
                         btnCancelar.IsEnabled = true;
 
+                        // Habilitar botones superiores
+                        btnNuevo.IsEnabled = true;
+                        btnModificarCabecera.IsEnabled = true;
+                        btnImprimirTicket.IsEnabled = true;
+                        btnAnularSalida.IsEnabled = true;
+
                         ActualizarVisibilidadCampos();
                     }
                 }
                 else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
                 {
+                    // 🌟 Sombreamos y bloqueamos formulario y botones inferiores
+                    grdFormularioSalida.IsEnabled = false;
+                    grdFormularioSalida.Opacity = 0.65;
+
+                    if (btnAgregarItem?.Parent is Panel panelAccionesDetalle)
+                    {
+                        panelAccionesDetalle.IsEnabled = false;
+                        panelAccionesDetalle.Opacity = 0.65;
+                    }
+
+                    // 🌟 Bloqueamos los botones superiores de la barra principal
+                    btnNuevo.IsEnabled = false;
+                    btnModificarCabecera.IsEnabled = false;
+                    btnImprimirTicket.IsEnabled = false;
+                    btnAnularSalida.IsEnabled = false;
+
                     HabilitarCamposFormulario(false);
+
+                    if (dgProductosSalida != null)
+                    {
+                        dgProductosSalida.IsEnabled = true;
+                        dgProductosSalida.IsReadOnly = true;
+                        dgProductosSalida.IsHitTestVisible = true;
+                        dgProductosSalida.Focusable = true;
+                    }
+                    if (dgCodigosSalida != null)
+                    {
+                        dgCodigosSalida.IsEnabled = true;
+                        dgCodigosSalida.IsReadOnly = true;
+                        dgCodigosSalida.IsHitTestVisible = true;
+                        dgCodigosSalida.Focusable = true;
+                    }
+
+                    if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
                     ShowExportButtonNearSave();
                 }
 
@@ -375,28 +425,49 @@ namespace AplicativoDeAlmacen.Views
         {
             RecalcularNumerosFila();
 
+            // 🌟 BLINDAJE DE CANTIDADES PARA PRODUCTOS CON Y SIN CÓDIGO
+            foreach (var prod in _productosLista)
+            {
+                int cantidadCodigosEnGrilla = _codigosLista.Count(x => x.ProductoId == prod.ProductoId);
+
+                if (cantidadCodigosEnGrilla > 0)
+                {
+                    // Producto con códigos
+                    prod.Cantidad = cantidadCodigosEnGrilla;
+
+                    if (prod.Detalle != null)
+                        prod.Detalle.CantidadSalida = cantidadCodigosEnGrilla;
+                }
+                else if (prod.Detalle != null && prod.Detalle.CantidadSalida > 0)
+                {
+                    // 🎒 Producto sin código: respetar la cantidad guardada
+                    prod.Cantidad = (int)prod.Detalle.CantidadSalida;
+                }
+            }
+
             if (dgProductosSalida.ItemsSource == null)
                 dgProductosSalida.ItemsSource = _productosLista;
 
             dgProductosSalida.Items.Refresh();
 
             if (dgProductosSalida.SelectedItem == null && _productosLista.Any())
-            {
                 dgProductosSalida.SelectedItem = _productosLista.First();
-            }
 
             if (dgProductosSalida.SelectedItem is VistaProductoGrid seleccionado)
             {
-                var codigosDelProducto = _codigosLista.Where(x => x.ProductoId == seleccionado.ProductoId).ToList();
+                var codigosDelProducto = _codigosLista
+                    .Where(x => x.ProductoId == seleccionado.ProductoId)
+                    .ToList();
+
                 int totalCodigosProducto = codigosDelProducto.Count;
 
-                // 🌟 RENDERIZADO SEGURO EN UI: Máximo 300 elementos visibles simultáneamente para evitar congelamiento de RAM
                 dgCodigosSalida.ItemsSource = codigosDelProducto.Take(500);
 
                 if (totalCodigosProducto > 500)
                 {
                     lblResumenCodigos.Text = $"500 (Viendo) / {totalCodigosProducto}";
-                    lblResumenCodigos.ToolTip = "La vista previa muestra los primeros 500 códigos por rendimiento de pantalla. El lote completo está resguardado en memoria RAM para el despacho.";
+                    lblResumenCodigos.ToolTip =
+                        "La vista previa muestra los primeros 500 códigos por rendimiento de pantalla. El lote completo está resguardado en memoria RAM para el despacho.";
                 }
                 else
                 {
@@ -501,6 +572,23 @@ namespace AplicativoDeAlmacen.Views
 
         private void EstadoInicialFormulario()
         {
+            // 🌟 Restablecer opacidad y habilitación visual completa
+            if (grdFormularioSalida != null)
+            {
+                grdFormularioSalida.IsEnabled = true;
+                grdFormularioSalida.Opacity = 1.0;
+            }
+
+            if (btnAgregarItem?.Parent is Panel panelAccionesInit)
+            {
+                panelAccionesInit.IsEnabled = true;
+                panelAccionesInit.Opacity = 1.0;
+            }
+
+            // Restaura la capacidad de clic/interacción en los DataGrids
+            if (dgProductosSalida != null) { dgProductosSalida.IsHitTestVisible = true; dgProductosSalida.Focusable = true; }
+            if (dgCodigosSalida != null) { dgCodigosSalida.IsHitTestVisible = true; dgCodigosSalida.Focusable = true; }
+
             grdFormularioSalida.IsEnabled = false;
 
             btnAgregarItem.IsEnabled = false;
@@ -511,6 +599,7 @@ namespace AplicativoDeAlmacen.Views
             btnCancelar.IsEnabled = false;
             btnEscanear.IsEnabled = false;
 
+            // Habilitar barra superior
             btnNuevo.IsEnabled = true;
             btnModificarCabecera.IsEnabled = true;
             btnImprimirTicket.IsEnabled = true;
@@ -637,7 +726,7 @@ namespace AplicativoDeAlmacen.Views
                 Debug.WriteLine($"Error al calcular correlativo de salida: {ex.Message}");
             }
 
-            txtNumeroSalida.Text = siguienteCorrelativo;
+            txtNumeroSalida.Text = "[ AUTOMÁTICO ]";
             txtNumeroSalida.IsReadOnly = true;
             txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
             txtNumeroSalida.Foreground = System.Windows.Media.Brushes.Gray;
@@ -674,9 +763,19 @@ namespace AplicativoDeAlmacen.Views
             EstadoInicialFormulario();
             _modoActual = ModoFormulario.BuscandoParaImprimir;
 
+            // 🌟 1. Mantenemos el contenedor principal HABILITADO para permitir tipear
             grdFormularioSalida.IsEnabled = true;
-            HabilitarCamposFormulario(false);
 
+            // 🌟 2. Bloqueamos solo los campos secundarios de datos
+            dtpFechaDespacho.IsEnabled = false;
+            cboMotivoSalida.IsEnabled = false;
+            txtCliente.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+            txtSerieGuia.IsEnabled = false;
+            txtNumeroGuia.IsEnabled = false;
+            txtObservacionSalida.IsEnabled = false;
+
+            // 🌟 3. Preparamos y enfocamos la caja de búsqueda del número
             PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
@@ -685,13 +784,17 @@ namespace AplicativoDeAlmacen.Views
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
-            btnCancelar.IsEnabled = true;
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
             MessageBox.Show("Escriba el N° de Documento y presione ENTER para ver e imprimir.", "Modo Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void HabilitarCamposFormulario(bool habilitar)
         {
+            // 1. Bloquea o habilita el contenedor principal del formulario
+            grdFormularioSalida.IsEnabled = habilitar;
+
+            // 2. Controla los controles de fecha y selección
             dtpFechaDespacho.IsEnabled = habilitar;
             cboMotivoSalida.IsEnabled = habilitar;
             txtCliente.IsEnabled = habilitar;
@@ -700,12 +803,27 @@ namespace AplicativoDeAlmacen.Views
             txtNumeroGuia.IsEnabled = habilitar;
             txtObservacionSalida.IsEnabled = habilitar;
 
+            // 3. Botones de acción sobre el detalle
             btnAgregarItem.IsEnabled = habilitar;
             btnEliminarItem.IsEnabled = habilitar;
             btnModificarDetalle.IsEnabled = habilitar;
             btnImportarExcel.IsEnabled = habilitar;
             btnEscanear.IsEnabled = habilitar;
             btnGrabarSalida.IsEnabled = habilitar;
+
+            // 4. Congela o libera la interacción con las grillas (impidiendo clics/selecciones en modo lectura)
+            if (dgProductosSalida != null)
+            {
+                dgProductosSalida.IsReadOnly = true;
+                dgProductosSalida.IsHitTestVisible = habilitar; // 👈 Evita interacción en vista previa
+                dgProductosSalida.Focusable = habilitar;
+            }
+            if (dgCodigosSalida != null)
+            {
+                dgCodigosSalida.IsReadOnly = true;
+                dgCodigosSalida.IsHitTestVisible = habilitar; // 👈 Evita interacción en vista previa
+                dgCodigosSalida.Focusable = habilitar;
+            }
         }
 
         private void BtnAnular_Click(object sender, RoutedEventArgs e)
@@ -819,15 +937,33 @@ namespace AplicativoDeAlmacen.Views
 
         private void BloquearParaAnulacionVisual()
         {
-            dgProductosSalida.IsReadOnly = true;
-            dgCodigosSalida.IsReadOnly = true;
+            // 1. Bloquea visualmente todo el formulario
+            grdFormularioSalida.IsEnabled = false;
 
+            // 2. Congela los DataGrids totalmente
+            if (dgProductosSalida != null)
+            {
+                dgProductosSalida.IsReadOnly = true;
+                dgProductosSalida.IsHitTestVisible = false;
+                dgProductosSalida.Focusable = false;
+            }
+            if (dgCodigosSalida != null)
+            {
+                dgCodigosSalida.IsReadOnly = true;
+                dgCodigosSalida.IsHitTestVisible = false;
+                dgCodigosSalida.Focusable = false;
+            }
+
+            // 3. Deshabilita barra de acciones de ítems
             btnAgregarItem.IsEnabled = false;
             btnModificarDetalle.IsEnabled = false;
             btnEliminarItem.IsEnabled = false;
             btnImportarExcel.IsEnabled = false;
             btnEscanear.IsEnabled = false;
             btnGrabarSalida.IsEnabled = false;
+
+            // 🌟 Única excepción activa
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
         }
 
         private void LimpiarBotonAnularDinamico()
@@ -1056,9 +1192,48 @@ namespace AplicativoDeAlmacen.Views
                     }
                     else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
                     {
+                        // 🌟 1. Congelamos y sombreamos el formulario superior
+                        grdFormularioSalida.IsEnabled = false;
+                        grdFormularioSalida.Opacity = 0.65;
+
+                        // 🌟 2. Sombreado y bloqueo de la barra de botones inferior
+                        if (btnAgregarItem?.Parent is Panel panelAccionesDetalle)
+                        {
+                            panelAccionesDetalle.IsEnabled = false;
+                            panelAccionesDetalle.Opacity = 0.65;
+                        }
+
+                        // 🌟 3. BLOQUEO TOTAL DE LOS BOTONES SUPERIORES (Nueva Salida, Modificar, Imprimir, Anular)
+                        btnNuevo.IsEnabled = false;
+                        btnModificarCabecera.IsEnabled = false;
+                        btnImprimirTicket.IsEnabled = false;
+                        btnAnularSalida.IsEnabled = false;
+
                         HabilitarCamposFormulario(false);
+
+                        // Permitimos clic en las grillas para examinar los códigos sin edición
+                        if (dgProductosSalida != null)
+                        {
+                            dgProductosSalida.IsEnabled = true;
+                            dgProductosSalida.IsReadOnly = true;
+                            dgProductosSalida.IsHitTestVisible = true;
+                            dgProductosSalida.Focusable = true;
+                        }
+                        if (dgCodigosSalida != null)
+                        {
+                            dgCodigosSalida.IsEnabled = true;
+                            dgCodigosSalida.IsReadOnly = true;
+                            dgCodigosSalida.IsHitTestVisible = true;
+                            dgCodigosSalida.Focusable = true;
+                        }
+
+                        if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
                         ShowExportButtonNearSave();
                     }
+
+                    txtNumeroSalida.IsReadOnly = true;
+                    txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
                 }
                 catch (Exception ex)
                 {
@@ -1140,121 +1315,146 @@ namespace AplicativoDeAlmacen.Views
             {
                 var productoSelected = modal._productoSeleccionado;
                 var rangosDelModal = modal.ListaRangosAgregados;
-                if (productoSelected == null || rangosDelModal == null || !rangosDelModal.Any()) return;
+                if (productoSelected == null) return;
 
                 int idProducto = productoSelected.Id;
                 int miAlmacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                // 🌟 Identificamos si es un producto genérico SIN CÓDIGO (ej. Mochilas)
+                bool esProductoSinCodigo = string.IsNullOrWhiteSpace(productoSelected.Abreviatura);
+
+                if (!esProductoSinCodigo && (rangosDelModal == null || !rangosDelModal.Any())) return;
 
                 this.Cursor = Cursors.Wait;
                 try
                 {
                     var ingService = new IngresoMovimientoService();
-                    var listaStrings = new List<string>();
+                    int cantidadFinal = 0;
 
-                    // 1. Desglosamos los rangos a textos planos en RAM (Ultrarrápido)
-                    foreach (var rango in rangosDelModal)
+                    if (esProductoSinCodigo)
                     {
-                        if (rango.DesdeNum == -1)
+                        // 🎒 PRODUCTO SIN CÓDIGO: La cantidad viene directamente de la caja general de la ventana modal
+                        cantidadFinal = modal.CantidadProductoIngresada;
+                    }
+                    else
+                    {
+                        // 📚 PRODUCTO CON CÓDIGO: Desglosamos y validamos las series en stock
+                        var listaStrings = new List<string>();
+                        foreach (var rango in rangosDelModal)
                         {
-                            listaStrings.Add(rango.AbreviaturaBase);
-                        }
-                        else
-                        {
-                            for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                            if (rango.DesdeNum == -1)
                             {
-                                listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                                listaStrings.Add(rango.AbreviaturaBase);
+                            }
+                            else
+                            {
+                                for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                                {
+                                    listaStrings.Add($"{rango.AbreviaturaBase}-{i:D7}");
+                                }
                             }
                         }
-                    }
 
-                    // 2. 🚀 ÚNICA CONSULTA BATCH: Trae todos los códigos del rango en 1 solo viaje a la BD
-                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, miAlmacenActualId);
-                    int ignoradosPorDuplicado = 0;
-                    int ignoradosPorAlmacenOEstado = 0;
+                        var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, miAlmacenActualId);
+                        int ignoradosPorDuplicado = 0;
+                        int ignoradosPorAlmacenOEstado = 0;
 
-                    string primerRangoTipo = rangosDelModal.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
+                        string primerRangoTipo = rangosDelModal.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
+                        var nuevosCodigosBatch = new List<VistaCodigoGrid>();
 
-                    // 🌟 Lista temporal en memoria para evitar refrescos visuales innecesarios en bucle
-                    var nuevosCodigosBatch = new List<VistaCodigoGrid>();
-
-                    foreach (var codStr in listaStrings)
-                    {
-                        string norm = ingService.NormalizarCodigo(codStr);
-
-                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
+                        foreach (var codStr in listaStrings)
                         {
-                            if (tup.CodigoObj.EstadoId != 3)
+                            string norm = ingService.NormalizarCodigo(codStr);
+
+                            if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null)
+                            {
+                                if (tup.CodigoObj.EstadoId != 3)
+                                {
+                                    ignoradosPorAlmacenOEstado++;
+                                    continue;
+                                }
+
+                                int codigoCreadoId = tup.CodigoObj.Id;
+
+                                if (_codigosLista.Any(c => c.MovCodigo != null && c.MovCodigo.CodigoCreadoId == codigoCreadoId) ||
+                                    nuevosCodigosBatch.Any(c => c.MovCodigo?.CodigoCreadoId == codigoCreadoId))
+                                {
+                                    ignoradosPorDuplicado++;
+                                    continue;
+                                }
+
+                                nuevosCodigosBatch.Add(new VistaCodigoGrid
+                                {
+                                    ProductoId = idProducto,
+                                    CodigoUnique = tup.CodigoObj.Codigo,
+                                    ColeccionTipo = primerRangoTipo,
+                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoCreadoId }
+                                });
+                            }
+                            else
                             {
                                 ignoradosPorAlmacenOEstado++;
-                                continue;
                             }
-
-                            int codigoCreadoId = tup.CodigoObj.Id;
-
-                            // Candado anti-duplicados en memoria general
-                            if (_codigosLista.Any(c => c.MovCodigo != null && c.MovCodigo.CodigoCreadoId == codigoCreadoId) ||
-                                nuevosCodigosBatch.Any(c => c.MovCodigo?.CodigoCreadoId == codigoCreadoId))
-                            {
-                                ignoradosPorDuplicado++;
-                                continue;
-                            }
-
-                            nuevosCodigosBatch.Add(new VistaCodigoGrid
-                            {
-                                ProductoId = idProducto,
-                                CodigoUnique = tup.CodigoObj.Codigo,
-                                ColeccionTipo = primerRangoTipo,
-                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoCreadoId }
-                            });
                         }
-                        else
+
+                        if (ignoradosPorAlmacenOEstado > 0)
                         {
-                            ignoradosPorAlmacenOEstado++;
+                            MessageBox.Show($"⚠️ Advertencia de Stock:\n\nSe omitieron {ignoradosPorAlmacenOEstado} código(s) porque NO pertenecen a su Almacén actual o ya fueron despachados.", "Stock No Disponible", MessageBoxButton.OK, MessageBoxImage.Warning);
                         }
-                    }
 
-                    if (ignoradosPorAlmacenOEstado > 0)
-                    {
-                        MessageBox.Show($"⚠️ Advertencia de Stock:\n\nSe omitieron {ignoradosPorAlmacenOEstado} código(s) porque NO pertenecen a su Almacén actual o ya fueron despachados.", "Stock No Disponible", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
+                        if (ignoradosPorDuplicado > 0)
+                        {
+                            MessageBox.Show($"Se ignoraron {ignoradosPorDuplicado} código(s) duplicado(s) que ya estaban en la lista.", "Aviso de Duplicados", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
 
-                    if (ignoradosPorDuplicado > 0)
-                    {
-                        MessageBox.Show($"Se ignoraron {ignoradosPorDuplicado} código(s) duplicado(s) que ya estaban en la lista.", "Aviso de Duplicados", MessageBoxButton.OK, MessageBoxImage.Information);
-                    }
+                        foreach (var nc in nuevosCodigosBatch)
+                        {
+                            _codigosLista.Add(nc);
+                        }
 
-                    // 🌟 Inyección masiva fuera de los ciclos individuales de validación
-                    foreach (var nc in nuevosCodigosBatch)
-                    {
-                        _codigosLista.Add(nc);
+                        cantidadFinal = _codigosLista.Count(c => c.ProductoId == idProducto);
                     }
 
                     var prodService = new ProductoService();
                     var prodData = await prodService.ObtenerPorIdAsync(idProducto);
 
-                    int conteoCodigosReal = _codigosLista.Count(c => c.ProductoId == idProducto);
-                    int cantidadFinal = conteoCodigosReal;
+                    int cantidadMostrar = esProductoSinCodigo
+                    ? modal.CantidadProductoIngresada
+                    : cantidadFinal;
 
                     var existente = _productosLista.FirstOrDefault(p => p.ProductoId == idProducto);
+
                     if (existente != null)
+
                     {
-                        existente.Cantidad = cantidadFinal;
-                        if (existente.Detalle != null) existente.Detalle.CantidadSalida = cantidadFinal;
+                        existente.EsProductoSinCodigo = esProductoSinCodigo;
+                        existente.Cantidad = cantidadMostrar;
+
+                        if (existente.Detalle != null)
+                        {
+                            existente.Detalle.CantidadSalida = cantidadMostrar;
+                            existente.Detalle.CostoUnitario = modal.CostoUnitarioIngresado > 0
+                                ? modal.CostoUnitarioIngresado
+                                : existente.Detalle.CostoUnitario;
+                        }
                     }
-                    else if (cantidadFinal > 0)
+                    else if (cantidadMostrar > 0)
                     {
                         _productosLista.Add(new VistaProductoGrid
                         {
                             ProductoId = idProducto,
                             CodigoProducto = prodData?.Abreviatura ?? idProducto.ToString(),
-                            Descripcion = prodData?.Descripcion ?? "Desconocido",
+                            Descripcion = prodData?.Descripcion ?? productoSelected.Descripcion,
                             UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
-                            Cantidad = cantidadFinal,
+                            Cantidad = cantidadMostrar,
+                            EsProductoSinCodigo = esProductoSinCodigo,
                             Detalle = new MovimientoDetalle
                             {
                                 ProductoId = idProducto,
-                                CantidadSalida = cantidadFinal,
-                                CostoUnitario = prodData?.PrecioUnitario ?? 0
+                                CantidadSalida = cantidadMostrar,
+                                CostoUnitario = modal.CostoUnitarioIngresado > 0
+                                    ? modal.CostoUnitarioIngresado
+                                    : (prodData?.PrecioUnitario ?? 0)
                             }
                         });
                     }
@@ -1263,7 +1463,7 @@ namespace AplicativoDeAlmacen.Views
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error al procesar los códigos del ítem: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Error al procesar los ítems: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 finally
                 {
@@ -1276,6 +1476,9 @@ namespace AplicativoDeAlmacen.Views
 
         private async void DgProductosSalida_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
+            // 🛡️ CANDADO: Si está consultando o en modo lectura, ignora el doble clic
+            if (_modoActual == ModoFormulario.BuscandoParaImprimir || _anularMode) return;
+
             if (dgProductosSalida.SelectedItem is VistaProductoGrid)
             {
                 await EditSelectedProductAsync();
@@ -1398,19 +1601,35 @@ namespace AplicativoDeAlmacen.Views
 
         private void DgProductosSalida_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // 1. Control de habilitación de botones según si estamos en modo lectura/consulta o edición
+            if (_modoActual == ModoFormulario.BuscandoParaImprimir || _anularMode)
+            {
+                btnModificarDetalle.IsEnabled = false;
+                btnEliminarItem.IsEnabled = false;
+            }
+            else
+            {
+                if (dgProductosSalida.SelectedItem != null)
+                {
+                    btnModificarDetalle.IsEnabled = true;
+                    btnEliminarItem.IsEnabled = true;
+                }
+                else
+                {
+                    btnModificarDetalle.IsEnabled = false;
+                    btnEliminarItem.IsEnabled = false;
+                }
+            }
+
+            // 2. 🌟 FILTRADO DE CÓDIGOS: Esto es lo que hacía falta que no se interrumpa
             if (dgProductosSalida.SelectedItem is VistaProductoGrid productoSeleccionado)
             {
                 var codigosFiltrados = _codigosLista.Where(c => c.ProductoId == productoSeleccionado.ProductoId).ToList();
                 dgCodigosSalida.ItemsSource = codigosFiltrados;
-
-                btnModificarDetalle.IsEnabled = true;
-                btnEliminarItem.IsEnabled = true;
             }
             else
             {
                 dgCodigosSalida.ItemsSource = _codigosLista.ToList();
-                btnModificarDetalle.IsEnabled = false;
-                btnEliminarItem.IsEnabled = false;
             }
         }
 
@@ -1511,6 +1730,7 @@ namespace AplicativoDeAlmacen.Views
                         CantidadIngreso = 0,
                         CantidadSalida = p.Cantidad,  // ✅ Usa directamente p.Cantidad
                         CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
+                        
                         Id = p.Detalle?.Id ?? 0
                     }
                 }).ToList();
@@ -1523,7 +1743,8 @@ namespace AplicativoDeAlmacen.Views
                 }
 
                 // ✅ VALIDACIÓN
-                if (_codigosLista == null || !_codigosLista.Any())
+                bool tieneProductosConCodigo = _productosLista.Any(p => !p.EsProductoSinCodigo);
+                if (tieneProductosConCodigo && (_codigosLista == null || !_codigosLista.Any()))
                 {
                     MessageBox.Show("❌ Error: No hay códigos en la lista para procesar.", "Error de Códigos", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
@@ -1657,6 +1878,7 @@ namespace AplicativoDeAlmacen.Views
 
                         if (existente != null)
                         {
+
                             existente.Cantidad = conteoTotal;
                             if (existente.Detalle != null) existente.Detalle.CantidadSalida = conteoTotal;
                         }
@@ -2122,12 +2344,15 @@ namespace AplicativoDeAlmacen.Views
         {
             foreach (var producto in _productosLista)
             {
+                if (producto.EsProductoSinCodigo)
+                    continue;
+
                 int count = _codigosLista.Count(c => c.ProductoId == producto.ProductoId);
 
+                producto.Cantidad = count;
+
                 if (producto.Detalle != null)
-                {
                     producto.Detalle.CantidadSalida = count;
-                }
             }
 
             dgProductosSalida.Items.Refresh();

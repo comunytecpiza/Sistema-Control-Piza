@@ -551,7 +551,7 @@ namespace AplicativoDeAlmacen.Views
                     int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
                     string modoOrigen = "SECUENCIAL"; // Como es secuencial, guardará explícitamente "SECUENCIAL"
                     int usuarioActualId = SesionSistema.UsuarioActual?.Id ?? 1;
-                    int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+                    int almacenActualId = SesionSistema.AlmacenActual?.Id > 0 ? SesionSistema.AlmacenActual.Id : 1;
                     var progressModal = new ProgressWindow("Generando Secuencia", "Creando e insertando lote secuencial...", async (progress) =>
                     {
                         await _registroService.GuardarCodigosTransactionAsync( // 👈 Cambiado a _registroService
