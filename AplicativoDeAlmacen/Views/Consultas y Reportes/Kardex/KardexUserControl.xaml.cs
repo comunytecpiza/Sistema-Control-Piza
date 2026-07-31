@@ -207,12 +207,12 @@ namespace AplicativoDeAlmacen.Views
                 LblTituloIngresos.Text = (miAlmacenId == ALMACEN_CENTRAL_ID) ? "Ingresos (Compras)" : "Ingresos (Transferencias)";
 
                 // 🌟 ASIGNACIÓN DE LAS TARJETAS CONTABLES Y OPERATIVAS
-                TxtStockInicial.Text = reporte.StockInicial.ToString("N2");
-                TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N2");       // Ingresos Principales (Compra o Transferencia)
-                TxtTotalDevoluciones.Text = reporte.TotalDevoluciones.ToString("N2"); // Devoluciones / Reingresos
-                TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N2");
-                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N2");           // Salidas Netas
-                TxtStockFinal.Text = reporte.StockFinal.ToString("N2");
+                TxtStockInicial.Text = reporte.StockInicial.ToString("N0");
+                TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N0");       // Ingresos Principales (Compra o Transferencia)
+                TxtTotalDevoluciones.Text = reporte.TotalDevoluciones.ToString("N0"); // Devoluciones / Reingresos
+                TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N0");
+                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N0");           // Salidas Netas
+                TxtStockFinal.Text = reporte.StockFinal.ToString("N0");
             }
             catch (Exception ex)
             {

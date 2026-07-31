@@ -77,6 +77,9 @@
                         <Setter Property="Padding" Value="15,12"/>
                         <Setter Property="BorderThickness" Value="0,0,0,1"/>
                         <Setter Property="BorderBrush" Value="#E5E7EB"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+
                     </Style>
                 </DataGrid.ColumnHeaderStyle>
 
@@ -84,11 +87,52 @@
                     <DataGridTextColumn Header="FECHA" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="100"/>
                     <DataGridTextColumn Header="COMPROBANTE" Binding="{Binding Registro}" Width="120"/>
                     <DataGridTextColumn Header="GUÍA" Binding="{Binding Guia}" Width="110"/>
-                    <DataGridTextColumn Header="MOTIVO / TIPO" Binding="{Binding Tipo}" Width="160"/>
-                    <DataGridTextColumn Header="ENTIDAD / UBICACIÓN / ALMACÉN" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
-                    <DataGridTextColumn Header="INGRESO" Binding="{Binding Ingreso, StringFormat=N2}" Width="110" CellStyle="{StaticResource IngresoStyle}"/>
-                    <DataGridTextColumn Header="SALIDA" Binding="{Binding Salida, StringFormat=N2}" Width="110" CellStyle="{StaticResource SalidaStyle}"/>
-                    <DataGridTextColumn Header="SALDO ACUM." Binding="{Binding SaldoAcumulado, StringFormat=N2}" Width="130" CellStyle="{StaticResource SaldoStyle}"/>
+                    <DataGridTextColumn Header="MOTIVO / TIPO" Binding="{Binding Tipo}" Width="160">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+
+                    <DataGridTextColumn Header="ENTIDAD / UBICACIÓN / ALMACÉN" Binding="{Binding RazonSocialUbicacion}" Width="*">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="INGRESO" Binding="{Binding Ingreso, StringFormat=N0}" Width="110" CellStyle="{StaticResource IngresoStyle}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="SALIDA" Binding="{Binding Salida, StringFormat=N0}" Width="110" CellStyle="{StaticResource SalidaStyle}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="SALDO ACUM." Binding="{Binding SaldoAcumulado, StringFormat=N0}" Width="130" CellStyle="{StaticResource SaldoStyle}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
