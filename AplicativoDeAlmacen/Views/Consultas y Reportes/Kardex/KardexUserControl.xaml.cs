@@ -311,5 +311,40 @@ namespace AplicativoDeAlmacen.Views
                 MessageBox.Show("Error al cargar el Kárdex directo: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+        private void KardexDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            // Verificamos que haya una fila seleccionada y que el objeto tenga datos
+            if (KardexDataGrid.SelectedItem is KardexFisicoItem filaSeleccionada)
+            {
+                if (string.IsNullOrWhiteSpace(filaSeleccionada.Registro)) return;
+
+                // Formato esperado de Registro: "0001-0000003"
+                string[] partes = filaSeleccionada.Registro.Split('-');
+                if (partes.Length < 2) return;
+
+                string serie = partes[0].Trim();
+                string numero = partes[1].Trim();
+
+                // 🌟 Buscamos la ventana principal para abrir la pestaña correspondiente
+                if (Window.GetWindow(this) is IMainWindow mainShell)
+                {
+                    if (filaSeleccionada.Ingreso > 0)
+                    {
+                        // Es un movimiento de ENTRADA
+                        var vistaIngreso = new IngresoUserControl();
+                        vistaIngreso.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📥 Ingreso : {serie}-{numero}(Vista Previa)", vistaIngreso);
+                    }
+                    else if (filaSeleccionada.Salida > 0)
+                    {
+                        // Es un movimiento de SALIDA
+                        var vistaSalida = new SalidasUserControl();
+                        vistaSalida.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📤 Salida : {serie}-{numero} (Vista Previa)", vistaSalida);
+                    }
+                }
+            }
+        }
     }
 }

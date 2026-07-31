@@ -1,6 +1,8 @@
-﻿using AplicativoDeAlmacen.Models.Facturación;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante;
 using System;
 using System.Collections.Generic;
@@ -19,6 +21,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
         private readonly KardexService _kardexService;
         private readonly ProductoService _productoService;
         private bool _necesitaRecargar = false;
+        private readonly ReporteExcelService _reporteExcelService;
 
         private int _productoIdSeleccionado = 0;
         private int _categoriaProductoIdSeleccionada = 0; // 1 = Libro Guía, 2 = Libro Venta
@@ -28,11 +31,18 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             InitializeComponent();
             _kardexService = new KardexService();
             _productoService = new ProductoService();
-
+            _reporteExcelService = new ReporteExcelService();
             TxtCodigoEscaneado.IsEnabled = false;
             TxtProducto.Focus();
 
             DgHistorial.LoadingRow += DgHistorial_LoadingRow;
+
+            Loaded += (s, e) => {
+                Dispatcher.BeginInvoke(new Action(() => {
+                    TxtProducto.Focus();
+                    TxtProducto.SelectAll();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
 
             // 🌟 SUSCRIPCIÓN AL EVENTBUS
             EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(async () => {
@@ -199,6 +209,16 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             }
         }
 
+        // 🌟 1. Evento para recargar la tabla al marcar/desmarcar el CheckBox
+        private async void ChkMostrarAnulados_Click(object sender, RoutedEventArgs e)
+        {
+            if (_productoIdSeleccionado > 0 && !string.IsNullOrWhiteSpace(TxtCodigoEscaneado.Text))
+            {
+                await ProcesarLecturaAsync();
+            }
+        }
+
+        // 🌟 2. Actualización de ProcesarLecturaAsync pasando el estado del CheckBox
         private async Task ProcesarLecturaAsync()
         {
             string codigo = TxtCodigoEscaneado.Text.Trim();
@@ -220,11 +240,30 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             try
             {
                 Mouse.OverrideCursor = Cursors.Wait;
+                int anoActual = DateTime.Now.Year;
+                string tipoTexto = _categoriaProductoIdSeleccionada == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                bool incluirAnulados = ChkMostrarAnulados.IsChecked ?? false;
 
-                var historial = await _kardexService.ObtenerHistorialCompletoPorCodigoAsync(
+                // 🌟 1. CONSULTA DE LA COLECCIÓN REAL VINCULADA AL CÓDIGO
+                string nombreColeccionReal = await _kardexService.ObtenerNombreColeccionCodigoAsync(
                     _productoIdSeleccionado,
                     codigo,
                     _categoriaProductoIdSeleccionada
+                );
+
+                // 🌟 2. ASIGNACIÓN EN LA CAJA DE TEXTO (Si no la encuentra por algún motivo, coloca un respaldo)
+                TxtColeccion.Text = string.IsNullOrWhiteSpace(nombreColeccionReal)
+                ? $"C{anoActual} / {tipoTexto}"
+                : nombreColeccionReal;
+
+                // 🌟 3. CONSULTA DEL HISTORIAL DE MOVIMIENTOS
+                var historial = await _kardexService.ObtenerHistorialCompletoPorCodigoAsync(
+                    _productoIdSeleccionado,
+                    codigo,
+                    _categoriaProductoIdSeleccionada,
+                    miAlmacenId,
+                    incluirAnulados
                 );
 
                 if (historial != null && historial.Any())
@@ -233,7 +272,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
                 }
                 else
                 {
-                    MessageBox.Show($"No se encontró ningún historial para el código '{codigo}'.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"No se encontró ningún historial para el código '{codigo}' en este almacén.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                     DgHistorial.ItemsSource = null;
                 }
             }
@@ -244,6 +283,43 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             finally
             {
                 Mouse.OverrideCursor = null;
+            }
+        }
+
+
+        // 🌟 3. DOBLE CLIC EN EL HISTORIAL DE TRAZABILIDAD
+        private void DgHistorial_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DgHistorial.SelectedItem is KardexFisicoItem filaSeleccionada)
+            {
+                if (string.IsNullOrWhiteSpace(filaSeleccionada.Registro)) return;
+
+                // Limpiamos el prefijo '❌ ANULADO - ' en caso de que esté presente
+                string registroLimpio = filaSeleccionada.Registro.Replace("❌ ANULADO - ", "").Trim();
+
+                string[] partes = registroLimpio.Split('-');
+                if (partes.Length < 2) return;
+
+                string serie = partes[0].Trim();
+                string numero = partes[1].Trim();
+
+                if (Window.GetWindow(this) is IMainWindow mainShell)
+                {
+                    if (filaSeleccionada.IngresoNormal > 0)
+                    {
+                        // Abre el módulo de INGRESO en consulta
+                        var vistaIngreso = new IngresoUserControl();
+                        vistaIngreso.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📥 Ingreso: {serie}-{numero}", vistaIngreso);
+                    }
+                    else if (filaSeleccionada.SalidaNormal > 0)
+                    {
+                        // Abre el módulo de SALIDA en consulta
+                        var vistaSalida = new SalidasUserControl();
+                        vistaSalida.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📤 Salida: {serie}-{numero}", vistaSalida);
+                    }
+                }
             }
         }
 
@@ -262,8 +338,42 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
-            if (DgHistorial.ItemsSource == null) return;
-            MessageBox.Show("Generando reporte de trazabilidad...", "Imprimir", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (DgHistorial.ItemsSource == null || !(DgHistorial.ItemsSource is List<KardexFisicoItem> historial) || !historial.Any())
+            {
+                MessageBox.Show("No hay datos de historial cargados para imprimir.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            try
+            {
+                string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "ALMACÉN GENERAL";
+                string abreviaturaProd = TxtAbreviatura.Text.Trim();
+                string codigoEscaneado = TxtCodigoEscaneado.Text.Trim();
+
+                // Formatea el código completo con la abreviatura si el usuario digitó solo el número
+                string codigoCompleto = codigoEscaneado;
+                if (int.TryParse(codigoEscaneado, out int numP) && !string.IsNullOrEmpty(abreviaturaProd))
+                {
+                    codigoCompleto = $"{abreviaturaProd}-{numP:D7}";
+                }
+                else if (!codigoCompleto.Contains("-") && !string.IsNullOrEmpty(abreviaturaProd))
+                {
+                    codigoCompleto = $"{abreviaturaProd}-{codigoCompleto}";
+                }
+
+                string descripcionProducto = TxtProducto.Text.Trim();
+
+                _reporteExcelService.ExportarHistorialPorCodigo(
+                    nombreAlmacen,
+                    codigoCompleto,
+                    descripcionProducto,
+                    historial
+                );
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al generar el reporte Excel: {ex.Message}", "Error de Exportación", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void BtnSalir_Click(object sender, RoutedEventArgs e)

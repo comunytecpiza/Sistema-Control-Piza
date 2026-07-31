@@ -5,6 +5,12 @@
              FontFamily="Segoe UI">
 
     <UserControl.Resources>
+        
+        
+        <Style x:Key="CenterAlignStyle" TargetType="DataGridCell">
+            <Setter Property="TextBlock.TextAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
         <Style x:Key="RightAlignStyle" TargetType="DataGridCell">
             <Setter Property="TextBlock.TextAlignment" Value="Right"/>
             <Setter Property="Padding" Value="0,0,15,0"/>
@@ -151,38 +157,50 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTextColumn Header="STOCK INICIAL" Binding="{Binding StockInicial, StringFormat=N2}" Width="130" CellStyle="{StaticResource RightAlignStyle}">
+                    <!-- 🌟 STOCK INICIAL: Centrado y sin decimales -->
+                    <DataGridTextColumn Header="STOCK INICIAL" Binding="{Binding StockInicial, StringFormat=N0}" Width="130" CellStyle="{StaticResource CenterAlignStyle}">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="#6B7280"/>
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTextColumn Header="ENTRADAS" Binding="{Binding TotalIngresos, StringFormat=N2}" Width="120" CellStyle="{StaticResource RightAlignStyle}">
+                    <!-- 🌟 ENTRADAS: Centrado y sin decimales -->
+                    <DataGridTextColumn Header="ENTRADAS" Binding="{Binding TotalIngresos, StringFormat=N0}" Width="120" CellStyle="{StaticResource CenterAlignStyle}">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="#059669"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTextColumn Header="SALIDAS" Binding="{Binding TotalSalidas, StringFormat=N2}" Width="120" CellStyle="{StaticResource RightAlignStyle}">
+                    <!-- 🌟 SALIDAS: Centrado y sin decimales -->
+                    <DataGridTextColumn Header="SALIDAS" Binding="{Binding TotalSalidas, StringFormat=N0}" Width="120" CellStyle="{StaticResource CenterAlignStyle}">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Foreground" Value="#DC2626"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTextColumn Header="STOCK FINAL" Binding="{Binding StockFinal, StringFormat=N2}" Width="140" CellStyle="{StaticResource RightAlignStyle}">
+                    <!-- 🌟 STOCK FINAL: Centrado y sin decimales -->
+                    <DataGridTextColumn Header="STOCK FINAL" Binding="{Binding StockFinal, StringFormat=N0}" Width="140" CellStyle="{StaticResource CenterAlignStyle}">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
                                 <Setter Property="FontWeight" Value="Bold"/>
                                 <Setter Property="Foreground" Value="#2563EB"/>
                                 <Setter Property="FontSize" Value="15"/>
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>

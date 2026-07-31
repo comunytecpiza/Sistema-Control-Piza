@@ -226,14 +226,18 @@ namespace AplicativoDeAlmacen.Views
                     {
                         var prodData = await prodService.ObtenerPorIdAsync(det.ProductoId);
 
+                        // 🌟 Identificamos si es un producto sin código (Abreviatura vacía)
+                        bool esProductoSinCod = string.IsNullOrWhiteSpace(prodData?.Abreviatura);
+
                         var vistaProd = new VistaProductoGrid
                         {
                             Detalle = det,
                             ProductoId = det.ProductoId,
                             CodigoProducto = prodData?.Abreviatura ?? det.ProductoId.ToString(),
                             Descripcion = prodData?.Descripcion ?? "Desconocido",
-                            Cantidad = Convert.ToInt32(det.CantidadSalida),
-                            UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD"
+                            Cantidad = Convert.ToInt32(det.CantidadSalida), // 👈 Muestra la cantidad guardada en BD
+                            UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
+                            EsProductoSinCodigo = esProductoSinCod // 👈 Marca la bandera para evitar que RefrescarGrillas lo ponga en 0
                         };
                         _productosLista.Add(vistaProd);
 
@@ -246,7 +250,7 @@ namespace AplicativoDeAlmacen.Views
                                     ProductoId = det.ProductoId,
                                     CodigoUnique = c.CodString,
                                     ColeccionTipo = c.TipoColeccion,
-                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = c.CodId } // 👈 ¡ESTO ASIGNA EL ID Y EVITA EL ERROR DE SQL!
+                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = c.CodId }
                                 });
                             }
                         }
@@ -1503,7 +1507,6 @@ namespace AplicativoDeAlmacen.Views
 
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
 
-            // 🌟 ASIGNACIÓN DEL ID DE MOVIMIENTO ACTUAL Y ESTADO
             modal.MovimientoIdActual = _idMovimientoActual;
             modal.EstadoPermitido = 3;
             modal.InitializeForEdit(seleccionado, rangos);
@@ -1520,11 +1523,13 @@ namespace AplicativoDeAlmacen.Views
                 this.Cursor = Cursors.Wait;
                 try
                 {
+                    // 🌟 ASIGNACIÓN DIRECTA DE CANTIDAD Y COSTO MODIFICADOS
                     seleccionado.Detalle.CantidadSalida = modal.CantidadProductoIngresada;
                     seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
                     seleccionado.Cantidad = modal.CantidadProductoIngresada;
 
-                    if (modal.ListaRangosAgregados != null)
+                    // Si es un producto con códigos (libros), reconstruimos sus listas de series
+                    if (!seleccionado.EsProductoSinCodigo && modal.ListaRangosAgregados != null)
                     {
                         var codigosViejos = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
                         foreach (var cv in codigosViejos) _codigosLista.Remove(cv);
@@ -1566,11 +1571,12 @@ namespace AplicativoDeAlmacen.Views
                             }
                         }
                     }
+
                     RefrescarGrillas();
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error al actualizar los códigos del producto: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Error al actualizar el producto: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 finally
                 {

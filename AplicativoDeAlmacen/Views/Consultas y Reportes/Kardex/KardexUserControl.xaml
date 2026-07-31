@@ -68,7 +68,16 @@
 
         <!-- Grilla de Detalle -->
         <Border Grid.Row="2" Background="White" CornerRadius="12" BorderBrush="#E5E7EB" BorderThickness="1" Padding="1">
-            <DataGrid x:Name="KardexDataGrid" AutoGenerateColumns="False" IsReadOnly="True" BorderThickness="0" Background="White" RowHeight="38" HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F3F4F6">
+            <DataGrid x:Name="KardexDataGrid" 
+                  AutoGenerateColumns="False" 
+                  IsReadOnly="True" 
+                  BorderThickness="0" 
+                  Background="White" 
+                  RowHeight="38" 
+                  HeadersVisibility="Column" 
+                  GridLinesVisibility="Horizontal" 
+                  HorizontalGridLinesBrush="#F3F4F6"
+                  MouseDoubleClick="KardexDataGrid_MouseDoubleClick">
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="#F8FAFC"/>

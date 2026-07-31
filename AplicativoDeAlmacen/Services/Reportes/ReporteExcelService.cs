@@ -136,7 +136,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 ws.Cell(fila, 9).Value = item.SaldoFinal;
 
                 // Formato de miles y 2 decimales
-                ws.Range(fila, 5, fila, 9).Style.NumberFormat.Format = "#,##0.00";
+                ws.Range(fila, 5, fila, 9).Style.NumberFormat.Format = "#,##0";
 
                 // MAGIA VISUAL: Si es el SALDO INICIAL, pintamos todo de rojo
                 if (!string.IsNullOrEmpty(item.Tipo) && item.Tipo.ToUpper().Contains("SALDO INICIAL"))
@@ -161,7 +161,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             rangoTotales.Style.Font.Bold = true;
 
             // Formato de miles y decimales para los totales
-            ws.Range(fila, 5, fila, 9).Style.NumberFormat.Format = "#,##0.00";
+            ws.Range(fila, 5, fila, 9).Style.NumberFormat.Format = "#,##0";
 
             // Asignamos los totales directamente en las columnas correspondientes
             ws.Cell(fila, 5).Value = reporte.TotalIngresos;
@@ -262,10 +262,10 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 ws.Cell(filaActual, 4).Value = mov.NumeroGuia;
 
                 ws.Cell(filaActual, 5).Value = mov.Ingreso;
-                ws.Cell(filaActual, 5).Style.NumberFormat.Format = "#,##0.000";
+                ws.Cell(filaActual, 5).Style.NumberFormat.Format = "#,##0";
 
                 ws.Cell(filaActual, 6).Value = mov.Salida;
-                ws.Cell(filaActual, 6).Style.NumberFormat.Format = "#,##0.000";
+                ws.Cell(filaActual, 6).Style.NumberFormat.Format = "#,##0";
 
                 ws.Range(filaActual, 1, filaActual, 6).Style.Font.FontColor = colorFila;
 
@@ -309,13 +309,13 @@ namespace AplicativoDeAlmacen.Services.Reportes
             celdaTotalIngreso.FormulaA1 = $"SUM(E{filaInicioDatos}:E{filaFinDatos})";
             celdaTotalIngreso.Style.Font.Bold = true;
             celdaTotalIngreso.Style.Font.FontColor = XLColor.Red;
-            celdaTotalIngreso.Style.NumberFormat.Format = "#,##0.000";
+            celdaTotalIngreso.Style.NumberFormat.Format = "#,##0";
 
             var celdaTotalSalida = ws.Cell(filaActual, 6);
             celdaTotalSalida.FormulaA1 = $"SUM(F{filaInicioDatos}:F{filaFinDatos})";
             celdaTotalSalida.Style.Font.Bold = true;
             celdaTotalSalida.Style.Font.FontColor = XLColor.Red;
-            celdaTotalSalida.Style.NumberFormat.Format = "#,##0.000";
+            celdaTotalSalida.Style.NumberFormat.Format = "#,##0";
 
             filaActual += 2;
 
@@ -524,7 +524,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 ws.Cell(fila, 4).Value = partesDoc.Length > 1 ? partesDoc[1] : item.Registro;
                 ws.Cell(fila, 5).Value = item.Tipo;
 
-                var formatoNumero = "#,##0.00";
+                var formatoNumero = "#,##0";
 
                 if (item.IngresoFisico > 0)
                 {
@@ -565,7 +565,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             var rngTotales = ws.Range(fila, 6, fila, 14);
             rngTotales.Style.Font.Bold = true;
             rngTotales.Style.Font.FontColor = XLColor.Red;
-            rngTotales.Style.NumberFormat.Format = "#,##0.00";
+            rngTotales.Style.NumberFormat.Format = "#,##0";
 
             ws.Range(6, 1, fila, 14).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
             ws.Range(6, 1, fila, 14).Style.Border.InsideBorder = XLBorderStyleValues.Thin;
@@ -697,7 +697,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 ws.Cell(fila, 4).Value = item.PreUnit;
                 ws.Cell(fila, 5).Value = item.ImpTota;
 
-                ws.Range(fila, 3, fila, 5).Style.NumberFormat.Format = "#,##0.00";
+                ws.Range(fila, 3, fila, 5).Style.NumberFormat.Format = "#,##0";
                 fila++;
 
                 // Fila agrupada de códigos ( { COD1 } ; { COD2 } )
@@ -733,7 +733,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Cell(fila, 5).Value = totalVenta;
             ws.Range(fila, 4, fila, 5).Style.Font.Bold = true;
 
-            ws.Range(fila - 3, 5, fila, 5).Style.NumberFormat.Format = "#,##0.00";
+            ws.Range(fila - 3, 5, fila, 5).Style.NumberFormat.Format = "#,##0";
 
             // ==========================================
             // 5. AUTOAJUSTE Y EXPORTACIÓN
@@ -926,6 +926,105 @@ namespace AplicativoDeAlmacen.Services.Reportes
             catch (Exception ex)
             {
                 MessageBox.Show($"Error generando Excel: {ex.Message}");
+            }
+        }
+
+
+        public void ExportarHistorialPorCodigo(string nombreAlmacen, string codigoCompleto, string descripcionProducto, List<KardexFisicoItem> historial)
+        {
+            using (var workbook = new ClosedXML.Excel.XLWorkbook())
+            {
+                var worksheet = workbook.Worksheets.Add("Historial Código");
+                worksheet.ShowGridLines = true;
+
+                // 🌟 TÍTULO PRINCIPAL
+                worksheet.Cell("A1").Value = $"HISTORIAL {nombreAlmacen.ToUpper()} - CODIGO {codigoCompleto}";
+                worksheet.Range("A1:G1").Merge();
+                worksheet.Cell("A1").Style.Font.Bold = true;
+                worksheet.Cell("A1").Style.Font.FontSize = 14;
+                worksheet.Cell("A1").Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+                worksheet.Cell("A1").Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#E5E7EB");
+
+                // 🌟 DATOS DE CABECERA (Producto)
+                worksheet.Cell("A3").Value = "Producto";
+                worksheet.Cell("B3").Value = descripcionProducto;
+                worksheet.Range("B3:G3").Merge();
+                worksheet.Cell("A3").Style.Font.Bold = true;
+                worksheet.Cell("A3").Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#F3F4F6");
+
+                // 🌟 ENCABEZADOS DE LA GRILLA DE MOVIMIENTOS
+                int filaInicio = 5;
+                worksheet.Cell(filaInicio, 1).Value = "Fecha";
+                worksheet.Cell(filaInicio, 2).Value = "# Registro";
+                worksheet.Cell(filaInicio, 3).Value = "Razón Social / Ubicación";
+                worksheet.Cell(filaInicio, 4).Value = "# Guía";
+                worksheet.Cell(filaInicio, 5).Value = "Producto";
+                worksheet.Cell(filaInicio, 6).Value = "Ingreso";
+                worksheet.Cell(filaInicio, 7).Value = "Salida";
+
+                var headerRange = worksheet.Range(filaInicio, 1, filaInicio, 7);
+                headerRange.Style.Font.Bold = true;
+                headerRange.Style.Font.FontColor = ClosedXML.Excel.XLColor.Black;
+                headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#FCD34D");
+                headerRange.Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+
+                // 🌟 LLENADO DE FILAS
+                int filaActual = filaInicio + 1;
+                decimal totalIngresos = 0;
+                decimal totalSalidas = 0;
+
+                foreach (var item in historial)
+                {
+                    worksheet.Cell(filaActual, 1).Value = item.Fecha?.ToString("dd/MM/yyyy") ?? "";
+                    worksheet.Cell(filaActual, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+
+                    worksheet.Cell(filaActual, 2).Value = item.Registro;
+                    worksheet.Cell(filaActual, 2).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+
+                    worksheet.Cell(filaActual, 3).Value = item.RazonSocialUbicacion;
+
+                    worksheet.Cell(filaActual, 4).Value = item.Guia;
+                    worksheet.Cell(filaActual, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+
+                    worksheet.Cell(filaActual, 5).Value = descripcionProducto;
+
+                    worksheet.Cell(filaActual, 6).Value = item.IngresoNormal;
+                    worksheet.Cell(filaActual, 6).Style.NumberFormat.Format = "#,##0";
+
+                    worksheet.Cell(filaActual, 7).Value = item.SalidaNormal;
+                    worksheet.Cell(filaActual, 7).Style.NumberFormat.Format = "#,##0";
+
+                    totalIngresos += item.IngresoNormal;
+                    totalSalidas += item.SalidaNormal;
+
+                    filaActual++;
+                }
+
+                // 🌟 FILA DE TOTALES
+                worksheet.Cell(filaActual, 5).Value = "";
+                worksheet.Cell(filaActual, 6).Value = totalIngresos;
+                worksheet.Cell(filaActual, 6).Style.Font.Bold = true;
+                worksheet.Cell(filaActual, 6).Style.Font.FontColor = ClosedXML.Excel.XLColor.Red;
+                worksheet.Cell(filaActual, 6).Style.NumberFormat.Format = "#,##0";
+
+                worksheet.Cell(filaActual, 7).Value = totalSalidas;
+                worksheet.Cell(filaActual, 7).Style.Font.Bold = true;
+                worksheet.Cell(filaActual, 7).Style.Font.FontColor = ClosedXML.Excel.XLColor.Red;
+                worksheet.Cell(filaActual, 7).Style.NumberFormat.Format = "#,##0";
+
+                // Bordes y ajustes
+                var tableRange = worksheet.Range(filaInicio, 1, filaActual, 7);
+                tableRange.Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                tableRange.Style.Border.InsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+
+                worksheet.Columns().AdjustToContents();
+
+                // 🌟 CREACIÓN Y APERTURA DE ARCHIVO TEMPORAL (Sin diálogo previo de guardado)
+                string archivoTemp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"Historial_Codigo_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+
+                workbook.SaveAs(archivoTemp);
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(archivoTemp) { UseShellExecute = true });
             }
         }
     }
