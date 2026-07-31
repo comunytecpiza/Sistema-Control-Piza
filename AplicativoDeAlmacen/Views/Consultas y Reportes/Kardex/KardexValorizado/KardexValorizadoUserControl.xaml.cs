@@ -2,15 +2,16 @@
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
-
 using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Views.Consultas_y_Reportes.Consulta;
 using System;
+using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 {
@@ -23,12 +24,34 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
         private int _productoSeleccionadoId = 0;
         private KardexValorizadoReporte _reporteActual;
 
+        // ⏱️ Temporizador Debounce (300 ms) para escritura fluida en el ComboBox
+        private readonly DispatcherTimer _searchTimer;
+        private string _pendingSearchText = string.Empty;
+
         public KardexValorizadoUserControl()
         {
             InitializeComponent();
 
             DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
             DpHasta.SelectedDate = DateTime.Now;
+
+            // Configurar el Debounce Timer
+            _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _searchTimer.Tick += async (s, e) =>
+            {
+                _searchTimer.Stop();
+                await EjecutarBusquedaProductosAsync(_pendingSearchText);
+            };
+
+            // Suscribirnos de forma segura a la caja de texto interna del ComboBox editable
+            Loaded += (s, e) =>
+            {
+                var textBox = CboProducto.Template?.FindName("PART_EditableTextBox", CboProducto) as TextBox;
+                if (textBox != null)
+                {
+                    textBox.TextChanged += TextBox_TextChanged;
+                }
+            };
 
             // 🌟 SUSCRIPCIÓN AL EVENTBUS
             EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
@@ -52,35 +75,60 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
         }
 
         // ==========================================
-        // AUTOCOMPLETADO DE PRODUCTO MULTICOLUMNA
+        // AUTOCOMPLETADO BLINDADO CONTRA CORTES DE ESCRITURA
         // ==========================================
 
-        private async void CboProducto_KeyUp(object sender, KeyEventArgs e) // 🌟 AGREGADO 'async' AQUÍ
+        private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Enter || e.Key == Key.Escape || e.Key == Key.Tab) return;
-
-            var textBox = (TextBox)e.OriginalSource;
-            string busqueda = textBox.Text;
-            int cursorPosition = textBox.SelectionStart;
-
-            if (busqueda.Length >= 2)
+            if (sender is TextBox textBox)
             {
+                // Si el texto coincide exactamente con el producto seleccionado, no filtramos de nuevo
+                if (CboProducto.SelectedItem is Producto prodSelected && textBox.Text == prodSelected.Descripcion)
+                {
+                    return;
+                }
+
+                _pendingSearchText = textBox.Text;
+                _searchTimer.Stop();
+                _searchTimer.Start(); // Reinicia el contador de espera
+            }
+        }
+
+        private async Task EjecutarBusquedaProductosAsync(string busqueda)
+        {
+            if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Length < 2)
+            {
+                CboProducto.IsDropDownOpen = false;
+                return;
+            }
+
+            try
+            {
+                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
+                var listaResultados = resultados?.ToList() ?? new List<Producto>();
+
+                // 🌟 Capturamos el estado actual del cursor para evitar que retroceda o se borre la letra
+                var textBox = CboProducto.Template?.FindName("PART_EditableTextBox", CboProducto) as TextBox;
+                int cursorPos = textBox?.SelectionStart ?? 0;
+                string textoActual = textBox?.Text ?? busqueda;
+
                 CboProducto.SelectionChanged -= CboProducto_SelectionChanged;
 
-                // 🌟 CORRECCIÓN: Llamamos al método Async con await
-                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
-
-                CboProducto.ItemsSource = resultados;
-                CboProducto.IsDropDownOpen = resultados.Any();
+                CboProducto.ItemsSource = listaResultados;
+                CboProducto.IsDropDownOpen = listaResultados.Any();
 
                 CboProducto.SelectionChanged += CboProducto_SelectionChanged;
 
-                textBox.Text = busqueda;
-                textBox.SelectionStart = cursorPosition;
+                // 🌟 Restauramos el texto y la posición del cursor de manera exacta
+                if (textBox != null)
+                {
+                    textBox.Text = textoActual;
+                    textBox.SelectionStart = Math.Min(cursorPos, textBox.Text.Length);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                CboProducto.IsDropDownOpen = false;
+                System.Diagnostics.Debug.WriteLine($"Error en búsqueda: {ex.Message}");
             }
         }
 
@@ -119,14 +167,13 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
             {
                 DgResumen.ItemsSource = null;
 
-                // 🌟 CORRECCIÓN: Pasar el ID del almacén actual de la sesión
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
                 _reporteActual = await _kardexService.GenerarKardexValorizadoAsync(
                     _productoSeleccionadoId,
                     DpDesde.SelectedDate.Value,
                     DpHasta.SelectedDate.Value,
-                    miAlmacenId); // 👈 ID de Almacén
+                    miAlmacenId);
 
                 DgResumen.ItemsSource = _reporteActual.Detalles;
 
@@ -136,9 +183,8 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
                 TxtSaldoInicial.Text = Math.Max(0, saldoInicialCalculado).ToString("N2");
                 TxtCostoInicial.Text = (saldoInicialCalculado * costoPromedioInicial).ToString("N2");
 
-                // 🌟 CAMBIA ESTAS DOS LÍNEAS AQUÍ:
-                TxtTotalIngresos.Text = _reporteActual.TotalIngresoFisico.ToString("N2");  // 👈 Usa TotalIngresoFisico (Cantidad de libros)
-                TxtTotalSalidas.Text = _reporteActual.TotalSalidaFisico.ToString("N2");    // 👈 Usa TotalSalidaFisico (Cantidad de libros)
+                TxtTotalIngresos.Text = _reporteActual.TotalIngresoFisico.ToString("N2");
+                TxtTotalSalidas.Text = _reporteActual.TotalSalidaFisico.ToString("N2");
 
                 TxtSaldoFinal.Text = _reporteActual.StockFinalFisico.ToString("N2");
             }
@@ -147,12 +193,11 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
                 MessageBox.Show($"Error al generar Kardex Valorizado: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-        // 🌟 NUEVO BOTÓN PARA RECALCULAR COSTOS MASIVAMENTE DESDE EL KÁRDEX VALORIZADO
+
         private void BtnRecalcularCostos_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // Abre tu ventana tal como la programaste
                 var ventana = new ValorizacionProductosWindow
                 {
                     Owner = Window.GetWindow(this)
@@ -160,7 +205,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 
                 ventana.ShowDialog();
 
-                // Al cerrarse la ventana, refrescamos el kárdex actual para ver los cambios
                 if (_productoSeleccionadoId > 0)
                 {
                     BtnEjecutar_Click(null, null);
@@ -171,6 +215,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
                 MessageBox.Show("Error al abrir la ventana de valorización: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_reporteActual == null || !_reporteActual.Detalles.Any())

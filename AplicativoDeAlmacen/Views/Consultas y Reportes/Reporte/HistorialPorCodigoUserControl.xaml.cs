@@ -310,14 +310,14 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
                         // Abre el módulo de INGRESO en consulta
                         var vistaIngreso = new IngresoUserControl();
                         vistaIngreso.CargarDocumentoParaConsulta(serie, numero);
-                        mainShell.AbrirPestaña($"📥 Ingreso: {serie}-{numero}", vistaIngreso);
+                        mainShell.AbrirPestaña($"📥 Ingreso: {serie}-{numero} (Vista Previa)", vistaIngreso);
                     }
                     else if (filaSeleccionada.SalidaNormal > 0)
                     {
                         // Abre el módulo de SALIDA en consulta
                         var vistaSalida = new SalidasUserControl();
                         vistaSalida.CargarDocumentoParaConsulta(serie, numero);
-                        mainShell.AbrirPestaña($"📤 Salida: {serie}-{numero}", vistaSalida);
+                        mainShell.AbrirPestaña($"📤 Salida: {serie}-{numero} (Vista Previa)", vistaSalida);
                     }
                 }
             }

@@ -21,16 +21,15 @@
                     <TextBlock Text="Producto:" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5"/>
                     <StackPanel Orientation="Horizontal">
                         <ComboBox x:Name="CboProducto"
-      Width="380"
-      Height="30"
-      VerticalContentAlignment="Center"
-      IsEditable="True"
-      IsTextSearchEnabled="False"
-      StaysOpenOnEdit="True"
-      SelectedValuePath="Id"
-      TextSearch.TextPath="Descripcion" 
-      KeyUp="CboProducto_KeyUp"
-      SelectionChanged="CboProducto_SelectionChanged">
+                              Width="380"
+                              Height="30"
+                              VerticalContentAlignment="Center"
+                              IsEditable="True"
+                              IsTextSearchEnabled="False"
+                              StaysOpenOnEdit="True"
+                              SelectedValuePath="Id"
+                              TextSearch.TextPath="Descripcion" 
+                              SelectionChanged="CboProducto_SelectionChanged">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid Width="350" Margin="0,2">
