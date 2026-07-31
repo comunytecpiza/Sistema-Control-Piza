@@ -71,7 +71,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                 TxtUMedida.Text = p.UnidadMedida?.Descripcion ?? "UNIDAD";
                 TxtAfectacion.Text = p.afectacion?.Nombre ?? "EXONERADO - OPERACION ONEROSA";
-                TxtPreUnitario.Text = p.PrecioUnitario?.ToString("N2") ?? "0.00";
+                TxtPreUnitario.Text = p.PrecioUnitario?.ToString("N0") ?? "0";
 
                 ConfigurarSegunUnidadMedida();
             }
@@ -83,7 +83,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             _codigosAgregados.Clear();
             TxtCantidad.Text = "0";
-            TxtTotal.Text = "0.00";
+            TxtTotal.Text = "0";
             _ultimoMovimientoId = 0; // Reiniciamos el ID al cambiar producto
 
             if (um == "UNIDAD" || um == "UND")
@@ -145,7 +145,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             decimal.TryParse(TxtPreUnitario.Text, out preUnitario);
 
             decimal total = cantidad * preUnitario;
-            TxtTotal.Text = total.ToString("N2");
+            TxtTotal.Text = total.ToString("N0");
 
             if (BtnGrabarItem != null)
             {
@@ -316,8 +316,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             // 🌟 Restaurar el MovimientoId
             _ultimoMovimientoId = item.MovimientoId;
 
-            TxtPreUnitario.Text = item.PreUnit.ToString("N2");
-            TxtCantidad.Text = _usaCodigos ? _codigosAgregados.Count.ToString() : item.CanProd.ToString("N2");
+            TxtPreUnitario.Text = item.PreUnit.ToString("N0");
+            TxtCantidad.Text = _usaCodigos ? _codigosAgregados.Count.ToString() : item.CanProd.ToString("N0");
 
             Calculo_TextChanged(null, null);
 

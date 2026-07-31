@@ -161,11 +161,10 @@ namespace AplicativoDeAlmacen.Views
                 PopupBandeja.IsOpen = false;
 
                 var vistaIngreso = new IngresoUserControl();
-
-                // 🌟 Pasa el MovimientoId único (ID primario de la tabla movimientos)
                 vistaIngreso.CargarDocumentoParaConsulta(transferencia.MovimientoId);
 
-                AbrirPestaña($"📥 Recepción: {transferencia.GuiaRemision}", vistaIngreso);
+                string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "Almacén General";
+                AbrirPestaña($"📥 Recepción: {transferencia.GuiaRemision} - {nombreAlmacen}", vistaIngreso);
             }
         }
         private void SetupWelcomeMessage(string userNames)
@@ -399,7 +398,6 @@ namespace AplicativoDeAlmacen.Views
         {
             if (sender is MenuItem menuItem && menuItem.Tag is Models.Models.RolPermiso modulo)
             {
-                // Si aún no está programado en SQL
                 if (string.IsNullOrWhiteSpace(modulo.ControlWpf))
                 {
                     MessageBox.Show($"El módulo '{modulo.NombreModulo}' está en construcción.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -408,16 +406,14 @@ namespace AplicativoDeAlmacen.Views
 
                 try
                 {
-                    // 1. Buscamos la clase en el proyecto actual usando el nombre de la BD
                     Type? tipoVista = Assembly.GetExecutingAssembly().GetTypes()
-                     .FirstOrDefault(t => t.Name == modulo.ControlWpf && t.IsSubclassOf(typeof(UserControl)));
+                       .FirstOrDefault(t => t.Name == modulo.ControlWpf && t.IsSubclassOf(typeof(UserControl)));
 
                     if (tipoVista != null)
                     {
-                        // 2. La instanciamos mágicamente (Equivale a 'new RegistroCodigosUserControl()')
                         UserControl vistaInstanciada = (UserControl)Activator.CreateInstance(tipoVista)!;
 
-                        // 3. La abrimos en una pestaña
+                        // 🌟 Aquí se pasa únicamente el nombre puro del módulo para la pestaña normal
                         AbrirPestaña(modulo.NombreModulo, vistaInstanciada);
                     }
                     else
@@ -490,18 +486,28 @@ namespace AplicativoDeAlmacen.Views
 
             btnDesvincular.Click += (s, e) => {
                 MainTabControl.Items.Remove(nuevaPestana);
+
+                // 🌟 OBTENER EL NOMBRE DEL ALMACÉN ACTUAL
+                string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "Almacén General";
+
+                // 🌟 TÍTULO DINÁMICO SOLO PARA LA VENTANA FLOTANTE
+                string tituloFlotante = $"{titulo} - {nombreAlmacen}";
+
                 Window ventanaFlotante = new Window
                 {
-                    Title = titulo,
+                    Title = tituloFlotante, // 👈 Aquí se le asigna el nombre con el almacén
                     Content = contenido,
                     Width = 1000,
                     Height = 650,
                     WindowStartupLocation = WindowStartupLocation.CenterScreen
                 };
+
                 ventanaFlotante.Closed += (s2, e2) => {
                     nuevaPestana.Content = contenido;
                     MainTabControl.Items.Add(nuevaPestana);
+                    MainTabControl.SelectedItem = nuevaPestana;
                 };
+
                 ventanaFlotante.Show();
             };
 
@@ -580,8 +586,10 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnAgregarUsuario_Click(object sender, RoutedEventArgs e)
         {
-            AbrirPestaña("👥 Gestión de Usuarios", new UsuariosUserControl());
+            string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "Almacén General";
+            AbrirPestaña($"👥 Gestión de Usuarios - {nombreAlmacen}", new UsuariosUserControl());
         }
+    
 
         // =========================================================
         // 📝 SISTEMA DE NOTAS LOCALES (POR USUARIO)

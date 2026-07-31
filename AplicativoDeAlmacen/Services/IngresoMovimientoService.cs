@@ -50,18 +50,17 @@ namespace AplicativoDeAlmacen.Services
 
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
-            // 🌟 CANDADO ANTI-TRAMPA: Exige que el movimiento pertenezca a miAlmacenId (almacen_destino_id)
+            // 🌟 FLEXIBILIZADO: Quitamos la restricción rígida de tipo_movimiento_id = 1 para permitir encontrar y editar el documento correctamente
             string query = @"
-            SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
-                   m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
-                   m.almacen_origen_id, m.almacen_destino_id, m.almacen_id
-            FROM movimientos m WITH (NOLOCK)
-            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-            WHERE m.serie_documento = @serie 
-              AND m.numero_documento = @numero
-              AND mp.tipo_movimiento_id = 1 -- 👈 Entrada
-              AND m.estado_id = 1
-              AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @miAlmacen";
+    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+           m.almacen_origen_id, m.almacen_destino_id, m.almacen_id
+    FROM movimientos m WITH (NOLOCK)
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE m.serie_documento = @serie 
+      AND m.numero_documento = @numero
+      AND m.estado_id = 1
+      AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @miAlmacen";
 
             using (var cmd = dbConn.CreateCommand())
             {
@@ -85,7 +84,7 @@ namespace AplicativoDeAlmacen.Services
                     NumeroGuia = reader.IsDBNull(reader.GetOrdinal("numero_guia")) ? string.Empty : reader.GetString(reader.GetOrdinal("numero_guia")),
                     Observacion = reader.IsDBNull(reader.GetOrdinal("observacion")) ? string.Empty : reader.GetString(reader.GetOrdinal("observacion")),
                     UbicacionId = reader.IsDBNull(reader.GetOrdinal("ubicacion_id")) ? null : reader.GetInt32(reader.GetOrdinal("ubicacion_id")),
-                    AlmacenId = reader.IsDBNull(reader.GetOrdinal("almacen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_id")), // 👈 LECTURA DEL ALMACÉN CREADOR
+                    AlmacenId = reader.IsDBNull(reader.GetOrdinal("almacen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_id")),
                     AlmacenOrigenId = reader.IsDBNull(reader.GetOrdinal("almacen_origen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_origen_id")),
                     AlmacenDestinoId = reader.IsDBNull(reader.GetOrdinal("almacen_destino_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_destino_id")),
                     EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
@@ -148,6 +147,7 @@ namespace AplicativoDeAlmacen.Services
                     });
                 }
             }
+
             return result;
         }
 

@@ -11,7 +11,7 @@
     <UserControl.Resources>
         <DropShadowEffect x:Key="CardShadow" BlurRadius="10" ShadowDepth="0" Color="#000000" Opacity="0.08"/>
         <DropShadowEffect x:Key="ButtonShadow" BlurRadius="6" ShadowDepth="0" Color="#000000" Opacity="0.06"/>
-
+        
         <!-- Estilos de TextBlock -->
         <Style x:Key="NoWrapTextBlock" TargetType="TextBlock">
             <Setter Property="TextWrapping" Value="NoWrap"/>

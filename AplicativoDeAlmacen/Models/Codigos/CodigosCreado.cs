@@ -13,7 +13,7 @@ public partial class CodigoCreado
     public string AlmacenNombre { get; set; } = "SIN ALMACÉN";
     public bool EsManual { get; set; }
     public int EstadoId { get; set; }
-    
+    public bool IsSeleccionado { get; set; } = false;
     // 🌟 NUEVOS CAMPOS DE LA V2
     public int? AlmacenId { get; set; }
     public int CondicionId { get; set; } = 1; // 1 = OPERATIVO (OK), 2 = DAÑADO / MERMA
