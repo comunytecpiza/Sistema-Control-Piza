@@ -28,6 +28,8 @@ namespace AplicativoDeAlmacen.Views
 
         public KardexUserControl()
         {
+            this.Language = System.Windows.Markup.XmlLanguage.GetLanguage("es-ES");  // ← PRIMERO
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("es-ES");
             InitializeComponent();
 
             _kardexService = new KardexService();

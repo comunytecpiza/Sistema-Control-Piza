@@ -50,12 +50,28 @@
 
                     <StackPanel Margin="0,0,20,0">
                         <TextBlock Text="Desde" FontWeight="SemiBold" Foreground="#4B5563" Margin="0,0,0,5"/>
-                        <DatePicker x:Name="DpDesde" Width="140" Height="38"/>
+                        <DatePicker x:Name="DpDesde" 
+                            Width="140" 
+                            Height="38" 
+                            Language="es-ES"
+                            SelectedDateFormat="Short"
+                            Foreground="#4B5563"
+                            Background="White"
+                            BorderBrush="#CBD5E1"
+                            Padding="4"/>
                     </StackPanel>
 
                     <StackPanel>
                         <TextBlock Text="Hasta" FontWeight="SemiBold" Foreground="#4B5563" Margin="0,0,0,5"/>
-                        <DatePicker x:Name="DpHasta" Width="140" Height="38"/>
+                        <DatePicker x:Name="DpHasta" 
+                            Width="140" 
+                            Height="38" 
+                            Language="es-ES"
+                            SelectedDateFormat="Short"
+                            Foreground="#4B5563"
+                            Background="White"
+                            BorderBrush="#CBD5E1"
+                            Padding="4"/>
                     </StackPanel>
                 </WrapPanel>
 

@@ -13,7 +13,17 @@
                 <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/SkinDefault.xaml"/>
                 <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/Theme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <Style TargetType="Calendar">
+                <Setter Property="Language" Value="es-ES"/>
+            </Style>
 
+            <Style TargetType="CalendarDayButton">
+                <Setter Property="Language" Value="es-ES"/>
+            </Style>
+
+            <Style TargetType="CalendarItem">
+                <Setter Property="Language" Value="es-ES"/>
+            </Style>
             <!-- 🌟 1. ANULACIÓN DE COLORES DE SISTEMA DE WINDOWS (Evita el azul oscuro por defecto) -->
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#DBEAFE"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0F172A"/>
