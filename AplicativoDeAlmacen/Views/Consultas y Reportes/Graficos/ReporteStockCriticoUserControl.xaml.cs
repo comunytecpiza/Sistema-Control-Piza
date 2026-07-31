@@ -45,10 +45,11 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Graficos
         {
             try
             {
+                // 🌟 1. Obtenemos el ID del almacén de la sesión activa
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                // Obtenemos la lista crítica basada en el almacén actual y estado 3
-                var listaCritica = await _productoService.ObtenerStockCriticoAsync();
+                // 🌟 Pasamos el ID correctamente sin errores de parámetros
+                var listaCritica = await _productoService.ObtenerStockCriticoAsync(miAlmacenId);
 
                 // 1. Llenamos el DataGrid
                 DgStockCritico.ItemsSource = listaCritica;
