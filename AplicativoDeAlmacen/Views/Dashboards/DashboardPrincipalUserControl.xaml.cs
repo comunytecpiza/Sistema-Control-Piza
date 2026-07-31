@@ -43,13 +43,7 @@ namespace AplicativoDeAlmacen.Views.Dashboards
                         Content = new ReporteStockCriticoUserControl() // Instanciamos la nueva vista
                     });
 
-                TabDashboard.Items.Add(
-                    new TabItem
-                    {
-                        Header = "📊 Distribución Stock",
-                        FontWeight = FontWeights.SemiBold,
-                        Content = new WidgetDistribucionAlmacenUserControl() // <--- Tu nuevo widget
-                    });
+                
             }
 
             if (TabDashboard.Items.Count > 0)
