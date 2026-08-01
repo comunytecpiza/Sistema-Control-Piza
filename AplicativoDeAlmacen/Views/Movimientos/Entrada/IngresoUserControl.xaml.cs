@@ -637,22 +637,35 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.IsReadOnly = true;
             txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
 
-            // 🌟 EVALUACIÓN SEGÚN EL MODO ACTIVADO POR EL USUARIO:
+            
+            // 🌟 1. EVALUACIÓN DE RESTRICCIÓN DE TRANSFERENCIAS (Motivo ID 4) EN MODO EDICIÓN
+            if (movimiento.MotivoProductoId == 4 && !_printMode && !_anularMode)
+            {
+                MessageBox.Show("Las Entradas por Transferencia entre almacenes están blindadas y no se pueden modificar ni anular desde esta pantalla (Modo solo lectura).",
+                                "Transferencia Protegida", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                HabilitarCamposFormulario(false);
+                if (btnGrabar != null) btnGrabar.IsEnabled = false;
+                if (btnAnular != null) btnAnular.IsEnabled = false;
+
+                // 🌟 Aseguramos que el botón cancelar SIEMPRE quede libre
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
+                return;
+            }
+
+            // 🌟 2. EVALUACIÓN SEGÚN EL MODO ACTIVADO
             if (_printMode)
             {
-                // Modo Consulta / Imprimir: Bloquea los campos e inserta botón "Imprimir Registro"
                 BloquearParaImpresion();
                 ShowPrintButtonNearSave();
             }
             else if (_anularMode)
             {
-                // Modo Anulación: Bloquea controles visualmente e inserta botón "Confirmar Anulación"
                 BloquearParaAnulacionVisual();
                 ShowAnularButtonNearSave();
             }
             else
             {
-                // Modo Edición Normal: Permite modificar el formulario y guardar cambios
                 HabilitarCamposFormulario(true);
                 btnGrabar.IsEnabled = true;
                 btnCancelar.IsEnabled = true;
@@ -1252,25 +1265,18 @@ namespace AplicativoDeAlmacen.Views
 
             List<RangoCodigoItem> rangosExistentes = null;
 
-            if (_currentMovimientoId.HasValue && seleccionado.Detalle != null && seleccionado.Detalle.Id > 0)
-            {
-                rangosExistentes = await _serviceMovimiento
-                    .GetRangosByMovimientoDetalleIdAsync(seleccionado.Detalle.Id);
-            }
-
-            var codigosProducto = _codigosGridList
-                .Where(c => c.ProductoId == seleccionado.ProductoId)
-                .ToList();
-
-            if (codigosProducto.Any())
-            {
-                rangosExistentes = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosProducto);
-            }
-            else if (rangosExistentes == null || rangosExistentes.Count == 0)
+            // 🌟 OPTIMIZACIÓN VELOZ: Primero buscamos en los rangos globales ya procesados en memoria RAM
+            if (_rangosProcesadosGlobal != null && _rangosProcesadosGlobal.Any(r => r.productoId == seleccionado.ProductoId))
             {
                 rangosExistentes = _rangosProcesadosGlobal
                     .Where(r => r.productoId == seleccionado.ProductoId)
                     .ToList();
+            }
+            // Si no están en memoria y es un movimiento existente en BD, los consultamos
+            else if (_currentMovimientoId.HasValue && seleccionado.Detalle != null && seleccionado.Detalle.Id > 0)
+            {
+                rangosExistentes = await _serviceMovimiento
+                    .GetRangosByMovimientoDetalleIdAsync(seleccionado.Detalle.Id);
             }
 
             var modal = new AgregarItemWindow
@@ -1287,16 +1293,21 @@ namespace AplicativoDeAlmacen.Views
             {
                 seleccionado.Detalle.CantidadIngreso = modal.CantidadProductoIngresada;
                 seleccionado.Cantidad = (int)seleccionado.Detalle.CantidadIngreso;
-
-                // 🌟 AQUÍ ESTABA FALTANDO: Actualizar el costo unitario con el que modificaste en la ventana
                 seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
 
+                // Limpiamos y actualizamos con los nuevos rangos del modal de manera limpia
                 _codigosGridList.RemoveAll(c => c.ProductoId == seleccionado.ProductoId);
+                _rangosProcesadosGlobal.RemoveAll(r => r.productoId == seleccionado.ProductoId);
 
-                var nuevosCodigos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(modal.ListaRangosAgregados.ToList());
-                _codigosGridList.AddRange(nuevosCodigos);
-
-                _rangosProcesadosGlobal = _serviceMovimiento.GenerarRangosDesdeCodigos(_codigosGridList);
+                if (modal.ListaRangosAgregados != null && modal.ListaRangosAgregados.Any())
+                {
+                    foreach (var rangoModal in modal.ListaRangosAgregados)
+                    {
+                        _rangosProcesadosGlobal.Add(rangoModal);
+                    }
+                    var nuevosCodigos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(modal.ListaRangosAgregados.ToList());
+                    _codigosGridList.AddRange(nuevosCodigos);
+                }
 
                 dgProductos.CommitEdit(DataGridEditingUnit.Row, true);
                 RefrescarGrillas();

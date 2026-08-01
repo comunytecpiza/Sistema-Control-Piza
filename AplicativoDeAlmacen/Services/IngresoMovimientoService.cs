@@ -1051,115 +1051,85 @@ VALUES
 
                 if (todosLosCodigosAValidar.Any())
                 {
-                    string nombreTablaTemp = QueryAdapter.EsMySQL ? "temp_nuevos_ingresos_check" : "#temp_nuevos_ingresos_check";
+                    int motivoId = cabecera.MotivoProductoId;
+                    int miAlmacenActualId = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
+                    var codigosUnicosAValidar = todosLosCodigosAValidar.Distinct().ToList();
+                    var listaConflictos = new List<string>();
 
-                    string sqlCrearTemp = QueryAdapter.EsMySQL
-                        ? $"CREATE TEMPORARY TABLE IF NOT EXISTS {nombreTablaTemp} (id INT NOT NULL PRIMARY KEY) ENGINE=Memory;"
-                        : $"CREATE TABLE {nombreTablaTemp} (id INT NOT NULL PRIMARY KEY);";
-
-                    using (var cmdCreateCheck = dbConn.CreateCommand())
+                    // 🚀 VALIDACIÓN POR LOTES SEGURA Y VELOZ (Sin tablas temporales)
+                    const int checkBatchSize = 500;
+                    for (int i = 0; i < codigosUnicosAValidar.Count; i += checkBatchSize)
                     {
-                        cmdCreateCheck.Transaction = transaccion;
-                        cmdCreateCheck.CommandText = QueryAdapter.FormatearConsulta(sqlCrearTemp);
-                        await cmdCreateCheck.ExecuteNonQueryAsync();
-                    }
+                        var batchCheck = codigosUnicosAValidar.Skip(i).Take(checkBatchSize).ToList();
+                        var paramNamesCheck = batchCheck.Select((id, idx) => $"@chk{idx}").ToList();
 
-                    try
-                    {
-                        var codigosUnicosAValidar = todosLosCodigosAValidar.Distinct().ToList();
-
-                        const int insertBatchSize = 1000;
-                        for (int i = 0; i < codigosUnicosAValidar.Count; i += insertBatchSize)
-                        {
-                            var batchCheck = codigosUnicosAValidar.Skip(i).Take(insertBatchSize).ToList();
-                            var sbCheck = new System.Text.StringBuilder($"INSERT INTO {nombreTablaTemp} (id) VALUES ");
-                            using var cmdInsCheck = dbConn.CreateCommand();
-                            cmdInsCheck.Transaction = transaccion;
-
-                            for (int j = 0; j < batchCheck.Count; j++)
-                            {
-                                sbCheck.Append($"(@chk{j})");
-                                if (j < batchCheck.Count - 1) sbCheck.Append(",");
-                                AgregarParametro(cmdInsCheck, "@chk" + j, batchCheck[j]);
-                            }
-
-                            cmdInsCheck.CommandText = QueryAdapter.FormatearConsulta(sbCheck.ToString());
-                            await cmdInsCheck.ExecuteNonQueryAsync();
-                        }
-
-                        int motivoId = cabecera.MotivoProductoId;
-                        int miAlmacenActualId = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
-                        string sqlVerificarDuplicados;
-
-                        if (motivoId != 1) // Devoluciones / Reingresos
-                        {
-                            sqlVerificarDuplicados = $@"
-                            SELECT cc.codigo, cc.estado_id 
-                            FROM codigos_creados cc
-                            INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
-                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                            WHERE (cc.estado_id != 4 OR cc.almacen_id != @miAlmacenId)
-                              AND mc.codigo_creado_id IS NULL";
-                        }
-                        else // Compra / Ingreso Inicial
-                        {
-                            sqlVerificarDuplicados = $@"
-                            SELECT cc.codigo, cc.estado_id 
-                            FROM codigos_creados cc
-                            INNER JOIN {nombreTablaTemp} tmp ON tmp.id = cc.id
-                            LEFT JOIN movimiento_codigos mc ON cc.id = mc.codigo_creado_id AND mc.movimiento_id = @currentMovId
-                            WHERE cc.estado_id IN (3, 4)
-                              AND mc.codigo_creado_id IS NULL";
-                        }
+                        string sqlVerificarLote = (motivoId != 1)
+                            ? $@"SELECT cc.id, cc.codigo, cc.estado_id, cc.almacen_id 
+                 FROM codigos_creados cc WITH (NOLOCK)
+                 WHERE cc.id IN ({string.Join(",", paramNamesCheck)}) 
+                   AND (cc.estado_id != 4 OR cc.almacen_id != @miAlmacenId)"
+                            : $@"SELECT cc.id, cc.codigo, cc.estado_id, cc.almacen_id 
+                 FROM codigos_creados cc WITH (NOLOCK)
+                 WHERE cc.id IN ({string.Join(",", paramNamesCheck)}) 
+                   AND cc.estado_id IN (3, 4)";
 
                         using var cmdVerify = dbConn.CreateCommand();
                         cmdVerify.Transaction = transaccion;
-                        cmdVerify.CommandText = QueryAdapter.FormatearConsulta(sqlVerificarDuplicados);
-                        AgregarParametro(cmdVerify, "@currentMovId", existingMovimientoId ?? -1);
-                        AgregarParametro(cmdVerify, "@miAlmacenId", miAlmacenActualId);
+                        cmdVerify.CommandText = QueryAdapter.FormatearConsulta(sqlVerificarLote);
 
-                        var listaConflictos = new List<string>();
-                        using (var rdrVerify = await cmdVerify.ExecuteReaderAsync())
+                        for (int k = 0; k < batchCheck.Count; k++)
                         {
-                            while (await rdrVerify.ReadAsync())
-                            {
-                                string codConflicto = rdrVerify.GetString(0);
-                                int estConflicto = rdrVerify.GetInt32(1);
-                                string nombreEstado = estConflicto switch
-                                {
-                                    1 => "CREADO / NO DISPONIBLE PARA DEVOLUCIÓN",
-                                    3 => "DISPONIBLE EN ALMACÉN",
-                                    4 => "SALIÓ DE OTRO ALMACÉN / O NO PERTENECE A ESTA SEDE",
-                                    5 => "EN TRÁNSITO / TRANSFERIDO",
-                                    _ => $"ESTADO {estConflicto}"
-                                };
-                                listaConflictos.Add($"- {codConflicto} ({nombreEstado})");
-                            }
+                            AgregarParametro(cmdVerify, "@chk" + k, batchCheck[k]);
+                        }
+                        if (motivoId != 1)
+                        {
+                            AgregarParametro(cmdVerify, "@miAlmacenId", miAlmacenActualId);
                         }
 
-                        if (listaConflictos.Any())
+                        using var rdrVerify = await cmdVerify.ExecuteReaderAsync();
+                        while (await rdrVerify.ReadAsync())
                         {
-                            string msjError = (motivoId != 1
-                                ? "⚠️ Restricción de Sede / Kárdex:\n\nNo se puede procesar la Devolución. Los siguientes códigos NO pertenecen a su Almacén actual o no figuran como VENDIDOS en esta sede:\n\n"
-                                : "Operación Cancelada. Códigos que ya cuentan con un ingreso activo:\n\n");
+                            int idCodBD = rdrVerify.GetInt32(0);
+                            string codConflicto = rdrVerify.GetString(1);
+                            int estConflicto = rdrVerify.GetInt32(2);
 
-                            var muestraConflictos = listaConflictos.Take(50).ToList();
-                            if (listaConflictos.Count > 50)
-                                muestraConflictos.Add($"... y {listaConflictos.Count - 50} códigos más en conflicto.");
+                            // Verificamos si este código ya pertenece a este mismo movimiento actual para no reportarlo como falso conflicto
+                            bool yaEstaEnEsteMovimiento = false;
+                            if (existingMovimientoId.HasValue)
+                            {
+                                using var cmdCheckMc = dbConn.CreateCommand();
+                                cmdCheckMc.Transaction = transaccion;
+                                cmdCheckMc.CommandText = QueryAdapter.FormatearConsulta("SELECT COUNT(1) FROM movimiento_codigos WHERE movimiento_id = @mId AND codigo_creado_id = @cId");
+                                AgregarParametro(cmdCheckMc, "@mId", existingMovimientoId.Value);
+                                AgregarParametro(cmdCheckMc, "@cId", idCodBD);
+                                yaEstaEnEsteMovimiento = Convert.ToInt32(await cmdCheckMc.ExecuteScalarAsync()) > 0;
+                            }
 
-                            throw new Exception(msjError + string.Join("\n", muestraConflictos));
+                            if (yaEstaEnEsteMovimiento) continue;
+
+                            string nombreEstado = estConflicto switch
+                            {
+                                1 => "CREADO / NO DISPONIBLE PARA DEVOLUCIÓN",
+                                3 => "DISPONIBLE EN ALMACÉN",
+                                4 => "SALIÓ DE OTRO ALMACÉN / O NO PERTENECE A ESTA SEDE",
+                                5 => "EN TRÁNSITO / TRANSFERIDO",
+                                _ => $"ESTADO {estConflicto}"
+                            };
+                            listaConflictos.Add($"- {codConflicto} ({nombreEstado})");
                         }
                     }
-                    finally
-                    {
-                        string dropSql = QueryAdapter.EsMySQL
-                            ? $"DROP TEMPORARY TABLE IF EXISTS {nombreTablaTemp};"
-                            : $"DROP TABLE IF EXISTS {nombreTablaTemp};";
 
-                        using var cmdDropCheck = dbConn.CreateCommand();
-                        cmdDropCheck.Transaction = transaccion;
-                        cmdDropCheck.CommandText = QueryAdapter.FormatearConsulta(dropSql);
-                        await cmdDropCheck.ExecuteNonQueryAsync();
+                    if (listaConflictos.Any())
+                    {
+                        string msjError = (motivoId != 1
+                            ? "⚠️ Restricción de Sede / Kárdex:\n\nNo se puede procesar la Devolución. Los siguientes códigos NO pertenecen a su Almacén actual o no figuran como VENDIDOS en esta sede:\n\n"
+                            : "Operación Cancelada. Códigos que ya cuentan con un ingreso activo:\n\n");
+
+                        var muestraConflictos = listaConflictos.Take(50).ToList();
+                        if (listaConflictos.Count > 50)
+                            muestraConflictos.Add($"... y {listaConflictos.Count - 50} códigos más en conflicto.");
+
+                        throw new Exception(msjError + string.Join("\n", muestraConflictos));
                     }
                 }
 
@@ -1193,17 +1163,34 @@ VALUES
                     foreach (var r in rangosProd)
                     {
                         await InsertarRangoAsync(r, detalleId, dbConn, transaccion);
+
+                        // Obtenemos los códigos del rango de golpe
                         var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
 
-                        foreach (var t in encontrados)
+                        if (encontrados != null && encontrados.Any())
                         {
-                            codigosAInsertar.Add(t.CodigoObj.Id);
-                            nuevosCodigosIds.Add(t.CodigoObj.Id);
+                            // 🚀 Agregamos de forma masiva para evitar sobrecarga en memoria
+                            var idsEncontrados = encontrados.Select(t => t.CodigoObj.Id).ToList();
+                            codigosAInsertar.AddRange(idsEncontrados);
+
+                            foreach (var id in idsEncontrados)
+                            {
+                                nuevosCodigosIds.Add(id);
+                            }
+
+                            codigosProcesadosGlobal += encontrados.Count;
                         }
 
-                        codigosProcesadosGlobal += encontrados.Count;
-                        int nuevoPorcentaje = (codigosProcesadosGlobal * 100) / totalCodigos;
-                        if (nuevoPorcentaje > ultimoPorcentajeReportado) { ultimoPorcentajeReportado = nuevoPorcentaje; progress?.Report(nuevoPorcentaje); }
+                        // Reporte de porcentaje optimizado
+                        if (totalCodigos > 0)
+                        {
+                            int nuevoPorcentaje = (codigosProcesadosGlobal * 100) / totalCodigos;
+                            if (nuevoPorcentaje > ultimoPorcentajeReportado)
+                            {
+                                ultimoPorcentajeReportado = nuevoPorcentaje;
+                                progress?.Report(nuevoPorcentaje);
+                            }
+                        }
                     }
 
                     const int bulkSize = 1000;
@@ -2007,6 +1994,7 @@ VALUES
         public List<VistaCodigoGrid> ReconstruirCodigosDesdeRangos(IEnumerable<RangoCodigoItem> rangos)
         {
             var lista = new List<VistaCodigoGrid>();
+            if (rangos == null) return lista;
 
             foreach (var rango in rangos)
             {
@@ -2022,14 +2010,22 @@ VALUES
                 }
                 else
                 {
-                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                    // 🚀 Optimización masiva con bucle directo sin overhead de strings innecesarios
+                    int desde = rango.DesdeNum;
+                    int hasta = rango.HastaNum;
+                    string abrev = rango.AbreviaturaBase;
+                    string colTipo = rango.ColeccionTipo;
+                    int prodId = rango.productoId;
+                    int detId = rango.MovimientoDetalleId;
+
+                    for (int i = desde; i <= hasta; i++)
                     {
                         lista.Add(new VistaCodigoGrid
                         {
-                            ProductoId = rango.productoId,
-                            CodigoUnique = $"{rango.AbreviaturaBase}-{i:D7}",
-                            ColeccionTipo = rango.ColeccionTipo,
-                            MovCodigo = new MovimientoCodigo { MovimientoDetalleId = rango.MovimientoDetalleId }
+                            ProductoId = prodId,
+                            CodigoUnique = $"{abrev}-{i:D7}",
+                            ColeccionTipo = colTipo,
+                            MovCodigo = new MovimientoCodigo { MovimientoDetalleId = detId }
                         });
                     }
                 }

@@ -221,13 +221,13 @@ namespace AplicativoDeAlmacen.Views
                     {
                         colSalida.Header = "RECIBIDO";
                         colSalida.CellStyle = ingresoStyle; // Verde para lo recibido del otro almacén
-                        colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
+                        colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N0" };
                     }
                     if (colIngreso != null)
                     {
                         colIngreso.Header = "ENVIADO";
                         colIngreso.CellStyle = salidaStyle; // Rojo para lo enviado al otro almacén
-                        colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
+                        colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N0" };
                     }
 
                     MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible;
@@ -259,13 +259,13 @@ namespace AplicativoDeAlmacen.Views
                     {
                         colSalida.Header = "ENVIADO";
                         colSalida.CellStyle = salidaStyle;
-                        colSalida.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
+                        colSalida.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N0" };
                     }
                     if (colIngreso != null)
                     {
                         colIngreso.Header = "DEVUELTO";
                         colIngreso.CellStyle = ingresoStyle;
-                        colIngreso.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
+                        colIngreso.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N0" };
                     }
 
                     MovimientosDataGrid.Columns[6].Visibility = Visibility.Visible;
@@ -295,13 +295,13 @@ namespace AplicativoDeAlmacen.Views
                     {
                         colSalida.Header = "INGRESO";
                         colSalida.CellStyle = ingresoStyle;
-                        colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N2" };
+                        colSalida.Binding = new System.Windows.Data.Binding("Ingreso") { StringFormat = "N0" };
                     }
                     if (colIngreso != null)
                     {
                         colIngreso.Header = "SALIDA";
                         colIngreso.CellStyle = salidaStyle;
-                        colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N2" };
+                        colIngreso.Binding = new System.Windows.Data.Binding("Salida") { StringFormat = "N0" };
                     }
 
                     MovimientosDataGrid.Columns[6].Visibility = Visibility.Collapsed;
@@ -501,25 +501,25 @@ namespace AplicativoDeAlmacen.Views
 
             if (hayFiltroAlmacen)
             {
-                TxtTotalIngreso.Text = totalIngresos.ToString("N2"); // Total Recibido
-                TxtTotalSalida.Text = totalSalidas.ToString("N2");   // Total Enviado
+                TxtTotalIngreso.Text = totalIngresos.ToString("N0"); // Total Recibido
+                TxtTotalSalida.Text = totalSalidas.ToString("N0");   // Total Enviado
 
                 // 🌟 QUITAMOS EL NEGATIVO: Mostrar como entero neto positivo (2000 enviado - 100 devuelto = 1900.00)
                 decimal balanceNeto = Math.Abs(totalSalidas - totalIngresos);
-                TxtTotalVendidos.Text = balanceNeto.ToString("N2");
+                TxtTotalVendidos.Text = balanceNeto.ToString("N0");
             }
             else if (hayFiltroTercero)
             {
-                TxtTotalIngreso.Text = totalSalidas.ToString("N2");  // Total Entregado
-                TxtTotalSalida.Text = totalIngresos.ToString("N2");  // Total Devoluciones
+                TxtTotalIngreso.Text = totalSalidas.ToString("N0");  // Total Entregado
+                TxtTotalSalida.Text = totalIngresos.ToString("N0");  // Total Devoluciones
 
                 decimal saldoEnPoder = Math.Abs(totalSalidas - totalIngresos);
-                TxtTotalVendidos.Text = saldoEnPoder.ToString("N2");
+                TxtTotalVendidos.Text = saldoEnPoder.ToString("N0");
             }
             else
             {
-                TxtTotalIngreso.Text = totalIngresos.ToString("N2");
-                TxtTotalSalida.Text = totalSalidas.ToString("N2");
+                TxtTotalIngreso.Text = totalIngresos.ToString("N0");
+                TxtTotalSalida.Text = totalSalidas.ToString("N0");
                 TxtTotalVendidos.Text = "---";
             }
 

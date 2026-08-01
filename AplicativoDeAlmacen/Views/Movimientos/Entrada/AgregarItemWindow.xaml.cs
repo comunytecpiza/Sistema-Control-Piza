@@ -528,6 +528,7 @@ namespace AplicativoDeAlmacen.Views
             bool esModoSalida = (this.EstadoPermitido == 3);        // ➡️ SALIDA
             bool esModoCompra = (this.EstadoPermitido == 1);        // ➡️ COMPRA NUEVA
 
+            // 1. Construir el set de códigos originales si estamos editando
             var codigosOriginalesSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (IsEdit && _rangosOriginalesEdicion.Any())
             {
@@ -539,69 +540,100 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
+            // 2. Desglosar TODOS los códigos actuales a una lista plana en memoria RAM
+            var todosLosCodigosAValidar = new List<string>();
+            foreach (var rango in rangosAgregados)
+            {
+                var listaCodigosRango = new List<string>();
+                if (rango.DesdeNum == -1) listaCodigosRango.Add(rango.AbreviaturaBase);
+                else
+                {
+                    string separador = rango.AbreviaturaBase.EndsWith("-V") || rango.AbreviaturaBase.EndsWith("-G") ? "-" : (rango.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++) listaCodigosRango.Add($"{rango.AbreviaturaBase}{separador}{i:D7}");
+                }
+
+                foreach (var codStr in listaCodigosRango)
+                {
+                    if (IsEdit && codigosOriginalesSet.Contains(codStr)) continue;
+                    todosLosCodigosAValidar.Add(codStr);
+                }
+            }
+
+            if (!todosLosCodigosAValidar.Any()) return codigosIncompatibles;
+
             try
             {
                 using var conn = _database.GetConnection();
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
 
-                foreach (var rango in rangosAgregados)
+                // Diccionario para almacenar el estado que viene de la BD: Codigo -> (AlmacenId, EstadoId, PermitirSalida)
+                var infoCodigosBD = new Dictionary<string, (int AlmacenId, int EstadoId, bool PermitirSalida)>(StringComparer.OrdinalIgnoreCase);
+
+                // 3. 🚀 CONSULTA MASIVA POR LOTES (Chunks de 2000 para evitar saturar el comando SQL)
+                for (int chunkIndex = 0; chunkIndex < todosLosCodigosAValidar.Count; chunkIndex += 2000)
                 {
-                    var listaCodigosRango = new List<string>();
-                    if (rango.DesdeNum == -1) listaCodigosRango.Add(rango.AbreviaturaBase);
-                    else
+                    var chunk = todosLosCodigosAValidar.Skip(chunkIndex).Take(2000).ToList();
+                    using var cmd = dbConn.CreateCommand();
+
+                    string query = QueryAdapter.EsMySQL
+                        ? @"SELECT cc.codigo, cc.almacen_id, cc.estado_id, COALESCE(cond.permitir_salida, 0) AS permitir_salida 
+                    FROM codigos_creados cc 
+                    LEFT JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
+                    WHERE cc.codigo IN (" + string.Join(",", chunk.Select((_, idx) => $"@p{idx}")) + ");"
+                        : @"SELECT cc.codigo, cc.almacen_id, cc.estado_id, ISNULL(cond.permitir_salida, 0) AS permitir_salida 
+                    FROM codigos_creados cc WITH (NOLOCK) 
+                    LEFT JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
+                    WHERE cc.codigo IN (" + string.Join(",", chunk.Select((_, idx) => $"@p{idx}")) + ");";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                    for (int i = 0; i < chunk.Count; i++)
                     {
-                        string separador = rango.AbreviaturaBase.EndsWith("-V") || rango.AbreviaturaBase.EndsWith("-G") ? "-" : (rango.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                        for (int i = rango.DesdeNum; i <= rango.HastaNum; i++) listaCodigosRango.Add($"{rango.AbreviaturaBase}{separador}{i:D7}");
+                        var p = cmd.CreateParameter();
+                        p.ParameterName = $"@p{i}";
+                        p.Value = chunk[i];
+                        cmd.Parameters.Add(p);
                     }
 
-                    foreach (var codStr in listaCodigosRango)
+                    using var rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
                     {
-                        if (IsEdit && codigosOriginalesSet.Contains(codStr)) continue;
+                        string codigoBD = rdr.GetString(0);
+                        int almCod = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
+                        int estadoCod = rdr.IsDBNull(2) ? 0 : rdr.GetInt32(2);
+                        bool permitirSalida = !rdr.IsDBNull(3) && Convert.ToBoolean(rdr.GetValue(3));
 
-                        string query = QueryAdapter.EsMySQL
-                            ? @"SELECT cc.almacen_id, cc.estado_id, COALESCE(cond.permitir_salida, 0) AS permitir_salida 
-                                FROM codigos_creados cc 
-                                LEFT JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
-                                WHERE cc.codigo = @codigoExacto;"
-                            : @"SELECT cc.almacen_id, cc.estado_id, ISNULL(cond.permitir_salida, 0) AS permitir_salida 
-                                FROM codigos_creados cc WITH (NOLOCK) 
-                                LEFT JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
-                                WHERE cc.codigo = @codigoExacto;";
+                        infoCodigosBD[codigoBD] = (almCod, estadoCod, permitirSalida);
+                    }
+                }
 
-                        using var cmd = dbConn.CreateCommand();
-                        cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                        var p = cmd.CreateParameter(); p.ParameterName = "@codigoExacto"; p.Value = codStr; cmd.Parameters.Add(p);
-
-                        using var rdr = cmd.ExecuteReader();
-                        if (rdr.Read())
+                // 4. Validación ultrarrápida en memoria RAM de todos los códigos
+                foreach (var codStr in todosLosCodigosAValidar)
+                {
+                    if (infoCodigosBD.TryGetValue(codStr, out var datos))
+                    {
+                        if (esModoSalida)
                         {
-                            int almCod = rdr.IsDBNull(0) ? 0 : rdr.GetInt32(0);
-                            int estadoCod = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
-                            bool permitirSalida = !rdr.IsDBNull(2) && Convert.ToBoolean(rdr.GetValue(2));
-
-                            if (esModoSalida)
+                            // 🛡️ EN SALIDAS: Debe pertenecer al almacén actual + Estado 3 + Operativo
+                            if (datos.AlmacenId != almacenSesionId || datos.EstadoId != 3 || !datos.PermitirSalida)
                             {
-                                // 🛡️ EN SALIDAS: Debe pertenecer al almacén actual + Estado 3 + Operativo
-                                if (almCod != almacenSesionId || estadoCod != 3 || !permitirSalida)
-                                {
-                                    codigosIncompatibles.Add(codStr);
-                                }
-                            }
-                            else if (!esModoCompra)
-                            {
-                                // 🛡️ EN ENTRADAS / DEVOLUCIONES / REINGRESOS: El código DEBE pertenecer a esta sede/almacén
-                                if (almCod != almacenSesionId)
-                                {
-                                    codigosIncompatibles.Add(codStr);
-                                }
+                                codigosIncompatibles.Add(codStr);
                             }
                         }
-                        else
+                        else if (!esModoCompra)
                         {
-                            // Si no es Compra Nueva y el código NO existe en BD, rebotar
-                            if (!esModoCompra) codigosIncompatibles.Add(codStr);
+                            // 🛡️ EN ENTRADAS / DEVOLUCIONES: El código DEBE pertenecer a esta sede/almacén
+                            if (datos.AlmacenId != almacenSesionId)
+                            {
+                                codigosIncompatibles.Add(codStr);
+                            }
                         }
+                    }
+                    else
+                    {
+                        // Si no es Compra Nueva y el código NO existe en BD, rebotar
+                        if (!esModoCompra) codigosIncompatibles.Add(codStr);
                     }
                 }
             }
