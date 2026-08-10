@@ -21,9 +21,9 @@ namespace AplicativoDeAlmacen.Views
     {
         public bool IsAddAction { get; set; } = false;
 
-        // 🌟 1 = COMPRA (Costo editable / Inicia en 0.00)
+        // 🌟 1 = COMPRA / INGRESO (Costo editable / Inicia en 0.00)
         // 🌟 3 = SALIDA (Costo OCULTO completamente)
-        // 🌟 4 = DEVOLUCIÓN/REINGRESO (Costo jala de BD / BLOQUEADO Y SOMBREADO)
+        // 🌟 4 = DEVOLUCIÓN / REINGRESO / TRANSFERENCIA (Costo jala de BD / BLOQUEADO)
         public int EstadoPermitido { get; set; } = 1;
 
         public bool IsEdit { get; set; } = false;
@@ -81,7 +81,7 @@ namespace AplicativoDeAlmacen.Views
             };
         }
 
-        // 🌟 MÉTODO CENTRALIZADO DE REGLAS DE COSTO
+        // 🌟 MÉTODO CENTRALIZADO DE REGLAS DE COSTO (COMPATIBLE CON INGRESO Y SALIDA)
         private void AplicarReglasVisualesCosto()
         {
             bool esSalida = (this.EstadoPermitido == 3);
@@ -95,7 +95,7 @@ namespace AplicativoDeAlmacen.Views
             }
             else if (!esCompraOOtros)
             {
-                // 🔒 EN REINGRESOS / DEVOLUCIONES / TRANSFERENCIAS: MOSTRAR, PERO BLOQUEAR Y SOMBREADO
+                // 🔒 EN REINGRESOS / DEVOLUCIONES / TRANSFERENCIAS: MOSTRAR, PERO BLOQUEADO
                 txtCUnitario.Visibility = Visibility.Visible;
                 if (FindName("lblCUnitario") is TextBlock lbl) lbl.Visibility = Visibility.Visible;
 
@@ -128,12 +128,8 @@ namespace AplicativoDeAlmacen.Views
                 int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
 
                 string query = QueryAdapter.EsMySQL
-                    ? @"SELECT IFNULL(stock_actual, 0)
-                        FROM stock_almacen
-                        WHERE producto_id = @productoId AND almacen_id = @almacenId;"
-                    : @"SELECT ISNULL(stock_actual, 0)
-                        FROM stock_almacen WITH (NOLOCK)
-                        WHERE producto_id = @productoId AND almacen_id = @almacenId";
+                    ? @"SELECT IFNULL(stock_actual, 0) FROM stock_almacen WHERE producto_id = @productoId AND almacen_id = @almacenId;"
+                    : @"SELECT ISNULL(stock_actual, 0) FROM stock_almacen WITH (NOLOCK) WHERE producto_id = @productoId AND almacen_id = @almacenId";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -316,12 +312,11 @@ namespace AplicativoDeAlmacen.Views
                     ? producto.UnidadMedida.Descripcion.ToUpperInvariant()
                     : "UNIDAD";
 
-                // 🌟 ASIGNACIÓN Y CONTROL ESTRICTO DE COSTO SEGÚN MOTIVO
                 bool esCompraOOtros = (this.EstadoPermitido == 1);
 
                 if (esCompraOOtros)
                 {
-                    txtCUnitario.Text = "0.00"; // Inicia en 0 para ingresar costo de compra
+                    txtCUnitario.Text = "0.00";
                 }
                 else
                 {
@@ -424,7 +419,8 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private List<string> ObtenerCodigosConMovimientosPosteriores(int productoId, List<string> codigosQuitados)
+        // 🚀 CONSULTA DE TRAZABILIDAD OPTIMIZADA EN BLOQUES DE 1,000 (ASÍNCRONA)
+        private async Task<List<string>> ObtenerCodigosConMovimientosPosterioresAsync(int productoId, List<string> codigosQuitados)
         {
             var conflictos = new List<string>();
             if (codigosQuitados == null || !codigosQuitados.Any()) return conflictos;
@@ -433,81 +429,59 @@ namespace AplicativoDeAlmacen.Views
             {
                 using var conn = _database.GetConnection();
                 var dbConn = (DbConnection)conn;
-                if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
+                if (dbConn.State != System.Data.ConnectionState.Open) await dbConn.OpenAsync();
 
-                bool esModoSalida = (this.EstadoPermitido == 3);
-                bool esModoDevolucion = (this.EstadoPermitido == 4);
-                bool esModoCompraInicial = (this.EstadoPermitido == 1);
+                // Si es Devolución no bloquea la reducción
+                if (this.EstadoPermitido == 4) return conflictos;
 
-                if (esModoDevolucion) return conflictos;
-
-                foreach (string codStr in codigosQuitados)
+                const int batchSize = 1000;
+                for (int i = 0; i < codigosQuitados.Count; i += batchSize)
                 {
-                    string query = string.Empty;
-
-                    if (esModoSalida)
-                    {
-                        query = QueryAdapter.EsMySQL
-                            ? @"SELECT COUNT(*)
-                        FROM codigos_creados cc
-                        INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-                        INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        WHERE cc.codigo = @codigoExacto
-                          AND m.estado_id = 1
-                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
-                          AND cc.estado_id IN (4, 5)
-                          AND mp.tipo_movimiento_id = 2
-                          AND m.fecha_movimiento > CURRENT_DATE();"
-                            : @"SELECT COUNT(*)
-                        FROM codigos_creados cc WITH (NOLOCK)
-                        INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                        WHERE cc.codigo = @codigoExacto
-                          AND m.estado_id = 1
-                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
-                          AND cc.estado_id IN (4, 5)
-                          AND mp.tipo_movimiento_id = 2
-                          AND m.fecha_movimiento > GETDATE();";
-                    }
-                    else if (esModoCompraInicial)
-                    {
-                        query = QueryAdapter.EsMySQL
-                            ? @"SELECT COUNT(*)
-                        FROM codigos_creados cc
-                        INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-                        INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        WHERE cc.codigo = @codigoExacto
-                          AND m.estado_id = 1
-                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
-                          AND cc.estado_id IN (4, 5)
-                          AND mp.tipo_movimiento_id = 2;"
-                            : @"SELECT COUNT(*)
-                        FROM codigos_creados cc WITH (NOLOCK)
-                        INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                        WHERE cc.codigo = @codigoExacto
-                          AND m.estado_id = 1
-                          AND (@movIdActual IS NULL OR m.id != @movIdActual)
-                          AND cc.estado_id IN (4, 5)
-                          AND mp.tipo_movimiento_id = 2;";
-                    }
-
-                    if (string.IsNullOrEmpty(query)) continue;
+                    var batch = codigosQuitados.Skip(i).Take(batchSize).ToList();
+                    var paramNames = batch.Select((_, idx) => $"@c{idx}").ToList();
 
                     using var cmd = dbConn.CreateCommand();
+
+                    string query = QueryAdapter.EsMySQL
+                        ? $@"SELECT DISTINCT cc.codigo
+                             FROM codigos_creados cc
+                             INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                             INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                             INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                             WHERE cc.codigo IN ({string.Join(",", paramNames)})
+                               AND m.estado_id = 1
+                               AND (@movIdActual IS NULL OR m.id != @movIdActual)
+                               AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)"
+                        : $@"SELECT DISTINCT cc.codigo
+                             FROM codigos_creados cc WITH (NOLOCK)
+                             INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                             INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                             INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                             WHERE cc.codigo IN ({string.Join(",", paramNames)})
+                               AND m.estado_id = 1
+                               AND (@movIdActual IS NULL OR m.id != @movIdActual)
+                               AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)";
+
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-                    var pCod = cmd.CreateParameter(); pCod.ParameterName = "@codigoExacto"; pCod.Value = codStr; cmd.Parameters.Add(pCod);
-                    var pMov = cmd.CreateParameter(); pMov.ParameterName = "@movIdActual"; pMov.Value = (object?)this.MovimientoIdActual ?? DBNull.Value; cmd.Parameters.Add(pMov);
+                    var pMov = cmd.CreateParameter();
+                    pMov.ParameterName = "@movIdActual";
+                    pMov.Value = (object?)this.MovimientoIdActual ?? DBNull.Value;
+                    cmd.Parameters.Add(pMov);
 
-                    object res = cmd.ExecuteScalar();
-                    int count = (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
+                    for (int k = 0; k < batch.Count; k++)
+                    {
+                        var p = cmd.CreateParameter();
+                        p.ParameterName = $"@c{k}";
+                        p.Value = batch[k];
+                        cmd.Parameters.Add(p);
+                    }
 
-                    if (count > 0) conflictos.Add(codStr);
+                    using var rdr = await cmd.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
+                    {
+                        conflictos.Add(rdr.GetString(0));
+                    }
                 }
             }
             catch (Exception ex)
@@ -518,17 +492,16 @@ namespace AplicativoDeAlmacen.Views
             return conflictos;
         }
 
-        // 🌟 VALIDACIÓN ESTRICTA DE ALMACÉN Y ESTADO
-        private List<string> ValidarPertenenciaYCondicionAlmacen(List<RangoCodigoItem> rangosAgregados)
+        // 🌟 VALIDACIÓN ESTRICTA DE ALMACÉN Y ESTADO POR BLOQUES MASIVOS
+        private async Task<List<string>> ValidarPertenenciaYCondicionAlmacenAsync(List<RangoCodigoItem> rangosAgregados)
         {
             var codigosIncompatibles = new List<string>();
             if (rangosAgregados == null || !rangosAgregados.Any()) return codigosIncompatibles;
 
             int almacenSesionId = SesionSistema.AlmacenActual?.Id ?? 1;
-            bool esModoSalida = (this.EstadoPermitido == 3);        // ➡️ SALIDA
-            bool esModoCompra = (this.EstadoPermitido == 1);        // ➡️ COMPRA NUEVA
+            bool esModoSalida = (this.EstadoPermitido == 3);
+            bool esModoCompra = (this.EstadoPermitido == 1);
 
-            // 1. Construir el set de códigos originales si estamos editando
             var codigosOriginalesSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (IsEdit && _rangosOriginalesEdicion.Any())
             {
@@ -540,7 +513,6 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // 2. Desglosar TODOS los códigos actuales a una lista plana en memoria RAM
             var todosLosCodigosAValidar = new List<string>();
             foreach (var rango in rangosAgregados)
             {
@@ -565,12 +537,10 @@ namespace AplicativoDeAlmacen.Views
             {
                 using var conn = _database.GetConnection();
                 var dbConn = (DbConnection)conn;
-                if (dbConn.State != System.Data.ConnectionState.Open) dbConn.Open();
+                if (dbConn.State != System.Data.ConnectionState.Open) await dbConn.OpenAsync();
 
-                // Diccionario para almacenar el estado que viene de la BD: Codigo -> (AlmacenId, EstadoId, PermitirSalida)
                 var infoCodigosBD = new Dictionary<string, (int AlmacenId, int EstadoId, bool PermitirSalida)>(StringComparer.OrdinalIgnoreCase);
 
-                // 3. 🚀 CONSULTA MASIVA POR LOTES (Chunks de 2000 para evitar saturar el comando SQL)
                 for (int chunkIndex = 0; chunkIndex < todosLosCodigosAValidar.Count; chunkIndex += 2000)
                 {
                     var chunk = todosLosCodigosAValidar.Skip(chunkIndex).Take(2000).ToList();
@@ -578,13 +548,13 @@ namespace AplicativoDeAlmacen.Views
 
                     string query = QueryAdapter.EsMySQL
                         ? @"SELECT cc.codigo, cc.almacen_id, cc.estado_id, COALESCE(cond.permitir_salida, 0) AS permitir_salida 
-                    FROM codigos_creados cc 
-                    LEFT JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
-                    WHERE cc.codigo IN (" + string.Join(",", chunk.Select((_, idx) => $"@p{idx}")) + ");"
+                            FROM codigos_creados cc 
+                            LEFT JOIN condiciones_codigo cond ON cc.condicion_id = cond.id
+                            WHERE cc.codigo IN (" + string.Join(",", chunk.Select((_, idx) => $"@p{idx}")) + ");"
                         : @"SELECT cc.codigo, cc.almacen_id, cc.estado_id, ISNULL(cond.permitir_salida, 0) AS permitir_salida 
-                    FROM codigos_creados cc WITH (NOLOCK) 
-                    LEFT JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
-                    WHERE cc.codigo IN (" + string.Join(",", chunk.Select((_, idx) => $"@p{idx}")) + ");";
+                            FROM codigos_creados cc WITH (NOLOCK) 
+                            LEFT JOIN condiciones_codigo cond WITH (NOLOCK) ON cc.condicion_id = cond.id
+                            WHERE cc.codigo IN (" + string.Join(",", chunk.Select((_, idx) => $"@p{idx}")) + ");";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
@@ -596,8 +566,8 @@ namespace AplicativoDeAlmacen.Views
                         cmd.Parameters.Add(p);
                     }
 
-                    using var rdr = cmd.ExecuteReader();
-                    while (rdr.Read())
+                    using var rdr = await cmd.ExecuteReaderAsync();
+                    while (await rdr.ReadAsync())
                     {
                         string codigoBD = rdr.GetString(0);
                         int almCod = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
@@ -608,14 +578,12 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }
 
-                // 4. Validación ultrarrápida en memoria RAM de todos los códigos
                 foreach (var codStr in todosLosCodigosAValidar)
                 {
                     if (infoCodigosBD.TryGetValue(codStr, out var datos))
                     {
                         if (esModoSalida)
                         {
-                            // 🛡️ EN SALIDAS: Debe pertenecer al almacén actual + Estado 3 + Operativo
                             if (datos.AlmacenId != almacenSesionId || datos.EstadoId != 3 || !datos.PermitirSalida)
                             {
                                 codigosIncompatibles.Add(codStr);
@@ -623,7 +591,6 @@ namespace AplicativoDeAlmacen.Views
                         }
                         else if (!esModoCompra)
                         {
-                            // 🛡️ EN ENTRADAS / DEVOLUCIONES: El código DEBE pertenecer a esta sede/almacén
                             if (datos.AlmacenId != almacenSesionId)
                             {
                                 codigosIncompatibles.Add(codStr);
@@ -632,7 +599,6 @@ namespace AplicativoDeAlmacen.Views
                     }
                     else
                     {
-                        // Si no es Compra Nueva y el código NO existe en BD, rebotar
                         if (!esModoCompra) codigosIncompatibles.Add(codStr);
                     }
                 }
@@ -645,7 +611,7 @@ namespace AplicativoDeAlmacen.Views
             return codigosIncompatibles;
         }
 
-        private void BtnGrabar_Click(object sender, RoutedEventArgs e)
+        private async void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
             if (_productoSeleccionado == null || string.IsNullOrWhiteSpace(txtProducto.Text))
             {
@@ -704,69 +670,81 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 🌟 VALIDACIÓN ESTRICTA DE ALMACÉN DE SESIÓN Y ESTADO
-                var incompatibles = ValidarPertenenciaYCondicionAlmacen(ListaRangosAgregados.ToList());
-                if (incompatibles.Any())
+                this.Cursor = Cursors.Wait;
+                btnGrabar.IsEnabled = false;
+
+                try
                 {
-                    string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "tu almacén actual";
-                    int totalProblematicos = incompatibles.Count;
-
-                    string mensajeAlerta = (this.EstadoPermitido == 3)
-                        ? $"Se encontraron {totalProblematicos} código(s) que NO pertenecen a {nombreAlmacenSesion}, no están disponibles o están marcados como Dañados/Perdidos:\n\n"
-                        : $"Se encontraron {totalProblematicos} código(s) que NO pertenecen a {nombreAlmacenSesion}:\n\n";
-
-                    MessageBox.Show(
-                        $"⚠️ Código(s) No Permitidos:\n\n" +
-                        mensajeAlerta +
-                        $"{string.Join("\n", incompatibles.Take(5).Select(c => $"• {c}"))}\n" +
-                        $"{(totalProblematicos > 5 ? $"... y {totalProblematicos - 5} códigos más." : "")}\n\n" +
-                        $"Por favor, retira estos códigos antes de continuar.",
-                        "Restricción de Inventario / Sede",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Stop);
-
-                    return;
-                }
-
-                if (IsEdit && _rangosOriginalesEdicion.Any())
-                {
-                    var codigosOriginales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var r in _rangosOriginalesEdicion)
+                    // 🌟 1. VALIDACIÓN ASÍNCRONA DE ALMACÉN
+                    var incompatibles = await ValidarPertenenciaYCondicionAlmacenAsync(ListaRangosAgregados.ToList());
+                    if (incompatibles.Any())
                     {
-                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                        if (r.DesdeNum == -1) codigosOriginales.Add(r.AbreviaturaBase);
-                        else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosOriginales.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
+                        string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "tu almacén actual";
+                        int totalProblematicos = incompatibles.Count;
+
+                        string mensajeAlerta = (this.EstadoPermitido == 3)
+                            ? $"Se encontraron {totalProblematicos} código(s) que NO pertenecen a {nombreAlmacenSesion}, no están disponibles o están marcados como Dañados/Perdidos:\n\n"
+                            : $"Se encontraron {totalProblematicos} código(s) que NO pertenecen a {nombreAlmacenSesion}:\n\n";
+
+                        MessageBox.Show(
+                            $"⚠️ Código(s) No Permitidos:\n\n" +
+                            mensajeAlerta +
+                            $"{string.Join("\n", incompatibles.Take(5).Select(c => $"• {c}"))}\n" +
+                            $"{(totalProblematicos > 5 ? $"... y {totalProblematicos - 5} códigos más." : "")}\n\n" +
+                            $"Por favor, retira estos códigos antes de continuar.",
+                            "Restricción de Inventario / Sede",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Stop);
+
+                        return;
                     }
 
-                    var codigosActuales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var r in ListaRangosAgregados)
+                    // 🌟 2. VALIDACIÓN ASÍNCRONA DE CÓDIGOS QUITADOS CON SALIDAS FUTURAS
+                    if (IsEdit && _rangosOriginalesEdicion.Any())
                     {
-                        string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                        if (r.DesdeNum == -1) codigosActuales.Add(r.AbreviaturaBase);
-                        else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosActuales.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
-                    }
-
-                    var codigosQuitados = codigosOriginales.Where(c => !codigosActuales.Contains(c)).ToList();
-
-                    if (codigosQuitados.Any())
-                    {
-                        var conflictos = ObtenerCodigosConMovimientosPosteriores(this._productoSeleccionado.Id, codigosQuitados);
-
-                        if (conflictos.Any())
+                        var codigosOriginales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var r in _rangosOriginalesEdicion)
                         {
-                            MessageBox.Show(
-                                $"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\n" +
-                                $"No puede guardar el producto sin los siguientes códigos porque ya registran despachos o salidas posteriores en el sistema:\n\n" +
-                                $"{string.Join("\n", conflictos.Take(5).Select(c => $"• {c}"))}\n\n" +
-                                $"{(conflictos.Count > 5 ? $"... y {conflictos.Count - 5} códigos más." : "")}\n\n" +
-                                $"Debe volver a incluir estos códigos en la lista para poder guardar.",
-                                "Restricción de Kárdex",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Stop);
+                            string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                            if (r.DesdeNum == -1) codigosOriginales.Add(r.AbreviaturaBase);
+                            else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosOriginales.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
+                        }
 
-                            return;
+                        var codigosActuales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var r in ListaRangosAgregados)
+                        {
+                            string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                            if (r.DesdeNum == -1) codigosActuales.Add(r.AbreviaturaBase);
+                            else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosActuales.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
+                        }
+
+                        var codigosQuitados = codigosOriginales.Where(c => !codigosActuales.Contains(c)).ToList();
+
+                        if (codigosQuitados.Any())
+                        {
+                            var conflictos = await ObtenerCodigosConMovimientosPosterioresAsync(this._productoSeleccionado.Id, codigosQuitados);
+
+                            if (conflictos.Any())
+                            {
+                                MessageBox.Show(
+                                    $"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\n" +
+                                    $"No puede reducir o quitar los siguientes códigos porque ya registran salidas o despachos posteriores en la línea de tiempo:\n\n" +
+                                    $"{string.Join("\n", conflictos.Take(10).Select(c => $"• {c}"))}\n\n" +
+                                    $"{(conflictos.Count > 10 ? $"... y {conflictos.Count - 10} códigos más con movimientos." : "")}\n\n" +
+                                    $"Debe mantener estos códigos en la lista.",
+                                    "Restricción de Kárdex",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Stop);
+
+                                return;
+                            }
                         }
                     }
+                }
+                finally
+                {
+                    this.Cursor = Cursors.Arrow;
+                    btnGrabar.IsEnabled = true;
                 }
             }
 

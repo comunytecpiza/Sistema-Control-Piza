@@ -59,74 +59,99 @@ namespace AplicativoDeAlmacen.Views
 
                 var loadingModal = new ProgressWindow("Auditoría de Lote", "Analizando colisiones internas, base de datos y prefijos...", async (progress) =>
                 {
-                    int total = _todosLosCodigos.Count;
-                    int ultimoPorcentajeReportado = -1;
-
-                    // 1. Set para detectar duplicados con la Base de Datos
-                    var setDuplicadosBD = new HashSet<string>(_duplicadosBD.Select(LimpiarCodigo), StringComparer.OrdinalIgnoreCase);
-
-                    // 🌟 2. Set para controlar duplicados INTERNOS dentro del mismo archivo Excel
-                    var codigosProcesadosEnExcel = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                    for (int i = 0; i < total; i++)
+                    await Task.Run(() =>
                     {
-                        string cod = LimpiarCodigo(_todosLosCodigos[i]);
-                        if (string.IsNullOrEmpty(cod)) continue;
+                        int total = _todosLosCodigos.Count;
+                        if (total == 0) return;
 
-                        // A. ¿Ya existe en la Base de Datos?
-                        bool esDuplicadoBD = setDuplicadosBD.Contains(cod);
+                        // 🌟 1. Pre-asignación en Array Fijo (Cero reasignación de memoria)
+                        var arregloResultados = new CodigoExcelPreview[total];
 
-                        // B. ¿Es una repetición interna dentro del mismo Excel?
-                        bool esDuplicadoInternoExcel = codigosProcesadosEnExcel.Contains(cod);
+                        // 🌟 2. Sets de búsqueda O(1) con comparador rápido
+                        var setDuplicadosBD = new HashSet<string>(_duplicadosBD.Select(LimpiarCodigo), StringComparer.OrdinalIgnoreCase);
+                        var codigosProcesadosEnExcel = new HashSet<string>(total, StringComparer.OrdinalIgnoreCase);
 
-                        // C. Validación de Prefijo
-                        string codLimpioParaComparar = Regex.Replace(cod, @"[\s\-]", "").ToUpperInvariant();
-                        string prefijoLimpioParaComparar = Regex.Replace(_prefijoEsperado ?? "", @"[\s\-]", "").ToUpperInvariant();
+                        // Normalizar prefijo esperado una sola vez fuera del bucle
+                        string prefijoLimpio = (_prefijoEsperado ?? "").Replace(" ", "").Replace("-", "").ToUpperInvariant();
+                        bool tienePrefijoFiltro = !string.IsNullOrEmpty(prefijoLimpio);
 
-                        bool cumplePrefijo = string.IsNullOrEmpty(prefijoLimpioParaComparar) ||
-                                             codLimpioParaComparar.StartsWith(prefijoLimpioParaComparar, StringComparison.OrdinalIgnoreCase);
+                        int validosLocales = 0;
+                        int erroresLocales = 0;
+                        int ultimoPorcentajeReportado = -1;
 
-                        // 🛑 Evaluación estricta de validez
-                        bool esValido = !esDuplicadoBD && !esDuplicadoInternoExcel && cumplePrefijo;
-                        string mensajeEstado = "✅ Listo para generar";
-
-                        if (esDuplicadoBD)
+                        for (int i = 0; i < total; i++)
                         {
-                            mensajeEstado = "❌ Ya existe en Base de Datos";
+                            string cod = LimpiarCodigo(_todosLosCodigos[i]);
+                            if (string.IsNullOrEmpty(cod))
+                            {
+                                arregloResultados[i] = new CodigoExcelPreview
+                                {
+                                    Numero = i + 1,
+                                    Codigo = "VACÍO",
+                                    Estado = "❌ Código Vacío",
+                                    EsValido = false
+                                };
+                                erroresLocales++;
+                                continue;
+                            }
+
+                            // A. ¿Existe en la Base de Datos?
+                            bool esDuplicadoBD = setDuplicadosBD.Contains(cod);
+
+                            // B. ¿Es una repetición dentro del mismo Excel?
+                            bool esDuplicadoInternoExcel = !codigosProcesadosEnExcel.Add(cod);
+
+                            // C. Validación de Prefijo Rápida (Sin Regex)
+                            bool cumplePrefijo = true;
+                            if (tienePrefijoFiltro)
+                            {
+                                string codLimpioComparar = cod.Replace(" ", "").Replace("-", "");
+                                cumplePrefijo = codLimpioComparar.StartsWith(prefijoLimpio, StringComparison.OrdinalIgnoreCase);
+                            }
+
+                            // 🛑 Evaluación estricta de validez
+                            bool esValido = !esDuplicadoBD && !esDuplicadoInternoExcel && cumplePrefijo;
+                            string mensajeEstado = "✅ Listo para generar";
+
+                            if (esDuplicadoBD)
+                            {
+                                mensajeEstado = "❌ Ya existe en Base de Datos";
+                            }
+                            else if (esDuplicadoInternoExcel)
+                            {
+                                mensajeEstado = "❌ Duplicado Repetido en Excel";
+                            }
+                            else if (!cumplePrefijo)
+                            {
+                                mensajeEstado = $"❌ Prefijo ajeno (Esperado: {_prefijoEsperado})";
+                            }
+
+                            if (esValido) validosLocales++; else erroresLocales++;
+
+                            arregloResultados[i] = new CodigoExcelPreview
+                            {
+                                Numero = i + 1,
+                                Codigo = cod,
+                                Estado = mensajeEstado,
+                                EsValido = esValido
+                            };
+
+                            // ⏱️ Reportar progreso solo cuando cambie el porcentaje entero (Máximo 100 llamadas)
+                            int pct = (i * 100) / total;
+                            if (pct > ultimoPorcentajeReportado)
+                            {
+                                ultimoPorcentajeReportado = pct;
+                                progress?.Report(pct);
+                            }
                         }
-                        else if (esDuplicadoInternoExcel)
-                        {
-                            mensajeEstado = "❌ Duplicado Repetido en Excel";
-                        }
-                        else if (!cumplePrefijo)
-                        {
-                            mensajeEstado = $"❌ Prefijo ajeno (Esperado: {_prefijoEsperado})";
-                        }
 
-                        // Registramos este código como procesado para atrapar futuras repeticiones en las filas de abajo
-                        codigosProcesadosEnExcel.Add(cod);
+                        // 🌟 3. Ordenar arreglo ultrarrápido: Errores primero
+                        Array.Sort(arregloResultados, (a, b) => a.EsValido.CompareTo(b.EsValido));
 
-                        if (esValido) contadorValidos++; else contadorErrores++;
-
-                        _listaVisual.Add(new CodigoExcelPreview
-                        {
-                            Numero = i + 1,
-                            Codigo = cod,
-                            Estado = mensajeEstado,
-                            EsValido = esValido
-                        });
-
-                        int pct = (i * 100) / total;
-                        if (pct > ultimoPorcentajeReportado)
-                        {
-                            ultimoPorcentajeReportado = pct;
-                            progress?.Report(pct);
-                        }
-                    }
-
-                    // Ordenamos: Los errores primero arriba para revisión rápida
-                    _listaVisual = _listaVisual.OrderBy(x => x.EsValido ? 1 : 0).ToList();
-                    await Task.Delay(30);
+                        _listaVisual = arregloResultados.ToList();
+                        contadorValidos = validosLocales;
+                        contadorErrores = erroresLocales;
+                    });
                 });
 
                 loadingModal.Owner = this;
@@ -135,7 +160,7 @@ namespace AplicativoDeAlmacen.Views
                 {
                     TxtResumen.Text = $"Total: {_listaVisual.Count} | Aptos: {contadorValidos} | Errores/Repetidos: {contadorErrores}";
 
-                    // 🟢 OPTIMIZACIÓN VIRTUAL: Solo enviamos 1,000 elementos al DataGrid para carga instantánea
+                    // 🟢 Carga ultra fluida al DataGrid
                     DgCodigos.ItemsSource = null;
                     DgCodigos.ItemsSource = _listaVisual.Take(1000).ToList();
 
