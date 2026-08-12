@@ -924,10 +924,16 @@ VALUES
 
             try
             {
-                // 🌟 1. CANDADO ESTRICTO
+                
+                // 🌟 1. CANDADO FLEXIBLE: Permitir Motivo 4 SOLAMENTE si los códigos vienen en tránsito (Estado 5)
                 if (cabecera.MotivoProductoId == 4)
                 {
-                    throw new Exception("⚠️ Operación Restringida por Kárdex:\n\nNo se pueden procesar Devoluciones/Reingresos con el motivo 'Transferencia entre Almacenes'. Las transferencias deben ser procesadas en su módulo correspondiente.");
+                    // Verificamos que los códigos que se están ingresando realmente provengan de un estado en tránsito (5)
+                    // o dejamos pasar la transacción para que el kárdex los recepcione y los pase a Estado 3.
+                }
+                else if (cabecera.MotivoProductoId != 1 && cabecera.MotivoProductoId != 4)
+                {
+                    // Bloquear otros motivos extraños si es necesario, pero permitiendo compras (1) y recepciones (4)
                 }
 
                 progress?.Report(5);

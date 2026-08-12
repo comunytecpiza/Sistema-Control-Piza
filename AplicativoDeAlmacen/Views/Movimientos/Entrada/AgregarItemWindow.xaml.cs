@@ -169,6 +169,11 @@ namespace AplicativoDeAlmacen.Views
             IsEdit = true;
             OriginalProductoId = item.ProductoId;
 
+            if (!MovimientoIdActual.HasValue && item.Detalle != null && item.Detalle.MovimientoId > 0)
+            {
+                MovimientoIdActual = item.Detalle.MovimientoId;
+            }
+
             _productoSeleccionado = new Producto
             {
                 Id = item.ProductoId,
@@ -442,25 +447,26 @@ namespace AplicativoDeAlmacen.Views
 
                     using var cmd = dbConn.CreateCommand();
 
+                    // 🌟 CORRECCIÓN CLAVE: Excluye el documento actual (@movIdActual) y solo busca salidas FUTURAS
                     string query = QueryAdapter.EsMySQL
                         ? $@"SELECT DISTINCT cc.codigo
-                             FROM codigos_creados cc
-                             INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-                             INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                             INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                             WHERE cc.codigo IN ({string.Join(",", paramNames)})
-                               AND m.estado_id = 1
-                               AND (@movIdActual IS NULL OR m.id != @movIdActual)
-                               AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)"
+                     FROM codigos_creados cc
+                     INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                     INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                     INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                     WHERE cc.codigo IN ({string.Join(",", paramNames)})
+                       AND m.estado_id = 1
+                       AND (@movIdActual IS NULL OR m.id > @movIdActual) -- 👈 Solo considera movimientos ESTRICTAMENTE POSTERIORES (ID > Actual)
+                       AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)"
                         : $@"SELECT DISTINCT cc.codigo
-                             FROM codigos_creados cc WITH (NOLOCK)
-                             INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                             INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                             INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                             WHERE cc.codigo IN ({string.Join(",", paramNames)})
-                               AND m.estado_id = 1
-                               AND (@movIdActual IS NULL OR m.id != @movIdActual)
-                               AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)";
+                     FROM codigos_creados cc WITH (NOLOCK)
+                     INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                     INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                     INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                     WHERE cc.codigo IN ({string.Join(",", paramNames)})
+                       AND m.estado_id = 1
+                       AND (@movIdActual IS NULL OR m.id > @movIdActual)
+                       AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 

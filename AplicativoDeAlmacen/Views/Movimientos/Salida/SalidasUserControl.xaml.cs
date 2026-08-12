@@ -1315,6 +1315,8 @@ namespace AplicativoDeAlmacen.Views
             modal.IsAddAction = true;
             modal.EstadoPermitido = 3; // Estado 3 = Disponible en Almacén
 
+            modal.MovimientoIdActual = _idMovimientoActual;
+
             if (modal.ShowDialog() == true && modal.FueGrabado)
             {
                 var productoSelected = modal._productoSeleccionado;

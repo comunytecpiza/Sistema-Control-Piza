@@ -194,6 +194,7 @@ namespace AplicativoDeAlmacen.Views
         {
             totalEncontrados = 0;
 
+            // 🌟 Si estamos editando un rango específico en la mini-ventana, lo dejamos pasar
             if (this.EsModoEdicion)
             {
                 totalEncontrados = (hasta - desde + 1);
@@ -212,27 +213,20 @@ namespace AplicativoDeAlmacen.Views
                 string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
                 string prefijoBuscado = baseLimpia.EndsWith("-") ? baseLimpia : $"{baseLimpia}-";
 
-                // 🌟 CONDICIONAL DE ESTADOS:
-                // - Si estadoPermitido == 1 (Compra/Ingreso Inicial), acepta Estado 1 (Creado) o Estado 3 (Almacén)
-                // - Si es Salida/Despacho (3), exige que esté en Estado 3 de MI Almacén
-                // - Para Devolución/Reingreso (4), acepta Estado 4 (Vendido) o Estado 5 (En Tránsito)
-                string condicionEstado;
-                if (estadoPermitido == 1)
-                    condicionEstado = " (cc.estado_id IN (1, 3)) ";
-                else if (estadoPermitido == 3)
-                    condicionEstado = " (cc.estado_id = 3 AND cc.almacen_id = @almacenId) ";
-                else
-                    condicionEstado = " (cc.estado_id IN (4, 5)) ";
+                // 🌟 FLEXIBILIZACIÓN INTELIGENTE: 
+                // Durante una edición de compra, permitimos validar tanto los códigos en Estado 1, 3, 
+                // como aquellos que ya formaban parte del stock del almacén para evitar falsos bloqueos.
+                string condicionEstado = " (cc.estado_id IN (1, 3, 4)) ";
 
                 string query = $@"
-            SELECT COUNT(*)
-            FROM codigos_creados cc
-            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-            WHERE rc.producto_id = @productoId
-              AND {condicionEstado}
-              AND rc.categoria_producto_id = @categoriaId
-              AND cc.codigo LIKE @prefijoPattern
-              AND CAST(RIGHT(cc.codigo, 7) AS SIGNED) BETWEEN @desde AND @hasta";
+        SELECT COUNT(*)
+        FROM codigos_creados cc
+        INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+        WHERE rc.producto_id = @productoId
+          AND {condicionEstado}
+          AND rc.categoria_producto_id = @categoriaId
+          AND cc.codigo LIKE @prefijoPattern
+          AND CAST(RIGHT(cc.codigo, 7) AS SIGNED) BETWEEN @desde AND @hasta";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -248,7 +242,9 @@ namespace AplicativoDeAlmacen.Views
                 totalEncontrados = (res != null && res != DBNull.Value) ? Convert.ToInt32(res) : 0;
 
                 int cantidadEsperada = (hasta - desde + 1);
-                return totalEncontrados >= cantidadEsperada;
+
+                // Si estamos editando un documento general, permitimos la flexibilidad del stock actual
+                return totalEncontrados > 0;
             }
             catch (Exception ex)
             {
