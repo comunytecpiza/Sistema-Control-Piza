@@ -1171,23 +1171,54 @@ VALUES
                     {
                         var batch = codigosAInsertar.Skip(i).Take(bulkSize).ToList();
 
-                        // Asegúrate de que estos dos métodos Helper existan debajo en la clase
+                        // 1. Inserción masiva de relaciones en movimiento_codigos
                         await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, batch, dbConn, transaccion);
 
                         var codigosParaActualizarEstado = new List<int>();
+
                         if (existingMovimientoId.HasValue)
                         {
-                            foreach (var codId in batch)
+                            // 🌟 2. CONSULTA EN LOTE MASIVO (1 sola consulta para los 1,000 elementos)
+                            var paramNamesBatch = batch.Select((_, idx) => $"@chkPost{idx}").ToList();
+
+                            string sqlFuturoLote = $@"
+            SELECT DISTINCT mc.codigo_creado_id
+            FROM movimiento_codigos mc WITH (NOLOCK)
+            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+            WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesBatch)})
+              AND m.id != @movId
+              AND m.estado_id = 1
+              AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
+
+                            var setCodigosConFuturo = new HashSet<int>();
+                            using (var cmdFutLote = dbConn.CreateCommand())
                             {
-                                bool tieneSalidaPosterior = await TieneMovimientosPosterioresAsync(codId, movimientoId, cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today, dbConn, transaccion);
-                                if (!tieneSalidaPosterior) codigosParaActualizarEstado.Add(codId);
+                                cmdFutLote.Transaction = transaccion;
+                                cmdFutLote.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoLote);
+                                AgregarParametro(cmdFutLote, "@movId", movimientoId);
+                                AgregarParametro(cmdFutLote, "@fechaEdicion", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
+
+                                for (int k = 0; k < batch.Count; k++)
+                                {
+                                    AgregarParametro(cmdFutLote, $"@chkPost{k}", batch[k]);
+                                }
+
+                                using var rdrFutLote = await cmdFutLote.ExecuteReaderAsync();
+                                while (await rdrFutLote.ReadAsync())
+                                {
+                                    setCodigosConFuturo.Add(rdrFutLote.GetInt32(0));
+                                }
                             }
+
+                            // Filtramos solo los que NO tienen salidas posteriores (operación ultra rápida en RAM)
+                            codigosParaActualizarEstado = batch.Where(codId => !setCodigosConFuturo.Contains(codId)).ToList();
                         }
                         else
                         {
                             codigosParaActualizarEstado = batch;
                         }
 
+                        // 3. Actualización masiva del estado_id = 3 (Disponible en Almacén)
                         if (codigosParaActualizarEstado.Any())
                         {
                             await ActualizarEstadoCodigosMasivoAsync(codigosParaActualizarEstado, 3, dbConn, transaccion);

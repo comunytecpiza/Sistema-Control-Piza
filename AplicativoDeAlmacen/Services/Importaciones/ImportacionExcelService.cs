@@ -12,6 +12,7 @@ using System.Data.Common;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace AplicativoDeAlmacen.Services.Importaciones
@@ -40,60 +41,118 @@ namespace AplicativoDeAlmacen.Services.Importaciones
 
         public async Task<List<string>> LeerCodigosDesdeExcelAsync(string ruta)
         {
-            var lista = new List<string>();
-            using var workbook = new XLWorkbook(ruta);
-            var ws = workbook.Worksheet(1);
-            var used = ws.RangeUsed();
-            if (used == null) return lista;
-
-            foreach (var row in used.Rows())
+            return await Task.Run(() =>
             {
-                foreach (var cell in row.Cells())
-                {
-                    var valor = cell.GetString().Trim();
-                    if (!string.IsNullOrWhiteSpace(valor))
-                    {
-                        // 🌟 LIMPIEZA TOTAL: Reemplazamos apostrófes por guiones
-                        // Esto hace que "LMA4 C26'V0000009" se convierta en "LMA4 C26-V0000009"
-                        string codigoLimpio = valor.Replace("'", "-");
+                using var workbook = new XLWorkbook(ruta);
 
-                        lista.Add(codigoLimpio);
+                // 🌟 1. Estimación de capacidad inicial para evitar reasignaciones de RAM
+                var lista = new List<string>(5000);
+
+                // Palabras clave de cabecera a omitir automáticamente
+                var cabecerasIgnorar = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "CODIGO", "CÓDIGO", "SERIES", "SERIE", "ID", "LISTA", "CODIGOS", "CÓDIGOS"
+        };
+
+                // 🌟 2. RECORRE TODAS LAS HOJAS DEL LIBRO DE EXCEL
+                foreach (var ws in workbook.Worksheets)
+                {
+                    var used = ws.RangeUsed();
+                    if (used == null) continue; // Si la hoja está totalmente vacía, pasa a la siguiente
+
+                    // 🌟 3. RECORRE TODAS LAS FILAS DE LA HOJA
+                    foreach (var row in used.Rows())
+                    {
+                        // 🌟 4. RECORRE TODAS LAS CELDAS/COLUMNAS DE LA FILA (A, B, C, D...)
+                        foreach (var cell in row.Cells())
+                        {
+                            string valorRaw = cell.GetString();
+                            if (string.IsNullOrWhiteSpace(valorRaw)) continue; // 🛡️ Descarta celdas vacías o con espacios
+
+                            // Limpieza previa de espacios y caracteres invisibles ocultos
+                            string valorLimpio = Regex.Replace(valorRaw, @"[\u200B-\u200D\uFEFF\u00A0]", "").Trim();
+
+                            if (string.IsNullOrWhiteSpace(valorLimpio)) continue;
+
+                            // Omitir palabras de cabecera
+                            if (cabecerasIgnorar.Contains(valorLimpio)) continue;
+
+                            // 🌟 5. REEMPLAZO DE APÓSTROFES POR GUIONES (Formatos de lectora)
+                            string codigoFinal = valorLimpio
+                                .Replace("'", "-")
+                                .Replace("\u2019", "-")  // Apóstrofe curvo derecho
+                                .Replace("\u2018", "-"); // Apóstrofe curvo izquierdo
+
+                            lista.Add(codigoFinal);
+                        }
                     }
                 }
-            }
-            return lista;
+
+                return lista;
+            });
         }
 
         public async Task<List<string>> ObtenerCodigosDuplicadosAsync(List<string> codigosExcel)
         {
             var duplicados = new List<string>();
 
-            if (!codigosExcel.Any())
+            if (codigosExcel == null || !codigosExcel.Any())
                 return duplicados;
+
+            // 🌟 1. PRE-FILTRO EN MEMORIA RAM: 
+            // Limpiamos espacios y quitamos los que estén repetidos dentro del mismo Excel
+            // para no enviarle basura o trabajo doble a la Base de Datos.
+            var codigosUnicosParaRevisar = codigosExcel
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Select(c => c.Trim().ToUpperInvariant())
+                .Distinct()
+                .ToList();
 
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            using var cmd = dbConn.CreateCommand();
+            // 🌟 2. TAMAÑO DEL LOTE (CHUNK): Enviamos de a 1,000 en 1,000
+            const int batchSize = 1000;
 
-            cmd.CommandText = @"
-                SELECT COUNT(*)
-                FROM codigos_creados
-                WHERE codigo=@codigo";
-
-            var p = cmd.CreateParameter();
-            p.ParameterName = "@codigo";
-            cmd.Parameters.Add(p);
-
-            foreach (var codigo in codigosExcel)
+            for (int i = 0; i < codigosUnicosParaRevisar.Count; i += batchSize)
             {
-                p.Value = codigo;
+                // Tomamos el lote actual (ej. del 0 al 1000, luego del 1000 al 2000...)
+                var loteActual = codigosUnicosParaRevisar.Skip(i).Take(batchSize).ToList();
 
-                int existe = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                using var cmd = dbConn.CreateCommand();
 
-                if (existe > 0)
-                    duplicados.Add(codigo);
+                // 🌟 3. ARMADO DINÁMICO DE PARÁMETROS: Creamos @p0, @p1, @p2...
+                var paramNames = loteActual.Select((_, idx) => $"@p{idx}").ToList();
+                string clausulaIn = string.Join(",", paramNames);
+
+                // Soporte Agnostic para MySQL y SQL Server (NOLOCK para lecturas sin bloqueos)
+                string tablaQuery = QueryAdapter.EsMySQL ? "codigos_creados cc" : "codigos_creados cc WITH (NOLOCK)";
+
+                // En lugar de COUNT(*), usamos IN (...) para traer los códigos que choquen
+                cmd.CommandText = QueryAdapter.FormatearConsulta($@"
+            SELECT cc.codigo 
+            FROM {tablaQuery} 
+            WHERE cc.codigo IN ({clausulaIn})");
+
+                // Agregamos los parámetros al comando
+                for (int j = 0; j < loteActual.Count; j++)
+                {
+                    var p = cmd.CreateParameter();
+                    p.ParameterName = $"@p{j}";
+                    p.Value = loteActual[j];
+                    cmd.Parameters.Add(p);
+                }
+
+                // 🌟 4. LECTURA SÚPER RÁPIDA
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    if (!reader.IsDBNull(0))
+                    {
+                        duplicados.Add(reader.GetString(0)); // Añade el código duplicado a nuestra lista
+                    }
+                }
             }
 
             return duplicados;

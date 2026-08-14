@@ -4,6 +4,7 @@ using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
@@ -27,6 +28,10 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
         public KardexUbicacionUserControl()
         {
             InitializeComponent();
+
+            // 🌟 1. SUSCRIPCIÓN AL DOBLE CLIC EN LA GRILLA
+            DgResumen.MouseDoubleClick += DgResumen_MouseDoubleClick;
+
             DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
             DpHasta.SelectedDate = DateTime.Now;
 
@@ -68,23 +73,19 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             {
                 Mouse.OverrideCursor = Cursors.Wait;
 
-                // 🌟 TOMA AUTOMÁTICAMENTE EL ALMACÉN DE LA SESIÓN ACTIVA
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-
                 string? filtroUbicacion = !string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text.Trim() : null;
 
-                // Consulta al KardexService enviando Producto, Fechas, Ubicación y Almacén
-                _reporteActual = await _kardexService.ConsultarMovimientosDetalladosAsync(
+                // 🌟 LLAMADA AL NUEVO MÉTODO EXCLUSIVO PARA UBICACIONES
+                _reporteActual = await _kardexService.ConsultarKardexPorUbicacionAsync(
                     productoId: _productoSeleccionadoId,
                     fechaDesde: DpDesde.SelectedDate.Value,
                     fechaHasta: DpHasta.SelectedDate.Value,
-                    razonSocial: null,
-                    ubicacion: filtroUbicacion,
-                    categoriaProductoId: null,
+                    filtroUbicacionTexto: filtroUbicacion,
                     almacenId: miAlmacenId);
 
                 DgResumen.ItemsSource = _reporteActual.Movimientos;
-                DgDetalles.ItemsSource = null; // Limpiar lista derecha hasta seleccionar fila
+                DgDetalles.ItemsSource = null; // Limpiar lista derecha
             }
             catch (Exception ex)
             {
@@ -93,6 +94,43 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             finally
             {
                 Mouse.OverrideCursor = null;
+            }
+        }
+
+        // 🌟 DOBLE CLIC EN LA GRILLA: Abre la vista previa del documento
+        private void DgResumen_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DgResumen.SelectedItem is ConsultaMovimientoItem fila)
+            {
+                string regLimpio = fila.NumeroRegistro?.Replace("❌ ANULADO - ", "").Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(regLimpio)) return;
+
+                string[] partes = regLimpio.Split(new[] { '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                string serie = partes.Length > 1 ? partes[0].Trim() : "0001";
+                string numero = partes.Length > 1 ? partes[1].Trim() : partes[0].Trim();
+
+                if (int.TryParse(numero, out int numVal))
+                {
+                    numero = numVal.ToString("D7");
+                }
+
+                bool esIngreso = fila.Ingreso > 0;
+
+                if (Window.GetWindow(this) is IMainWindow mainShell)
+                {
+                    if (esIngreso)
+                    {
+                        var vistaIngreso = new IngresoUserControl();
+                        vistaIngreso.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📥 Ingreso : {serie}-{numero} (Vista Previa)", vistaIngreso);
+                    }
+                    else if (fila.Salida > 0)
+                    {
+                        var vistaSalida = new SalidasUserControl();
+                        vistaSalida.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📤 Salida : {serie}-{numero} (Vista Previa)", vistaSalida);
+                    }
+                }
             }
         }
 
@@ -196,16 +234,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             }
         }
 
-        private void BtnSalir_Click(object sender, RoutedEventArgs e)
-        {
-            _productoSeleccionadoId = 0;
-            _ubicacionSeleccionadaId = 0;
-            TxtProducto.Text = string.Empty;
-            TxtUbicacion.Text = string.Empty;
-            TxtCodProducto.Text = string.Empty;
-            TxtCodUbicacion.Text = string.Empty;
-            DgResumen.ItemsSource = null;
-            DgDetalles.ItemsSource = null;
-        }
+        
     }
 }

@@ -635,114 +635,114 @@ namespace AplicativoDeAlmacen.Services
         }
 
         public async Task<List<KardexFisicoItem>> ObtenerHistorialCompletoPorCodigoAsync(
-    int productoId,
-    string codigoEscaneado,
-    int categoriaProductoId,
-    int almacenId = 1,
-    bool incluirAnulados = false)
-{
-    var lista = new List<KardexFisicoItem>();
-
-    using (var conn = _database.GetConnection())
-    {
-        await ((DbConnection)conn).OpenAsync();
-
-        // 🌟 1. OBTENEMOS LA ABREVIATURA REAL DEL PRODUCTO DESDE LA BD (Ej: "LMA3 C26-G-G")
-        string abreviaturaBase = "";
-        using (var cmdAbrev = conn.CreateCommand())
+            int productoId,
+            string codigoEscaneado,
+            int categoriaProductoId,
+            int almacenId = 1,
+            bool incluirAnulados = false)
         {
-            string nolockAbrev = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
-            cmdAbrev.CommandText = QueryAdapter.FormatearConsulta($"SELECT abreviatura FROM productos {nolockAbrev} WHERE id = @prodId");
-            AgregarParametro(cmdAbrev, "@prodId", productoId);
-            var resAbrev = await ((DbCommand)cmdAbrev).ExecuteScalarAsync();
-            if (resAbrev != null && resAbrev != DBNull.Value)
+            var lista = new List<KardexFisicoItem>();
+
+            using (var conn = _database.GetConnection())
             {
-                abreviaturaBase = resAbrev.ToString()!.Trim();
-            }
-        }
+                await ((DbConnection)conn).OpenAsync();
 
-        // 🌟 2. FORMATEAMOS EL CÓDIGO EXACTO CON LA ABREVIATURA Y LOS 7 DÍGITOS (Ej: LMA3 C26-G-G-0000010)
-        string codigoLimpio = codigoEscaneado.Trim();
-        if (int.TryParse(codigoLimpio, out int numParsed))
-        {
-            codigoLimpio = $"{abreviaturaBase}-{numParsed:D7}";
-        }
-        else if (!codigoLimpio.Contains("-") && !string.IsNullOrEmpty(abreviaturaBase))
-        {
-            codigoLimpio = $"{abreviaturaBase}-{codigoLimpio}";
-        }
-
-        using (var cmd = conn.CreateCommand())
-        {
-            string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
-            string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 2 ";
-
-            string sql = $@"
-    SELECT DISTINCT
-        m.fecha_movimiento,
-        m.created_at,
-        CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
-        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
-        COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
-        CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
-        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
-        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
-        m.estado_id,
-        CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre
-    FROM movimiento_codigos mc {nolock}
-    INNER JOIN movimiento_detalles md {nolock} ON mc.movimiento_detalle_id = md.id
-    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-    LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-    LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-    LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-    LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-    INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-    INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-    LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
-    WHERE md.producto_id = @ProductoId
-      AND rc.categoria_producto_id = @CategoriaProductoId
-      AND cc.codigo = @CodigoBusqueda
-      AND m.almacen_id = @AlmacenId
-      {sqlAnuladosFiltro}
-    ORDER BY m.created_at ASC";
-
-            cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
-
-            AgregarParametro(cmd, "@ProductoId", productoId);
-            AgregarParametro(cmd, "@CategoriaProductoId", categoriaProductoId);
-            AgregarParametro(cmd, "@CodigoBusqueda", codigoLimpio); // 👈 Buscará el código completo formateado
-            AgregarParametro(cmd, "@AlmacenId", almacenId);
-
-            using (var reader = await ((DbCommand)cmd).ExecuteReaderAsync())
-            {
-                while (await reader.ReadAsync())
+                // 🌟 1. OBTENEMOS LA ABREVIATURA REAL DEL PRODUCTO DESDE LA BD (Ej: "LMA3 C26-G-G")
+                string abreviaturaBase = "";
+                using (var cmdAbrev = conn.CreateCommand())
                 {
-                    int estId = reader.IsDBNull(8) ? 1 : reader.GetInt32(8);
-                    bool anulado = (estId == 2);
-                    string coleccionCalculada = reader.IsDBNull(9) ? "" : reader.GetString(9);
-
-                    var item = new KardexFisicoItem
+                    string nolockAbrev = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+                    cmdAbrev.CommandText = QueryAdapter.FormatearConsulta($"SELECT abreviatura FROM productos {nolockAbrev} WHERE id = @prodId");
+                    AgregarParametro(cmdAbrev, "@prodId", productoId);
+                    var resAbrev = await ((DbCommand)cmdAbrev).ExecuteScalarAsync();
+                    if (resAbrev != null && resAbrev != DBNull.Value)
                     {
-                        Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
-                        Tipo = Convert.ToString(reader.GetValue(2)) ?? "",
-                        Registro = Convert.ToString(reader.GetValue(3)) ?? "",
-                        RazonSocialUbicacion = Convert.ToString(reader.GetValue(4)) ?? "",
-                        Guia = Convert.ToString(reader.GetValue(5)) ?? "",
-                        IngresoNormal = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
-                        SalidaNormal = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
-                        Ingreso = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
-                        Salida = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
-                        IsAnulado = anulado
-                    };
+                        abreviaturaBase = resAbrev.ToString()!.Trim();
+                    }
+                }
 
-                    lista.Add(item);
+                // 🌟 2. FORMATEAMOS EL CÓDIGO EXACTO CON LA ABREVIATURA Y LOS 7 DÍGITOS (Ej: LMA3 C26-G-G-0000010)
+                string codigoLimpio = codigoEscaneado.Trim();
+                if (int.TryParse(codigoLimpio, out int numParsed))
+                {
+                    codigoLimpio = $"{abreviaturaBase}-{numParsed:D7}";
+                }
+                else if (!codigoLimpio.Contains("-") && !string.IsNullOrEmpty(abreviaturaBase))
+                {
+                    codigoLimpio = $"{abreviaturaBase}-{codigoLimpio}";
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+                    string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 2 ";
+
+                    string sql = $@"
+            SELECT DISTINCT
+                m.fecha_movimiento,
+                m.created_at,
+                CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
+                CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
+                COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
+                CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
+                CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
+                CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
+                m.estado_id,
+                CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre
+            FROM movimiento_codigos mc {nolock}
+            INNER JOIN movimiento_detalles md {nolock} ON mc.movimiento_detalle_id = md.id
+            INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+            INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+            LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+            LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+            LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+            LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+            INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+            INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+            LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
+            WHERE md.producto_id = @ProductoId
+              AND rc.categoria_producto_id = @CategoriaProductoId
+              AND cc.codigo = @CodigoBusqueda
+              AND m.almacen_id = @AlmacenId
+              {sqlAnuladosFiltro}
+            ORDER BY m.created_at ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
+
+                    AgregarParametro(cmd, "@ProductoId", productoId);
+                    AgregarParametro(cmd, "@CategoriaProductoId", categoriaProductoId);
+                    AgregarParametro(cmd, "@CodigoBusqueda", codigoLimpio); // 👈 Buscará el código completo formateado
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    using (var reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await reader.ReadAsync())
+                        {
+                            int estId = reader.IsDBNull(8) ? 1 : reader.GetInt32(8);
+                            bool anulado = (estId == 2);
+                            string coleccionCalculada = reader.IsDBNull(9) ? "" : reader.GetString(9);
+
+                            var item = new KardexFisicoItem
+                            {
+                                Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
+                                Tipo = Convert.ToString(reader.GetValue(2)) ?? "",
+                                Registro = Convert.ToString(reader.GetValue(3)) ?? "",
+                                RazonSocialUbicacion = Convert.ToString(reader.GetValue(4)) ?? "",
+                                Guia = Convert.ToString(reader.GetValue(5)) ?? "",
+                                IngresoNormal = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
+                                SalidaNormal = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
+                                Ingreso = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
+                                Salida = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
+                                IsAnulado = anulado
+                            };
+
+                            lista.Add(item);
+                        }
+                    }
                 }
             }
+            return lista;
         }
-    }
-    return lista;
-}
 
         public async Task<string> ObtenerNombreColeccionCodigoAsync(int productoId, string codigo, int categoriaProductoId)
         {
@@ -778,5 +778,161 @@ namespace AplicativoDeAlmacen.Services
                 return "";
             }
         }
+
+
+        // =========================================================
+        // 🌟 MÉTODO EXCLUSIVO: KÁRDEX POR UBICACIÓN (Aislado y Escalable)
+        // =========================================================
+        public async Task<ConsultaMovimientoReporte> ConsultarKardexPorUbicacionAsync(
+            int productoId,
+            DateTime fechaDesde,
+            DateTime fechaHasta,
+            string? filtroUbicacionTexto = null,
+            int almacenId = 1)
+        {
+            var reporte = new ConsultaMovimientoReporte();
+
+            using (IDbConnection conn = _database.GetConnection())
+            {
+                await ((DbConnection)conn).OpenAsync();
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+
+                // 🌟 1. TABLA IZQUIERDA: MOVIMIENTOS EXCLUSIVAMENTE CON UBICACIÓN
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+    SELECT DISTINCT
+        m.id,
+        m.fecha_movimiento,
+        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+        u.descripcion AS ubicacion_nombre, -- 👈 Muestra ÚNICAMENTE el nombre de la Ubicación
+        CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+        CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
+        CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
+        m.estado_id,
+        m.motivo_producto_id,
+        mp.tipo_movimiento_id
+    FROM movimiento_detalles md {nolock}
+    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+    INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id -- 👈 INNER JOIN ESTRICTO: Ignora clientes/proveedores/almacenes
+    WHERE md.producto_id = @ProductoId
+      AND m.fecha_movimiento >= @FechaDesde
+      AND m.fecha_movimiento <= @FechaHasta
+      AND m.estado_id != 2
+      AND (
+         (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+         (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+      )";
+
+                    // 🎯 Lógica del Filtro:
+                    // Si vino un texto en Ubicación, filtra por esa ubicación específica.
+                    // Si viene VACÍO, la consulta con INNER JOIN ya trae TODAS las ubicaciones registradas.
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                    {
+                        queryRaw += " AND u.descripcion LIKE @FiltroUbicacion";
+                    }
+
+                    queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+
+                    AgregarParametro(cmd, "@ProductoId", productoId);
+                    AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                    {
+                        AgregarParametro(cmd, "@FiltroUbicacion", "%" + filtroUbicacionTexto.Trim() + "%");
+                    }
+
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
+                            bool anulado = (estadoId == 2);
+
+                            reporte.Movimientos.Add(new ConsultaMovimientoItem
+                            {
+                                Fecha = reader.IsDBNull(1) ? DateTime.MinValue : reader.GetDateTime(1),
+                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + Convert.ToString(reader.GetValue(2)),
+                                RazonSocialUbicacion = Convert.ToString(reader.GetValue(3)) ?? "SIN UBICACIÓN", // Muestra únicamente la Ubicación
+                                NumeroGuia = Convert.ToString(reader.GetValue(4)) ?? "",
+                                Ingreso = reader.GetDecimal(5),
+                                Salida = reader.GetDecimal(6),
+                                IsAnulado = anulado
+                            });
+                        }
+                    }
+                }
+
+                // 🌟 2. TABLA DERECHA: CÓDIGOS ASOCIADOS A DICHOS MOVIMIENTOS
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+    SELECT DISTINCT
+        COALESCE(cc.codigo, 'N/A') AS codigo,
+        COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
+        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
+        CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
+    FROM movimiento_detalles md {nolock}
+    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+    INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id -- 👈 INNER JOIN ESTRICTO
+    INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+    INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+    INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+    LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
+    WHERE md.producto_id = @ProductoId
+      AND m.fecha_movimiento >= @FechaDesde
+      AND m.fecha_movimiento <= @FechaHasta
+      AND m.estado_id != 2
+      AND (
+         (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+         (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+      )";
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                    {
+                        queryRaw += " AND u.descripcion LIKE @FiltroUbicacion";
+                    }
+
+                    queryRaw += " ORDER BY codigo ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+
+                    AgregarParametro(cmd, "@ProductoId", productoId);
+                    AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                    {
+                        AgregarParametro(cmd, "@FiltroUbicacion", "%" + filtroUbicacionTexto.Trim() + "%");
+                    }
+
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            reporte.Codigos.Add(new ConsultaCodigoItem
+                            {
+                                Codigo = Convert.ToString(reader.GetValue(0)) ?? "N/A",
+                                ColeccionTipo = Convert.ToString(reader.GetValue(1)) ?? "SIN TIPO",
+                                NumeroRegistro = Convert.ToString(reader.GetValue(2)) ?? "",
+                                TipoMovimiento = Convert.ToString(reader.GetValue(3)) ?? ""
+                            });
+                        }
+                    }
+                }
+            }
+
+            return reporte;
+        }
     }
+
+
+
 }

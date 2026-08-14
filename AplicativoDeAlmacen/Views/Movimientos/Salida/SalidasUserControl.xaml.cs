@@ -1807,7 +1807,7 @@ namespace AplicativoDeAlmacen.Views
             try
             {
                 var win = new ImportarCodigos { Owner = Window.GetWindow(this) };
-                win.EstadoPermitido = 3;
+                win.EstadoPermitido = 3; // Estado 3 = Disponible en Almacén
 
                 if (win.ShowDialog() != true) return;
 
@@ -1821,51 +1821,66 @@ namespace AplicativoDeAlmacen.Views
 
                 this.Cursor = Cursors.Wait;
 
-                var progressModal = new ProgressWindow("Procesando Archivo de Despacho", "Sincronizando registros con la grilla de salidas principales...", async (progress) =>
+                var progressModal = new ProgressWindow("Procesando Archivo de Despacho", "Sincronizando registros con la grilla de salidas...", async (progress) =>
                 {
-                    var lookup = await ingService.ObtenerCodigosPorListaAsync(listaRaw);
-                    int total = listaRaw.Count;
-                    int ultimoPorcentajeReportado = -1;
-
-                    for (int i = 0; i < total; i++)
+                    await Task.Run(async () =>
                     {
-                        string norm = ingService.NormalizarCodigo(listaRaw[i]);
-                        if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null && tup.ProductoId.HasValue)
+                        // 🌟 1. BÚSQUEDA MASIVA EN BD
+                        var lookup = await ingService.ObtenerCodigosPorListaAsync(listaRaw);
+
+                        // 🌟 2. HASHSET O(1) PARA GRILLA EXISTENTE (Cero Dispatcher en el bucle)
+                        var setCodigosGrilla = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        Application.Current.Dispatcher.Invoke(() =>
                         {
-                            if (tup.CodigoObj.EstadoId != 3) continue;
-
-                            int pId = tup.ProductoId.Value;
-
-                            // 🛡️ CANDADO ANTI-DUPLICADOS EN MEMORIA
-                            bool yaExisteEnGrilla = false;
-                            Application.Current.Dispatcher.Invoke(() => {
-                                yaExisteEnGrilla = _codigosLista.Any(c => c.ProductoId == pId && ingService.NormalizarCodigo(c.CodigoUnique) == norm);
-                            });
-                            if (yaExisteEnGrilla) continue;
-
-                            string tipoBD = await ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
-
-                            var nuevoCodigoGrid = new VistaCodigoGrid
+                            foreach (var c in _codigosLista)
                             {
-                                MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
-                                CodigoUnique = tup.CodigoObj.Codigo,
-                                ProductoId = pId,
-                                ColeccionTipo = tipoBD
-                            };
+                                if (!string.IsNullOrEmpty(c.CodigoUnique))
+                                {
+                                    setCodigosGrilla.Add(ingService.NormalizarCodigo(c.CodigoUnique));
+                                }
+                            }
+                        });
 
-                            lock (codigosProcesadosLote)
+                        int total = listaRaw.Count;
+                        int ultimoPorcentajeReportado = -1;
+
+                        for (int i = 0; i < total; i++)
+                        {
+                            string norm = ingService.NormalizarCodigo(listaRaw[i]);
+
+                            if (lookup.TryGetValue(norm, out var tup) && tup.CodigoObj != null && tup.ProductoId.HasValue)
                             {
-                                codigosProcesadosLote.Add(nuevoCodigoGrid);
+                                // Regla de Negocio: En Salida solo entran los que estén en Estado 3
+                                if (tup.CodigoObj.EstadoId != 3) continue;
+
+                                int pId = tup.ProductoId.Value;
+
+                                // 🛡️ Búsqueda ultra rápida O(1)
+                                if (setCodigosGrilla.Contains(norm)) continue;
+                                setCodigosGrilla.Add(norm); // Evita duplicados dentro del lote Excel
+
+                                var nuevoCodigoGrid = new VistaCodigoGrid
+                                {
+                                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id },
+                                    CodigoUnique = tup.CodigoObj.Codigo,
+                                    ProductoId = pId,
+                                    ColeccionTipo = "LIBRO VENTA"
+                                };
+
+                                lock (codigosProcesadosLote)
+                                {
+                                    codigosProcesadosLote.Add(nuevoCodigoGrid);
+                                }
+                            }
+
+                            int pct = (i * 100) / total;
+                            if (pct > ultimoPorcentajeReportado)
+                            {
+                                ultimoPorcentajeReportado = pct;
+                                progress.Report(pct);
                             }
                         }
-
-                        int pct = (i * 100) / total;
-                        if (pct > ultimoPorcentajeReportado)
-                        {
-                            ultimoPorcentajeReportado = pct;
-                            progress.Report(pct);
-                        }
-                    }
+                    });
                 });
 
                 progressModal.Owner = Window.GetWindow(this);
@@ -1877,7 +1892,7 @@ namespace AplicativoDeAlmacen.Views
                         _codigosLista.Add(nuevoCod);
                     }
 
-                    // Sincronizar cantidades exactas de productos según los códigos ingresados
+                    // Sincronizar cantidades exactas
                     var productosAfectados = codigosProcesadosLote.Select(c => c.ProductoId).Distinct();
                     foreach (var pId in productosAfectados)
                     {
@@ -1886,7 +1901,6 @@ namespace AplicativoDeAlmacen.Views
 
                         if (existente != null)
                         {
-
                             existente.Cantidad = conteoTotal;
                             if (existente.Detalle != null) existente.Detalle.CantidadSalida = conteoTotal;
                         }
@@ -1911,7 +1925,7 @@ namespace AplicativoDeAlmacen.Views
                     }
 
                     RefrescarGrillas();
-                    MessageBox.Show("Lote de Excel importado correctamente. Los códigos duplicados fueron omitidos.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("Lote importado correctamente. Los códigos duplicados o no disponibles fueron omitidos.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
             }
             catch (Exception ex)

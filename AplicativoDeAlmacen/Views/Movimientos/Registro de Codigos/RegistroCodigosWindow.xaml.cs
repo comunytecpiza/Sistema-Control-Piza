@@ -379,10 +379,10 @@ namespace AplicativoDeAlmacen.Views
                     var importService = new ImportacionExcelService();
                     List<string> codigosBrutos = new List<string>();
 
-                    // 🌟 1. LEER EXCEL EN SEGUNDO PLANO (Cursor de carga temporal)
+                    // 1. Lectura rápida del Excel
                     Mouse.OverrideCursor = Cursors.Wait;
                     codigosBrutos = await importService.LeerCodigosDesdeExcelAsync(openFileDialog.FileName);
-                    Mouse.OverrideCursor = null; // 🚀 APAGAMOS EL CURSOR DE CARGA AQUÍ MISMO
+                    Mouse.OverrideCursor = null;
 
                     if (!codigosBrutos.Any())
                     {
@@ -390,36 +390,49 @@ namespace AplicativoDeAlmacen.Views
                         return;
                     }
 
-                    // 🌟 2. CONSULTAR DUPLICADOS CON BASE DE DATOS
+                    // 🌟 OPTIMIZACIÓN CLAVE: Filtrar previamente los códigos que coinciden con el prefijo del producto seleccionado
+                    string prefijoLimpio = productoAbreviaturaActual.Replace(" ", "").Replace("-", "").ToUpperInvariant();
+
+                    // Solo mandamos a consultar a la BD aquellos códigos que SÍ pertenecen a este producto
+                    var codigosCandidatosProducto = codigosBrutos
+                        .Where(c => !string.IsNullOrWhiteSpace(c) &&
+                                    c.Replace(" ", "").Replace("-", "").Trim().ToUpperInvariant()
+                                     .StartsWith(prefijoLimpio, StringComparison.OrdinalIgnoreCase))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
                     List<string> duplicadosBD = new List<string>();
-                    var loadingModal = new ProgressWindow("Verificando Base de Datos", "Cruzando información con el inventario...", async (progress) =>
+
+                    // Solo consultamos la BD si hay candidatos válidos para este producto
+                    if (codigosCandidatosProducto.Any())
                     {
-                        duplicadosBD = await importService.ObtenerCodigosDuplicadosAsync(codigosBrutos);
-                    });
+                        var loadingModal = new ProgressWindow("Verificando Base de Datos", $"Cruzando {codigosCandidatosProducto.Count:N0} candidatos con el inventario...", async (progress) =>
+                        {
+                            duplicadosBD = await importService.ObtenerCodigosDuplicadosAsync(codigosCandidatosProducto);
+                        });
 
-                    loadingModal.Owner = Window.GetWindow(this);
+                        loadingModal.Owner = Window.GetWindow(this);
+                        loadingModal.ShowDialog();
+                    }
 
-                    if (loadingModal.ShowDialog() == true)
+                    Mouse.OverrideCursor = null;
+
+                    // 2. Abrir la vista previa con todos los códigos brutos para auditoría completa
+                    var ventana = new VistaPreviaExcelWindow(codigosBrutos, duplicadosBD, productoAbreviaturaActual);
+                    ventana.Owner = Window.GetWindow(this);
+
+                    if (ventana.ShowDialog() == true)
                     {
-                        // 🌟 3. GARANTIZAR CURSOR NORMAL ANTES DE ABRIR LA VISTA PREVIA
-                        Mouse.OverrideCursor = null;
-
-                        var ventana = new VistaPreviaExcelWindow(codigosBrutos, duplicadosBD, productoAbreviaturaActual);
-                        ventana.Owner = Window.GetWindow(this);
-
-                        if (ventana.ShowDialog() == true)
-                        {
-                            _codigosImportados = ventana.CodigosAprobados;
-                            TxtCantidadExcel.Text = $"Aprobados para guardar: {_codigosImportados.Count}";
-                            BtnVisualizarExcel.IsEnabled = true;
-                            btnGuardar.IsEnabled = _codigosImportados.Count > 0;
-                        }
-                        else
-                        {
-                            _codigosImportados.Clear();
-                            TxtCantidadExcel.Text = "Aprobados para guardar: 0 (Proceso Cancelado)";
-                            btnGuardar.IsEnabled = false;
-                        }
+                        _codigosImportados = ventana.CodigosAprobados;
+                        TxtCantidadExcel.Text = $"Aprobados para guardar: {_codigosImportados.Count:N0}";
+                        BtnVisualizarExcel.IsEnabled = true;
+                        btnGuardar.IsEnabled = _codigosImportados.Count > 0;
+                    }
+                    else
+                    {
+                        _codigosImportados.Clear();
+                        TxtCantidadExcel.Text = "Aprobados para guardar: 0 (Proceso Cancelado)";
+                        btnGuardar.IsEnabled = false;
                     }
                 }
                 catch (Exception ex)
@@ -430,7 +443,6 @@ namespace AplicativoDeAlmacen.Views
                 }
                 finally
                 {
-                    // 🚀 SEGURO DE VIDA: Garantizamos que bajo cualquier excepción el cursor vuelva a la normalidad
                     Mouse.OverrideCursor = null;
                 }
             }

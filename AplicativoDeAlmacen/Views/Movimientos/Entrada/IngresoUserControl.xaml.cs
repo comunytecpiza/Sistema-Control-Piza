@@ -1669,53 +1669,79 @@ namespace AplicativoDeAlmacen.Views
             var listaRaw = win.CodigosImportados ?? new List<string>();
             if (!listaRaw.Any()) return;
 
-            var lookup = new Dictionary<string, (CodigoCreado CodigoObj, int? ProductoId)>(StringComparer.OrdinalIgnoreCase);
+            this.Cursor = Cursors.Wait;
+
             var codigosFisicosAgrupados = new Dictionary<int, List<VistaCodigoGrid>>();
 
-            var loadingTransfer = new ProgressWindow("Procesando Códigos Importados", "Sincronizando registros con la grilla de movimientos principales...", async (progress) =>
+            var loadingTransfer = new ProgressWindow("Procesando Códigos Importados", "Sincronizando registros masivos con el inventario...", async (progress) =>
             {
-                lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaRaw);
-
-                int total = listaRaw.Count;
-                int ultimoPorcentaje = -1;
-
-                for (int i = 0; i < total; i++)
+                await Task.Run(async () =>
                 {
-                    string raw = listaRaw[i];
-                    string norm = _serviceMovimiento.NormalizarCodigo(raw);
-                    if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue) continue;
+                    // 🌟 1. BUSQUEDA MASIVA EN BD (1 Solo Viaje en Lote)
+                    var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(listaRaw);
 
-                    int pId = tup.ProductoId.Value;
-
-                    // 🛡️ CANDADO ANTI-DUPLICADOS: Verificar contra la grilla activa en memoria
-                    bool yaExiste = false;
+                    // 🌟 2. HASHSET ULTRA RÁPIDO O(1) PARA EVITAR DISPATCHER EN EL BUCLE
+                    var setExistentesEnGrilla = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     Application.Current.Dispatcher.Invoke(() =>
                     {
-                        yaExiste = _codigosGridList.Any(c => c.ProductoId == pId && _serviceMovimiento.NormalizarCodigo(c.CodigoUnique) == norm);
+                        foreach (var c in _codigosGridList)
+                        {
+                            if (!string.IsNullOrEmpty(c.CodigoUnique))
+                            {
+                                setExistentesEnGrilla.Add(_serviceMovimiento.NormalizarCodigo(c.CodigoUnique));
+                            }
+                        }
                     });
 
-                    if (yaExiste) continue; // Si ya está, se omite
+                    int total = listaRaw.Count;
+                    int ultimoPorcentaje = -1;
 
-                    string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(tup.CodigoObj.Id);
+                    var listaNuevosCodigosLocal = new List<VistaCodigoGrid>(total);
 
-                    if (!codigosFisicosAgrupados.ContainsKey(pId))
-                        codigosFisicosAgrupados[pId] = new List<VistaCodigoGrid>();
-
-                    codigosFisicosAgrupados[pId].Add(new VistaCodigoGrid
+                    for (int i = 0; i < total; i++)
                     {
-                        ProductoId = pId,
-                        CodigoUnique = tup.CodigoObj.Codigo,
-                        ColeccionTipo = tipoBD,
-                        MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
-                    });
+                        string raw = listaRaw[i];
+                        string norm = _serviceMovimiento.NormalizarCodigo(raw);
 
-                    int pct = (i * 100) / total;
-                    if (pct > ultimoPorcentaje)
-                    {
-                        ultimoPorcentaje = pct;
-                        progress.Report(pct);
+                        if (!lookup.TryGetValue(norm, out var tup) || tup.CodigoObj == null || !tup.ProductoId.HasValue)
+                            continue;
+
+                        int pId = tup.ProductoId.Value;
+
+                        // 🛡️ BÚSQUEDA RÁPIDA O(1) EN MEMORIA RAM (Cero Dispatcher)
+                        if (setExistentesEnGrilla.Contains(norm))
+                            continue;
+
+                        setExistentesEnGrilla.Add(norm); // Evita duplicados dentro del mismo lote
+
+                        var nuevoCod = new VistaCodigoGrid
+                        {
+                            ProductoId = pId,
+                            CodigoUnique = tup.CodigoObj.Codigo,
+                            ColeccionTipo = "LIBRO VENTA", // Asignación rápida predeterminada
+                            MovCodigo = new MovimientoCodigo { CodigoCreadoId = tup.CodigoObj.Id }
+                        };
+
+                        listaNuevosCodigosLocal.Add(nuevoCod);
+
+                        // Reportar progreso periódicamente (máximo 100 actualizaciones de UI)
+                        int pct = (i * 100) / total;
+                        if (pct > ultimoPorcentaje)
+                        {
+                            ultimoPorcentaje = pct;
+                            progress.Report(pct);
+                        }
                     }
-                }
+
+                    // Agrupar localmente por producto
+                    foreach (var item in listaNuevosCodigosLocal)
+                    {
+                        if (!codigosFisicosAgrupados.ContainsKey(item.ProductoId))
+                            codigosFisicosAgrupados[item.ProductoId] = new List<VistaCodigoGrid>();
+
+                        codigosFisicosAgrupados[item.ProductoId].Add(item);
+                    }
+                });
             });
 
             loadingTransfer.Owner = Window.GetWindow(this);
@@ -1746,7 +1772,7 @@ namespace AplicativoDeAlmacen.Views
                     RefrescarGrillas();
                     if (_productosGridList.Count > 0) dgProductos.SelectedItem = _productosGridList.Last();
 
-                    MessageBox.Show($"Importación finalizada con éxito.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"Importación finalizada con éxito. Registros procesados.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {

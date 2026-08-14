@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -31,13 +32,14 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
         public KardexValorizadoUserControl()
         {
             InitializeComponent();
-
+            DgResumen.MouseDoubleClick += DgResumen_MouseDoubleClick;
             DpDesde.SelectedDate = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
             DpHasta.SelectedDate = DateTime.Now;
 
             // Configurar el Debounce Timer
             _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _searchTimer.Tick += async (s, e) =>
+
             {
                 _searchTimer.Stop();
                 await EjecutarBusquedaProductosAsync(_pendingSearchText);
@@ -74,9 +76,54 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
             };
         }
 
+
+        private void DgResumen_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            // 🌟 1. Obtener la fila seleccionada usando la clase real 'KardexValorizadoItem'
+            if (DgResumen.SelectedItem is KardexValorizadoItem fila)
+            {
+                // Usamos 'Registro' que contiene la cadena del documento (ej. "0001-0000003")
+                if (string.IsNullOrWhiteSpace(fila.Registro)) return;
+
+                // 🌟 2. Separar Serie y Número
+                string[] partes = fila.Registro.Split(new[] { '-', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                string serie = partes.Length > 1 ? partes[0].Trim() : "0001";
+                string numero = partes.Length > 1 ? partes[1].Trim() : partes[0].Trim();
+
+                // Autocompletar a 7 dígitos si es numérico
+                if (int.TryParse(numero, out int numVal))
+                {
+                    numero = numVal.ToString("D7");
+                }
+
+                // 🌟 3. Determinar si es Ingreso o Salida usando las propiedades correctas
+                bool esIngreso = fila.IngresoFisico > 0;
+
+                // 🌟 4. Obtener la ventana principal contenedora para abrir la pestaña
+                if (Window.GetWindow(this) is IMainWindow mainShell)
+                {
+                    if (esIngreso)
+                    {
+                        // 🟢 ABRIR VISTA PREVIA DE INGRESO
+                        var vistaIngreso = new IngresoUserControl();
+                        vistaIngreso.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📥 Ingreso : {serie}-{numero} (Vista Previa)", vistaIngreso);
+                    }
+                    else if (fila.SalidaFisico > 0)
+                    {
+                        // 🔴 ABRIR VISTA PREVIA DE SALIDA
+                        var vistaSalida = new SalidasUserControl();
+                        vistaSalida.CargarDocumentoParaConsulta(serie, numero);
+                        mainShell.AbrirPestaña($"📤 Salida : {serie}-{numero} (Vista Previa)", vistaSalida);
+                    }
+                }
+            }
+        }
         // ==========================================
         // AUTOCOMPLETADO BLINDADO CONTRA CORTES DE ESCRITURA
         // ==========================================
+
 
         private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
         {

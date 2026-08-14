@@ -28,7 +28,7 @@ namespace AplicativoDeAlmacen.Views
         public VistaPreviaExcelWindow(List<string> todosLosCodigos, List<string> duplicadosBD, string prefijoEsperado = null)
         {
             InitializeComponent();
-            _todosLosCodigos = todosLosCodigos;
+            _todosLosCodigos = todosLosCodigos ?? new List<string>();
             _duplicadosBD = duplicadosBD ?? new List<string>();
             _prefijoEsperado = prefijoEsperado?.Trim().ToUpperInvariant();
 
@@ -40,11 +40,11 @@ namespace AplicativoDeAlmacen.Views
             MessageBox.Show(mensaje, titulo, MessageBoxButton.OK, icono);
         }
 
-        private string LimpiarCodigo(string input)
+        private static string LimpiarCodigoRapido(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-            string limpiado = Regex.Replace(input, @"[\u200B-\u200D\uFEFF\u00A0\t\r\n\0]", "");
-            return limpiado.Trim().ToUpperInvariant();
+            // Limpieza eficiente en memoria
+            return input.Trim().ToUpperInvariant().Replace("\t", "").Replace("\r", "").Replace("\n", "");
         }
 
         private async void VistaPreviaExcelWindow_Loaded(object sender, RoutedEventArgs e)
@@ -57,34 +57,46 @@ namespace AplicativoDeAlmacen.Views
                 int contadorValidos = 0;
                 int contadorErrores = 0;
 
-                var loadingModal = new ProgressWindow("Auditoría de Lote", "Analizando colisiones internas, base de datos y prefijos...", async (progress) =>
+                var loadingModal = new ProgressWindow("Auditoría de Lote Masivo", "Validando duplicados e integridad de 20,000+ registros...", async (progress) =>
                 {
                     await Task.Run(() =>
                     {
                         int total = _todosLosCodigos.Count;
                         if (total == 0) return;
 
-                        // 🌟 1. Pre-asignación en Array Fijo (Cero reasignación de memoria)
                         var arregloResultados = new CodigoExcelPreview[total];
 
-                        // 🌟 2. Sets de búsqueda O(1) con comparador rápido
-                        var setDuplicadosBD = new HashSet<string>(_duplicadosBD.Select(LimpiarCodigo), StringComparer.OrdinalIgnoreCase);
+                        // 🌟 1. HashSet O(1) con capacidad preasignada
+                        var setDuplicadosBD = new HashSet<string>(_duplicadosBD.Count, StringComparer.OrdinalIgnoreCase);
+                        foreach (var d in _duplicadosBD)
+                        {
+                            string dLimpio = LimpiarCodigoRapido(d);
+                            if (!string.IsNullOrEmpty(dLimpio)) setDuplicadosBD.Add(dLimpio);
+                        }
+
                         var codigosProcesadosEnExcel = new HashSet<string>(total, StringComparer.OrdinalIgnoreCase);
 
-                        // Normalizar prefijo esperado una sola vez fuera del bucle
                         string prefijoLimpio = (_prefijoEsperado ?? "").Replace(" ", "").Replace("-", "").ToUpperInvariant();
                         bool tienePrefijoFiltro = !string.IsNullOrEmpty(prefijoLimpio);
 
                         int validosLocales = 0;
                         int erroresLocales = 0;
+
+                        // 🌟 2. Punteros para colocar ERRORES al inicio y VÁLIDOS al final (O(N) sin ordenar)
+                        int indexErrores = 0;
+                        int indexValidos = total - 1;
+
                         int ultimoPorcentajeReportado = -1;
 
                         for (int i = 0; i < total; i++)
                         {
-                            string cod = LimpiarCodigo(_todosLosCodigos[i]);
+                            string cod = LimpiarCodigoRapido(_todosLosCodigos[i]);
+
+                            CodigoExcelPreview item;
+
                             if (string.IsNullOrEmpty(cod))
                             {
-                                arregloResultados[i] = new CodigoExcelPreview
+                                item = new CodigoExcelPreview
                                 {
                                     Numero = i + 1,
                                     Codigo = "VACÍO",
@@ -92,51 +104,57 @@ namespace AplicativoDeAlmacen.Views
                                     EsValido = false
                                 };
                                 erroresLocales++;
-                                continue;
+                                arregloResultados[indexErrores++] = item;
+                            }
+                            else
+                            {
+                                bool esDuplicadoBD = setDuplicadosBD.Contains(cod);
+                                bool esDuplicadoInternoExcel = !codigosProcesadosEnExcel.Add(cod);
+
+                                bool cumplePrefijo = true;
+                                if (tienePrefijoFiltro)
+                                {
+                                    string codLimpioComparar = cod.Replace(" ", "").Replace("-", "");
+                                    cumplePrefijo = codLimpioComparar.StartsWith(prefijoLimpio, StringComparison.OrdinalIgnoreCase);
+                                }
+
+                                bool esValido = !esDuplicadoBD && !esDuplicadoInternoExcel && cumplePrefijo;
+                                string mensajeEstado = "✅ Listo para generar";
+
+                                if (esDuplicadoBD)
+                                {
+                                    mensajeEstado = "❌ Ya existe en Base de Datos";
+                                }
+                                else if (esDuplicadoInternoExcel)
+                                {
+                                    mensajeEstado = "❌ Duplicado Repetido en Excel";
+                                }
+                                else if (!cumplePrefijo)
+                                {
+                                    mensajeEstado = $"❌ Prefijo ajeno (Esperado: {_prefijoEsperado})";
+                                }
+
+                                item = new CodigoExcelPreview
+                                {
+                                    Numero = i + 1,
+                                    Codigo = cod,
+                                    Estado = mensajeEstado,
+                                    EsValido = esValido
+                                };
+
+                                if (esValido)
+                                {
+                                    validosLocales++;
+                                    arregloResultados[indexValidos--] = item;
+                                }
+                                else
+                                {
+                                    erroresLocales++;
+                                    arregloResultados[indexErrores++] = item;
+                                }
                             }
 
-                            // A. ¿Existe en la Base de Datos?
-                            bool esDuplicadoBD = setDuplicadosBD.Contains(cod);
-
-                            // B. ¿Es una repetición dentro del mismo Excel?
-                            bool esDuplicadoInternoExcel = !codigosProcesadosEnExcel.Add(cod);
-
-                            // C. Validación de Prefijo Rápida (Sin Regex)
-                            bool cumplePrefijo = true;
-                            if (tienePrefijoFiltro)
-                            {
-                                string codLimpioComparar = cod.Replace(" ", "").Replace("-", "");
-                                cumplePrefijo = codLimpioComparar.StartsWith(prefijoLimpio, StringComparison.OrdinalIgnoreCase);
-                            }
-
-                            // 🛑 Evaluación estricta de validez
-                            bool esValido = !esDuplicadoBD && !esDuplicadoInternoExcel && cumplePrefijo;
-                            string mensajeEstado = "✅ Listo para generar";
-
-                            if (esDuplicadoBD)
-                            {
-                                mensajeEstado = "❌ Ya existe en Base de Datos";
-                            }
-                            else if (esDuplicadoInternoExcel)
-                            {
-                                mensajeEstado = "❌ Duplicado Repetido en Excel";
-                            }
-                            else if (!cumplePrefijo)
-                            {
-                                mensajeEstado = $"❌ Prefijo ajeno (Esperado: {_prefijoEsperado})";
-                            }
-
-                            if (esValido) validosLocales++; else erroresLocales++;
-
-                            arregloResultados[i] = new CodigoExcelPreview
-                            {
-                                Numero = i + 1,
-                                Codigo = cod,
-                                Estado = mensajeEstado,
-                                EsValido = esValido
-                            };
-
-                            // ⏱️ Reportar progreso solo cuando cambie el porcentaje entero (Máximo 100 llamadas)
+                            // Reportar progreso periódicamente
                             int pct = (i * 100) / total;
                             if (pct > ultimoPorcentajeReportado)
                             {
@@ -145,10 +163,12 @@ namespace AplicativoDeAlmacen.Views
                             }
                         }
 
-                        // 🌟 3. Ordenar arreglo ultrarrápido: Errores primero
-                        Array.Sort(arregloResultados, (a, b) => a.EsValido.CompareTo(b.EsValido));
+                        // Reordenar elementos válidos preservando prioridad de errores al inicio
+                        var listaFinal = new List<CodigoExcelPreview>(total);
+                        for (int k = 0; k < indexErrores; k++) listaFinal.Add(arregloResultados[k]);
+                        for (int k = total - 1; k > indexValidos; k--) listaFinal.Add(arregloResultados[k]);
 
-                        _listaVisual = arregloResultados.ToList();
+                        _listaVisual = listaFinal;
                         contadorValidos = validosLocales;
                         contadorErrores = erroresLocales;
                     });
@@ -158,19 +178,19 @@ namespace AplicativoDeAlmacen.Views
 
                 if (loadingModal.ShowDialog() == true)
                 {
-                    TxtResumen.Text = $"Total: {_listaVisual.Count} | Aptos: {contadorValidos} | Errores/Repetidos: {contadorErrores}";
+                    TxtResumen.Text = $"Total: {_listaVisual.Count:N0} | Aptos: {contadorValidos:N0} | Errores/Repetidos: {contadorErrores:N0}";
 
-                    // 🟢 Carga ultra fluida al DataGrid
+                    // Renderizado rápido en grilla con límite visual
                     DgCodigos.ItemsSource = null;
                     DgCodigos.ItemsSource = _listaVisual.Take(1000).ToList();
 
                     if (_listaVisual.Count > 1000)
                     {
-                        TxtResumen.Text += " (Mostrando primeros 1,000 registros para mayor fluidez)";
+                        TxtResumen.Text += " (Mostrando primeros 1,000 registros para fluidez visual)";
                     }
 
                     BtnConfirmar.IsEnabled = contadorValidos > 0;
-                    BtnConfirmar.Content = contadorValidos > 0 ? $"Confirmar ({contadorValidos} Aptos)" : "Lote Inválido";
+                    BtnConfirmar.Content = contadorValidos > 0 ? $"Confirmar ({contadorValidos:N0} Aptos)" : "Lote Inválido";
                     if (contadorValidos == 0) BtnConfirmar.Background = System.Windows.Media.Brushes.Gray;
                 }
             }
@@ -189,7 +209,7 @@ namespace AplicativoDeAlmacen.Views
             int invalidos = _listaVisual.Count(x => !x.EsValido);
             if (invalidos > 0)
             {
-                var resp = MessageBox.Show($"Se detectaron {invalidos} códigos inválidos (repetidos en Excel, existentes en BD o con prefijo ajeno).\n\n¿Desea omitir los errores y guardar ÚNICAMENTE los válidos?", "Filtro de Seguridad", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                var resp = MessageBox.Show($"Se detectaron {invalidos:N0} códigos inválidos (repetidos en Excel, existentes en BD o con prefijo ajeno).\n\n¿Desea omitir los errores y guardar ÚNICAMENTE los válidos?", "Filtro de Seguridad", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (resp == MessageBoxResult.No) return;
             }
 
