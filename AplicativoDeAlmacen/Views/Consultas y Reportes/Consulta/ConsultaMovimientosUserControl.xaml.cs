@@ -380,31 +380,44 @@ namespace AplicativoDeAlmacen.Views
                     movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
                 }
 
-                // Filtrar por Almacén ID seleccionado
+                // Filtrar por Almacén si está activo
                 bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
-                if (hayFiltroAlmacen && LstAlmacen.SelectedItem != null)
+                if (hayFiltroAlmacen && _almacenFiltroId.HasValue)
                 {
-                    dynamic almacenSeleccionado = LstAlmacen.SelectedItem;
-                    int idAlmacenSeleccionado = almacenSeleccionado.Id;
-                    movimientos = movimientos.Where(m => m.AlmacenId == idAlmacenSeleccionado);
+                    movimientos = movimientos.Where(m => m.AlmacenId == _almacenFiltroId.Value);
                 }
 
-                // 🌟 FILTRAR SEGÚN LO SELECCIONADO EN LA VENTANA DE IMPRESIÓN (Entradas / Salidas)
-                // 'enviar' representa Ingresos y 'devolver' representa Salidas
+                // 🌟 CORRECCIÓN CRÍTICA DE FILTROS:
+                // 'enviar' / 'vender' = Salidas (m.Salida > 0)
+                // 'devolver' = Entradas / Devoluciones (m.Ingreso > 0)
+                bool incluirSalidas = enviar || vender;
+                bool incluirIngresos = devolver;
+
+                // Si no seleccionó ningún check, se exportan todos por defecto
+                if (!enviar && !devolver && !vender)
+                {
+                    incluirSalidas = true;
+                    incluirIngresos = true;
+                }
+
                 movimientos = movimientos.Where(m =>
-                    (enviar && m.Ingreso > 0) ||
-                    (devolver && m.Salida > 0) ||
-                    (m.Ingreso == 0 && m.Salida == 0) // Mantiene líneas neutras o saldos iniciales si los hubiera
+                    (incluirSalidas && m.Salida > 0) ||
+                    (incluirIngresos && m.Ingreso > 0) ||
+                    (m.Ingreso == 0 && m.Salida == 0)
                 );
 
                 var movimientosFiltrados = movimientos.ToList();
 
-                // 3. Enlazamos los códigos a cada movimiento filtrado limitando a la cantidad exacta del movimiento
+                if (!movimientosFiltrados.Any())
+                {
+                    MessageBox.Show("No se encontraron registros con los filtros seleccionados.", "Sin Datos", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // 3. Enlazamos los códigos exactos a cada movimiento filtrado
                 foreach (var mov in movimientosFiltrados)
                 {
                     string registroLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
-
-                    // Determinamos cuántas unidades se movieron en este registro para no traer códigos de más
                     int cantidadMovimiento = (int)(mov.Salida > 0 ? mov.Salida : mov.Ingreso);
 
                     mov.CodigosAsociados = _todosLosCodigos
@@ -418,7 +431,6 @@ namespace AplicativoDeAlmacen.Views
                 // ==========================================
                 string nombreProd = CboProductos.Text;
 
-                // Evaluación dinámica de los Radio Buttons de tipo de operación
                 string tipoProd = "TODOS";
                 if (RbGuia != null && RbGuia.IsChecked == true)
                     tipoProd = "SOLO GUÍAS";
@@ -451,6 +463,8 @@ namespace AplicativoDeAlmacen.Views
                     fechaDesde,
                     fechaHasta,
                     movimientosFiltrados,
+                    enviar,
+                    devolver,
                     vender
                 );
             }

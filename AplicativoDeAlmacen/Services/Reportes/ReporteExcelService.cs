@@ -185,14 +185,16 @@ namespace AplicativoDeAlmacen.Services.Reportes
             });
         }
         public void ExportarKardexConCodigos(
-        string nombreProducto,
-        string tipoProducto,
-        string unidadMedida,
-        string origenDestino,
-        DateTime desde,
-        DateTime hasta,
-        List<ConsultaMovimientoItem> movimientos,
-        bool incluirVendidos)
+            string nombreProducto,
+            string tipoProducto,
+            string unidadMedida,
+            string origenDestino,
+            DateTime desde,
+            DateTime hasta,
+            List<ConsultaMovimientoItem> movimientos,
+            bool mostrarEnviados,
+            bool mostrarDevueltos,
+            bool incluirVendidos)
         {
             using var wb = new XLWorkbook();
             var ws = wb.Worksheets.Add("Kardex");
@@ -225,7 +227,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             rangoEtiquetas.Style.Fill.BackgroundColor = XLColor.LightGray;
 
             // ==========================================
-            // 2. CABECERA DE LA TABLA
+            // 2. CABECERA DE LA TABLA PRINCIPAL
             // ==========================================
             int filaActual = 9;
 
@@ -243,52 +245,55 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             filaActual = 10;
             int filaInicioDatos = filaActual;
-
-            var codigosVendidosList = new List<string>();
+            var codigosVendidosList = new List<(string Codigo, string Tipo)>();
 
             // ==========================================
-            // 3. LLENADO DE DATOS (Ingresos y Salidas)
+            // 3. LLENADO DE MOVIMIENTOS
             // ==========================================
-            foreach (var mov in movimientos)
+            if (movimientos != null && movimientos.Any())
             {
-                bool esSalida = mov.Salida > 0;
-                var colorFila = esSalida ? XLColor.Red : XLColor.Black;
-
-                ws.Cell(filaActual, 1).Value = mov.Fecha;
-                ws.Cell(filaActual, 1).Style.DateFormat.Format = "dd/MM/yyyy";
-
-                ws.Cell(filaActual, 2).Value = mov.NumeroRegistro;
-                ws.Cell(filaActual, 3).Value = mov.RazonSocialUbicacion;
-                ws.Cell(filaActual, 4).Value = mov.NumeroGuia;
-
-                ws.Cell(filaActual, 5).Value = mov.Ingreso;
-                ws.Cell(filaActual, 5).Style.NumberFormat.Format = "#,##0";
-
-                ws.Cell(filaActual, 6).Value = mov.Salida;
-                ws.Cell(filaActual, 6).Style.NumberFormat.Format = "#,##0";
-
-                ws.Range(filaActual, 1, filaActual, 6).Style.Font.FontColor = colorFila;
-
-                filaActual++;
-
-                if (mov.CodigosAsociados != null && mov.CodigosAsociados.Any())
+                foreach (var mov in movimientos)
                 {
-                    foreach (var cod in mov.CodigosAsociados)
+                    bool esSalida = mov.Salida > 0;
+                    var colorFila = esSalida ? XLColor.Red : XLColor.Black;
+
+                    ws.Cell(filaActual, 1).Value = mov.Fecha;
+                    ws.Cell(filaActual, 1).Style.DateFormat.Format = "dd/MM/yyyy";
+
+                    ws.Cell(filaActual, 2).Value = mov.NumeroRegistro;
+                    ws.Cell(filaActual, 3).Value = mov.RazonSocialUbicacion;
+                    ws.Cell(filaActual, 4).Value = mov.NumeroGuia;
+
+                    ws.Cell(filaActual, 5).Value = mov.Ingreso;
+                    ws.Cell(filaActual, 5).Style.NumberFormat.Format = "#,##0";
+
+                    ws.Cell(filaActual, 6).Value = mov.Salida;
+                    ws.Cell(filaActual, 6).Style.NumberFormat.Format = "#,##0";
+
+                    ws.Range(filaActual, 1, filaActual, 6).Style.Font.FontColor = colorFila;
+                    filaActual++;
+
+                    // Mostrar códigos en la tabla solo si su check correspondiente está marcado
+                    bool mostrarCodigosEnTabla = (esSalida && mostrarEnviados) || (!esSalida && mostrarDevueltos);
+
+                    if (mostrarCodigosEnTabla && mov.CodigosAsociados != null && mov.CodigosAsociados.Any())
                     {
-                        var celda = ws.Cell(filaActual, 2);
-                        string textoCodigo = $"CODIGO {cod.Codigo} - {cod.ColeccionTipo}";
-                        celda.Value = textoCodigo;
-                        celda.Style.Font.FontColor = colorFila;
-                        filaActual++;
+                        foreach (var cod in mov.CodigosAsociados)
+                        {
+                            var celda = ws.Cell(filaActual, 2);
+                            celda.Value = $"CODIGO {cod.Codigo} - {cod.ColeccionTipo}";
+                            celda.Style.Font.FontColor = colorFila;
+                            filaActual++;
+                        }
                     }
-                }
 
-                // 🌟 Recolectar siempre los códigos de salida para el bloque inferior si el check está activo
-                if (esSalida && incluirVendidos && mov.CodigosAsociados != null)
-                {
-                    foreach (var cod in mov.CodigosAsociados)
+                    // Acumular para el bloque inferior si se marcó Vendidos
+                    if (esSalida && incluirVendidos && mov.CodigosAsociados != null)
                     {
-                        codigosVendidosList.Add($"CODIGO {cod.Codigo} - {cod.ColeccionTipo}");
+                        foreach (var cod in mov.CodigosAsociados)
+                        {
+                            codigosVendidosList.Add((cod.Codigo, cod.ColeccionTipo));
+                        }
                     }
                 }
             }
@@ -306,52 +311,88 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Cell(filaActual, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
 
             var celdaTotalIngreso = ws.Cell(filaActual, 5);
-            celdaTotalIngreso.FormulaA1 = $"SUM(E{filaInicioDatos}:E{filaFinDatos})";
             celdaTotalIngreso.Style.Font.Bold = true;
             celdaTotalIngreso.Style.Font.FontColor = XLColor.Red;
             celdaTotalIngreso.Style.NumberFormat.Format = "#,##0";
 
             var celdaTotalSalida = ws.Cell(filaActual, 6);
-            celdaTotalSalida.FormulaA1 = $"SUM(F{filaInicioDatos}:F{filaFinDatos})";
             celdaTotalSalida.Style.Font.Bold = true;
             celdaTotalSalida.Style.Font.FontColor = XLColor.Red;
             celdaTotalSalida.Style.NumberFormat.Format = "#,##0";
 
+            if (filaFinDatos >= filaInicioDatos)
+            {
+                celdaTotalIngreso.FormulaA1 = $"SUM(E{filaInicioDatos}:E{filaFinDatos})";
+                celdaTotalSalida.FormulaA1 = $"SUM(F{filaInicioDatos}:F{filaFinDatos})";
+            }
+            else
+            {
+                celdaTotalIngreso.Value = 0;
+                celdaTotalSalida.Value = 0;
+            }
+
             filaActual += 2;
 
             // ==========================================
-            // 4.1 BLOQUE INFERIOR DE CÓDIGOS VENDIDOS
+            // 5. SECCIÓN ESTILIZADA DE CÓDIGOS VENDIDOS
             // ==========================================
             if (incluirVendidos && codigosVendidosList.Any())
             {
-                ws.Cell(filaActual, 2).Value = $"TOTAL CODIGOS VENDIDOS = {codigosVendidosList.Count:N3} - ( VERIFICACION CON ERRORES )";
-                ws.Cell(filaActual, 2).Style.Font.Bold = true;
-                ws.Cell(filaActual, 2).Style.Font.FontColor = XLColor.Blue;
+                var bannerRango = ws.Range(filaActual, 2, filaActual, 4);
+                bannerRango.Merge();
+                bannerRango.Value = $"📦 TOTAL CÓDIGOS VENDIDOS = {codigosVendidosList.Count:N0}";
+                bannerRango.Style.Font.Bold = true;
+                bannerRango.Style.Font.FontSize = 11;
+                bannerRango.Style.Font.FontColor = XLColor.White;
+                bannerRango.Style.Fill.BackgroundColor = XLColor.FromHtml("#1E40AF");
+                bannerRango.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 filaActual++;
 
-                foreach (var codStr in codigosVendidosList)
+                ws.Cell(filaActual, 2).Value = "N°";
+                ws.Cell(filaActual, 3).Value = "Código Físico / QR";
+                ws.Cell(filaActual, 4).Value = "Colección / Tipo";
+
+                var subHeader = ws.Range(filaActual, 2, filaActual, 4);
+                subHeader.Style.Font.Bold = true;
+                subHeader.Style.Fill.BackgroundColor = XLColor.FromHtml("#DBEAFE");
+                subHeader.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                subHeader.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                subHeader.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                filaActual++;
+
+                int filaInicioVendidos = filaActual;
+                int contador = 1;
+
+                foreach (var item in codigosVendidosList)
                 {
-                    var celdaCodVendido = ws.Cell(filaActual, 2);
-                    celdaCodVendido.Value = codStr;
-                    celdaCodVendido.Style.Font.FontColor = XLColor.Blue;
+                    ws.Cell(filaActual, 2).Value = contador++;
+                    ws.Cell(filaActual, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                    ws.Cell(filaActual, 3).Value = item.Codigo;
+                    ws.Cell(filaActual, 4).Value = item.Tipo;
+
+                    ws.Range(filaActual, 2, filaActual, 4).Style.Font.FontColor = XLColor.FromHtml("#1E3A8A");
                     filaActual++;
                 }
+
+                var rangoTablaVendidos = ws.Range(filaInicioVendidos, 2, filaActual - 1, 4);
+                rangoTablaVendidos.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+                rangoTablaVendidos.Style.Border.InsideBorder = XLBorderStyleValues.Hair;
             }
 
             ws.Columns().AdjustToContents();
 
             // ==========================================
-            // 5. GUARDAR Y ABRIR AUTOMÁTICAMENTE
+            // 6. GUARDAR Y ABRIR ARCHIVO
             // ==========================================
             string nombreArchivo = Path.Combine(Path.GetTempPath(), $"Kardex_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
             wb.SaveAs(nombreArchivo);
 
-            var processInfo = new System.Diagnostics.ProcessStartInfo
+            Process.Start(new ProcessStartInfo
             {
                 FileName = nombreArchivo,
                 UseShellExecute = true
-            };
-            System.Diagnostics.Process.Start(processInfo);
+            });
         }
         public void ExportarKardexUbicacion(ConsultaMovimientoReporte reporte, string nombreProducto, string nombreUbicacion, DateTime desde, DateTime hasta)
         {
