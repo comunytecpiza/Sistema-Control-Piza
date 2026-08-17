@@ -998,9 +998,11 @@ namespace AplicativoDeAlmacen.Views
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = idMotivoIngreso,
 
-                    UbicacionId = (almacenOrigenReal.HasValue || string.IsNullOrWhiteSpace(txtUbicacion.Text))
-                        ? (int?)null
-                        : _idUbicacionSeleccionada,
+                    // 🌟 Si es motivo 4 (Transferencia entre almacenes) y hay almacén físico, UbicacionId es null.
+                    // 🌟 Para cualquier otro motivo (como Devolución/Promotoría), SIEMPRE guarda _idUbicacionSeleccionada.
+                    UbicacionId = (idMotivoIngreso == 4 && almacenOrigenReal.HasValue)
+                    ? (int?)null
+                    : _idUbicacionSeleccionada,
 
                     AlmacenId = miAlmacenActual,
                     AlmacenOrigenId = almacenOrigenReal,
@@ -1342,7 +1344,9 @@ namespace AplicativoDeAlmacen.Views
         private async void BtnAgregarItem_Click(object sender, RoutedEventArgs e)
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this), IsAddAction = true };
-            modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
+
+            int motivoActual = cboMotivo.SelectedValue is int mid ? mid : 1;
+            modal.EstadoPermitido = (motivoActual == 1) ? 1 : ((motivoActual == 4) ? 5 : 4);
             modal.ListaProductosExistentesEnPadre = _productosGridList;
 
             if (modal.ShowDialog() == true && modal.FueGrabado)

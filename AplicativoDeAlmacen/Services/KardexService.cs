@@ -72,7 +72,16 @@ namespace AplicativoDeAlmacen.Services
             CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_movimiento,
             CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
             CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-            COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS entidad,
+            COALESCE(
+                pc.razon_social,
+                u.descripcion,
+                CASE 
+                    WHEN mp.tipo_movimiento_id = 1 AND m.motivo_producto_id = 4 THEN alm_orig.nombre
+                    WHEN mp.tipo_movimiento_id = 2 AND m.motivo_producto_id = 10 THEN alm_dest.nombre
+                    ELSE NULL 
+                END,
+                'ALMACÉN'
+            ) AS entidad,
             CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END AS Ingreso,
             CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
             m.estado_id,
@@ -87,7 +96,7 @@ namespace AplicativoDeAlmacen.Services
         WHERE md.producto_id = @ProductoId
           AND m.fecha_movimiento >= @FechaDesde
           AND m.fecha_movimiento <= @FechaHasta
-          AND m.estado_id != 2 -- 👈 FILTRO ESTRICTO ANTI-ANULADOS
+          AND m.estado_id != 2
           AND (
              (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
              (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)

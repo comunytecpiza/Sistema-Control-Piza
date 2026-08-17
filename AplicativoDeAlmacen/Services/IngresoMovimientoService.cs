@@ -50,7 +50,7 @@ namespace AplicativoDeAlmacen.Services
 
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
-            // 🌟 FLEXIBILIZADO: Quitamos la restricción rígida de tipo_movimiento_id = 1 para permitir encontrar y editar el documento correctamente
+            // 🌟 FILTRADO ESTRICTO: Solo busca movimientos de INGRESO (tipo_movimiento_id = 1)
             string query = @"
     SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
            m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
@@ -59,6 +59,7 @@ namespace AplicativoDeAlmacen.Services
     INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
     WHERE m.serie_documento = @serie 
       AND m.numero_documento = @numero
+      AND mp.tipo_movimiento_id = 1
       AND m.estado_id = 1
       AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @miAlmacen";
 
@@ -921,31 +922,32 @@ VALUES
             return lista;
         }
         public async Task<bool> RegistrarMovimientoCompletoAsync(
-        Movimiento cabecera,
-        List<VistaProductoGrid> productos,
-        List<RangoCodigoItem> rangos,
-        int ubicacionId,
-        int? existingMovimientoId = null,
+        Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos,int ubicacionId,int? existingMovimientoId = null,
         IProgress<int>? progress = null)
+
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
             using var transaccion = dbConn.BeginTransaction();
-
             int movimientoId = 0;
             string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
 
+
+
             try
+
             {
-                // 🌟 1. CANDADO FLEXIBLE: Permitir Motivo 1 (Compra) y Motivo 4 (Recepción por Transferencia)
-                if (cabecera.MotivoProductoId != 1 && cabecera.MotivoProductoId != 4)
+                // 🌟 PERMITIR MOTIVOS VÁLIDOS DE INGRESO (Compras, Devoluciones, Ajustes, Transferencias, etc.)
+
+                if (cabecera.MotivoProductoId <= 0)
                 {
-                    throw new InvalidOperationException($"El motivo de movimiento ({cabecera.MotivoProductoId}) no es válido para este registro de ingreso.");
+                    throw new InvalidOperationException("Debe seleccionar un motivo de movimiento válido.");
                 }
 
                 progress?.Report(5);
                 movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, dbConn, transaccion);
+
 
                 var codigosPreviosEnBD = new HashSet<int>();
                 if (existingMovimientoId.HasValue)
@@ -959,9 +961,9 @@ VALUES
                     {
                         if (!rdrPrev.IsDBNull(0)) codigosPreviosEnBD.Add(rdrPrev.GetInt32(0));
                     }
-                }
 
-                var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());
+                }
+                var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());             
 
                 // 🚀 FASE A: EXTRAER TODOS LOS CÓDIGOS NUEVOS DE LA VISTA
                 progress?.Report(15);
@@ -1805,12 +1807,12 @@ VALUES
                     }
                 }
 
-                transaccion.Commit();
+                await transaccion.CommitAsync();
                 return true;
             }
             catch
             {
-                transaccion.Rollback();
+                await transaccion.RollbackAsync();
                 throw;
             }
         }
