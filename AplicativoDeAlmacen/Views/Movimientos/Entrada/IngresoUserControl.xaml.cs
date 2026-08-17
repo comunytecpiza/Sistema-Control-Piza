@@ -638,21 +638,7 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
 
             
-            // 🌟 1. EVALUACIÓN DE RESTRICCIÓN DE TRANSFERENCIAS (Motivo ID 4) EN MODO EDICIÓN
-            if (movimiento.MotivoProductoId == 4 && !_printMode && !_anularMode)
-            {
-                MessageBox.Show("Las Entradas por Transferencia entre almacenes están blindadas y no se pueden modificar ni anular desde esta pantalla (Modo solo lectura).",
-                                "Transferencia Protegida", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                HabilitarCamposFormulario(false);
-                if (btnGrabar != null) btnGrabar.IsEnabled = false;
-                if (btnAnular != null) btnAnular.IsEnabled = false;
-
-                // 🌟 Aseguramos que el botón cancelar SIEMPRE quede libre
-                if (btnCancelar != null) btnCancelar.IsEnabled = true;
-                return;
-            }
-
+            
             // 🌟 2. EVALUACIÓN SEGÚN EL MODO ACTIVADO
             if (_printMode)
             {

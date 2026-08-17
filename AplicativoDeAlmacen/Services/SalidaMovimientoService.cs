@@ -450,20 +450,40 @@ namespace AplicativoDeAlmacen.Services
         }
 
         public async Task<bool> RegistrarSalidaCompletaAsync(
-    Movimiento cabecera,
-    List<VistaProductoGrid> listaProductos,
-    List<VistaCodigoGrid> listaCodigos,
-    int usuarioId,
-    int estadoId,
-    int? existingMovimientoId = null,
-    IProgress<int>? progress = null)
+            Movimiento cabecera,
+            List<VistaProductoGrid> listaProductos,
+            List<VistaCodigoGrid> listaCodigos,
+            int usuarioId,
+            int estadoId,
+            int? existingMovimientoId = null,
+            IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
-            // 🌟 VALIDACIÓN DE SEDE OBLIGATORIA (Faltaba esta comprobación)
+
             int almacenSesionActual = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
-            var idsVerificarAlmacen = listaCodigos.Where(c => c.MovCodigo?.CodigoCreadoId > 0).Select(c => c.MovCodigo!.CodigoCreadoId).Distinct().ToList();
+
+            // 🌟 1. Obtener los códigos que YA pertenecían a este documento de salida en caso de edición
+            var codigosYaEnEsteMovimiento = new HashSet<int>();
+            if (existingMovimientoId.HasValue)
+            {
+                using var cmdPrevMov = dbConn.CreateCommand();
+                cmdPrevMov.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @mId");
+                AgregarParametro(cmdPrevMov, "@mId", existingMovimientoId.Value);
+                using var rdrPrevMov = await cmdPrevMov.ExecuteReaderAsync();
+                while (await rdrPrevMov.ReadAsync())
+                {
+                    if (!rdrPrevMov.IsDBNull(0)) codigosYaEnEsteMovimiento.Add(rdrPrevMov.GetInt32(0));
+                }
+            }
+
+            // 🌟 2. Solo verificamos pertenencia de sede para códigos NUEVOS agregados a la lista
+            var idsVerificarAlmacen = listaCodigos
+                .Where(c => c.MovCodigo?.CodigoCreadoId > 0 && !codigosYaEnEsteMovimiento.Contains(c.MovCodigo.CodigoCreadoId))
+                .Select(c => c.MovCodigo!.CodigoCreadoId)
+                .Distinct()
+                .ToList();
 
             if (idsVerificarAlmacen.Any())
             {
@@ -477,11 +497,11 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 cmdAlmCheck.CommandText = QueryAdapter.FormatearConsulta($@"
-            SELECT cc.codigo, COALESCE(a.nombre, 'OTRO ALMACÉN') 
-            FROM codigos_creados cc
-            LEFT JOIN almacenes a ON cc.almacen_id = a.id
-            WHERE cc.id IN ({string.Join(",", paramListAlm)})
-              AND (cc.almacen_id != @almSesion OR cc.almacen_id IS NULL)");
+                    SELECT cc.codigo, COALESCE(a.nombre, 'OTRO ALMACÉN') 
+                    FROM codigos_creados cc
+                    LEFT JOIN almacenes a ON cc.almacen_id = a.id
+                    WHERE cc.id IN ({string.Join(",", paramListAlm)})
+                      AND (cc.almacen_id != @almSesion OR cc.almacen_id IS NULL)");
 
                 AgregarParametro(cmdAlmCheck, "@almSesion", almacenSesionActual);
 
@@ -499,8 +519,6 @@ namespace AplicativoDeAlmacen.Services
                     throw new Exception($"⚠️ Restricción de Sede / Almacén:\n\nNo se puede procesar la salida. Los siguientes códigos pertenecen a un almacén distinto al de tu sesión actual:\n\n{string.Join("\n", codigosDeOtraSede.Take(15))}");
                 }
             }
-
-
 
             using var transaccion = dbConn.BeginTransaction();
 
@@ -653,8 +671,14 @@ namespace AplicativoDeAlmacen.Services
                         }
 
                         int cantidadDespachoPura = listaCodigos.Count(c => c.ProductoId == item.ProductoId);
-                        if (cantidadDespachoPura == 0 && item.Detalle != null) cantidadDespachoPura = Convert.ToInt32(item.Detalle.CantidadSalida);
-                        if (cantidadDespachoPura == 0) cantidadDespachoPura = Convert.ToInt32(item.Cantidad);
+                        if (cantidadDespachoPura == 0 && item.Detalle != null && item.Detalle.CantidadSalida > 0)
+                        {
+                            cantidadDespachoPura = Convert.ToInt32(item.Detalle.CantidadSalida);
+                        }
+                        if (cantidadDespachoPura == 0)
+                        {
+                            cantidadDespachoPura = Convert.ToInt32(item.Cantidad);
+                        }
 
                         decimal costoUnitarioPuro = item.Detalle?.CostoUnitario ?? 0;
 
@@ -705,7 +729,10 @@ namespace AplicativoDeAlmacen.Services
                     WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesCheck)})
                       AND m.id != @movId
                       AND m.estado_id = 1
-                      AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
+                      AND (
+                          m.fecha_movimiento > @fechaEdicion 
+                          OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
+                      )";
 
                         using var cmdFuturo = dbConn.CreateCommand();
                         cmdFuturo.Transaction = transaccion;
@@ -848,8 +875,14 @@ namespace AplicativoDeAlmacen.Services
                     }
 
                     int cantidadDespachoPura = listaCodigos.Count(c => c.ProductoId == item.ProductoId);
-                    if (cantidadDespachoPura == 0 && item.Detalle != null) cantidadDespachoPura = Convert.ToInt32(item.Detalle.CantidadSalida);
-                    if (cantidadDespachoPura == 0) cantidadDespachoPura = Convert.ToInt32(item.Cantidad);
+                    if (cantidadDespachoPura == 0 && item.Detalle != null && item.Detalle.CantidadSalida > 0)
+                    {
+                        cantidadDespachoPura = Convert.ToInt32(item.Detalle.CantidadSalida);
+                    }
+                    if (cantidadDespachoPura == 0)
+                    {
+                        cantidadDespachoPura = Convert.ToInt32(item.Cantidad);
+                    }
 
                     decimal costoUnitarioPuro = item.Detalle?.CostoUnitario ?? 0;
 
@@ -926,31 +959,66 @@ namespace AplicativoDeAlmacen.Services
                         }
 
                         // 🌟 DETERMINAR ESTADO SEGÚN MOTIVO DE SALIDA
-                        int estadoFinalCodigo = (cabecera.MotivoProductoId == 10) ? 5 : 4; // 5 = En Tránsito (Transferencia), 4 = Salida Comercial
+                        int estadoFinalCodigo = (cabecera.MotivoProductoId == 10) ? 5 : 4;
                         int? almacenFinalCodigo = (cabecera.MotivoProductoId == 10) ? cabecera.AlmacenDestinoId : null;
 
-                        // Actualizar estados de códigos sin movimiento futuro
-                        var codigosParaActualizarEstado = new List<int>();
-                        foreach (var cod in codigosProd)
-                        {
-                            if (cod.MovCodigo?.CodigoCreadoId > 0)
-                            {
-                                int cId = cod.MovCodigo.CodigoCreadoId;
-                                bool tieneMovPost = await TieneMovimientosPosterioresAsync(
-                                    cId,
-                                    movimientoIdInserted,
-                                    cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today,
-                                    dbConn,
-                                    transaccion
-                                );
+                        // 🚀 EVALUACIÓN MASIVA EN LOTE (Elimina el timeout de MySQL en el 60%)
+                        var idsAProcesar = codigosProd
+                            .Where(c => c.MovCodigo?.CodigoCreadoId > 0)
+                            .Select(c => c.MovCodigo!.CodigoCreadoId)
+                            .Distinct()
+                            .ToList();
 
-                                if (!tieneMovPost)
+                        var codigosParaActualizarEstado = new List<int>();
+
+                        if (existingMovimientoId.HasValue && idsAProcesar.Any())
+                        {
+                            // Si es edición, verificamos movimientos futuros en bloques de 1,000
+                            const int batchCheckSize = 1000;
+                            for (int bIdx = 0; bIdx < idsAProcesar.Count; bIdx += batchCheckSize)
+                            {
+                                var subBatch = idsAProcesar.Skip(bIdx).Take(batchCheckSize).ToList();
+                                var paramNamesBatch = subBatch.Select((_, idx) => $"@subChk{idx}").ToList();
+
+                                string sqlFuturoSalida = $@"
+                    SELECT DISTINCT mc.codigo_creado_id
+                    FROM movimiento_codigos mc WITH (NOLOCK)
+                    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                    WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesBatch)})
+                      AND m.id != @movId
+                      AND m.estado_id = 1
+                      AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
+
+                                var setCodigosConFuturoSalida = new HashSet<int>();
+                                using (var cmdFutLote = dbConn.CreateCommand())
                                 {
-                                    codigosParaActualizarEstado.Add(cId);
+                                    cmdFutLote.Transaction = transaccion;
+                                    cmdFutLote.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoSalida);
+                                    AgregarParametro(cmdFutLote, "@movId", movimientoIdInserted);
+                                    AgregarParametro(cmdFutLote, "@fechaEdicion", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
+
+                                    for (int k = 0; k < subBatch.Count; k++)
+                                    {
+                                        AgregarParametro(cmdFutLote, $"@subChk{k}", subBatch[k]);
+                                    }
+
+                                    using var rdrFutLote = await cmdFutLote.ExecuteReaderAsync();
+                                    while (await rdrFutLote.ReadAsync())
+                                    {
+                                        setCodigosConFuturoSalida.Add(rdrFutLote.GetInt32(0));
+                                    }
                                 }
+
+                                codigosParaActualizarEstado.AddRange(subBatch.Where(id => !setCodigosConFuturoSalida.Contains(id)));
                             }
                         }
+                        else
+                        {
+                            // Si es creación nueva (Nuevo despacho), TODOS los 10,000 entran directo sin consultar
+                            codigosParaActualizarEstado = idsAProcesar;
+                        }
 
+                        // 🌟 ACTUALIZACIÓN MASIVA DE ESTADOS DE A 1,000 EN 1,000
                         if (codigosParaActualizarEstado.Any())
                         {
                             const int bulkSize = 1000;
@@ -979,31 +1047,29 @@ namespace AplicativoDeAlmacen.Services
                     progress?.Report(pct);
                 }
 
-                // Purga de detalles huérfanos/vacíos
+                
                 // Purga de detalles huérfanos/vacíos
                 string sqlPurgarDetallesVacios = @"
-            DELETE FROM registro_rangos 
-            WHERE movimiento_detalle_id IN (
-                SELECT id FROM movimiento_detalles 
-                WHERE movimiento_id = @movId 
+                DELETE rr FROM registro_rangos rr
+                INNER JOIN movimiento_detalles md ON rr.movimiento_detalle_id = md.id
+                WHERE md.movimiento_id = @movId 
                   AND (
-                      cantidad_salida <= 0 
+                      md.cantidad_salida <= 0 
                       OR (
-                          id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId)
-                          AND id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL)
+                          md.id NOT IN (SELECT DISTINCT mc.movimiento_detalle_id FROM movimiento_codigos mc WHERE mc.movimiento_id = @movId)
+                          AND md.id NOT IN (SELECT DISTINCT sub_rr.movimiento_detalle_id FROM (SELECT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL) AS sub_rr)
                       )
-                  )
-            );
+                  );
 
-            DELETE FROM movimiento_detalles 
-            WHERE movimiento_id = @movId 
-              AND (
-                  cantidad_salida <= 0 
-                  OR (
-                      id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM movimiento_codigos WHERE movimiento_id = @movId)
-                      AND id NOT IN (SELECT DISTINCT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL)
-                  )
-              );";
+                DELETE md FROM movimiento_detalles md
+                WHERE md.movimiento_id = @movId 
+                  AND (
+                      md.cantidad_salida <= 0 
+                      OR (
+                          md.id NOT IN (SELECT DISTINCT mc.movimiento_detalle_id FROM movimiento_codigos mc WHERE mc.movimiento_id = @movId)
+                          AND md.id NOT IN (SELECT DISTINCT sub_rr2.movimiento_detalle_id FROM (SELECT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL) AS sub_rr2)
+                      )
+                  );";
 
                 using (var cmdPurga = dbConn.CreateCommand())
                 {

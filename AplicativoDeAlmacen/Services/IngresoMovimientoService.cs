@@ -511,11 +511,19 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                string queryUltimaSerie = @"
-                SELECT TOP 1 m.serie_documento 
+                // 🌟 1. Obtener última serie usada en INGRESOS (tipo_movimiento_id = 1)
+                string queryUltimaSerie = QueryAdapter.EsMySQL
+                    ? @"SELECT m.serie_documento 
+                FROM movimientos m
+                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                WHERE mp.tipo_movimiento_id = 1
+                  AND COALESCE(m.almacen_id, COALESCE(m.almacen_destino_id, 1)) = @almId
+                ORDER BY m.id DESC LIMIT 1"
+                    : @"SELECT TOP 1 m.serie_documento 
                 FROM movimientos m WITH (NOLOCK)
-                WHERE m.motivo_producto_id IN (SELECT id FROM motivo_productos WHERE tipo_movimiento_id = 2)
-                  AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) = @almId
+                INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                WHERE mp.tipo_movimiento_id = 1
+                  AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @almId
                 ORDER BY m.id DESC";
 
                 string serieActual = seriePorDefecto;
@@ -524,19 +532,24 @@ namespace AplicativoDeAlmacen.Services
                     cmdSerie.CommandText = QueryAdapter.FormatearConsulta(queryUltimaSerie);
                     AgregarParametro(cmdSerie, "@almId", miAlmacenId);
                     var resSerie = await cmdSerie.ExecuteScalarAsync();
-                    if (resSerie != null && resSerie != DBNull.Value)
+                    if (resSerie != null && resSerie != DBNull.Value && !string.IsNullOrWhiteSpace(resSerie.ToString()))
                     {
                         serieActual = resSerie.ToString()!;
                     }
                 }
 
-                string queryMaxNum = @"
-                SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0)
-                FROM movimientos m WITH (NOLOCK)
-                INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                WHERE m.serie_documento = @serie
-                  AND mp.tipo_movimiento_id = 2
-                  AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) = @almId";
+                // 🌟 2. Obtener el número máximo correlativo dentro de la serie para INGRESOS
+                string castInt = QueryAdapter.EsMySQL ? "CAST(m.numero_documento AS SIGNED)" : "CAST(m.numero_documento AS INT)";
+                string coalesceFunc = QueryAdapter.EsMySQL ? "COALESCE" : "ISNULL";
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+
+                string queryMaxNum = $@"
+            SELECT COALESCE(MAX({castInt}), 0)
+            FROM movimientos m {nolock}
+            INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+            WHERE m.serie_documento = @serie
+              AND mp.tipo_movimiento_id = 1
+              AND {coalesceFunc}(m.almacen_id, {coalesceFunc}(m.almacen_destino_id, 1)) = @almId";
 
                 int ultimoNumero = 0;
                 using (var cmdNum = dbConn.CreateCommand())
@@ -551,12 +564,12 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
+                // 🌟 3. Asignación del siguiente número o salto de serie
                 if (ultimoNumero >= 9999999)
                 {
                     if (int.TryParse(serieActual, out int serieVal))
                     {
-                        int siguienteSerieInt = serieVal + 1;
-                        resultado.Movimiento.SerieDocumento = siguienteSerieInt.ToString("D4");
+                        resultado.Movimiento.SerieDocumento = (serieVal + 1).ToString("D4");
                         resultado.Movimiento.NumeroDocumento = "0000001";
                     }
                     else
@@ -571,6 +584,7 @@ namespace AplicativoDeAlmacen.Services
                     resultado.Movimiento.NumeroDocumento = (ultimoNumero + 1).ToString("D7");
                 }
             }
+
             return resultado;
         }
 
@@ -907,12 +921,12 @@ VALUES
             return lista;
         }
         public async Task<bool> RegistrarMovimientoCompletoAsync(
-    Movimiento cabecera,
-    List<VistaProductoGrid> productos,
-    List<RangoCodigoItem> rangos,
-    int ubicacionId,
-    int? existingMovimientoId = null,
-    IProgress<int>? progress = null)
+        Movimiento cabecera,
+        List<VistaProductoGrid> productos,
+        List<RangoCodigoItem> rangos,
+        int ubicacionId,
+        int? existingMovimientoId = null,
+        IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
@@ -924,16 +938,10 @@ VALUES
 
             try
             {
-                
-                // 🌟 1. CANDADO FLEXIBLE: Permitir Motivo 4 SOLAMENTE si los códigos vienen en tránsito (Estado 5)
-                if (cabecera.MotivoProductoId == 4)
+                // 🌟 1. CANDADO FLEXIBLE: Permitir Motivo 1 (Compra) y Motivo 4 (Recepción por Transferencia)
+                if (cabecera.MotivoProductoId != 1 && cabecera.MotivoProductoId != 4)
                 {
-                    // Verificamos que los códigos que se están ingresando realmente provengan de un estado en tránsito (5)
-                    // o dejamos pasar la transacción para que el kárdex los recepcione y los pase a Estado 3.
-                }
-                else if (cabecera.MotivoProductoId != 1 && cabecera.MotivoProductoId != 4)
-                {
-                    // Bloquear otros motivos extraños si es necesario, pero permitiendo compras (1) y recepciones (4)
+                    throw new InvalidOperationException($"El motivo de movimiento ({cabecera.MotivoProductoId}) no es válido para este registro de ingreso.");
                 }
 
                 progress?.Report(5);
@@ -987,46 +995,94 @@ VALUES
                     return true;
                 }
 
-                // 🌟 FASE C: PROCESAR CÓDIGOS RETIRADOS (REVERSIÓN A ESTADO ANTERIOR)
+                // 🌟 FASE C: PROCESAR CÓDIGOS RETIRADOS (VALIDACIÓN DE MOVIMIENTOS POSTERIORES Y REVERSIÓN)
                 progress?.Report(30);
                 var codigosAEliminar = codigosPreviosEnBD.Where(id => !nuevosIdsEnviados.Contains(id)).ToList();
 
                 if (codigosAEliminar.Any())
                 {
                     const int checkBatchSize = 1000;
+                    var conflictosDetectados = new List<string>();
+
                     for (int i = 0; i < codigosAEliminar.Count; i += checkBatchSize)
                     {
                         var batchDelCheck = codigosAEliminar.Skip(i).Take(checkBatchSize).ToList();
                         var paramNamesCheck = batchDelCheck.Select((id, idx) => $"@delCheck{idx}").ToList();
 
-                        string sqlFuturoBulk = $@"
-    SELECT DISTINCT cc.codigo 
-    FROM movimiento_codigos mc 
-    INNER JOIN movimientos m  ON mc.movimiento_id = m.id
-    INNER JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id
-    WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesCheck)})
-      AND m.id != @movId
-      AND m.estado_id = 1
-      AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
+                        int? idSalidaOrigenPadre = null;
+                        if (cabecera.MotivoProductoId == 4 && cabecera.AlmacenOrigenId.HasValue)
+                        {
+                            using var cmdFindSalida = dbConn.CreateCommand();
+                            cmdFindSalida.Transaction = transaccion;
+                            cmdFindSalida.CommandText = QueryAdapter.FormatearConsulta(@"
+                            SELECT TOP 1 m.id 
+                            FROM movimientos m WITH (NOLOCK)
+                            INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_id = m.id
+                            WHERE mc.codigo_creado_id IN (" + string.Join(",", paramNamesCheck) + @")
+                              AND m.motivo_producto_id = 10
+                              AND m.id < @movIdCurrent
+                            ORDER BY m.id DESC");
+
+                            AgregarParametro(cmdFindSalida, "@movIdCurrent", movimientoId);
+                            for (int k = 0; k < batchDelCheck.Count; k++) AgregarParametro(cmdFindSalida, $"@delCheck{k}", batchDelCheck[k]);
+
+                            var resPadre = await cmdFindSalida.ExecuteScalarAsync();
+                            if (resPadre != null && resPadre != DBNull.Value) idSalidaOrigenPadre = Convert.ToInt32(resPadre);
+                        }
+
+                        string sqlFuturoDetallado = $@"
+                        SELECT 
+                            cc.codigo,
+                            mp.descripcion AS motivo_desc,
+                            m.serie_documento,
+                            m.numero_documento,
+                            m.fecha_movimiento
+                        FROM movimiento_codigos mc WITH (NOLOCK)
+                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                        INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                        WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesCheck)})
+                          AND m.id != @movId
+                          AND (@movPadreId IS NULL OR m.id != @movPadreId)
+                          AND m.estado_id = 1
+                          AND (
+                              m.fecha_movimiento > @fechaEdicion 
+                              OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
+                          )";
 
                         using var cmdFuturo = dbConn.CreateCommand();
                         cmdFuturo.Transaction = transaccion;
-                        cmdFuturo.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoBulk);
+                        cmdFuturo.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoDetallado);
+
                         AgregarParametro(cmdFuturo, "@movId", movimientoId);
+                        AgregarParametro(cmdFuturo, "@movPadreId", idSalidaOrigenPadre.HasValue ? (object)idSalidaOrigenPadre.Value : DBNull.Value);
                         AgregarParametro(cmdFuturo, "@fechaEdicion", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
 
                         for (int k = 0; k < batchDelCheck.Count; k++) AgregarParametro(cmdFuturo, $"@delCheck{k}", batchDelCheck[k]);
 
-                        var conflictosFuturos = new List<string>();
                         using var rdrFut = await cmdFuturo.ExecuteReaderAsync();
-                        while (await rdrFut.ReadAsync()) conflictosFuturos.Add(rdrFut.GetString(0));
-                        rdrFut.Close();
-
-                        if (conflictosFuturos.Any())
+                        while (await rdrFut.ReadAsync())
                         {
-                            var muestra = conflictosFuturos.Take(10).ToList();
-                            throw new Exception($"⚠️ Operación Rechazada por Seguridad de Kárdex:\n\nNo se pueden reducir/quitar los siguientes códigos de este documento porque ya tienen despachos o ventas posteriores:\n\n{string.Join("\n", muestra.Select(c => $"• {c}"))}");
+                            string cod = rdrFut.GetString(0);
+                            string motivo = rdrFut.IsDBNull(1) ? "Movimiento Posterior" : rdrFut.GetString(1);
+                            string serieDoc = rdrFut.IsDBNull(2) ? "" : rdrFut.GetString(2);
+                            string numDoc = rdrFut.IsDBNull(3) ? "" : rdrFut.GetString(3);
+                            DateTime fechaMov = rdrFut.IsDBNull(4) ? DateTime.MinValue : rdrFut.GetDateTime(4);
+
+                            string detalleConflicto = $"• Código '{cod}': Bloqueado por [{motivo}] en Doc {serieDoc}-{numDoc} ({fechaMov:dd/MM/yyyy})";
+                            if (!conflictosDetectados.Contains(detalleConflicto))
+                            {
+                                conflictosDetectados.Add(detalleConflicto);
+                            }
                         }
+                        rdrFut.Close();
+                    }
+
+                    if (conflictosDetectados.Any())
+                    {
+                        var muestra = conflictosDetectados.Take(12).ToList();
+                        string masInfo = conflictosDetectados.Count > 12 ? $"\n... y {conflictosDetectados.Count - 12} código(s) más con movimientos." : "";
+                        throw new InvalidOperationException($"⚠️ Operación Rechazada por Trazabilidad de Kárdex:\n\nNo es posible retirar/eliminar los siguientes códigos porque ya cuentan con movimientos posteriores (transferencias, salidas o ventas) en el sistema:\n\n{string.Join("\n", muestra)}{masInfo}\n\nPara poder retirarlos de este documento, primero debe anular o regularizar los movimientos posteriores indicados.");
                     }
 
                     var mapaHistorial = new Dictionary<int, (int EstadoId, int AlmacenId)>();
@@ -1037,21 +1093,21 @@ VALUES
 
                         string queryHistorialLote = QueryAdapter.EsMySQL
                             ? $@"SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
-                               COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
-                               COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
-                        FROM movimiento_codigos mc
-                        INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)}) AND m.id < @movId AND m.estado_id = 1
-                        ORDER BY mc.codigo_creado_id, m.fecha_movimiento DESC, m.id DESC"
+                           COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
+                           COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
+                    FROM movimiento_codigos mc
+                    INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                    WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)}) AND m.id < @movId AND m.estado_id = 1
+                    ORDER BY mc.codigo_creado_id, m.fecha_movimiento DESC, m.id DESC"
                             : $@"WITH HistorialOrdenado AS (
-                            SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
-                                   ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
-                                   ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen,
-                                   ROW_NUMBER() OVER(PARTITION BY mc.codigo_creado_id ORDER BY m.fecha_movimiento DESC, m.id DESC) as rn
-                            FROM movimiento_codigos mc INNER JOIN movimientos m ON mc.movimiento_id = m.id INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                            WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)}) AND m.id < @movId AND m.estado_id = 1
-                        ) SELECT codigo_creado_id, motivo_producto_id, tipo_movimiento_id, alm_destino, alm_origen FROM HistorialOrdenado WHERE rn = 1";
+                        SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
+                               ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
+                               ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen,
+                               ROW_NUMBER() OVER(PARTITION BY mc.codigo_creado_id ORDER BY m.fecha_movimiento DESC, m.id DESC) as rn
+                        FROM movimiento_codigos mc INNER JOIN movimientos m ON mc.movimiento_id = m.id INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)}) AND m.id < @movId AND m.estado_id = 1
+                    ) SELECT codigo_creado_id, motivo_producto_id, tipo_movimiento_id, alm_destino, alm_origen FROM HistorialOrdenado WHERE rn = 1";
 
                         using var cmdHist = dbConn.CreateCommand();
                         cmdHist.Transaction = transaccion;
@@ -1077,9 +1133,19 @@ VALUES
                     var gruposReversion = new Dictionary<(int EstadoId, int AlmacenId), List<int>>();
                     foreach (var codId in codigosAEliminar)
                     {
-                        var clave = mapaHistorial.TryGetValue(codId, out var h) ? h : (1, 1);
-                        if (!gruposReversion.ContainsKey(clave)) gruposReversion[clave] = new List<int>();
-                        gruposReversion[clave].Add(codId);
+                        if (cabecera.MotivoProductoId == 4)
+                        {
+                            int almOrigenReal = cabecera.AlmacenOrigenId ?? 1;
+                            var claveTransfer = (3, almOrigenReal);
+                            if (!gruposReversion.ContainsKey(claveTransfer)) gruposReversion[claveTransfer] = new List<int>();
+                            gruposReversion[claveTransfer].Add(codId);
+                        }
+                        else
+                        {
+                            var clave = mapaHistorial.TryGetValue(codId, out var h) ? h : (1, 1);
+                            if (!gruposReversion.ContainsKey(clave)) gruposReversion[clave] = new List<int>();
+                            gruposReversion[clave].Add(codId);
+                        }
                     }
 
                     foreach (var kvp in gruposReversion)
@@ -1109,7 +1175,7 @@ VALUES
                     }
                 }
 
-                // 🌟 FASE D: PROCESAMIENTO E INSERCIÓN MASIVA DE NUEVOS DETALLES Y CÓDIGOS (LA FASE FALTANTE)
+                // 🌟 FASE D: PROCESAMIENTO E INSERCIÓN MASIVA DE NUEVOS DETALLES Y CÓDIGOS
                 progress?.Report(50);
                 int totalCodigos = rangos.Sum(r => r.DesdeNum == -1 ? 1 : (r.HastaNum - r.DesdeNum + 1));
                 if (totalCodigos == 0) totalCodigos = 1;
@@ -1137,9 +1203,8 @@ VALUES
 
                     if (!rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
                     {
-                        // Producto sin códigos (mochilas/útiles)
                         string sqlInsRangoGenerico = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                                             VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
+                                         VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
                         using var cmdRG = dbConn.CreateCommand();
                         cmdRG.Transaction = transaccion;
                         cmdRG.CommandText = QueryAdapter.FormatearConsulta(sqlInsRangoGenerico);
@@ -1178,17 +1243,16 @@ VALUES
 
                         if (existingMovimientoId.HasValue)
                         {
-                            // 🌟 2. CONSULTA EN LOTE MASIVO (1 sola consulta para los 1,000 elementos)
                             var paramNamesBatch = batch.Select((_, idx) => $"@chkPost{idx}").ToList();
 
                             string sqlFuturoLote = $@"
-            SELECT DISTINCT mc.codigo_creado_id
-            FROM movimiento_codigos mc WITH (NOLOCK)
-            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-            WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesBatch)})
-              AND m.id != @movId
-              AND m.estado_id = 1
-              AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
+                            SELECT DISTINCT mc.codigo_creado_id
+                            FROM movimiento_codigos mc WITH (NOLOCK)
+                            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                            WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesBatch)})
+                              AND m.id != @movId
+                              AND m.estado_id = 1
+                              AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
 
                             var setCodigosConFuturo = new HashSet<int>();
                             using (var cmdFutLote = dbConn.CreateCommand())
@@ -1210,7 +1274,6 @@ VALUES
                                 }
                             }
 
-                            // Filtramos solo los que NO tienen salidas posteriores (operación ultra rápida en RAM)
                             codigosParaActualizarEstado = batch.Where(codId => !setCodigosConFuturo.Contains(codId)).ToList();
                         }
                         else
@@ -1218,10 +1281,18 @@ VALUES
                             codigosParaActualizarEstado = batch;
                         }
 
-                        // 3. Actualización masiva del estado_id = 3 (Disponible en Almacén)
+                        // 2. Actualización masiva de estado y almacén actual
                         if (codigosParaActualizarEstado.Any())
                         {
-                            await ActualizarEstadoCodigosMasivoAsync(codigosParaActualizarEstado, 3, dbConn, transaccion);
+                            var paramUpdate = codigosParaActualizarEstado.Select((_, idx) => $"@uId{idx}").ToList();
+                            string queryUpdateCodigos = $"UPDATE codigos_creados SET estado_id = 3, almacen_id = @almActual WHERE id IN ({string.Join(",", paramUpdate)})";
+
+                            using var cmdUpd = dbConn.CreateCommand();
+                            cmdUpd.Transaction = transaccion;
+                            cmdUpd.CommandText = QueryAdapter.FormatearConsulta(queryUpdateCodigos);
+                            AgregarParametro(cmdUpd, "@almActual", miAlmacenActualId);
+                            for (int k = 0; k < codigosParaActualizarEstado.Count; k++) AgregarParametro(cmdUpd, $"@uId{k}", codigosParaActualizarEstado[k]);
+                            await cmdUpd.ExecuteNonQueryAsync();
                         }
                     }
                 }
@@ -1239,10 +1310,10 @@ VALUES
                 transaccion.Commit();
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 transaccion.Rollback();
-                throw new Exception(ex.Message, ex);
+                throw;
             }
         }
 

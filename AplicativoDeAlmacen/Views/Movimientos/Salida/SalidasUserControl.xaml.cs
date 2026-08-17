@@ -272,17 +272,7 @@ namespace AplicativoDeAlmacen.Views
                     }
                 }
 
-                if ((movimiento.MotivoProductoId == 4 || movimiento.MotivoProductoId == 10) && _modoActual != ModoFormulario.BuscandoParaImprimir)
-                {
-                    MessageBox.Show("Las Salidas por Transferencia a otra sede están blindadas y no se pueden modificar ni anular (Modo solo lectura).",
-                                    "Transferencia Protegida", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                    HabilitarCamposFormulario(false);
-                    btnGrabarSalida.IsEnabled = false;
-                    if (btnAnularSalida != null) btnAnularSalida.IsEnabled = false;
-                    return;
-                }
-
+                
                 if (_modoActual == ModoFormulario.BuscandoParaEditar)
                 {
                     if (_anularMode)
@@ -1152,16 +1142,7 @@ namespace AplicativoDeAlmacen.Views
                         }
                     }
 
-                    if ((movimiento.MotivoProductoId == 4 || movimiento.MotivoProductoId == 10) && _modoActual != ModoFormulario.BuscandoParaImprimir)
-                    {
-                        MessageBox.Show("Las Salidas por Transferencia a otra sede están blindadas y no se pueden modificar ni anular (Modo solo lectura).",
-                                        "Transferencia Protegida", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                        HabilitarCamposFormulario(false);
-                        btnGrabarSalida.IsEnabled = false;
-                        if (btnAnularSalida != null) btnAnularSalida.IsEnabled = false;
-                        return;
-                    }
+                    
 
                     if (_modoActual == ModoFormulario.BuscandoParaEditar)
                     {
@@ -1508,9 +1489,8 @@ namespace AplicativoDeAlmacen.Views
             var rangos = ReconstruirRangosDeCodigos(seleccionado.ProductoId);
 
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
-
             modal.MovimientoIdActual = _idMovimientoActual;
-            modal.EstadoPermitido = 3;
+            modal.EstadoPermitido = _idMovimientoActual.HasValue ? 0 : 3;
             modal.InitializeForEdit(seleccionado, rangos);
 
             if (seleccionado.Detalle.CostoUnitario == 0)
@@ -1525,14 +1505,11 @@ namespace AplicativoDeAlmacen.Views
                 this.Cursor = Cursors.Wait;
                 try
                 {
-                    // 🌟 ASIGNACIÓN DIRECTA DE CANTIDAD Y COSTO MODIFICADOS
-                    seleccionado.Detalle.CantidadSalida = modal.CantidadProductoIngresada;
                     seleccionado.Detalle.CostoUnitario = modal.CostoUnitarioIngresado;
-                    seleccionado.Cantidad = modal.CantidadProductoIngresada;
 
-                    // Si es un producto con códigos (libros), reconstruimos sus listas de series
                     if (!seleccionado.EsProductoSinCodigo && modal.ListaRangosAgregados != null)
                     {
+                        // 1. Limpiar los códigos previos de este producto en memoria
                         var codigosViejos = _codigosLista.Where(c => c.ProductoId == seleccionado.ProductoId).ToList();
                         foreach (var cv in codigosViejos) _codigosLista.Remove(cv);
 
@@ -1553,7 +1530,8 @@ namespace AplicativoDeAlmacen.Views
                             }
                         }
 
-                        var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, SesionSistema.AlmacenActual?.Id ?? 1);
+                        // 2. 🌟 Consulta directa con ID real sin filtrar por almacén (para recuperar tanto los que están en Lima como los de Trujillo)
+                        var lookup = await ingService.ObtenerCodigosPorListaAsync(listaStrings, null);
                         string primerRangoTipo = modal.ListaRangosAgregados.FirstOrDefault()?.ColeccionTipo ?? "LIBRO VENTA";
 
                         foreach (var codStr in listaStrings)
@@ -1571,6 +1549,29 @@ namespace AplicativoDeAlmacen.Views
                                     ColeccionTipo = primerRangoTipo
                                 });
                             }
+                        }
+
+                        // 3. 🌟 Asignar la cantidad real desglosada
+                        int cantidadReal = _codigosLista.Count(c => c.ProductoId == seleccionado.ProductoId);
+
+                        // Si por alguna razón el lookup en memoria no cargó todos pero el modal reportó la cantidad válida:
+                        if (cantidadReal == 0 && modal.CantidadProductoIngresada > 0)
+                        {
+                            cantidadReal = modal.CantidadProductoIngresada;
+                        }
+
+                        seleccionado.Cantidad = cantidadReal;
+                        if (seleccionado.Detalle != null)
+                        {
+                            seleccionado.Detalle.CantidadSalida = cantidadReal;
+                        }
+                    }
+                    else if (seleccionado.EsProductoSinCodigo)
+                    {
+                        seleccionado.Cantidad = modal.CantidadProductoIngresada;
+                        if (seleccionado.Detalle != null)
+                        {
+                            seleccionado.Detalle.CantidadSalida = modal.CantidadProductoIngresada;
                         }
                     }
 
