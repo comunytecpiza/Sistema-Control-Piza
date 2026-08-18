@@ -364,7 +364,7 @@
                                     </DataGrid.Resources>
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="N°" Binding="{Binding ProductoId}" Width="60" MinWidth="40" ElementStyle="{StaticResource NoWrapTextBlock}"/>
-                                        <DataGridTextColumn Header="CÓDIGO" Binding="{Binding CodigoProducto}" Width="SizeToCells" MinWidth="120" ElementStyle="{StaticResource NoWrapTextBlock}"/>
+                                        <DataGridTextColumn Header="CÓDIGO" Binding="{Binding CodigoProducto}" Width="SizeToCells" MinWidth="50" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                         <DataGridTextColumn Header="DESCRIPCIÓN" Binding="{Binding Descripcion}" Width="*" MinWidth="250" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                         <DataGridTextColumn Header="CANT." Binding="{Binding Detalle.CantidadIngreso, StringFormat=N0}" Width="SizeToCells" MinWidth="80" ElementStyle="{StaticResource NoWrapTextBlock}"/>
                                         <DataGridTextColumn Header="COSTO UNIT." Binding="{Binding Detalle.CostoUnitario, StringFormat=N0}" Width="SizeToCells" MinWidth="100" ElementStyle="{StaticResource NoWrapTextBlock}"/>

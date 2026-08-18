@@ -100,8 +100,9 @@ namespace AplicativoDeAlmacen.Views
                 if (FindName("lblCUnitario") is TextBlock lbl) lbl.Visibility = Visibility.Visible;
 
                 txtCUnitario.IsReadOnly = true;
-                txtCUnitario.Background = System.Windows.Media.Brushes.WhiteSmoke;
-                txtCUnitario.Foreground = System.Windows.Media.Brushes.Gray;
+                txtCUnitario.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F1F5F9"));
+                txtCUnitario.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E293B")); // Gris oscuro nítido (legible)
+                txtCUnitario.FontWeight = FontWeights.SemiBold;
                 txtCUnitario.Focusable = false;
             }
             else
@@ -268,7 +269,11 @@ namespace AplicativoDeAlmacen.Views
             txtCantidad.Text = cantidadOriginal > 0 ? Convert.ToInt32(cantidadOriginal).ToString() : ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0).ToString();
 
             txtCantidad.IsReadOnly = false;
-            txtProducto.IsEnabled = false;
+            txtProducto.IsReadOnly = true;
+            txtProducto.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F1F5F9")); // Gris tenue
+            txtProducto.Foreground = System.Windows.Media.Brushes.Black; // Texto completamente negro y legible
+            txtProducto.FontWeight = FontWeights.SemiBold;
+            txtProducto.Focusable = false;
         }
 
         #region BUSCADOR DE PRODUCTOS

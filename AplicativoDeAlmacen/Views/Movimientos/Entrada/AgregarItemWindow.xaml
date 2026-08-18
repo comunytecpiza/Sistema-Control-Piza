@@ -45,7 +45,14 @@
                     <TextBlock Text="Producto:" VerticalAlignment="Center" Foreground="#334155" FontWeight="SemiBold" FontSize="13"/>
 
                     <Grid Grid.Column="1">
-                        <TextBox x:Name="txtProducto" Height="34" VerticalContentAlignment="Center" Padding="8,0" FontSize="13" BorderBrush="#CBD5E1"/>
+                        <TextBox x:Name="txtProducto"
+                         FontSize="14"
+                         FontWeight="Medium"
+                         Foreground="#0F172A"
+                         Background="White"
+                         BorderBrush="#CBD5E1"
+                         Padding="8,6"
+                         Opacity="1.0" />
 
                         <Popup x:Name="popupProductos" PlacementTarget="{Binding ElementName=txtProducto}" Placement="Bottom" AllowsTransparency="True" PopupAnimation="Slide">
                             <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Width="{Binding ElementName=txtProducto, Path=ActualWidth}" MaxHeight="180">

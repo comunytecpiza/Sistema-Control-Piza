@@ -2077,5 +2077,10 @@ namespace AplicativoDeAlmacen.Views
             while (dep != null) { if (dep is Button btn) { if (btn == btnImprimir || btn == btnCancelar || btn == _btnPrintNearSave) { overBlockedButton = false; break; } overBlockedButton = true; break; } dep = VisualTreeHelper.GetParent(dep); }
             Mouse.OverrideCursor = overBlockedButton ? Cursors.Arrow : null;
         }
+
+        private void dgProductos_SelectionChanged_1(object sender, SelectionChangedEventArgs e)
+        {
+
+        }
     }
 }
