@@ -1657,17 +1657,58 @@ namespace AplicativoDeAlmacen.Views
 
             int idMotivo = Convert.ToInt32(cboMotivoSalida.SelectedValue);
 
+
+
+            // 🚚 TRANSFERENCIA ENTRE ALMACENES (Motivo 4 o 10): REGLA DE EXCLUSIÓN MUTUA
             if (idMotivo == 4 || idMotivo == 10)
             {
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
                 bool tieneAlmacenDestino = cboAlmacenDestino.SelectedValue != null;
 
+                // 🚫 RECHAZO SI SE LLENARON AMBOS A LA VEZ
+                if (tieneUbicacion && tieneAlmacenDestino)
+                {
+                    // Limpieza automática de la cabecera referencial
+                    txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                    txtUbicacion.Clear();
+                    txtCodigoUbicacion.Clear();
+                    txtDireccionUbicacion.Clear();
+                    _idUbicacionSeleccionada = null;
+                    txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+
+                    cboAlmacenDestino.SelectedIndex = -1;
+                    cboAlmacenDestino.SelectedValue = null;
+
+                    MessageBox.Show(
+                        "⚠️ Conflicto de Destino:\n\nPara una Transferencia solo puede seleccionar UNA de las dos opciones:\n" +
+                        "• O una Ubicación Referencial/Interna.\n" +
+                        "• O un Almacén Destino Físico (Inter-Sedes).\n\n" +
+                        "No puede enviar a ambos destinos simultáneamente. Se han limpiado ambos campos para que elija uno solo.",
+                        "Destino Inválido",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
+                // 🚫 RECHAZO SI NO SE LLENÓ NINGUNO
                 if (!tieneUbicacion && !tieneAlmacenDestino)
                 {
-                    MessageBox.Show("Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Destino.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(
+                        "Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Destino Físico.",
+                        "Validación Requerida",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
                     return;
                 }
             }
+            else if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11 || idMotivo == 14)
+            {
+                if (string.IsNullOrWhiteSpace(txtCliente.Text) || !_idClienteSeleccionado.HasValue)
+                {
+                    MessageBox.Show("Para este tipo de venta es obligatorio seleccionar el Cliente / Razón Social.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }           
 
             try
             {
@@ -2189,7 +2230,7 @@ namespace AplicativoDeAlmacen.Views
             txtUbicacion.IsEnabled = false;
             cboAlmacenDestino.IsEnabled = false;
 
-            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
+            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11 || idMotivo == 14)
             {
                 txtCliente.IsEnabled = true;
             }
@@ -2219,7 +2260,7 @@ namespace AplicativoDeAlmacen.Views
             txtUbicacion.IsEnabled = false;
             cboAlmacenDestino.IsEnabled = false;
 
-            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
+            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11 || idMotivo == 14)
             {
                 txtCliente.IsEnabled = true;
             }
@@ -2263,6 +2304,7 @@ namespace AplicativoDeAlmacen.Views
                 txtCodigoUbicacion.Clear();
                 txtDireccionUbicacion.Clear();
                 _idUbicacionSeleccionada = null;
+                if (popupUbicaciones != null) popupUbicaciones.IsOpen = false;
                 txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
             }
         }
@@ -2359,6 +2401,14 @@ namespace AplicativoDeAlmacen.Views
                 popupUbicaciones.IsOpen = false;
                 lstUbicaciones.SelectedIndex = -1;
                 txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+
+                // 🌟 Exclusión mutua: Limpia el almacén destino si se escogió ubicación
+                if (cboAlmacenDestino != null)
+                {
+                    cboAlmacenDestino.SelectedIndex = -1;
+                    cboAlmacenDestino.SelectedValue = null;
+                }
+
                 e.Handled = true;
             }
         }

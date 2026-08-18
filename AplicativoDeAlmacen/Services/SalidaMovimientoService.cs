@@ -1227,17 +1227,20 @@ namespace AplicativoDeAlmacen.Services
             using var transaccion = dbConn.BeginTransaction();
 
             string coalesceFunc = QueryAdapter.EsMySQL ? "COALESCE" : "ISNULL";
+            const int batchSize = 1000;
 
             try
             {
                 DateTime fechaMovimiento;
                 int almacenEmisor = 1;
+                int? almacenDestino = null;
+                int motivoProductoId = 0;
 
                 using (var cmdMov = dbConn.CreateCommand())
                 {
                     cmdMov.Transaction = transaccion;
                     cmdMov.CommandText = QueryAdapter.FormatearConsulta(
-                        $"SELECT fecha_movimiento, estado_id, {coalesceFunc}(almacen_id, {coalesceFunc}(almacen_origen_id, 1)) FROM movimientos WHERE id = @movId");
+                        $"SELECT fecha_movimiento, estado_id, {coalesceFunc}(almacen_id, {coalesceFunc}(almacen_origen_id, 1)), almacen_destino_id, motivo_producto_id FROM movimientos WHERE id = @movId");
                     AgregarParametro(cmdMov, "@movId", movimientoId);
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
@@ -1246,6 +1249,8 @@ namespace AplicativoDeAlmacen.Services
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
                     almacenEmisor = rdrMov.GetInt32(2);
+                    almacenDestino = rdrMov.IsDBNull(3) ? null : rdrMov.GetInt32(3);
+                    motivoProductoId = rdrMov.GetInt32(4);
                 }
 
                 // 1. Obtener lista de códigos afectados en esta salida
@@ -1259,14 +1264,108 @@ namespace AplicativoDeAlmacen.Services
                     while (await rdrC.ReadAsync()) codigosAnular.Add(rdrC.GetInt32(0));
                 }
 
-                // 2. Validar si tienen movimientos POSTERIORES al de la anulación
-                foreach (var codId in codigosAnular)
+                progress?.Report(20);
+
+                // 2. 🛡️ VALIDACIÓN DE SEGURIDAD SEGÚN MOTIVO
+                if (codigosAnular.Any())
                 {
-                    bool tienePost = await TieneMovimientosPosterioresAsync(codId, movimientoId, fechaMovimiento, dbConn, transaccion);
-                    if (tienePost) throw new Exception($"Rechazado: El código ID {codId} registra movimientos logísticos posteriores.");
+                    // 🚚 CASO A: SALIDA POR TRANSFERENCIA (Motivo 10) -> Todos deben seguir en Estado 5 (Tránsito) hacia el destino
+                    if (motivoProductoId == 10)
+                    {
+                        for (int i = 0; i < codigosAnular.Count; i += batchSize)
+                        {
+                            var batchChkTrans = codigosAnular.Skip(i).Take(batchSize).ToList();
+                            var pNames = batchChkTrans.Select((_, idx) => $"@tChk{idx}").ToList();
+
+                            string sqlValidaTransito = $@"
+                    SELECT cc.codigo, cc.estado_id, COALESCE(a.nombre, 'Sin Almacén') AS alm_nombre
+                    FROM codigos_creados cc WITH (NOLOCK)
+                    LEFT JOIN almacenes a ON cc.almacen_id = a.id
+                    WHERE cc.id IN ({string.Join(",", pNames)})
+                      AND (cc.estado_id != 5 OR cc.almacen_id != @almDestinoId)";
+
+                            using var cmdValTrans = dbConn.CreateCommand();
+                            cmdValTrans.Transaction = transaccion;
+                            cmdValTrans.CommandText = QueryAdapter.FormatearConsulta(sqlValidaTransito);
+                            AgregarParametro(cmdValTrans, "@almDestinoId", almacenDestino ?? 0);
+
+                            for (int k = 0; k < batchChkTrans.Count; k++)
+                            {
+                                AgregarParametro(cmdValTrans, $"@tChk{k}", batchChkTrans[k]);
+                            }
+
+                            var codigosNoEnTransito = new List<string>();
+                            using var rdrTrans = await cmdValTrans.ExecuteReaderAsync();
+                            while (await rdrTrans.ReadAsync())
+                            {
+                                string cod = rdrTrans.GetString(0);
+                                int estActual = rdrTrans.GetInt32(1);
+                                string almNom = rdrTrans.GetString(2);
+                                string estadoTexto = estActual == 3 ? "Ya fue recibido en destino (Disponible)" : $"Estado ID: {estActual}";
+                                codigosNoEnTransito.Add($"• Código '{cod}': [{estadoTexto}] en {almNom}");
+                            }
+                            rdrTrans.Close();
+
+                            if (codigosNoEnTransito.Any())
+                            {
+                                var muestra = codigosNoEnTransito.Take(10).ToList();
+                                string mas = codigosNoEnTransito.Count > 10 ? $"\n... y {codigosNoEnTransito.Count - 10} más." : "";
+                                throw new Exception($"⚠️ Operación Rechazada por Trazabilidad:\n\nNo se puede anular la transferencia porque los siguientes códigos ya no están en tránsito hacia el destino o ya fueron recibidos:\n\n{string.Join("\n", muestra)}{mas}\n\nPara anular esta salida, primero anule la recepción en la sede de destino.");
+                            }
+                        }
+                    }
+                    // 🛒 CASO B: VENTAS, PROMOTORÍA Y OTROS MOTIVOS DE SALIDA -> Validar movimientos posteriores
+                    else
+                    {
+                        for (int i = 0; i < codigosAnular.Count; i += batchSize)
+                        {
+                            var batchCheck = codigosAnular.Skip(i).Take(batchSize).ToList();
+                            var paramNamesCheck = batchCheck.Select((_, idx) => $"@chk{idx}").ToList();
+
+                            string sqlCheckFuturo = $@"
+                    SELECT DISTINCT cc.codigo, mp.descripcion AS motivo_desc, m.serie_documento, m.numero_documento
+                    FROM movimiento_codigos mc WITH (NOLOCK)
+                    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                    INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                    WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesCheck)})
+                      AND m.id != @movId
+                      AND m.estado_id = 1
+                      AND (
+                          m.fecha_movimiento > @fechaEdicion 
+                          OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
+                      )";
+
+                            using var cmdFuturo = dbConn.CreateCommand();
+                            cmdFuturo.Transaction = transaccion;
+                            cmdFuturo.CommandText = QueryAdapter.FormatearConsulta(sqlCheckFuturo);
+                            AgregarParametro(cmdFuturo, "@movId", movimientoId);
+                            AgregarParametro(cmdFuturo, "@fechaEdicion", fechaMovimiento);
+
+                            for (int k = 0; k < batchCheck.Count; k++)
+                            {
+                                AgregarParametro(cmdFuturo, $"@chk{k}", batchCheck[k]);
+                            }
+
+                            var conflictosDetectados = new List<string>();
+                            using var rdrFut = await cmdFuturo.ExecuteReaderAsync();
+                            while (await rdrFut.ReadAsync())
+                            {
+                                conflictosDetectados.Add($"• Código '{rdrFut.GetString(0)}' en Doc {rdrFut.GetString(2)}-{rdrFut.GetString(3)} ({rdrFut.GetString(1)})");
+                            }
+                            rdrFut.Close();
+
+                            if (conflictosDetectados.Any())
+                            {
+                                var muestra = conflictosDetectados.Take(10).ToList();
+                                string masInfo = conflictosDetectados.Count > 10 ? $"\n... y {conflictosDetectados.Count - 10} código(s) más." : "";
+                                throw new Exception($"⚠️ Operación Rechazada por Trazabilidad de Kárdex:\n\nNo se puede anular la salida porque los siguientes códigos registran movimientos posteriores:\n\n{string.Join("\n", muestra)}{masInfo}\n\nDebe anular primero los movimientos posteriores.");
+                            }
+                        }
+                    }
                 }
 
-                progress?.Report(30);
+                progress?.Report(40);
 
                 // 3. Eliminar rangos registrados en esta salida
                 string sqlEliminarRangosAnulados = "DELETE FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
@@ -1280,29 +1379,115 @@ namespace AplicativoDeAlmacen.Services
 
                 progress?.Report(60);
 
-                // 4. 🌟 REVERSIÓN EMPRESARIAL REAL: Consultar historial individual de cada código
-                foreach (var codId in codigosAnular)
+                // 4. 🌟 REVERSIÓN EN LOTE DE ESTADOS Y ALMACÉN
+                if (codigosAnular.Any())
                 {
-                    // Pass almacenEmisor to force search within the local warehouse context
-                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(
-                        codId,
-                        movimientoId,
-                        dbConn,
-                        transaccion,
-                        almacenEmisor
-                    );
+                    // 🚚 CASO A: TRANSFERENCIA (Motivo 10) -> Regresan directo al Almacén Emisor en Estado 3 (Disponible)
+                    if (motivoProductoId == 10)
+                    {
+                        for (int i = 0; i < codigosAnular.Count; i += batchSize)
+                        {
+                            var batchUpd = codigosAnular.Skip(i).Take(batchSize).ToList();
+                            await ActualizarEstadoYAlmacenCodigosMasivoAsync(batchUpd, 3, almacenEmisor, dbConn, transaccion);
+                        }
+                    }
+                    // 🛒 CASO B: OTROS MOTIVOS -> Reversión histórica según Kárdex previo
+                    else
+                    {
+                        var mapaHistorial = new Dictionary<int, (int EstadoId, int AlmacenId)>();
 
-                    using var cmdRevert = dbConn.CreateCommand();
-                    cmdRevert.Transaction = transaccion;
-                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = @est, almacen_id = @alm WHERE id = @codId");
-                    AgregarParametro(cmdRevert, "@est", estadoAnterior);
-                    AgregarParametro(cmdRevert, "@alm", almacenAnterior);
-                    AgregarParametro(cmdRevert, "@codId", codId);
-                    await cmdRevert.ExecuteNonQueryAsync();
+                        for (int i = 0; i < codigosAnular.Count; i += batchSize)
+                        {
+                            var batchHist = codigosAnular.Skip(i).Take(batchSize).ToList();
+                            var paramNames = batchHist.Select((_, idx) => $"@h{idx}").ToList();
+
+                            string queryHistorialLote = QueryAdapter.EsMySQL
+                                ? $@"
+                        SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
+                               COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
+                               COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
+                        FROM movimiento_codigos mc
+                        INNER JOIN movimientos m ON mc.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)})
+                          AND m.id != @movId
+                          AND m.estado_id = 1
+                          AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx)
+                        ORDER BY mc.codigo_creado_id, m.id DESC"
+                                : $@"
+                        WITH HistorialOrdenado AS (
+                            SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
+                                   ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
+                                   ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen,
+                                   ROW_NUMBER() OVER(PARTITION BY mc.codigo_creado_id ORDER BY m.id DESC) as rn
+                            FROM movimiento_codigos mc WITH (NOLOCK)
+                            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+                            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                            WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)})
+                              AND m.id != @movId
+                              AND m.estado_id = 1
+                              AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx)
+                        )
+                        SELECT codigo_creado_id, motivo_producto_id, tipo_movimiento_id, alm_destino, alm_origen
+                        FROM HistorialOrdenado WHERE rn = 1";
+
+                            using var cmdHist = dbConn.CreateCommand();
+                            cmdHist.Transaction = transaccion;
+                            cmdHist.CommandText = QueryAdapter.FormatearConsulta(queryHistorialLote);
+                            AgregarParametro(cmdHist, "@movId", movimientoId);
+                            AgregarParametro(cmdHist, "@almCtx", almacenEmisor);
+
+                            for (int k = 0; k < batchHist.Count; k++)
+                            {
+                                AgregarParametro(cmdHist, $"@h{k}", batchHist[k]);
+                            }
+
+                            using var rdrH = await cmdHist.ExecuteReaderAsync();
+                            while (await rdrH.ReadAsync())
+                            {
+                                int codIdBD = rdrH.GetInt32(0);
+                                if (!mapaHistorial.ContainsKey(codIdBD))
+                                {
+                                    int motivoId = rdrH.GetInt32(1);
+                                    int tipoMov = rdrH.GetInt32(2);
+                                    int almDest = rdrH.GetInt32(3);
+                                    int almOrig = rdrH.GetInt32(4);
+
+                                    int estFinal = (tipoMov == 1 || motivoId == 4) ? 3 : ((motivoId == 10) ? 5 : 4);
+                                    int almFinal = (tipoMov == 1 || motivoId == 4) ? almacenEmisor : almOrig;
+
+                                    mapaHistorial[codIdBD] = (estFinal, almFinal);
+                                }
+                            }
+                            rdrH.Close();
+                        }
+
+                        var gruposReversion = new Dictionary<(int EstadoId, int AlmacenId), List<int>>();
+                        foreach (var codId in codigosAnular)
+                        {
+                            var clave = mapaHistorial.TryGetValue(codId, out var h) ? h : (3, almacenEmisor);
+                            if (!gruposReversion.ContainsKey(clave)) gruposReversion[clave] = new List<int>();
+                            gruposReversion[clave].Add(codId);
+                        }
+
+                        foreach (var kvp in gruposReversion)
+                        {
+                            int estDestino = kvp.Key.EstadoId;
+                            int almDestino = kvp.Key.AlmacenId;
+                            var listaIds = kvp.Value;
+
+                            for (int i = 0; i < listaIds.Count; i += batchSize)
+                            {
+                                var batchUpd = listaIds.Skip(i).Take(batchSize).ToList();
+                                await ActualizarEstadoYAlmacenCodigosMasivoAsync(batchUpd, estDestino, almDestino, dbConn, transaccion);
+                            }
+                        }
+                    }
                 }
-            
 
-                // 5. 🌟 DESVINCULACIÓN (NUEVO): Eliminar registros de movimiento_codigos por consistencia con Ingresos
+                progress?.Report(80);
+
+                // 5. Desvincular de movimiento_codigos
                 using (var cmdDelMC = dbConn.CreateCommand())
                 {
                     cmdDelMC.Transaction = transaccion;
@@ -1320,7 +1505,7 @@ namespace AplicativoDeAlmacen.Services
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
 
-                // 7. Recalcular Kárdex/Stock de productos involucrados
+                // 7. Recalcular Kárdex/Stock físico del almacén emisor
                 using (var cmdProds = dbConn.CreateCommand())
                 {
                     cmdProds.Transaction = transaccion;
@@ -1339,12 +1524,12 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 progress?.Report(100);
-                transaccion.Commit();
+                await transaccion.CommitAsync();
                 return true;
             }
             catch (Exception ex)
             {
-                transaccion.Rollback();
+                await transaccion.RollbackAsync();
                 throw new Exception(ex.Message);
             }
         }

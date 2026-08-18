@@ -206,7 +206,9 @@ namespace AplicativoDeAlmacen.Views
                 KardexDataGrid.ItemsSource = reporte.Detalles;
 
                 // Título dinámico según la sede
-                LblTituloIngresos.Text = (miAlmacenId == ALMACEN_CENTRAL_ID) ? "Ingresos (Compras)" : "Ingresos (Transferencias)";
+                LblTituloIngresos.Text = (miAlmacenId == ALMACEN_CENTRAL_ID)
+                ? "Ingresos / Entradas"
+                : "Ingresos (Transferencias / Entradas)";
 
                 // 🌟 ASIGNACIÓN DE LAS TARJETAS CONTABLES Y OPERATIVAS
                 TxtStockInicial.Text = reporte.StockInicial.ToString("N0");

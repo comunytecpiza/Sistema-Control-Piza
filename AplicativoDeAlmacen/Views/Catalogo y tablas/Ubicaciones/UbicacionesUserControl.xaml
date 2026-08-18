@@ -47,7 +47,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="📍 Gestión de Ubicaciones y Almacenes" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
+        <TextBlock Text="📍Ubicaciones" FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,20"/>
 
         <!-- BARRA SUPERIOR DE HERRAMIENTAS Y FILTROS -->
         <Border Grid.Row="1" Background="White" CornerRadius="10" Padding="15,20" Margin="0,0,0,15" BorderBrush="#E2E8F0" BorderThickness="1">

@@ -605,7 +605,29 @@ namespace AplicativoDeAlmacen.Views
 
         private void AplicarPermisosRBAC()
         {
-            // 1. Buscamos los permisos asignados a este módulo evaluando tanto el nombre del control como posibles alias comunes
+            
+            // 1. Verificamos si el usuario pertenece a Administrador o a roles de Almacén
+            string rolUsuario = SesionSistema.UsuarioActual?.Rol?.Nombre?.ToUpperInvariant() ?? "";
+            int rolId = SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+
+            // Permite Administrador (1), Almacenero (3) y Almacenero OP (4)
+            bool esAlmacenOAdmin = rolUsuario.Contains("ADMIN") ||
+                                   rolUsuario.Contains("ALMACEN") ||
+                                   rolUsuario.Contains("ALMACÉN") ||
+                                   rolId == 1 || rolId == 3 || rolId == 4;
+
+            if (esAlmacenOAdmin)
+            {
+                this.IsEnabled = true;
+                this.Visibility = Visibility.Visible;
+
+                // Mostramos ambos botones para estos roles
+                BtnNuevoLote.Visibility = Visibility.Visible;
+                BtnEliminarLote.Visibility = Visibility.Visible;
+                return;
+            }
+
+            // 2. Si no es rol directo, evaluamos la tabla de permisos RBAC tradicional
             var permisoModulo = SesionSistema.PermisosActuales?
                 .FirstOrDefault(p => p.ControlWpf == nameof(RegistroCodigosUserControl) ||
                                      p.CodigoModulo.Equals("REGISTRO_CODIGOS", StringComparison.OrdinalIgnoreCase) ||
@@ -613,7 +635,6 @@ namespace AplicativoDeAlmacen.Views
 
             if (permisoModulo != null)
             {
-                // 🛡️ SEGURIDAD TOTAL: Si el usuario NO tiene permiso de Ver, bloqueamos o cerramos la vista completa de inmediato
                 if (!permisoModulo.PuedeVer)
                 {
                     MessageBox.Show("No cuenta con autorización para acceder a este módulo de Registro de Códigos.", "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -622,19 +643,17 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 2. Control granular de botones según la base de datos
                 BtnNuevoLote.Visibility = permisoModulo.PuedeCrear ? Visibility.Visible : Visibility.Collapsed;
                 BtnEliminarLote.Visibility = permisoModulo.PuedeEliminar ? Visibility.Visible : Visibility.Collapsed;
             }
             else
             {
-                // 🛡️ CANDADO ESTRICTO POR DEFECTO: Si no hay registro de permisos para este rol, se deniega el acceso total
                 MessageBox.Show("No se encontraron privilegios configurados para este módulo. Acceso denegado por seguridad.", "Seguridad RBAC", MessageBoxButton.OK, MessageBoxImage.Stop);
                 this.IsEnabled = false;
                 this.Visibility = Visibility.Collapsed;
             }
         }
 
-       
+
     }
 }

@@ -831,14 +831,16 @@ namespace AplicativoDeAlmacen.Views
 
             int idMotivo = Convert.ToInt32(cboMotivo.SelectedValue);
 
-            if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11)
+            // 🛒 1. COMPRA (1) O DEVOLUCIÓN RECIBIDA (2): Obligatorio Razón Social (Proveedor o Cliente)
+            if (idMotivo == 1 || idMotivo == 2)
             {
                 if (string.IsNullOrWhiteSpace(txtRazonSocial.Text) || !_personaComercialIdSeleccionada.HasValue)
                 {
-                    MessageBox.Show("Para este motivo es obligatorio seleccionar la Razón Social de destino.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Para este motivo es obligatorio seleccionar la Razón Social.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
+            // 🚚 2. TRANSFERENCIA ENTRE ALMACENES (4): Ubicación O Almacén de Procedencia
             else if (idMotivo == 4)
             {
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
@@ -850,24 +852,27 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
             }
-            else if (idMotivo == 9 || idMotivo == 12)
+            // 🔄 3. OTROS (13) O PROMOTORÍA / MIGRACIÓN (3): Permite Razón Social, Ubicación o AMBOS
+            else if (idMotivo == 13 || idMotivo == 3)
             {
                 bool tieneRazonSocial = !string.IsNullOrWhiteSpace(txtRazonSocial.Text) && _personaComercialIdSeleccionada.HasValue;
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
 
                 if (!tieneRazonSocial && !tieneUbicacion)
                 {
-                    MessageBox.Show("Para este motivo debe seleccionar al menos una Razón Social O una Ubicación de destino.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Para el motivo seleccionado debe ingresar al menos una Razón Social O una Ubicación (o puede completar ambos).", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
 
+            // 📄 Validación de Guía / Comprobante
             if (string.IsNullOrWhiteSpace(txtSerieGuia.Text) || string.IsNullOrWhiteSpace(txtNumeroGuia.Text))
             {
                 MessageBox.Show("Debe ingresar la Serie y el Número de Guía o Comprobante.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            // 📦 Validación de Grilla de Productos
             if (_productosGridList == null || !_productosGridList.Any())
             {
                 MessageBox.Show("Debe agregar al menos un producto antes de registrar la operación.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1274,7 +1279,7 @@ namespace AplicativoDeAlmacen.Views
 
             // 🌟 ASIGNACIÓN DEL ID DE MOVIMIENTO ACTUAL Y ESTADO
             modal.MovimientoIdActual = _currentMovimientoId;
-            modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && mid == 1) ? 1 : 4;
+            modal.EstadoPermitido = (cboMotivo.SelectedValue is int mid && (mid == 1 || mid == 13)) ? 1 : 4;
             modal.InitializeForEdit(seleccionado, rangosExistentes);
 
             if (modal.ShowDialog() == true && modal.FueGrabado)
@@ -1346,7 +1351,7 @@ namespace AplicativoDeAlmacen.Views
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this), IsAddAction = true };
 
             int motivoActual = cboMotivo.SelectedValue is int mid ? mid : 1;
-            modal.EstadoPermitido = (motivoActual == 1) ? 1 : ((motivoActual == 4) ? 5 : 4);
+            modal.EstadoPermitido = (motivoActual == 1 || motivoActual == 13) ? 1 : ((motivoActual == 4) ? 5 : 4);
             modal.ListaProductosExistentesEnPadre = _productosGridList;
 
             if (modal.ShowDialog() == true && modal.FueGrabado)
@@ -1647,7 +1652,7 @@ namespace AplicativoDeAlmacen.Views
             }
             try
             {
-                win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && mv == 1) ? 1 : 4;
+                win.EstadoPermitido = (cboMotivo.SelectedValue is int mv && (mv == 1 || mv == 13)) ? 1 : 4;
             }
             catch
             {

@@ -3,12 +3,15 @@
         xmlns:dash="clr-namespace:AplicativoDeAlmacen.Views.Dashboards"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:hc="https://handyorg.github.io/handycontrol"
-        Title="Panel de Administrador - Ediciones Piza" Height="700" Width="1100"
+        Title="Panel de Administrador - Ediciones Piza" 
+        Height="750" Width="1200"
+        MinWidth="1050" MinHeight="650"
         WindowState="Maximized" 
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI"
-        Background="#F3F4F6" Cursor="">
+        Background="#F3F4F6">
+    
     <Window.Resources>
         <Style x:Key="ModernMenuItemStyle" TargetType="MenuItem">
             <Setter Property="Padding" Value="12,10"/>

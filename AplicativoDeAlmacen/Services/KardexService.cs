@@ -39,19 +39,19 @@ namespace AplicativoDeAlmacen.Services
 
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
-                // 1. CÁLCULO DE STOCK INICIAL (Excluye explícitamente m.estado_id != 2)
+                // 1. CÁLCULO DE STOCK INICIAL (Excluye explícitamente m.estado_id = 2)
                 using (IDbCommand cmdInit = conn.CreateCommand())
                 {
                     string qInit = $@"
-        SELECT 
-            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
-            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
-        FROM movimiento_detalles md {nolock}
-        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-        WHERE md.producto_id = @ProductoId
-          AND m.fecha_movimiento < @FechaDesde
-          AND m.estado_id != 2"; // 👈 NUNCA CONSIDERA ANULADOS
+SELECT 
+    COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
+    COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+WHERE md.producto_id = @ProductoId
+  AND m.fecha_movimiento < @FechaDesde
+  AND m.estado_id != 2";
 
                     cmdInit.CommandText = QueryAdapter.FormatearConsulta(qInit);
                     AgregarParametro(cmdInit, "@ProductoId", productoId);
@@ -62,46 +62,69 @@ namespace AplicativoDeAlmacen.Services
                     reporte.StockInicial = (resInit != null && resInit != DBNull.Value) ? Convert.ToDecimal(resInit) : 0m;
                 }
 
-                // 2. CONSULTA DE MOVIMIENTOS EN RANGO (Filtro m.estado_id != 2 en SQL)
+                // 2. CONSULTA DE MOVIMIENTOS EN RANGO CON DETECCIÓN DE DEVOLUCIÓN REAL
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
+                    string subqueryTrazabilidad = $@"
+            CASE 
+                -- Devolución expresa por motivo 2
+                WHEN m.motivo_producto_id = 2 THEN 1
+                -- Compra expresa por motivo 1
+                WHEN m.motivo_producto_id = 1 THEN 0
+                -- Motivo OTROS (13) o Promotoría (3): Verificar si sus códigos ya registraron salidas previas en el sistema
+                WHEN mp.tipo_movimiento_id = 1 THEN 
+                    CASE WHEN EXISTS (
+                        SELECT 1 
+                        FROM movimiento_codigos mc_curr {nolock}
+                        INNER JOIN movimiento_codigos mc_prev {nolock} ON mc_curr.codigo_creado_id = mc_prev.codigo_creado_id
+                        INNER JOIN movimientos m_prev {nolock} ON mc_prev.movimiento_id = m_prev.id
+                        INNER JOIN motivo_productos mp_prev {nolock} ON m_prev.motivo_producto_id = mp_prev.id
+                        WHERE mc_curr.movimiento_id = m.id
+                          AND mp_prev.tipo_movimiento_id = 2
+                          AND m_prev.id < m.id
+                          AND m_prev.estado_id = 1
+                    ) THEN 1 ELSE 0 END
+                ELSE 0 
+            END AS es_devolucion_real";
+
                     string queryRaw = $@"
-        SELECT
-            m.fecha_movimiento,
-            mp.descripcion AS motivo,
-            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_movimiento,
-            CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
-            CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-            COALESCE(
-                pc.razon_social,
-                u.descripcion,
-                CASE 
-                    WHEN mp.tipo_movimiento_id = 1 AND m.motivo_producto_id = 4 THEN alm_orig.nombre
-                    WHEN mp.tipo_movimiento_id = 2 AND m.motivo_producto_id = 10 THEN alm_dest.nombre
-                    ELSE NULL 
-                END,
-                'ALMACÉN'
-            ) AS entidad,
-            CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END AS Ingreso,
-            CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
-            m.estado_id,
-            m.motivo_producto_id
-        FROM movimiento_detalles md {nolock}
-        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-        LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-        LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-        LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-        LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-        WHERE md.producto_id = @ProductoId
-          AND m.fecha_movimiento >= @FechaDesde
-          AND m.fecha_movimiento <= @FechaHasta
-          AND m.estado_id != 2
-          AND (
-             (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-             (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-          )
-        ORDER BY m.fecha_movimiento ASC, m.id ASC";
+SELECT
+    m.fecha_movimiento,
+    mp.descripcion AS motivo,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_movimiento,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+    COALESCE(
+        pc.razon_social,
+        u.descripcion,
+        CASE 
+            WHEN mp.tipo_movimiento_id = 1 AND m.motivo_producto_id = 4 THEN alm_orig.nombre
+            WHEN mp.tipo_movimiento_id = 2 AND m.motivo_producto_id = 10 THEN alm_dest.nombre
+            ELSE NULL 
+        END,
+        'ALMACÉN'
+    ) AS entidad,
+    CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END AS Ingreso,
+    CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
+    m.estado_id,
+    m.motivo_producto_id,
+    {subqueryTrazabilidad}
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+WHERE md.producto_id = @ProductoId
+  AND m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )
+ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -119,6 +142,7 @@ namespace AplicativoDeAlmacen.Services
                         {
                             int motivoId = reader.IsDBNull(9) ? 0 : reader.GetInt32(9);
                             string motivoTexto = Convert.ToString(reader.GetValue(1)) ?? "";
+                            bool esDevolucionReal = !reader.IsDBNull(10) && Convert.ToInt32(reader.GetValue(10)) == 1;
 
                             decimal ing = reader.GetDecimal(6);
                             decimal sal = reader.GetDecimal(7);
@@ -139,7 +163,7 @@ namespace AplicativoDeAlmacen.Services
 
                             reporte.TotalSalidas += sal;
 
-                            // 🌟 LÓGICA DE TARJETAS DE INGRESOS
+                            // 🌟 CLASIFICACIÓN CONTABLE EXACTA
                             if (ing > 0)
                             {
                                 string motivoUpper = motivoTexto.ToUpperInvariant();
@@ -148,8 +172,8 @@ namespace AplicativoDeAlmacen.Services
 
                                 if (esAlmacenCentral)
                                 {
-                                    // Almacén Central: Solo COMPRA es Ingreso Principal. El resto son Devoluciones.
-                                    if (esCompra)
+                                    // En Central: Compras e ingresos brutos (sin salida previa) van a TotalIngresos
+                                    if (esCompra || (!esDevolucionReal && motivoId != 2 && !esTransferencia))
                                     {
                                         reporte.TotalIngresos += ing;
                                     }
@@ -160,8 +184,8 @@ namespace AplicativoDeAlmacen.Services
                                 }
                                 else
                                 {
-                                    // Sucursales: TRANSFERENCIAS (y Compras si aplica) son Ingreso Principal. El resto son Devoluciones.
-                                    if (esTransferencia || esCompra)
+                                    // En Sucursales: Transferencias e ingresos iniciales van a TotalIngresos
+                                    if (esTransferencia || esCompra || (!esDevolucionReal && motivoId != 2))
                                     {
                                         reporte.TotalIngresos += ing;
                                     }

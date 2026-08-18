@@ -64,7 +64,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,25"><Run Text="📦"/><Run Language="es-pe" Text=" Resumen de Saldos y Movimientos"/></TextBlock>
+        <TextBlock FontSize="28" FontWeight="Bold" Foreground="#111827" Margin="0,0,0,25"><Run Text="📦"/><Run Language="es-pe" Text=" Saldos de Productos"/></TextBlock>
 
         <Border Grid.Row="1" Background="White" CornerRadius="12" Padding="20" Margin="0,0,0,20">
             <Border.Effect>
