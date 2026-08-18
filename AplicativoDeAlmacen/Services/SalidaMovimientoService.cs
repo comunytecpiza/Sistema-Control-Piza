@@ -391,24 +391,32 @@ namespace AplicativoDeAlmacen.Services
         {
             if (codigosIds == null || !codigosIds.Any()) return;
 
+            const int batchSize = 500; // 🌟 Paginación segura de parámetros
             string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
-            var sb = new System.Text.StringBuilder();
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = trans;
 
-            sb.Append($"INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at) VALUES ");
-
-            for (int i = 0; i < codigosIds.Count; i++)
+            for (int i = 0; i < codigosIds.Count; i += batchSize)
             {
-                sb.Append($"(@movId, @detId, @c{i}, 0, 1, {nowFunc})");
-                if (i < codigosIds.Count - 1) sb.Append(",");
-                AgregarParametro(cmd, "@c" + i, codigosIds[i]);
-            }
+                var batch = codigosIds.Skip(i).Take(batchSize).ToList();
+                var sb = new System.Text.StringBuilder();
 
-            cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
-            AgregarParametro(cmd, "@movId", movId);
-            AgregarParametro(cmd, "@detId", detId);
-            await cmd.ExecuteNonQueryAsync();
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = trans;
+
+                sb.Append("INSERT INTO movimiento_codigos (movimiento_id, movimiento_detalle_id, codigo_creado_id, cantidad_ingreso, cantidad_salida, created_at) VALUES ");
+
+                for (int j = 0; j < batch.Count; j++)
+                {
+                    sb.Append($"(@movId, @detId, @c{j}, 0, 1, {nowFunc})");
+                    if (j < batch.Count - 1) sb.Append(",");
+                    AgregarParametro(cmd, "@c" + j, batch[j]);
+                }
+
+                cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
+                AgregarParametro(cmd, "@movId", movId);
+                AgregarParametro(cmd, "@detId", detId);
+                await cmd.ExecuteNonQueryAsync();
+                sb.Clear();
+            }
         }
 
         private async Task ActualizarEstadoYAlmacenCodigosMasivoAsync(List<int> codigosIds, int nuevoEstadoId, int? nuevoAlmacenId, DbConnection conn, DbTransaction trans)
@@ -447,6 +455,43 @@ namespace AplicativoDeAlmacen.Services
             AgregarParametro(cmd, "@movId", movId);
             AgregarParametro(cmd, "@codId", codId);
             await cmd.ExecuteNonQueryAsync();
+        }
+
+        private async Task InsertarRangosMasivoAsync(List<RangoCodigoItem> rangos, int detId, DbConnection conn, DbTransaction trans)
+        {
+            if (rangos == null || !rangos.Any()) return;
+
+            const int batchSize = 300; // 🌟 300 x 6 = 1800 parámetros (límite seguro para SQL Server y MySQL)
+            string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
+
+            for (int i = 0; i < rangos.Count; i += batchSize)
+            {
+                var batch = rangos.Skip(i).Take(batchSize).ToList();
+                var sb = new System.Text.StringBuilder();
+
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = trans;
+
+                sb.Append("INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) VALUES ");
+
+                for (int j = 0; j < batch.Count; j++)
+                {
+                    var r = batch[j];
+                    sb.Append($"(@prodId{j}, @catId{j}, @abrev{j}, @desde{j}, @hasta{j}, @detId{j}, {nowFunc})");
+                    if (j < batch.Count - 1) sb.Append(",");
+
+                    AgregarParametro(cmd, $"@prodId{j}", r.productoId);
+                    AgregarParametro(cmd, $"@catId{j}", r.CategoriaProductoId);
+                    AgregarParametro(cmd, $"@abrev{j}", r.AbreviaturaBase);
+                    AgregarParametro(cmd, $"@desde{j}", r.DesdeNum);
+                    AgregarParametro(cmd, $"@hasta{j}", r.HastaNum);
+                    AgregarParametro(cmd, $"@detId{j}", detId);
+                }
+
+                cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
+                await cmd.ExecuteNonQueryAsync();
+                sb.Clear();
+            }
         }
 
         public async Task<bool> RegistrarSalidaCompletaAsync(
@@ -933,26 +978,12 @@ namespace AplicativoDeAlmacen.Services
                             }
                         }
 
-                        // Generar e insertar rangos representativos
+                        // 🚀 1. GENERACIÓN E INSERCIÓN MASIVA DE RANGOS (1 Solo viaje a la BD)
                         var serviceIng = new IngresoMovimientoService();
                         var rangosReconstruidos = serviceIng.GenerarRangosDesdeCodigos(codigosProd);
-                        foreach (var r in rangosReconstruidos)
-                        {
-                            string sqlInsRango = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                       VALUES (@pId, @cat, @abrev, @dNum, @hNum, @detId, {nowFunc})";
-                            using var cmdR = dbConn.CreateCommand();
-                            cmdR.Transaction = transaccion;
-                            cmdR.CommandText = QueryAdapter.FormatearConsulta(sqlInsRango);
-                            AgregarParametro(cmdR, "@pId", item.ProductoId);
-                            AgregarParametro(cmdR, "@cat", r.CategoriaProductoId);
-                            AgregarParametro(cmdR, "@abrev", r.AbreviaturaBase);
-                            AgregarParametro(cmdR, "@dNum", r.DesdeNum);
-                            AgregarParametro(cmdR, "@hNum", r.HastaNum);
-                            AgregarParametro(cmdR, "@detId", idDetalle);
-                            await cmdR.ExecuteNonQueryAsync();
-                        }
+                        await InsertarRangosMasivoAsync(rangosReconstruidos, idDetalle, dbConn, transaccion);
 
-                        // Inserción masiva de relaciones
+                        // 🚀 2. Inserción masiva de relaciones (en bloques de 500)
                         if (codigosNuevosParaInsertar.Any())
                         {
                             await InsertarMovimientoCodigosSalidaMasivoAsync(movimientoIdInserted, idDetalle, codigosNuevosParaInsertar, dbConn, transaccion);

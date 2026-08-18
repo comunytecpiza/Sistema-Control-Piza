@@ -945,6 +945,24 @@ VALUES
                     throw new InvalidOperationException("Debe seleccionar un motivo de movimiento válido.");
                 }
 
+                // 🌟 VALIDACIÓN DE INTEGRIDAD DE ENTRADA (Validado solo con id y tipo_movimiento_id)
+                bool esMotivoEntradaValido = false;
+                using (var cmdValidaMotivo = dbConn.CreateCommand())
+                {
+                    cmdValidaMotivo.Transaction = transaccion;
+                    cmdValidaMotivo.CommandText = QueryAdapter.FormatearConsulta(
+                        "SELECT 1 FROM motivo_productos WHERE id = @motivoId AND tipo_movimiento_id = 1");
+                    AgregarParametro(cmdValidaMotivo, "@motivoId", cabecera.MotivoProductoId);
+
+                    var resValida = await cmdValidaMotivo.ExecuteScalarAsync();
+                    esMotivoEntradaValido = (resValida != null && resValida != DBNull.Value);
+                }
+
+                if (!esMotivoEntradaValido)
+                {
+                    throw new InvalidOperationException($"El motivo de movimiento ({cabecera.MotivoProductoId}) no es válido para este registro de ingreso.");
+                }
+
                 progress?.Report(5);
                 movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, dbConn, transaccion);
 
@@ -963,22 +981,30 @@ VALUES
                     }
 
                 }
-                var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());             
+                var rangosPorProducto = rangos.GroupBy(r => r.productoId).ToDictionary(g => g.Key, g => g.ToList());
 
-                // 🚀 FASE A: EXTRAER TODOS LOS CÓDIGOS NUEVOS DE LA VISTA
+                // 🚀 FASE A: OBTENER TODOS LOS IDS DE FORMA MASIVA (1 Solo viaje a la BD)
                 progress?.Report(15);
-                var nuevosIdsEnviados = new HashSet<int>();
-                foreach (var item in productos)
-                {
-                    if (rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
-                    {
-                        foreach (var r in rangosProd)
-                        {
-                            var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
-                            foreach (var t in encontrados) nuevosIdsEnviados.Add(t.CodigoObj.Id);
-                        }
-                    }
-                }
+
+                var codigosTextoAProcesar = rangos
+                .Where(r => r.DesdeNum == -1)
+                .Select(r => NormalizarCodigo(r.AbreviaturaBase))
+                .Concat(
+                    rangos.Where(r => r.DesdeNum != -1)
+                          .SelectMany(r => Enumerable.Range(r.DesdeNum, r.HastaNum - r.DesdeNum + 1)
+                                                     .Select(i => NormalizarCodigo($"{r.AbreviaturaBase.TrimEnd('-')}-{i:D7}")))
+                )
+                .Distinct()
+                .ToList();
+
+                // Búsqueda masiva en lote O(1) usando el método que ya tienes en el servicio
+                var mapaLookupCodigos = await ObtenerCodigosPorListaAsync(codigosTextoAProcesar);
+
+                var nuevosIdsEnviados = new HashSet<int>(
+                    mapaLookupCodigos.Values
+                                     .Where(t => t.CodigoObj != null)
+                                     .Select(t => t.CodigoObj.Id)
+                );
 
                 // 🌟 FASE B: OPTIMIZACIÓN SI NO CAMBIARON CÓDIGOS
                 bool sonCodigosExactamenteIguales = existingMovimientoId.HasValue &&
@@ -993,7 +1019,7 @@ VALUES
                     foreach (var pid in productosUnicosIguales) await ActualizarStockProductoPorKardexAsync(pid, almacenAfectadoIgual, dbConn, transaccion);
 
                     progress?.Report(100);
-                    transaccion.Commit();
+                    await transaccion.CommitAsync();
                     return true;
                 }
 
@@ -1132,9 +1158,13 @@ VALUES
                         rdrH.Close();
                     }
 
+                    // 🌟 FASE C: PROCESAR CÓDIGOS RETIRADOS
                     var gruposReversion = new Dictionary<(int EstadoId, int AlmacenId), List<int>>();
+
                     foreach (var codId in codigosAEliminar)
                     {
+                        // 🚚 CASO 1: TRANSFERENCIA ENTRE ALMACENES (Motivo 4)
+                        // El código regresa estrictamente a la sede origen en Estado 3
                         if (cabecera.MotivoProductoId == 4)
                         {
                             int almOrigenReal = cabecera.AlmacenOrigenId ?? 1;
@@ -1142,9 +1172,22 @@ VALUES
                             if (!gruposReversion.ContainsKey(claveTransfer)) gruposReversion[claveTransfer] = new List<int>();
                             gruposReversion[claveTransfer].Add(codId);
                         }
+                        // 🛒 CASO 2: COMPRA ESTRICTA (Motivo 1)
+                        // Siempre regresa a Estado 1
+                        else if (cabecera.MotivoProductoId == 1)
+                        {
+                            int almActual = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
+                            var claveCompra = (1, almActual);
+                            if (!gruposReversion.ContainsKey(claveCompra)) gruposReversion[claveCompra] = new List<int>();
+                            gruposReversion[claveCompra].Add(codId);
+                        }
+                        // 🔄 CASO 3: MOTIVO 13 (OTROS), MOTIVO 2 (DEVOLUCIONES), MOTIVO 3 (PROMOTORÍA)
+                        // Si tiene historial vuelve a su estado previo; si no tiene historial (código nuevo) vuelve a (Estado 1, Almacén Actual)
                         else
                         {
-                            var clave = mapaHistorial.TryGetValue(codId, out var h) ? h : (1, 1);
+                            int almActual = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
+                            var clave = mapaHistorial.TryGetValue(codId, out var h) ? h : (1, almActual);
+
                             if (!gruposReversion.ContainsKey(clave)) gruposReversion[clave] = new List<int>();
                             gruposReversion[clave].Add(codId);
                         }
@@ -1179,9 +1222,6 @@ VALUES
 
                 // 🌟 FASE D: PROCESAMIENTO E INSERCIÓN MASIVA DE NUEVOS DETALLES Y CÓDIGOS
                 progress?.Report(50);
-                int totalCodigos = rangos.Sum(r => r.DesdeNum == -1 ? 1 : (r.HastaNum - r.DesdeNum + 1));
-                if (totalCodigos == 0) totalCodigos = 1;
-                int codigosProcesadosGlobal = 0;
                 int miAlmacenActualId = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
 
                 foreach (var item in productos)
@@ -1216,29 +1256,35 @@ VALUES
                         continue;
                     }
 
+                    // ✔️ AHORA (Guarda todos los sub-rangos en 1 solo viaje a la BD):
+                    await InsertarRangosMasivoAsync(rangosProd, detalleId, dbConn, transaccion);
+
+                    // 2. Extraer los IDs directamente desde el lookup masivo ya cargado en memoria RAM
+                    var codigosTextoEsteProd = rangosProd
+                    .Where(r => r.DesdeNum == -1)
+                    .Select(r => NormalizarCodigo(r.AbreviaturaBase))
+                    .Concat(
+                        rangosProd.Where(r => r.DesdeNum != -1)
+                                  .SelectMany(r => Enumerable.Range(r.DesdeNum, r.HastaNum - r.DesdeNum + 1)
+                                                             .Select(i => NormalizarCodigo($"{r.AbreviaturaBase.TrimEnd('-')}-{i:D7}")))
+                    )
+                    .ToList();
+
                     var codigosAInsertar = new List<int>();
-                    foreach (var r in rangosProd)
+                    foreach (var cNorm in codigosTextoEsteProd)
                     {
-                        await InsertarRangoAsync(r, detalleId, dbConn, transaccion);
-                        var encontrados = await ObtenerIdsCodigosPorRangoAsync(r.productoId, r.AbreviaturaBase, r.CategoriaProductoId, r.DesdeNum, r.HastaNum, dbConn, transaccion);
-
-                        if (encontrados != null && encontrados.Any())
+                        if (mapaLookupCodigos.TryGetValue(cNorm, out var tup) && tup.CodigoObj != null)
                         {
-                            var idsEncontrados = encontrados.Select(t => t.CodigoObj.Id).ToList();
-                            codigosAInsertar.AddRange(idsEncontrados);
-                            codigosProcesadosGlobal += encontrados.Count;
+                            codigosAInsertar.Add(tup.CodigoObj.Id);
                         }
-
-                        int nuevoPorcentaje = 50 + ((codigosProcesadosGlobal * 40) / totalCodigos);
-                        progress?.Report(Math.Min(90, nuevoPorcentaje));
                     }
 
+                    // 3. Inserción masiva de relaciones y actualización de estado
                     const int bulkSize = 1000;
                     for (int i = 0; i < codigosAInsertar.Count; i += bulkSize)
                     {
                         var batch = codigosAInsertar.Skip(i).Take(bulkSize).ToList();
 
-                        // 1. Inserción masiva de relaciones en movimiento_codigos
                         await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, batch, dbConn, transaccion);
 
                         var codigosParaActualizarEstado = new List<int>();
@@ -1283,7 +1329,7 @@ VALUES
                             codigosParaActualizarEstado = batch;
                         }
 
-                        // 2. Actualización masiva de estado y almacén actual
+                        // 🌟 En la Fase D de IngresoMovimientoService SIEMPRE es Estado 3 (Disponible en tu almacén)
                         if (codigosParaActualizarEstado.Any())
                         {
                             var paramUpdate = codigosParaActualizarEstado.Select((_, idx) => $"@uId{idx}").ToList();
@@ -1293,7 +1339,10 @@ VALUES
                             cmdUpd.Transaction = transaccion;
                             cmdUpd.CommandText = QueryAdapter.FormatearConsulta(queryUpdateCodigos);
                             AgregarParametro(cmdUpd, "@almActual", miAlmacenActualId);
-                            for (int k = 0; k < codigosParaActualizarEstado.Count; k++) AgregarParametro(cmdUpd, $"@uId{k}", codigosParaActualizarEstado[k]);
+                            for (int k = 0; k < codigosParaActualizarEstado.Count; k++)
+                            {
+                                AgregarParametro(cmdUpd, $"@uId{k}", codigosParaActualizarEstado[k]);
+                            }
                             await cmdUpd.ExecuteNonQueryAsync();
                         }
                     }
@@ -1352,7 +1401,42 @@ VALUES
                 sb.Clear();
             }
         }
+        private async Task InsertarRangosMasivoAsync(List<RangoCodigoItem> rangos, int detId, DbConnection conn, DbTransaction trans)
+        {
+            if (rangos == null || !rangos.Any()) return;
 
+            const int batchSize = 300; // 🌟 300 x 6 = 1,800 parámetros (límite seguro para SQL Server y MySQL)
+            string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
+
+            for (int i = 0; i < rangos.Count; i += batchSize)
+            {
+                var batch = rangos.Skip(i).Take(batchSize).ToList();
+                var sb = new System.Text.StringBuilder();
+
+                using var cmd = conn.CreateCommand();
+                cmd.Transaction = trans;
+
+                sb.Append("INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) VALUES ");
+
+                for (int j = 0; j < batch.Count; j++)
+                {
+                    var r = batch[j];
+                    sb.Append($"(@prodId{j}, @catId{j}, @abrev{j}, @desde{j}, @hasta{j}, @detId{j}, {nowFunc})");
+                    if (j < batch.Count - 1) sb.Append(",");
+
+                    AgregarParametro(cmd, $"@prodId{j}", r.productoId);
+                    AgregarParametro(cmd, $"@catId{j}", r.CategoriaProductoId);
+                    AgregarParametro(cmd, $"@abrev{j}", r.AbreviaturaBase);
+                    AgregarParametro(cmd, $"@desde{j}", r.DesdeNum);
+                    AgregarParametro(cmd, $"@hasta{j}", r.HastaNum);
+                    AgregarParametro(cmd, $"@detId{j}", detId);
+                }
+
+                cmd.CommandText = QueryAdapter.FormatearConsulta(sb.ToString());
+                await cmd.ExecuteNonQueryAsync();
+                sb.Clear();
+            }
+        }
         private async Task ActualizarEstadoCodigosMasivoAsync(List<int> codigosIds, int nuevoEstadoId, DbConnection conn, DbTransaction trans)
         {
             if (codigosIds == null || !codigosIds.Any()) return;
