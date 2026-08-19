@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Models.Models;
@@ -34,10 +35,17 @@ namespace AplicativoDeAlmacen.Views
             TxtRango.Text = $"De {_lote.Desde} a {_lote.Hasta}";
             TxtTotal.Text = $"{_lote.Cantidad} uds.";
 
-            bool esAdmin = SesionSistema.UsuarioActual?.RolUsuarioId == 1;
+            // 🌟 Verificamos por RolUsuarioId o Rol.Id (Admin: 1, Almacenero: 3, Almacenero OP: 4)
+            int rolId = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+            string rolNombre = SesionSistema.UsuarioActual?.Rol?.Nombre?.ToUpperInvariant() ?? "";
+
+            bool tienePermisoRegistroManual = rolId == 1 || rolId == 3 || rolId == 4 ||
+                                              rolNombre.Contains("ADMIN") ||
+                                              rolNombre.Contains("ALMACEN");
+
             if (PanelRegistroManual != null)
             {
-                PanelRegistroManual.Visibility = esAdmin ? Visibility.Visible : Visibility.Collapsed;
+                PanelRegistroManual.Visibility = tienePermisoRegistroManual ? Visibility.Visible : Visibility.Collapsed;
             }
 
             _ = CargarCodigosAsync();

@@ -296,53 +296,51 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
             using (IDbConnection conn = _database.GetConnection())
             {
                 await ((DbConnection)conn).OpenAsync();
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
                 // 1. TABLA IZQUIERDA — Movimientos
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
-
-                    // 🌟 CASCADA INTELIGENTE:
-                    // Prioriza Razón Social -> Ubicación -> Almacén Relacionado (Origen u Destino según la operación)
                     string queryRaw = $@"
-    SELECT DISTINCT
-        m.id,
-        m.fecha_movimiento,
-        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
-        COALESCE(
-            pc.razon_social, 
-            u.descripcion, 
-            CASE 
-                WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre 
-                WHEN mp.tipo_movimiento_id = 2 THEN alm_dest.nombre 
-                ELSE 'SIN REGISTRO' 
-            END,
-            'SIN REGISTRO'
-        ) AS razon_ubicacion,
-        CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-        CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
-        CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
-        m.estado_id,
-        m.motivo_producto_id,
-        mp.tipo_movimiento_id,
-        rc.categoria_producto_id
-    FROM movimiento_detalles md {nolock}
-    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-    LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-    LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-    LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-    LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-    LEFT JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
-    LEFT JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-    LEFT JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-    WHERE md.producto_id = @ProductoId
-      AND m.fecha_movimiento >= @FechaDesde
-      AND m.fecha_movimiento <= @FechaHasta
-      AND (
-         (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-         (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-      )";
+SELECT DISTINCT
+    m.id,
+    m.fecha_movimiento,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+    COALESCE(
+        pc.razon_social, 
+        u.descripcion, 
+        CASE 
+            WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre 
+            WHEN mp.tipo_movimiento_id = 2 THEN alm_dest.nombre 
+            ELSE 'SIN REGISTRO' 
+        END,
+        'SIN REGISTRO'
+    ) AS razon_ubicacion,
+    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
+    CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
+    m.estado_id,
+    m.motivo_producto_id,
+    mp.tipo_movimiento_id,
+    rc.categoria_producto_id,
+    COALESCE(m.almacen_destino_id, COALESCE(m.almacen_origen_id, m.almacen_id)) AS alm_relacionado_id
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+LEFT JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+LEFT JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+LEFT JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+WHERE md.producto_id = @ProductoId
+  AND m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
 
                     if (!string.IsNullOrWhiteSpace(razonSocial))
                         queryRaw += " AND (pc.razon_social LIKE @RazonSocial OR alm_orig.nombre LIKE @RazonSocial OR alm_dest.nombre LIKE @RazonSocial)";
@@ -356,7 +354,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                     queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
-
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
@@ -377,6 +374,7 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                         {
                             int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
                             bool anulado = (estadoId == 2);
+                            int almRelId = reader.IsDBNull(11) ? 0 : reader.GetInt32(11);
 
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
@@ -386,7 +384,8 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                                 NumeroGuia = Convert.ToString(reader.GetValue(4)) ?? "",
                                 Ingreso = reader.GetDecimal(5),
                                 Salida = reader.GetDecimal(6),
-                                IsAnulado = anulado
+                                IsAnulado = anulado,
+                                AlmacenId = almRelId // 👈 ¡ASIGNACIÓN CLAVE PARA EL FILTRADO Y EXCEL!
                             });
                         }
                     }
@@ -395,32 +394,30 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                 // 2. TABLA DERECHA — Códigos físicos
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
-                    string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
                     string queryRaw = $@"
-    SELECT DISTINCT
-        COALESCE(cc.codigo, 'N/A') AS codigo,
-        COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
-        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
-        CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
-    FROM movimiento_detalles md {nolock}
-    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-    INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
-    INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-    INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-    LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
-    LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-    LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-    LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-    LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-    WHERE md.producto_id = @ProductoId
-      AND m.fecha_movimiento >= @FechaDesde
-      AND m.fecha_movimiento <= @FechaHasta
-      AND m.estado_id != 2
-      AND (
-         (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-         (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-      )";
+SELECT DISTINCT
+    COALESCE(cc.codigo, 'N/A') AS codigo,
+    COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+WHERE md.producto_id = @ProductoId
+  AND m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
 
                     if (!string.IsNullOrWhiteSpace(razonSocial))
                         queryRaw += " AND (pc.razon_social LIKE @RazonSocial OR alm_orig.nombre LIKE @RazonSocial OR alm_dest.nombre LIKE @RazonSocial)";
@@ -434,7 +431,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                     queryRaw += " ORDER BY codigo ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
-
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);

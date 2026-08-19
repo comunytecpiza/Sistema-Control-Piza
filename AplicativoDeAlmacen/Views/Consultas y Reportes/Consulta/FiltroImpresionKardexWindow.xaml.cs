@@ -10,20 +10,32 @@ namespace AplicativoDeAlmacen.Views
 
         public bool SeConfirmoImpresion { get; private set; } = false;
 
-        // Modificamos el constructor para recibir los estados de los filtros
-        public FiltroImpresionKardexWindow(bool tieneRazonSocial, bool tieneUbicacion)
+        public FiltroImpresionKardexWindow(bool tieneRazonSocial, bool tieneUbicacion, bool tieneAlmacen = false)
         {
             InitializeComponent();
 
-            // 🌟 Si hay Ubicación o Razón Social activa, habilitamos "Detalle Vendidos"
-            if (tieneRazonSocial || tieneUbicacion)
+            if (tieneAlmacen)
             {
+                // 🏢 MODO FILTRO POR ALMACÉN
+                ChkEnviados.Content = "Detalle Enviados";
+                ChkDevueltos.Content = "Detalle Devueltos / Recibidos";
+                ChkVendidos.Content = "Detalle Transferidos en su poder";
                 ChkVendidos.IsEnabled = true;
-                ChkVendidos.IsChecked = true; // Opcional: marcado por defecto si se cumple
+                ChkVendidos.IsChecked = false;
+            }
+            else if (tieneRazonSocial || tieneUbicacion)
+            {
+                // 👤 MODO PROMOTORA / TERCEROS / UBICACIÓN
+                ChkEnviados.Content = "Detalle Enviados";
+                ChkDevueltos.Content = "Detalle Devueltos";
+                ChkVendidos.Content = "Detalle Vendidos / En Poder";
+                ChkVendidos.IsEnabled = true;
+                ChkVendidos.IsChecked = false;
             }
             else
             {
-                // Si no hay ninguno, se mantiene bloqueado y desmarcado
+                // 🔵 MODO GENERAL SIN FILTRO DE ENTIDAD
+                ChkVendidos.Content = "Detalle Vendidos";
                 ChkVendidos.IsEnabled = false;
                 ChkVendidos.IsChecked = false;
             }

@@ -88,11 +88,16 @@ namespace AplicativoDeAlmacen.Views
             }
 
             var txtProd = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
-            if (txtProd != null) txtProd.TextChanged += TxtProducto_TextChanged;
+            if (txtProd != null)
+            {
+                txtProd.TextChanged += TxtProducto_TextChanged;
+                txtProd.PreviewKeyDown += Filtros_PreviewKeyDown; // 👈 Enter directo en la caja de texto del producto
+            }
 
             ConfigurarMascaraFecha(DpDesde);
             ConfigurarMascaraFecha(DpHasta);
 
+            // 🌟 Enlace de ENTER para todos los campos de búsqueda y filtros
             CboProductos.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
             DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
@@ -327,11 +332,12 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnAbrirOpcionesImpresion_Click(object sender, RoutedEventArgs e)
         {
-            // Verificamos si están activos los filtros de Razón Social o Ubicación
+            // Verificamos los 3 filtros posibles: Razón Social, Ubicación o Almacén
             bool razonSocialActiva = ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text);
             bool ubicacionActiva = ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text);
+            bool almacenActivo = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
 
-            var ventanaFiltro = new AplicativoDeAlmacen.Views.FiltroImpresionKardexWindow(razonSocialActiva, ubicacionActiva);
+            var ventanaFiltro = new AplicativoDeAlmacen.Views.FiltroImpresionKardexWindow(razonSocialActiva, ubicacionActiva, almacenActivo);
 
             var windowPadre = Window.GetWindow(this);
             if (windowPadre != null)
@@ -345,17 +351,16 @@ namespace AplicativoDeAlmacen.Views
             {
                 bool enviar = ventanaFiltro.IncluirEnviados;
                 bool devolver = ventanaFiltro.IncluirDevueltos;
-                bool vender = ventanaFiltro.IncluirVendidos; // 🌟 Capturamos si desea incluir los vendidos
+                bool enPoder = ventanaFiltro.IncluirVendidos;
 
-                ExportarReporteExcel(enviar, devolver, vender);
+                ExportarReporteExcel(enviar, devolver, enPoder);
             }
         }
 
-        private async void ExportarReporteExcel(bool enviar, bool devolver, bool vender)
+        private void ExportarReporteExcel(bool enviar, bool devolver, bool transferidosEnPoder)
         {
             try
             {
-                // 1. Validar que se haya seleccionado un producto
                 if (CboProductos.SelectedItem == null && string.IsNullOrWhiteSpace(CboProductos.Text))
                 {
                     MessageBox.Show("Seleccione un producto para exportar el reporte.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -368,45 +373,40 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // ==========================================
-                // 2. APLICAR FILTROS (ANULADOS, ALMACÉN Y OPCIONES DE IMPRESIÓN)
-                // ==========================================
                 var movimientos = _todosLosMovimientosRaw.AsEnumerable();
 
-                // Filtrar anulados según el CheckBox
+                // 1. Filtrar Anulados
                 bool mostrarAnulados = ChkMostrarAnulados.IsChecked == true;
                 if (!mostrarAnulados)
                 {
                     movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
                 }
 
-                // Filtrar por Almacén si está activo
+                // 2. Filtro por Almacén / Razón Social / Ubicación (Evaluación por texto)
                 bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
-                if (hayFiltroAlmacen && _almacenFiltroId.HasValue)
+                if (hayFiltroAlmacen)
                 {
-                    movimientos = movimientos.Where(m => m.AlmacenId == _almacenFiltroId.Value);
+                    string almBuscado = TxtAlmacen.Text.Trim();
+                    movimientos = movimientos.Where(m => m.RazonSocialUbicacion.Contains(almBuscado, StringComparison.OrdinalIgnoreCase) ||
+                                                        (_almacenFiltroId.HasValue && m.AlmacenId == _almacenFiltroId.Value));
                 }
 
-                // 🌟 CORRECCIÓN CRÍTICA DE FILTROS:
-                // 'enviar' / 'vender' = Salidas (m.Salida > 0)
-                // 'devolver' = Entradas / Devoluciones (m.Ingreso > 0)
-                bool incluirSalidas = enviar || vender;
+                // 3. Reglas de Selección de Opciones de Impresión
+                bool incluirSalidas = enviar || transferidosEnPoder; // 👈 Si marca "En su poder", DEBE incluir los despachos/salidas
                 bool incluirIngresos = devolver;
 
-                // Si no seleccionó ningún check, se exportan todos por defecto
-                if (!enviar && !devolver && !vender)
+                // Si no marcó ningún check, exporta todo
+                if (!enviar && !devolver && !transferidosEnPoder)
                 {
                     incluirSalidas = true;
                     incluirIngresos = true;
                 }
 
-                movimientos = movimientos.Where(m =>
+                var movimientosFiltrados = movimientos.Where(m =>
                     (incluirSalidas && m.Salida > 0) ||
                     (incluirIngresos && m.Ingreso > 0) ||
                     (m.Ingreso == 0 && m.Salida == 0)
-                );
-
-                var movimientosFiltrados = movimientos.ToList();
+                ).ToList();
 
                 if (!movimientosFiltrados.Any())
                 {
@@ -414,47 +414,62 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 3. Enlazamos los códigos exactos a cada movimiento filtrado
-                foreach (var mov in movimientosFiltrados)
+                // 4. Enlazar Códigos Físicos a cada Movimiento
+                // Si seleccionó exclusivamente "Transferidos en su poder", calcula los códigos netos no retornados
+                if (transferidosEnPoder && !enviar && !devolver)
                 {
-                    string registroLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
-                    int cantidadMovimiento = (int)(mov.Salida > 0 ? mov.Salida : mov.Ingreso);
-
-                    mov.CodigosAsociados = _todosLosCodigos
-                        .Where(c => c.NumeroRegistro == registroLimpio)
-                        .Take(cantidadMovimiento)
+                    var codigosNetosEnPoder = _todosLosCodigos
+                        .GroupBy(c => c.Codigo)
+                        .Where(g => g.Count(x => x.TipoMovimiento == "SALIDA") > g.Count(x => x.TipoMovimiento == "ENTRADA"))
+                        .Select(g => g.First())
                         .ToList();
+
+                    foreach (var mov in movimientosFiltrados)
+                    {
+                        string regLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
+                        mov.CodigosAsociados = codigosNetosEnPoder
+                            .Where(c => c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                    }
+
+                    movimientosFiltrados = movimientosFiltrados.Where(m => m.CodigosAsociados.Any()).ToList();
+                }
+                else
+                {
+                    // Mapeo general estándar
+                    foreach (var mov in movimientosFiltrados)
+                    {
+                        string regLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
+                        bool esIngreso = mov.Ingreso > 0;
+                        string tipoEsperado = esIngreso ? "ENTRADA" : "SALIDA";
+
+                        mov.CodigosAsociados = _todosLosCodigos
+                            .Where(c => c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase) && c.TipoMovimiento == tipoEsperado)
+                            .ToList();
+                    }
                 }
 
-                // ==========================================
-                // 4. EXTRAER LOS TEXTOS DE LA CABECERA
-                // ==========================================
+                if (!movimientosFiltrados.Any())
+                {
+                    MessageBox.Show("No se encontraron códigos asociados a la selección.", "Sin Datos", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // 5. Textos de Cabecera para el Excel
                 string nombreProd = CboProductos.Text;
-
-                string tipoProd = "TODOS";
-                if (RbGuia != null && RbGuia.IsChecked == true)
-                    tipoProd = "SOLO GUÍAS";
-                else if (RbVenta != null && RbVenta.IsChecked == true)
-                    tipoProd = "SOLO VENTAS";
-
+                string tipoProd = (RbGuia?.IsChecked == true) ? "SOLO GUÍAS" : ((RbVenta?.IsChecked == true) ? "SOLO VENTAS" : "TODOS");
                 string unidadMed = "PACKS";
 
                 string origenDest = "TODOS";
-                if (hayFiltroAlmacen)
-                    origenDest = TxtAlmacen.Text;
-                else if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
-                    origenDest = TxtRazonSocial.Text;
-                else if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text))
-                    origenDest = TxtUbicacion.Text;
+                if (hayFiltroAlmacen) origenDest = TxtAlmacen.Text;
+                else if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) origenDest = TxtRazonSocial.Text;
+                else if (ChkUbicacion.IsChecked == true && !string.IsNullOrWhiteSpace(TxtUbicacion.Text)) origenDest = TxtUbicacion.Text;
 
                 DateTime fechaDesde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime fechaHasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                // ==========================================
-                // 5. LLAMAR AL SERVICIO DE EXCEL
-                // ==========================================
+                // 6. Generación del Archivo Excel
                 var excelService = new AplicativoDeAlmacen.Services.Reportes.ReporteExcelService();
-
                 excelService.ExportarKardexConCodigos(
                     nombreProd,
                     tipoProd,
@@ -465,7 +480,7 @@ namespace AplicativoDeAlmacen.Views
                     movimientosFiltrados,
                     enviar,
                     devolver,
-                    vender
+                    transferidosEnPoder
                 );
             }
             catch (Exception ex)
@@ -518,9 +533,10 @@ namespace AplicativoDeAlmacen.Views
                 TxtTotalIngreso.Text = totalIngresos.ToString("N0"); // Total Recibido
                 TxtTotalSalida.Text = totalSalidas.ToString("N0");   // Total Enviado
 
-                // 🌟 QUITAMOS EL NEGATIVO: Mostrar como entero neto positivo (2000 enviado - 100 devuelto = 1900.00)
-                decimal balanceNeto = Math.Abs(totalSalidas - totalIngresos);
-                TxtTotalVendidos.Text = balanceNeto.ToString("N0");
+                // 📦 Transferidos que el otro almacén aún tiene en su poder (Enviados - Devueltos)
+                decimal transferidosEnPoder = Math.Abs(totalSalidas - totalIngresos);
+                TxtTotalVendidos.Text = transferidosEnPoder.ToString("N0");
+                LblCard3.Text = "Transferidos en su poder";
             }
             else if (hayFiltroTercero)
             {
@@ -547,7 +563,48 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Key == Key.Enter)
             {
-                if (CboProductos.IsDropDownOpen || PopupRazonSocial.IsOpen || PopupUbicacion.IsOpen || PopupAlmacen.IsOpen) return;
+                // 1. Si el desplegable de productos está abierto y tiene un ítem seleccionado, deja que el Enter elija el producto
+                if (CboProductos.IsDropDownOpen && CboProductos.SelectedItem != null)
+                {
+                    CboProductos.IsDropDownOpen = false;
+                    e.Handled = true;
+                    return;
+                }
+
+                // 2. Si el popup de Almacén está abierto y hay selección, aplícala y cierra
+                if (PopupAlmacen.IsOpen && LstAlmacen.SelectedItem != null)
+                {
+                    LstAlmacen_SelectionChanged(LstAlmacen, null);
+                    PopupAlmacen.IsOpen = false;
+                    e.Handled = true;
+                    return;
+                }
+
+                // 3. Si el popup de Razón Social está abierto y hay selección, aplícala y cierra
+                if (PopupRazonSocial.IsOpen && LstRazonSocial.SelectedItem != null)
+                {
+                    LstRazonSocial_SelectionChanged(LstRazonSocial, null);
+                    PopupRazonSocial.IsOpen = false;
+                    e.Handled = true;
+                    return;
+                }
+
+                // 4. Si el popup de Ubicación está abierto y hay selección, aplícala y cierra
+                if (PopupUbicacion.IsOpen && LstUbicacion.SelectedItem != null)
+                {
+                    LstUbicacion_SelectionChanged(LstUbicacion, null);
+                    PopupUbicacion.IsOpen = false;
+                    e.Handled = true;
+                    return;
+                }
+
+                // 5. Cierra cualquier popup flotante residual
+                CboProductos.IsDropDownOpen = false;
+                PopupAlmacen.IsOpen = false;
+                PopupRazonSocial.IsOpen = false;
+                PopupUbicacion.IsOpen = false;
+
+                // 6. 🚀 Ejecuta la consulta de inmediato sin necesidad de hacer clic en el botón
                 e.Handled = true;
                 BtnEjecutar_Click(BtnEjecutar, null);
             }
