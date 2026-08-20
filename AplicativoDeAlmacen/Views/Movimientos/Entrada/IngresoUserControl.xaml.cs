@@ -50,6 +50,7 @@ namespace AplicativoDeAlmacen.Views
         private int? _personaComercialIdSeleccionada = null;
         private int? _idUbicacionSeleccionada = null;
 
+        private bool _isBuscandoDocumento = false;
         private bool _isRegistrandoMovimiento = false;
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
@@ -143,8 +144,14 @@ namespace AplicativoDeAlmacen.Views
 
         private void EstablecerEstadoInicial()
         {
+            _isBuscandoDocumento = false;
+            _printMode = false;
+            _anularMode = false;
+
+            // 🧹 Doble candado: destruir botones dinámicos residuales
+            LimpiarBotonesDinamicosCompletamente();
+
             if (grdFormulario != null) grdFormulario.Opacity = 1.0;
-            // 🌟 Restaura la interacción normal de los DataGrids
             if (dgProductos != null) { dgProductos.IsHitTestVisible = true; dgProductos.Focusable = true; }
             if (dgCodigos != null) { dgCodigos.IsHitTestVisible = true; dgCodigos.Focusable = true; }
 
@@ -340,12 +347,19 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Key == Key.Enter)
             {
+                // 🛑 1. CANDADO ATÓMICO ANTI DOBLE ENTER
+                e.Handled = true;
+
+                if (_isBuscandoDocumento) return;
+                _isBuscandoDocumento = true;
+
                 string serie = txtNumSerie?.Text?.Trim() ?? "0001";
                 string numero = txtNumDocumento?.Text?.Trim() ?? "";
 
-                if (string.IsNullOrEmpty(numero))
+                if (string.IsNullOrWhiteSpace(numero))
                 {
                     MessageBox.Show("Ingrese el número de documento para cargar.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    _isBuscandoDocumento = false;
                     return;
                 }
 
@@ -354,6 +368,15 @@ namespace AplicativoDeAlmacen.Views
                     numero = numVal.ToString("D7");
                     txtNumDocumento.Text = numero;
                 }
+
+                // 🛑 2. BLOQUEO INMEDIATO DE LA CAJA AL PRIMER ENTER
+                txtNumDocumento.IsReadOnly = true;
+                txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+                // 🛑 3. LIMPIEZA PREVENTIVA DE MEMORIA PARA EVITAR DUPLICACIONES
+                _productosGridList.Clear();
+                _codigosGridList.Clear();
+                _rangosProcesadosGlobal.Clear();
 
                 try
                 {
@@ -367,6 +390,9 @@ namespace AplicativoDeAlmacen.Views
                         MessageBox.Show("Movimiento de ingreso no encontrado en este almacén. Verifique el número e intente de nuevo.",
                                         "Búsqueda fallida", MessageBoxButton.OK, MessageBoxImage.Warning);
 
+                        // 🔓 SI NO EXISTE: RESTAURAR LA CAJA PARA QUE PUEDA VOLVER A ESCRIBIR SIN "DESCONECTARSE"
+                        txtNumDocumento.IsReadOnly = false;
+                        txtNumDocumento.Background = System.Windows.Media.Brushes.White;
                         txtNumDocumento.Focus();
                         txtNumDocumento.SelectAll();
                     }
@@ -375,9 +401,15 @@ namespace AplicativoDeAlmacen.Views
                 {
                     MessageBox.Show($"Error al buscar movimiento: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     _currentMovimientoId = null;
+
+                    // 🔓 RESTAURACIÓN EN CASO DE ERROR
+                    txtNumDocumento.IsReadOnly = false;
+                    txtNumDocumento.Background = System.Windows.Media.Brushes.White;
+                    txtNumDocumento.Focus();
                 }
                 finally
                 {
+                    _isBuscandoDocumento = false; // 🔓 Libera el candado
                     this.Cursor = Cursors.Arrow;
                 }
             }
@@ -672,19 +704,45 @@ namespace AplicativoDeAlmacen.Views
 
         private void LimpiarBotonesDinamicosCompletamente()
         {
-            if (_btnPrintNearSave != null && _btnPrintNearSave.Parent is Panel p1)
+            // 🛑 1. Eliminar botón de Anulación si existe en el panel
+            if (_btnAnularNearSave != null)
             {
-                p1.Children.Remove(_btnPrintNearSave);
+                if (_btnAnularNearSave.Parent is Panel panelAnular)
+                {
+                    panelAnular.Children.Remove(_btnAnularNearSave);
+                }
+                _btnAnularNearSave.Click -= EjecutarAnulacionDefinitiva_Click;
+                _btnAnularNearSave = null;
+            }
+
+            // 🛑 2. Eliminar botón de Impresión/Exportar si existe en el panel
+            if (_btnPrintNearSave != null)
+            {
+                if (_btnPrintNearSave.Parent is Panel panelPrint)
+                {
+                    panelPrint.Children.Remove(_btnPrintNearSave);
+                }
                 _btnPrintNearSave = null;
             }
 
-            if (_btnAnularNearSave != null && _btnAnularNearSave.Parent is Panel p2)
+            // 🌟 3. Restaurar siempre la visibilidad del botón Grabar original
+            if (btnGrabar != null)
             {
-                p2.Children.Remove(_btnAnularNearSave);
-                _btnAnularNearSave = null;
+                btnGrabar.Visibility = Visibility.Visible;
+                btnGrabar.IsEnabled = false;
             }
         }
-
+        private void PrepararCajaBusqueda()
+        {
+            txtNumDocumento.Text = string.Empty;
+            txtNumDocumento.IsReadOnly = false;
+            txtNumDocumento.IsEnabled = true;
+            txtNumDocumento.Background = System.Windows.Media.Brushes.White;
+            txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
+            txtNumDocumento.FontWeight = FontWeights.Normal;
+            txtNumDocumento.FontStyle = FontStyles.Normal;
+            txtNumDocumento.Focus();
+        }
         private async void BtnAgregar_Click(object sender, RoutedEventArgs e)
         {
             this.Cursor = Cursors.Wait;
@@ -695,7 +753,10 @@ namespace AplicativoDeAlmacen.Views
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
 
                 HabilitarCamposFormulario(true);
+
+                // 🛡️ BLOQUEO TOTAL DE CABECERA SUPERIOR
                 GestionarBotonesPrincipales(enEdicion: true);
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
                 txtNumSerie.Text = "0001";
 
@@ -748,17 +809,7 @@ namespace AplicativoDeAlmacen.Views
             finally { this.Cursor = Cursors.Arrow; }
         }
 
-        private void PrepararCajaBusqueda()
-        {
-            txtNumDocumento.Text = string.Empty;
-            txtNumDocumento.IsReadOnly = false;
-            txtNumDocumento.IsEnabled = true;
-            txtNumDocumento.Background = System.Windows.Media.Brushes.White;
-            txtNumDocumento.Foreground = System.Windows.Media.Brushes.Black;
-            txtNumDocumento.FontWeight = FontWeights.Normal;
-            txtNumDocumento.FontStyle = FontStyles.Normal;
-            txtNumDocumento.Focus();
-        }
+
 
         private void BtnEditar_Click(object sender, RoutedEventArgs e)
         {
@@ -769,14 +820,15 @@ namespace AplicativoDeAlmacen.Views
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
+            // 🛡️ BLOQUEO TOTAL DE CABECERA SUPERIOR
+            GestionarBotonesPrincipales(enEdicion: true);
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
             PrepararCajaBusqueda();
             txtNumSerie.Text = "0001";
 
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
-
-            GestionarBotonesPrincipales(enEdicion: true);
-            if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
             MessageBox.Show("Modo Edición activado.\n\nEscriba el N° de Documento de ingreso y presione ENTER para cargar y modificar sus datos.", "Editar Movimiento", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -791,14 +843,15 @@ namespace AplicativoDeAlmacen.Views
             HabilitarCamposFormulario(false);
             grdFormulario.IsEnabled = true;
 
+            // 🛡️ BLOQUEO TOTAL DE CABECERA SUPERIOR
+            GestionarBotonesPrincipales(enEdicion: true);
+            if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
             PrepararCajaBusqueda();
             txtNumSerie.Text = "0001";
 
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
-
-            GestionarBotonesPrincipales(enEdicion: true);
-            if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
             MessageBox.Show("Modo Imprimir / Consulta activado.\n\nIngrese el número de documento de ingreso y presione ENTER para visualizar el registro.",
                            "Modo Consulta", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -806,14 +859,21 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnCancelar_Click(object sender, RoutedEventArgs e)
         {
-            var resultado = System.Windows.MessageBox.Show("¿Está seguro que desea cancelar la operación actual?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var resultado = MessageBox.Show("¿Está seguro que desea cancelar la operación actual?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (resultado == MessageBoxResult.Yes)
             {
-                if (_printMode) { _printMode = false; }
-                if (_anularMode) { _anularMode = false; }
+                _printMode = false;
+                _anularMode = false;
+                _isBuscandoDocumento = false;
 
-                if (_btnPrintNearSave != null && _btnPrintNearSave.Parent is Panel p1) { p1.Children.Remove(_btnPrintNearSave); _btnPrintNearSave = null; }
-                if (_btnAnularNearSave != null && _btnAnularNearSave.Parent is Panel p2) { p2.Children.Remove(_btnAnularNearSave); _btnAnularNearSave = null; }
+                // 🔓 Desenganchar eventos residuales
+                if (txtNumDocumento != null)
+                {
+                    txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
+                }
+
+                // 🧹 DESTRUIR Y REMOVER BOTONES DINÁMICOS DE INMEDIATO
+                LimpiarBotonesDinamicosCompletamente();
 
                 EstablecerEstadoInicial();
             }
@@ -1326,24 +1386,40 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_anularMode) return;
 
+            // 1. Limpieza inicial y preparación de modos
+            LimpiarBotonesDinamicosCompletamente();
+            HabilitarCamposFormulario(false);
+
             _anularMode = true;
             _printMode = false;
+            _isBuscandoDocumento = false;
 
-            HabilitarCamposFormulario(false);
+            // 2. Habilitar contenedor principal
             grdFormulario.IsEnabled = true;
+            grdFormulario.Opacity = 1.0;
 
+            // 3. Preparar la caja de texto para buscar
             PrepararCajaBusqueda();
             txtNumSerie.Text = "0001";
+            txtNumSerie.IsEnabled = true;
+            txtNumSerie.IsReadOnly = false;
 
+            txtNumDocumento.IsEnabled = true;
+            txtNumDocumento.IsReadOnly = false;
+            txtNumDocumento.Background = System.Windows.Media.Brushes.White;
+            txtNumDocumento.Focus();
+
+            // 4. Enlazar evento Enter de forma limpia
             txtNumDocumento.KeyDown -= TxtNumDocumento_KeyDown;
             txtNumDocumento.KeyDown += TxtNumDocumento_KeyDown;
 
+            // 5. 🛡️ Bloquear cabecera superior (Nuevo, Editar, Imprimir, Anular) y dejar activo Cancelar
             GestionarBotonesPrincipales(enEdicion: true);
             if (btnCancelar != null) btnCancelar.IsEnabled = true;
 
-            ShowAnularButtonNearSave();
+            // ⚠️ NOTA: ShowAnularButtonNearSave() se ejecutará automáticamente dentro de LoadMovimientoBySerieNumeroAsync una vez que el documento exista y se cargue en pantalla.
 
-            MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento de ingreso que desea anular y presione Enter para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Modo Anulación activado.\n\nIngrese el N° de Documento de ingreso que desea anular y presione ENTER para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private async void BtnAgregarItem_Click(object sender, RoutedEventArgs e)

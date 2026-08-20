@@ -40,6 +40,7 @@ namespace AplicativoDeAlmacen.Views
         private Button? _btnAnularDefinitivoSalida = null;
         private bool _isUpdatingFromSelection = false;
 
+        private bool _isBuscandoDocumento = false;
         private Button? _btnExportarNearSaveSalida = null;
         private ObservableCollection<VistaProductoGrid> _productosLista;
         private ObservableCollection<VistaCodigoGrid> _codigosLista;
@@ -289,7 +290,7 @@ namespace AplicativoDeAlmacen.Views
                     }
                     else
                     {
-                        // 🌟 MODO EDICIÓN NORMAL: Brillo al 100% y todo habilitado
+                        // 🌟 MODO EDICIÓN NORMAL: Brillo al 100% y formulario habilitado
                         grdFormularioSalida.IsEnabled = true;
                         grdFormularioSalida.Opacity = 1.0;
 
@@ -311,11 +312,11 @@ namespace AplicativoDeAlmacen.Views
                         btnGrabarSalida.IsEnabled = true;
                         btnCancelar.IsEnabled = true;
 
-                        // Habilitar botones superiores
-                        btnNuevo.IsEnabled = true;
-                        btnModificarCabecera.IsEnabled = true;
-                        btnImprimirTicket.IsEnabled = true;
-                        btnAnularSalida.IsEnabled = true;
+                        // 🛡️ SEGURIDAD EN EDICIÓN: Bloquear cabecera superior para evitar anulaciones o saltos de modo
+                        btnNuevo.IsEnabled = false;
+                        btnModificarCabecera.IsEnabled = false;
+                        btnImprimirTicket.IsEnabled = false;
+                        btnAnularSalida.IsEnabled = false;
 
                         ActualizarVisibilidadCampos();
                     }
@@ -566,7 +567,8 @@ namespace AplicativoDeAlmacen.Views
 
         private void EstadoInicialFormulario()
         {
-            // 🌟 Restablecer opacidad y habilitación visual completa
+            _isBuscandoDocumento = false;
+
             if (grdFormularioSalida != null)
             {
                 grdFormularioSalida.IsEnabled = true;
@@ -579,7 +581,6 @@ namespace AplicativoDeAlmacen.Views
                 panelAccionesInit.Opacity = 1.0;
             }
 
-            // Restaura la capacidad de clic/interacción en los DataGrids
             if (dgProductosSalida != null) { dgProductosSalida.IsHitTestVisible = true; dgProductosSalida.Focusable = true; }
             if (dgCodigosSalida != null) { dgCodigosSalida.IsHitTestVisible = true; dgCodigosSalida.Focusable = true; }
 
@@ -593,7 +594,7 @@ namespace AplicativoDeAlmacen.Views
             btnCancelar.IsEnabled = false;
             btnEscanear.IsEnabled = false;
 
-            // Habilitar barra superior
+            // 🌟 RESTAURAR BARRA SUPERIOR
             btnNuevo.IsEnabled = true;
             btnModificarCabecera.IsEnabled = true;
             btnImprimirTicket.IsEnabled = true;
@@ -663,6 +664,7 @@ namespace AplicativoDeAlmacen.Views
 
         private async void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
+            EstadoInicialFormulario();
             _modoActual = ModoFormulario.Nuevo;
             grdFormularioSalida.IsEnabled = true;
 
@@ -678,13 +680,19 @@ namespace AplicativoDeAlmacen.Views
             btnGrabarSalida.IsEnabled = true;
             btnCancelar.IsEnabled = true;
 
+            // 🛡️ BLOQUEO DE SEGURIDAD: Todos los botones superiores desactivados
             btnNuevo.IsEnabled = false;
             btnModificarCabecera.IsEnabled = false;
+            btnImprimirTicket.IsEnabled = false;
+            btnAnularSalida.IsEnabled = false;
 
             dtpFechaDespacho.SelectedDate = DateTime.Today;
             ActualizarVisibilidadCampos();
 
             txtSerieSalida.Text = "0001";
+
+
+            
 
             int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
             string siguienteCorrelativo = "0000001";
@@ -720,6 +728,7 @@ namespace AplicativoDeAlmacen.Views
                 Debug.WriteLine($"Error al calcular correlativo de salida: {ex.Message}");
             }
 
+            
             txtNumeroSalida.Text = "[ AUTOMÁTICO ]";
             txtNumeroSalida.IsReadOnly = true;
             txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
@@ -739,6 +748,12 @@ namespace AplicativoDeAlmacen.Views
             grdFormularioSalida.IsEnabled = true;
             cboMotivoSalida.IsEnabled = false;
             dtpFechaDespacho.IsEnabled = false;
+
+            // 🛡️ SEGURIDAD: Bloquear toda la cabecera superior mientras se busca/edita
+            btnNuevo.IsEnabled = false;
+            btnModificarCabecera.IsEnabled = false;
+            btnImprimirTicket.IsEnabled = false;
+            btnAnularSalida.IsEnabled = false;
 
             PrepararCajaBusqueda();
             txtSerieSalida.IsReadOnly = false;
@@ -828,26 +843,48 @@ namespace AplicativoDeAlmacen.Views
             _anularMode = true;
             _modoActual = ModoFormulario.BuscandoParaEditar;
 
+            // 1. 🌟 HABILITAR EL CONTENEDOR PARA PODER ESCRIBIR
             grdFormularioSalida.IsEnabled = true;
-            HabilitarCamposFormulario(false);
+            grdFormularioSalida.Opacity = 1.0;
 
+            // 2. 🌟 BLOQUEAR SOLO LOS CAMPOS DE DATOS (NO LA CAJA DE BÚSQUEDA)
+            dtpFechaDespacho.IsEnabled = false;
+            cboMotivoSalida.IsEnabled = false;
+            txtCliente.IsEnabled = false;
+            txtUbicacion.IsEnabled = false;
+            txtSerieGuia.IsEnabled = false;
+            txtNumeroGuia.IsEnabled = false;
+            txtObservacionSalida.IsEnabled = false;
+
+            btnAgregarItem.IsEnabled = false;
+            btnEliminarItem.IsEnabled = false;
+            btnModificarDetalle.IsEnabled = false;
+            btnImportarExcel.IsEnabled = false;
+            btnEscanear.IsEnabled = false;
+            btnGrabarSalida.IsEnabled = false;
+
+            // 3. 🌟 PREPARAR Y DESBLOQUEAR LA CAJA DE TEXTO DEL NÚMERO
             PrepararCajaBusqueda();
             txtSerieSalida.IsEnabled = true;
             txtSerieSalida.IsReadOnly = false;
             txtSerieSalida.Text = "0001";
 
+            txtNumeroSalida.IsEnabled = true;
+            txtNumeroSalida.IsReadOnly = false;
+            txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
+            txtNumeroSalida.Focus();
+
             txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
             txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
 
+            // 4. 🛡️ BLOQUEAR BOTONES DE CABECERA SUPERIOR
             btnNuevo.IsEnabled = false;
             btnModificarCabecera.IsEnabled = false;
             btnImprimirTicket.IsEnabled = false;
             btnAnularSalida.IsEnabled = false;
             btnCancelar.IsEnabled = true;
 
-            ShowAnularButtonNearSave();
-
-            MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento que desea anular y presione ENTER para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Modo Anulación activado.\n\nIngrese el número de documento y presione ENTER para revisar su contenido.", "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void ShowAnularButtonNearSave()
@@ -860,19 +897,21 @@ namespace AplicativoDeAlmacen.Views
                 {
                     Content = "💥 CONFIRMAR ANULACIÓN",
                     Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#DC2626")),
-                    Foreground = btnGrabarSalida.Foreground,
-                    Style = btnGrabarSalida.Style,
+                    Foreground = System.Windows.Media.Brushes.White, // 👈 Texto blanco 100% visible
+                    Cursor = Cursors.Hand,
                     Margin = btnGrabarSalida.Margin,
                     Padding = btnGrabarSalida.Padding,
-                    MinWidth = btnGrabarSalida.MinWidth,
-                    Height = btnGrabarSalida.Height,
+                    MinWidth = btnGrabarSalida.MinWidth > 0 ? btnGrabarSalida.MinWidth : 180,
+                    Height = btnGrabarSalida.Height > 0 ? btnGrabarSalida.Height : 38,
                     FontSize = btnGrabarSalida.FontSize,
                     FontWeight = FontWeights.Bold
                 };
 
                 _btnAnularDefinitivoSalida.Click += EjecutarAnulacionDefinitivaSalida_Click;
+
+                // Ocultar botón grabar y poner el de anular
+                btnGrabarSalida.Visibility = Visibility.Collapsed;
                 parentPanel.Children.Insert(parentPanel.Children.IndexOf(btnGrabarSalida) + 1, _btnAnularDefinitivoSalida);
-                btnGrabarSalida.IsEnabled = false;
             }
         }
 
@@ -962,23 +1001,53 @@ namespace AplicativoDeAlmacen.Views
 
         private void LimpiarBotonAnularDinamico()
         {
-            if (_btnExportarNearSaveSalida != null && _btnExportarNearSaveSalida.Parent is Panel panelExcel)
+            if (_btnAnularDefinitivoSalida != null && _btnAnularDefinitivoSalida.Parent is Panel p)
             {
-                panelExcel.Children.Remove(_btnExportarNearSaveSalida);
-                _btnExportarNearSaveSalida = null;
+                p.Children.Remove(_btnAnularDefinitivoSalida);
+                _btnAnularDefinitivoSalida = null;
+            }
+
+            if (btnGrabarSalida != null)
+            {
+                btnGrabarSalida.Visibility = Visibility.Visible;
+                btnGrabarSalida.IsEnabled = false;
             }
         }
+
 
         private async void txtNumeroSalida_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter && (_modoActual == ModoFormulario.BuscandoParaEditar || _modoActual == ModoFormulario.BuscandoParaImprimir))
             {
+                // 🛑 1. CONSUMIR EVENTO Y BLOQUEO ATÓMICO INMEDIATO
+                e.Handled = true;
+
+                if (_isBuscandoDocumento) return;
+                _isBuscandoDocumento = true;
+
+                // 🛑 2. DESENGANCHAR EVENTO Y BLOQUEAR CAJA AL PRIMER ENTER
+                txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
+                txtNumeroSalida.IsReadOnly = true;
+                txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
                 string serie = txtSerieSalida.Text.Trim();
                 string numStr = txtNumeroSalida.Text.Trim();
 
-                if (string.IsNullOrEmpty(numStr)) return;
+                if (string.IsNullOrWhiteSpace(numStr))
+                {
+                    txtNumeroSalida.IsReadOnly = false;
+                    txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
+                    txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
+                    _isBuscandoDocumento = false;
+                    return;
+                }
+
                 if (int.TryParse(numStr, out int numVal)) numStr = numVal.ToString("D7");
                 txtNumeroSalida.Text = numStr;
+
+                // 🛑 3. LIMPIEZA PREVENTIVA DE MEMORIA
+                _productosLista.Clear();
+                _codigosLista.Clear();
 
                 try
                 {
@@ -999,7 +1068,7 @@ namespace AplicativoDeAlmacen.Views
                     var movimiento = movCompleto.Movimiento;
                     _idMovimientoActual = movimiento.Id;
 
-                    // 1. CARGA DE CABECERA
+                    // CARGA DE CABECERA
                     dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento?.ToDateTime(TimeOnly.MinValue);
                     cboMotivoSalida.SelectedValue = movimiento.MotivoProductoId;
                     txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
@@ -1044,10 +1113,7 @@ namespace AplicativoDeAlmacen.Views
                         catch { txtUbicacion.Text = $"ID UBIC: {_idUbicacionSeleccionada}"; }
                     }
 
-                    // 2. 🚀 CARGA DE GRILLAS ULTRA-OPTIMIZADA (1 Sola consulta JOIN a la BD)
-                    _productosLista.Clear();
-                    _codigosLista.Clear();
-
+                    // CARGA DE GRILLAS
                     if (movCompleto.Detalles != null && movCompleto.Detalles.Any())
                     {
                         var todosLosCodigosPlanos = new List<(int DetId, int CodId, string CodString, string TipoColeccion)>();
@@ -1058,18 +1124,17 @@ namespace AplicativoDeAlmacen.Views
                             await ((DbConnection)conn).OpenAsync();
                             using (var cmd = ((DbConnection)conn).CreateCommand())
                             {
-                                // 🌟 LA CLAVE DE VELOCIDAD: Se trae la colección en el mismo JOIN sin hacer bucles
                                 cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-                            SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, 
-                                   CASE 
-                                       WHEN rc.categoria_producto_id = 1 THEN CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO GUÍA')
-                                       ELSE CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO VENTA')
-                                   END AS tipo_coleccion
-                            FROM movimiento_codigos mc 
-                            INNER JOIN codigos_creados cc {indexHint} ON mc.codigo_creado_id = cc.id 
-                            LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                            LEFT JOIN colecciones c ON rc.coleccion_id = c.id
-                            WHERE mc.movimiento_id = @movId");
+                                    SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, 
+                                           CASE 
+                                               WHEN rc.categoria_producto_id = 1 THEN CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO GUÍA')
+                                               ELSE CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO VENTA')
+                                           END AS tipo_coleccion
+                                    FROM movimiento_codigos mc 
+                                    INNER JOIN codigos_creados cc {indexHint} ON mc.codigo_creado_id = cc.id 
+                                    LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                                    LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                                    WHERE mc.movimiento_id = @movId");
 
                                 var p = cmd.CreateParameter(); p.ParameterName = "@movId"; p.Value = _idMovimientoActual.Value; cmd.Parameters.Add(p);
 
@@ -1110,7 +1175,6 @@ namespace AplicativoDeAlmacen.Views
                             {
                                 foreach (var c in lookupCodigos[det.Id])
                                 {
-                                    // 🌟 Cero consultas SQL aquí (Súper rápido)
                                     _codigosLista.Add(new VistaCodigoGrid
                                     {
                                         ProductoId = det.ProductoId,
@@ -1127,10 +1191,7 @@ namespace AplicativoDeAlmacen.Views
                     dgProductosSalida.ItemsSource = _productosLista;
                     RefrescarGrillas();
 
-                    txtNumeroSalida.IsReadOnly = true;
-                    txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
-
-                    // 3. EVALUACIÓN DE RESTRICCIONES
+                    // CONTROL DE MODO Y BOTONES
                     if (movimiento.EstadoId == 2)
                     {
                         if (_modoActual != ModoFormulario.BuscandoParaImprimir && !_anularMode)
@@ -1141,8 +1202,6 @@ namespace AplicativoDeAlmacen.Views
                             return;
                         }
                     }
-
-                    
 
                     if (_modoActual == ModoFormulario.BuscandoParaEditar)
                     {
@@ -1160,6 +1219,11 @@ namespace AplicativoDeAlmacen.Views
                         }
                         else
                         {
+                            btnNuevo.IsEnabled = false;
+                            btnModificarCabecera.IsEnabled = false;
+                            btnImprimirTicket.IsEnabled = false;
+                            btnAnularSalida.IsEnabled = false;
+
                             cboMotivoSalida.IsEnabled = true;
                             dtpFechaDespacho.IsEnabled = true;
                             txtObservacionSalida.IsEnabled = true;
@@ -1177,18 +1241,15 @@ namespace AplicativoDeAlmacen.Views
                     }
                     else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
                     {
-                        // 🌟 1. Congelamos y sombreamos el formulario superior
                         grdFormularioSalida.IsEnabled = false;
                         grdFormularioSalida.Opacity = 0.65;
 
-                        // 🌟 2. Sombreado y bloqueo de la barra de botones inferior
                         if (btnAgregarItem?.Parent is Panel panelAccionesDetalle)
                         {
                             panelAccionesDetalle.IsEnabled = false;
                             panelAccionesDetalle.Opacity = 0.65;
                         }
 
-                        // 🌟 3. BLOQUEO TOTAL DE LOS BOTONES SUPERIORES (Nueva Salida, Modificar, Imprimir, Anular)
                         btnNuevo.IsEnabled = false;
                         btnModificarCabecera.IsEnabled = false;
                         btnImprimirTicket.IsEnabled = false;
@@ -1196,7 +1257,6 @@ namespace AplicativoDeAlmacen.Views
 
                         HabilitarCamposFormulario(false);
 
-                        // Permitimos clic en las grillas para examinar los códigos sin edición
                         if (dgProductosSalida != null)
                         {
                             dgProductosSalida.IsEnabled = true;
@@ -1216,9 +1276,6 @@ namespace AplicativoDeAlmacen.Views
 
                         ShowExportButtonNearSave();
                     }
-
-                    txtNumeroSalida.IsReadOnly = true;
-                    txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
                 }
                 catch (Exception ex)
                 {
@@ -1226,6 +1283,7 @@ namespace AplicativoDeAlmacen.Views
                 }
                 finally
                 {
+                    _isBuscandoDocumento = false;
                     this.Cursor = Cursors.Arrow;
                 }
             }

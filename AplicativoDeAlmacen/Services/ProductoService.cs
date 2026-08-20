@@ -449,14 +449,23 @@ namespace AplicativoDeAlmacen.Services
         {
             List<Producto> resultados = new List<Producto>();
 
-            // Obtenemos el ID del almacén actual de la sesión de manera segura
+            if (string.IsNullOrWhiteSpace(texto)) return resultados;
+
             int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
+            string textoLimpio = texto.Trim();
+
+            // 🌟 DETECCIÓN DE BÚSQUEDA POR ID NUMÉRICO (Cód.)
+            bool esIdNumerico = int.TryParse(textoLimpio, out int idProductoBuscado);
 
             string subconsultaCantidad = QueryAdapter.EsMySQL
                 ? "COALESCE((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)"
                 : "ISNULL((SELECT SUM(rc.cantidad) FROM registro_codigos rc WHERE rc.producto_id = p.id), 0)";
 
-            // 🌟 SE REMEDIÓ: Se quitó 'p.cantidad' y se reemplazó por el stock de 'stock_almacen'
+            // Si es un número, busca coincidencia exacta por ID o por texto; si no, busca por descripción / abreviatura
+            string condicionBusqueda = esIdNumerico
+                ? "(p.id = @IdExacto OR p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)"
+                : "(p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)";
+
             string query = $@"
 SELECT 
     p.id, 
@@ -474,8 +483,11 @@ FROM productos p
 LEFT JOIN stock_almacen sa ON sa.producto_id = p.id AND sa.almacen_id = @AlmacenId
 LEFT JOIN unidad_medida um ON p.unidad_medida_id = um.id
 LEFT JOIN afectacion_igv ai ON p.afectacion_igv_id = ai.id
-WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
-  AND p.estado_id = 1";
+WHERE {condicionBusqueda}
+  AND p.estado_id = 1
+ORDER BY 
+    CASE WHEN p.id = @IdExactoPrioridad THEN 0 ELSE 1 END,
+    p.descripcion ASC";
 
             using (var conn = _database.GetConnection())
             {
@@ -489,8 +501,10 @@ WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
                     using (var cmd = dbConn.CreateCommand())
                     {
                         cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-                        AgregarParametro(cmd, "@Texto", "%" + texto + "%");
-                        AgregarParametro(cmd, "@AlmacenId", almacenActualId); // 👈 Parámetro del almacén actual
+                        AgregarParametro(cmd, "@Texto", "%" + textoLimpio + "%");
+                        AgregarParametro(cmd, "@AlmacenId", almacenActualId);
+                        AgregarParametro(cmd, "@IdExacto", esIdNumerico ? idProductoBuscado : -1);
+                        AgregarParametro(cmd, "@IdExactoPrioridad", esIdNumerico ? idProductoBuscado : -1);
 
                         using (var reader = await cmd.ExecuteReaderAsync())
                         {
@@ -508,7 +522,6 @@ WHERE (p.descripcion LIKE @Texto OR p.abreviatura LIKE @Texto)
                                 prod.AfectacionIgvId = reader["afectacion_igv_id"] != DBNull.Value ? Convert.ToInt32(reader["afectacion_igv_id"]) : (int?)null;
                                 prod.afectacion = new AfectacionIgv { Nombre = reader["afectacion_igv"] != DBNull.Value ? reader["afectacion_igv"].ToString() : string.Empty };
 
-                                // 🌟 SE MAPEA EL STOCK REAL OBTENIDO DESDE 'stock_almacen'
                                 prod.Cantidad = reader["stock_actual"] != DBNull.Value ? Convert.ToInt32(reader["stock_actual"]) : 0;
                                 prod.CantidadCodigos = reader["cantidad_codigos"] != DBNull.Value ? Convert.ToInt32(reader["cantidad_codigos"]) : 0;
 

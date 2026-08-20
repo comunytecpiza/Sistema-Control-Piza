@@ -95,11 +95,46 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Key == Key.Enter)
             {
-                // Si la lista del combo está desplegada, dejamos que el Enter sirva para elegir el producto
-                if (CboProductos.IsDropDownOpen) return;
-
-                // Consumimos el evento y disparamos la búsqueda mágicamente
                 e.Handled = true;
+
+                var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
+                string textoEscrito = textBox?.Text?.Trim() ?? CboProductos.Text?.Trim() ?? "";
+
+                // 🌟 RESOLUCIÓN INTELIGENTE POR ID O NOMBRE ANTES DE CONSULTAR
+                if (!string.IsNullOrWhiteSpace(textoEscrito))
+                {
+                    if (int.TryParse(textoEscrito, out int idNum))
+                    {
+                        var prodPorId = _todosLosProductos.FirstOrDefault(p => p.Id == idNum);
+                        if (prodPorId != null)
+                        {
+                            _estaSeleccionando = true;
+                            _productoSeleccionadoId = prodPorId.Id;
+                            if (textBox != null)
+                            {
+                                textBox.Text = prodPorId.Descripcion;
+                                textBox.CaretIndex = textBox.Text.Length;
+                            }
+                            _estaSeleccionando = false;
+                        }
+                    }
+                    else if (_productoSeleccionadoId == 0 && CboProductos.ItemsSource is IEnumerable<Producto> lista && lista.Any())
+                    {
+                        var primerProd = lista.First();
+                        _estaSeleccionando = true;
+                        _productoSeleccionadoId = primerProd.Id;
+                        if (textBox != null)
+                        {
+                            textBox.Text = primerProd.Descripcion;
+                            textBox.CaretIndex = textBox.Text.Length;
+                        }
+                        _estaSeleccionando = false;
+                    }
+                }
+
+                CboProductos.IsDropDownOpen = false;
+
+                // 🚀 Dispara la consulta directamente
                 BtnEjecutarKardex_Click(null, null);
             }
         }
@@ -111,44 +146,52 @@ namespace AplicativoDeAlmacen.Views
         {
             if (_estaSeleccionando) return;
 
-            // Buscamos la caja de texto real que está dentro del ComboBox
             var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
             if (textBox == null) return;
 
-            string searchText = textBox.Text;
+            string searchText = textBox.Text?.Trim() ?? string.Empty;
 
-            // Si el buscador está vacío, limpiamos la pantalla
             if (string.IsNullOrWhiteSpace(searchText))
             {
-                CboProductos.IsDropDownOpen = false; 
-                CboProductos.ItemsSource = null; 
-                _productoSeleccionadoId = 0; // 🌟 Reset preventivo obligatorio
-                            return; 
+                CboProductos.IsDropDownOpen = false;
+                CboProductos.ItemsSource = null;
+                _productoSeleccionadoId = 0;
+                return;
             }
 
-            // Cerramos la puerta para evitar un ciclo infinito
             _estaSeleccionando = true;
-
-            // EL TRUCO DE UX: Guardamos dónde está el cursor
             int cursorPosition = textBox.CaretIndex;
 
-            // Filtramos en memoria RAM limitando a 3 resultados
+            bool esNumero = int.TryParse(searchText, out int idBuscado);
+
+            // 🌟 FILTRADO BIVALENTE: Por ID exacto, ID parcial, Descripción o Abreviatura
             var filtrados = _todosLosProductos
-                .Where(p => p.Descripcion != null &&
-                            p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase))
-                .Take(3)
+                .Where(p => (esNumero && p.Id == idBuscado) ||
+                            p.Id.ToString().StartsWith(searchText) ||
+                            (p.Descripcion != null && p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase)) ||
+                            (p.Abreviatura != null && p.Abreviatura.Contains(searchText, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(p => (esNumero && p.Id == idBuscado) ? 0 : 1)
+                .ThenBy(p => p.Descripcion)
+                .Take(5)
                 .ToList();
 
-            // Actualizamos la lista visible
             CboProductos.ItemsSource = filtrados;
             CboProductos.DisplayMemberPath = "Descripcion";
             CboProductos.IsDropDownOpen = filtrados.Any();
 
-            // EL TRUCO DE UX: Restauramos el texto y la posición del cursor
+            // Si hay coincidencia exacta de ID, asignamos de una vez el ID seleccionado
+            if (esNumero)
+            {
+                var matchExacto = _todosLosProductos.FirstOrDefault(p => p.Id == idBuscado);
+                if (matchExacto != null)
+                {
+                    _productoSeleccionadoId = matchExacto.Id;
+                }
+            }
+
             textBox.Text = searchText;
             textBox.CaretIndex = cursorPosition;
 
-            // Abrimos la puerta
             _estaSeleccionando = false;
         }
 

@@ -1,136 +1,123 @@
-﻿    using AplicativoDeAlmacen.Data;
-    using AplicativoDeAlmacen.Models.Models;
-    using AplicativoDeAlmacen.Services;
-    using ClosedXML.Excel;
-    using System;
-    using System.Collections.Generic;
-    using System.ComponentModel;
-    using System.Data;
-    using System.Data.Common;
-    using System.IO;
-    using System.Linq;
-    using System.Text.RegularExpressions;
-    using System.Threading.Tasks;
-    using System.Windows;
-    using System.Windows.Controls;
-    using System.Windows.Input;
-    using System.Windows.Media;
-    using static AplicativoDeAlmacen.Data.DataConnection;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using ClosedXML.Excel;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Data.Common;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
-    namespace AplicativoDeAlmacen.Views
+namespace AplicativoDeAlmacen.Views
+{
+    public class ItemCodigoPreview
     {
+        public int RowNumber { get; set; }
+        public string CodigoRaw { get; set; } = string.Empty;
+        public string CodigoNorm { get; set; } = string.Empty;
+        public bool EstadoValido { get; set; }
+        public int CategoriaId { get; set; } // 1 = GUÍA, 2 = VENTA
+        public string CategoriaTexto => CategoriaId == 1 ? "📘 GUÍA" : "📙 VENTA";
+        public string ObservacionAuditoria { get; set; } = string.Empty;
+    }
 
+    public class ProductoGroupPreview : INotifyPropertyChanged
+    {
+        private bool _isSelected;
+        public int ProductoId { get; set; }
+        public string ProductoNombre { get; set; } = string.Empty;
+        public bool TieneValidos { get; set; }
 
-        public class ItemCodigoPreview
+        public bool IsSelected
         {
-
-            public int RowNumber { get; set; }
-            public string CodigoRaw { get; set; }
-            public string CodigoNorm { get; set; }
-            public bool EstadoValido { get; set; }
-            public int CategoriaId { get; set; } // 1 = GUÍA, 2 = VENTA
-            public string CategoriaTexto => CategoriaId == 1 ? "📘 GUÍA" : "📙 VENTA";
-            public string ObservacionAuditoria { get; set; }
-
-            
-        }
-        
-
-        public class ProductoGroupPreview : INotifyPropertyChanged
-        {
-            private bool _isSelected;
-            public int ProductoId { get; set; }
-            public string ProductoNombre { get; set; }
-            public bool TieneValidos { get; set; }
-
-            public bool IsSelected
+            get => _isSelected;
+            set
             {
-                get => _isSelected;
-                set
+                if (_isSelected != value)
                 {
-                    if (_isSelected != value)
-                    {
-                        _isSelected = value;
-                        OnPropertyChanged(nameof(IsSelected));
-                    }
+                    _isSelected = value;
+                    OnPropertyChanged(nameof(IsSelected));
                 }
             }
+        }
 
-            public string ResumenDiagnostico { get; set; }
-            public string BadgeTexto { get; set; }
+        public string ResumenDiagnostico { get; set; } = string.Empty;
+        public string BadgeTexto { get; set; } = string.Empty;
         public int? MovimientoIdActual { get; set; } = null;
-        public Brush BackgroundColor { get; set; }
-            public Brush BorderColor { get; set; }
-            public Brush BadgeColor { get; set; }
+        public Brush BackgroundColor { get; set; } = Brushes.Transparent;
+        public Brush BorderColor { get; set; } = Brushes.Transparent;
+        public Brush BadgeColor { get; set; } = Brushes.Black;
 
-        
-            public List<ItemCodigoPreview> CodigosInternos { get; set; } = new List<ItemCodigoPreview>();
-            public List<string> CodigosYaAgregadosEnMovimiento { get; set; } = new List<string>();
+        public List<ItemCodigoPreview> CodigosInternos { get; set; } = new List<ItemCodigoPreview>();
 
-            public event PropertyChangedEventHandler PropertyChanged;
-            // 🌟 PROPIEDAD PARA RECIBIR LOS CÓDIGOS QUE YA ESTÁN EN LA GRILLA DEL MOVIMIENTO
-        
-            protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    public partial class ImportarCodigos : Window
+    {
+        public int EstadoPermitido { get; set; } = 0;
+        public List<string> CodigosImportados { get; set; } = new List<string>();
+        public List<string> CodigosYaAgregadosEnMovimiento { get; set; } = new List<string>();
+        public int? MovimientoIdActual { get; set; } = null;
+
+        private readonly Microsoft.Win32.OpenFileDialog openFileDialog = new Microsoft.Win32.OpenFileDialog();
+        private readonly IngresoMovimientoService _serviceMovimiento = new IngresoMovimientoService();
+        private readonly DatabaseConnection _db = new DatabaseConnection();
+
+        private List<ProductoGroupPreview> _gruposProductosMaster = new List<ProductoGroupPreview>();
+
+        public ImportarCodigos()
+        {
+            InitializeComponent();
         }
 
-
-
-        public partial class ImportarCodigos : Window
+        private SolidColorBrush CrearPincelSeguro(string hexColor)
         {
-            public int EstadoPermitido { get; set; } = 0;
-            public List<string> CodigosImportados { get; set; } = new List<string>();
-            // Lista pública de códigos que ya fueron agregados al movimiento activo.
-            // Se añadió para que otras vistas puedan pasar/leer los códigos ya presentes
-            // y evitar duplicados al importar desde Excel.
-            public List<string> CodigosYaAgregadosEnMovimiento { get; set; } = new List<string>();
-             public int? MovimientoIdActual { get; set; } = null;
-             private readonly Microsoft.Win32.OpenFileDialog openFileDialog = new Microsoft.Win32.OpenFileDialog();
-            private readonly IngresoMovimientoService _serviceMovimiento = new IngresoMovimientoService();
-            private readonly DatabaseConnection _db = new DatabaseConnection();
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hexColor));
+            brush.Freeze();
+            return brush;
+        }
 
-            private List<ProductoGroupPreview> _gruposProductosMaster = new List<ProductoGroupPreview>();
+        private string LimpiarCodigo(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+            string limpiado = Regex.Replace(input, @"[\u200B-\u200D\uFEFF\u00A0\t\r\n\0]", "");
+            return limpiado.Trim().ToUpperInvariant();
+        }
 
-            public ImportarCodigos()
+        private List<string> LeerExcelInteligente(string ruta)
+        {
+            var lista = new List<string>(100000);
+            using var workbook = new XLWorkbook(ruta);
+            var ws = workbook.Worksheet(1);
+            var used = ws.RangeUsed();
+            if (used == null) return lista;
+
+            foreach (var row in used.Rows())
             {
-                InitializeComponent();
-            }
-
-            private SolidColorBrush CrearPincelSeguro(string hexColor)
-            {
-                var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hexColor));
-                brush.Freeze();
-                return brush;
-            }
-
-            private string LimpiarCodigo(string input)
-            {
-                if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-                string limpiado = Regex.Replace(input, @"[\u200B-\u200D\uFEFF\u00A0\t\r\n\0]", "");
-                return limpiado.Trim().ToUpperInvariant();
-            }
-
-            private List<string> LeerExcelInteligente(string ruta)
-            {
-                var lista = new List<string>(100000);
-                using var workbook = new XLWorkbook(ruta);
-                var ws = workbook.Worksheet(1);
-                var used = ws.RangeUsed();
-                if (used == null) return lista;
-
-                foreach (var row in used.Rows())
+                foreach (var cell in row.Cells())
                 {
-                    foreach (var cell in row.Cells())
+                    string cellStr = cell.GetString();
+                    string limpio = LimpiarCodigo(cellStr);
+                    if (!string.IsNullOrEmpty(limpio))
                     {
-                        string cellStr = cell.GetString();
-                        string limpio = LimpiarCodigo(cellStr);
-                        if (!string.IsNullOrEmpty(limpio))
-                        {
-                            lista.Add(limpio);
-                        }
+                        lista.Add(limpio);
                     }
                 }
-                return lista;
             }
+            return lista;
+        }
 
         private async void Button_Click(object sender, RoutedEventArgs e)
         {
@@ -143,10 +130,11 @@
 
                 List<string> rawList = new List<string>();
                 _gruposProductosMaster.Clear();
+                int totalErroresDetectados = 0;
 
                 var loadingModal = new ProgressWindow("Auditoría por Producto", "Validando base de datos, condiciones y Kárdex...", async (progress) =>
                 {
-                    // 1. Lectura del archivo Excel o TXT
+                    // 1. Lectura del archivo
                     if (extension == ".xlsx")
                         rawList = LeerExcelInteligente(openFileDialog.FileName);
                     else
@@ -154,71 +142,55 @@
 
                     if (!rawList.Any()) return;
 
-                    // 2. Set para colisiones con códigos ya presentes en la grilla principal
+                    // 2. Códigos ya en el movimiento
                     var setYaAgregadosEnMovimiento = new HashSet<string>(
                         (CodigosYaAgregadosEnMovimiento ?? new List<string>()).Select(x => _serviceMovimiento.NormalizarCodigo(x)),
                         StringComparer.OrdinalIgnoreCase
                     );
 
-                    // 3. Detección de duplicados dentro del archivo Excel
+                    // 3. Duplicados dentro del propio archivo Excel
                     var contadorOcurrenciasExcel = rawList
                         .GroupBy(x => _serviceMovimiento.NormalizarCodigo(x), StringComparer.OrdinalIgnoreCase)
                         .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
-                    // 4. Búsqueda masiva en la Base de Datos (1 solo viaje)
+                    // 4. Búsqueda masiva en Base de Datos de códigos creados
                     var lookup = await _serviceMovimiento.ObtenerCodigosPorListaAsync(rawList);
 
-                    var prodIds = lookup.Values
-                        .Where(v => v.ProductoId.HasValue)
-                        .Select(v => v.ProductoId.Value)
-                        .Distinct()
-                        .ToList();
-
+                    // 5. Cargar catálogo de productos maestros completo para emparejar códigos no creados por prefijo
+                    var listaCatalogoProductos = new List<(int Id, string Descripcion, string AbreviaturaLimpia)>();
                     var prodMap = new Dictionary<int, string>();
 
-                    if (prodIds.Any())
+                    using (var conn = _db.GetConnection())
                     {
-                        using var conn = _db.GetConnection();
                         var dbConn = (DbConnection)conn;
                         await dbConn.OpenAsync();
-
-                        const int chunkProdSize = 200;
-                        for (int pIdx = 0; pIdx < prodIds.Count; pIdx += chunkProdSize)
+                        using var cmdProdAll = dbConn.CreateCommand();
+                        cmdProdAll.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion, abreviatura FROM productos WHERE estado_id = 1");
+                        using var rdrProdAll = await cmdProdAll.ExecuteReaderAsync();
+                        while (await rdrProdAll.ReadAsync())
                         {
-                            var subIds = prodIds.Skip(pIdx).Take(chunkProdSize).ToList();
-                            var paramNames = new List<string>();
+                            int pId = rdrProdAll.GetInt32(0);
+                            string pDesc = rdrProdAll.IsDBNull(1) ? "" : rdrProdAll.GetString(1);
+                            string pAbrev = rdrProdAll.IsDBNull(2) ? "" : rdrProdAll.GetString(2);
 
-                            using var cmd = dbConn.CreateCommand();
+                            prodMap[pId] = pDesc;
 
-                            for (int i = 0; i < subIds.Count; i++)
+                            if (!string.IsNullOrWhiteSpace(pAbrev))
                             {
-                                string pName = "@p" + i;
-                                paramNames.Add(pName);
-                                var p = cmd.CreateParameter();
-                                p.ParameterName = pName;
-                                p.Value = subIds[i];
-                                cmd.Parameters.Add(p);
-                            }
-
-                            string q = $"SELECT id, descripcion FROM productos WHERE id IN ({string.Join(',', paramNames)})";
-                            cmd.CommandText = QueryAdapter.FormatearConsulta(q);
-
-                            using var rdr = await cmd.ExecuteReaderAsync();
-                            while (await rdr.ReadAsync())
-                            {
-                                if (!rdr.IsDBNull(0)) prodMap[rdr.GetInt32(0)] = rdr.IsDBNull(1) ? "" : rdr.GetString(1);
+                                string abrevLimpia = pAbrev.Replace(" ", "").Replace("-", "").Trim().ToUpperInvariant();
+                                listaCatalogoProductos.Add((pId, pDesc, abrevLimpia));
                             }
                         }
                     }
 
-                    // 5. 🌟 EVALUACIÓN DE CONDICIONES REALES DE LA BD (permitir_salida y nombre exacto de la condición)
+                    // 6. Evaluación de condiciones (permitir_salida)
                     var mapaCondiciones = new Dictionary<int, (bool PermitirSalida, string NombreCondicion)>();
                     using (var connCond = _db.GetConnection())
                     {
                         var dbConnCond = (DbConnection)connCond;
                         await dbConnCond.OpenAsync();
 
-                        var codigosIdsProcesar = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.Id).Distinct().ToList();
+                        var codigosIdsProcesar = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj!.Id).Distinct().ToList();
 
                         if (codigosIdsProcesar.Any())
                         {
@@ -254,20 +226,17 @@
                         }
                     }
 
-                    // 6. 🌟 CONSULTA DE LÍNEA DE TIEMPO (Solo aplica si estamos EDITANDO un documento del pasado)
+                    // 7. Consulta de línea de tiempo futura si es edición
                     var mapaTieneFuturo = new Dictionary<int, bool>();
-
                     if (MovimientoIdActual.HasValue && MovimientoIdActual.Value > 0)
                     {
                         using var connFut = _db.GetConnection();
                         var dbConnFut = (DbConnection)connFut;
                         await dbConnFut.OpenAsync();
 
-                        var codigosIdsFuturo = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj.Id).Distinct().ToList();
-
+                        var codigosIdsFuturo = lookup.Values.Where(v => v.CodigoObj != null).Select(v => v.CodigoObj!.Id).Distinct().ToList();
                         foreach (var cId in codigosIdsFuturo)
                         {
-                            // Pasa el MovimientoIdActual para descartar el movimiento propio que se está editando
                             bool tieneFuturo = await _serviceMovimiento.TieneMovimientosPosterioresAsync(
                                 cId,
                                 MovimientoIdActual.Value,
@@ -279,10 +248,10 @@
                         }
                     }
 
-                    // 7. 🌟 EVALUACIÓN FINAL ULTRA-RÁPIDA EN MEMORIA
+                    // 8. Diagnóstico masivo y clasificación por producto
                     var dictTemp = new Dictionary<string, List<ItemCodigoPreview>>();
                     int total = rawList.Count;
-                    int miAlmacenIdSesion = AplicativoDeAlmacen.Core.SesionSistema.AlmacenActual?.Id ?? 1;
+                    int miAlmacenIdSesion = SesionSistema.AlmacenActual?.Id ?? 1;
 
                     for (int i = 0; i < total; i++)
                     {
@@ -298,7 +267,6 @@
                         string nombreProd = "❌ CÓDIGOS NO REGISTRADOS EN BD";
                         bool esValido = false;
                         string observacion = "❌ NO EXISTE EN BASE DE DATOS";
-
                         int categoriaId = (norm.Contains("-V-") || norm.Contains("'V'") || norm.Contains("-V'") || norm.Contains(" V ") || norm.Contains("VENTA")) ? 2 : 1;
 
                         if (yaExisteEnMovimiento)
@@ -309,37 +277,48 @@
                         else if (duplicadoEnExcel)
                         {
                             nombreProd = "⚠️ COLISIONES / DUPLICADOS EN EXCEL";
-                            observacion = "❌ DUPLICADO EN EXCEL";
+                            observacion = "❌ DUPLICADO EN EL MISMO EXCEL";
                         }
-                        else if (existeEnBD)
+                        else if (!existeEnBD)
                         {
-                            int estadoCodigo = coincidencia.CodigoObj.EstadoId;
+                            // 🌟 SEPARACIÓN INTELIGENTE DE CÓDIGOS NO REGISTRADOS POR PREFIJO DE CATÁLOGO
+                            string codigoLimpioParaPrefijo = norm.Replace(" ", "").Replace("-", "").ToUpperInvariant();
+                            var productoEmparejado = listaCatalogoProductos.FirstOrDefault(p => codigoLimpioParaPrefijo.StartsWith(p.AbreviaturaLimpia, StringComparison.OrdinalIgnoreCase));
+
+                            if (!string.IsNullOrEmpty(productoEmparejado.Descripcion))
+                            {
+                                nombreProd = $"⚠️ Códigos no creados / sin registrar de: {productoEmparejado.Descripcion}";
+                                observacion = "❌ EL PRODUCTO EXISTE PERO EL CÓDIGO NUNCA FUE CREADO EN EL SISTEMA";
+                            }
+                            else
+                            {
+                                nombreProd = "❌ CÓDIGOS CON FORMATO O PRODUCTO DESCONOCIDO";
+                                observacion = "❌ NO COINCIDE CON NINGÚN PRODUCTO DEL CATÁLOGO";
+                            }
+                        }
+                        else
+                        {
+                            int estadoCodigo = coincidencia.CodigoObj!.EstadoId;
                             int codigoId = coincidencia.CodigoObj.Id;
                             bool perteneceAMiAlmacen = coincidencia.CodigoObj.AlmacenId == miAlmacenIdSesion;
 
-                            if (coincidencia.ProductoId.HasValue && prodMap.TryGetValue(coincidencia.ProductoId.Value, out string pDesc))
+                            if (coincidencia.ProductoId.HasValue && prodMap.TryGetValue(coincidencia.ProductoId.Value, out string? pDesc))
                             {
                                 nombreProd = pDesc;
                             }
 
-                            // 🛡️ Asignación segura de la variable para evitar el error CS0165
-                            bool tieneFuturoFlag = mapaTieneFuturo.TryGetValue(codigoId, out bool tf) && tf;
-
-                            // 🛑 REGLA 1: ESCUDO CRONOLÓGICO FUTURO (Solo activo si se está en Modo Edición)
-                            bool tieneMovimientosFuturos = MovimientoIdActual.HasValue && tieneFuturoFlag;
+                            bool tieneMovimientosFuturos = MovimientoIdActual.HasValue && mapaTieneFuturo.TryGetValue(codigoId, out bool tf) && tf;
 
                             if (tieneMovimientosFuturos)
                             {
                                 nombreProd = "⚠️ CÓDIGOS CON HISTORIAL FUTURO";
                                 observacion = "❌ TIENE MOVIMIENTOS POSTERIORES EN LA LÍNEA DE TIEMPO";
                             }
-                            // 🛑 REGLA 2: VALIDACIÓN DE ESTADO 5 (EN TRÁNSITO)
                             else if (estadoCodigo == 5)
                             {
                                 nombreProd = "⚠️ CÓDIGOS EN TRÁNSITO (ESTADO 5)";
                                 observacion = "❌ EN TRÁNSITO: NO SE PUEDE DESPACHAR NI INGRESAR DIRECTAMENTE";
                             }
-                            // 🔒 REGLA 3: VALIDACIÓN DE PERTENENCIA A SEDE
                             else if (!perteneceAMiAlmacen && EstadoPermitido == 3)
                             {
                                 nombreProd = "⚠️ CÓDIGOS NO DISPONIBLES EN SU STOCK";
@@ -347,7 +326,6 @@
                             }
                             else
                             {
-                                // 🛡️ REGLA 4: VALIDACIÓN DE CONDICIÓN POR NOMBRE REAL DE LA BD
                                 var infoCondicion = mapaCondiciones.TryGetValue(codigoId, out var condData)
                                     ? condData
                                     : (PermitirSalida: false, NombreCondicion: "DESCONOCIDO");
@@ -357,7 +335,6 @@
                                     nombreProd = "⚠️ CÓDIGOS CON CONDICIÓN RESTRICTIVA";
                                     observacion = $"❌ {infoCondicion.NombreCondicion.ToUpper()} (NO PERMITE SALIDA)";
                                 }
-                                // 🌟 REGLA 5: CORRESPONDENCIA DE ESTADO CON EL MÓDULO
                                 else if (EstadoPermitido != 0 && estadoCodigo != EstadoPermitido)
                                 {
                                     observacion = $"❌ ESTADO INVÁLIDO (Estado: {estadoCodigo})";
@@ -369,6 +346,8 @@
                                 }
                             }
                         }
+
+                        if (!esValido) totalErroresDetectados++;
 
                         if (!dictTemp.ContainsKey(nombreProd)) dictTemp[nombreProd] = new List<ItemCodigoPreview>();
 
@@ -383,7 +362,7 @@
                         });
                     }
 
-                    // 8. Generación de tarjetas por Producto para la UI
+                    // 9. Construcción de tarjetas
                     foreach (var kvp in dictTemp)
                     {
                         int cantValidos = kvp.Value.Count(x => x.EstadoValido);
@@ -407,7 +386,7 @@
                             bgColor = CrearPincelSeguro("#FEF3C7");
                             borderColor = CrearPincelSeguro("#FDE68A");
                             badgeColor = CrearPincelSeguro("#B45309");
-                            badgeTexto = $"🟡 PARCIAL ({cantValidos} Aptos)";
+                            badgeTexto = $"🟡 PARCIAL ({cantValidos} Aptos / {cantErrores} Errores)";
                         }
                         else
                         {
@@ -421,7 +400,7 @@
                         {
                             ProductoNombre = kvp.Key,
                             TieneValidos = tieneValidos,
-                            IsSelected = tieneValidos,
+                            IsSelected = esTotalmenteValido, // Solo marcado por defecto si es 100% válido
                             ResumenDiagnostico = $"Total en Lote: {kvp.Value.Count} | Aptos: {cantValidos} | Errores: {cantErrores}",
                             BadgeTexto = badgeTexto,
                             BackgroundColor = bgColor,
@@ -448,207 +427,240 @@
                 {
                     txtTotalCodigos.Text = rawList.Count.ToString();
                     FiltrarYMostrarDatos();
+
+                    // 🚨 AVISO INMEDIATO SI EL ARCHIVO TIENE ERRORES
+                    if (totalErroresDetectados > 0)
+                    {
+                        MessageBox.Show(
+                            $"⚠️ AUDITORÍA RECHAZADA: SE ENCONTRARON {totalErroresDetectados:N0} ERROR(ES) EN EL ARCHIVO.\n\n" +
+                            $"• No se puede importar lotes con inconsistencias.\n" +
+                            $"• Revise las tarjetas en rojo/amarillo para ver qué códigos no existen o están dañados.\n" +
+                            $"• Debe corregir su archivo Excel y volverlo a cargar para habilitar la importación.",
+                            "Inconsistencias Detectadas",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                    }
                 }
                 else if (loadingModal.ErrorResult != null)
                 {
-                    MessageBox.Show($"Error al consultar la auditoría en la Base de Datos:\n\n{loadingModal.ErrorResult.Message}",
-                                    "Error de Base de Datos", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Error al auditar en Base de Datos:\n\n{loadingModal.ErrorResult.Message}",
+                                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
 
-        // 🌟 FILTRADO DINÁMICO COMBINADO (CATEGORÍA + BÚSQUEDA BIVALENTE)
         private void FiltrarYMostrarDatos()
+        {
+            if (_gruposProductosMaster == null || txtBuscarCodigo == null || lstProductosAgrupados == null)
+                return;
+
+            string busqueda = txtBuscarCodigo.Text?.Trim().ToLower() ?? string.Empty;
+
+            int? categoriaFiltro = null;
+            if (rbFiltroGuia != null && rbFiltroGuia.IsChecked == true)
+                categoriaFiltro = 1;
+            else if (rbFiltroVenta != null && rbFiltroVenta.IsChecked == true)
+                categoriaFiltro = 2;
+
+            var listaFiltrada = new List<ProductoGroupPreview>();
+
+            foreach (var grupoMaster in _gruposProductosMaster)
             {
-                // 🛡️ CANDADO DE SEGURIDAD CONTRA INICIALIZACIÓN XAML INCOMPLETA
-                if (_gruposProductosMaster == null || txtBuscarCodigo == null || lstProductosAgrupados == null)
-                    return;
+                if (grupoMaster == null || grupoMaster.CodigosInternos == null)
+                    continue;
 
-                string busqueda = txtBuscarCodigo.Text?.Trim().ToLower() ?? string.Empty;
-
-                int? categoriaFiltro = null;
-                if (rbFiltroGuia != null && rbFiltroGuia.IsChecked == true)
-                    categoriaFiltro = 1;
-                else if (rbFiltroVenta != null && rbFiltroVenta.IsChecked == true)
-                    categoriaFiltro = 2;
-
-                var listaFiltrada = new List<ProductoGroupPreview>();
-
-                foreach (var grupoMaster in _gruposProductosMaster)
+                var codigosFiltrados = grupoMaster.CodigosInternos.AsEnumerable();
+                if (categoriaFiltro.HasValue)
                 {
-                    if (grupoMaster == null || grupoMaster.CodigosInternos == null)
-                        continue;
+                    codigosFiltrados = codigosFiltrados.Where(c => c != null && c.CategoriaId == categoriaFiltro.Value);
+                }
 
-                    // 1. Filtrar códigos por categoría si aplica
-                    var codigosFiltrados = grupoMaster.CodigosInternos.AsEnumerable();
-                    if (categoriaFiltro.HasValue)
+                if (!string.IsNullOrEmpty(busqueda))
+                {
+                    string prodNombre = grupoMaster.ProductoNombre ?? string.Empty;
+                    bool coincideProducto = prodNombre.ToLower().Contains(busqueda);
+
+                    if (!coincideProducto)
                     {
-                        codigosFiltrados = codigosFiltrados.Where(c => c != null && c.CategoriaId == categoriaFiltro.Value);
-                    }
-
-                    // 2. Filtrar por búsqueda si hay texto
-                    if (!string.IsNullOrEmpty(busqueda))
-                    {
-                        string prodNombre = grupoMaster.ProductoNombre ?? string.Empty;
-                        bool coincideProducto = prodNombre.ToLower().Contains(busqueda);
-
-                        if (!coincideProducto)
-                        {
-                            codigosFiltrados = codigosFiltrados.Where(c => c != null && c.CodigoRaw != null && c.CodigoRaw.ToLower().Contains(busqueda));
-                        }
-                    }
-
-                    var codigosResultado = codigosFiltrados.ToList();
-
-                    // Si tiene códigos que coincidan con los filtros, mostramos el grupo
-                    if (codigosResultado.Any())
-                    {
-                        // Creamos una vista filtrada (copia ligera) pero sincronizamos la selección con el grupo maestro
-                        var vistaCopia = new ProductoGroupPreview
-                        {
-                            ProductoId = grupoMaster.ProductoId,
-                            ProductoNombre = grupoMaster.ProductoNombre ?? "Desconocido",
-                            TieneValidos = grupoMaster.TieneValidos,
-                            IsSelected = grupoMaster.IsSelected,
-                            ResumenDiagnostico = grupoMaster.ResumenDiagnostico,
-                            BadgeTexto = grupoMaster.BadgeTexto,
-                            BackgroundColor = grupoMaster.BackgroundColor,
-                            BorderColor = grupoMaster.BorderColor,
-                            BadgeColor = grupoMaster.BadgeColor,
-                            CodigosInternos = codigosResultado
-                        };
-
-                        // Cuando el usuario cambie la selección en la vista filtrada, propagamos el cambio al grupo maestro
-                        vistaCopia.PropertyChanged += (s, ev) =>
-                        {
-                            if (ev.PropertyName == nameof(ProductoGroupPreview.IsSelected))
-                            {
-                                grupoMaster.IsSelected = vistaCopia.IsSelected;
-                            }
-                        };
-
-                        listaFiltrada.Add(vistaCopia);
+                        codigosFiltrados = codigosFiltrados.Where(c => c != null && c.CodigoRaw != null && c.CodigoRaw.ToLower().Contains(busqueda));
                     }
                 }
 
-                lstProductosAgrupados.ItemsSource = null;
-                lstProductosAgrupados.ItemsSource = listaFiltrada;
+                var codigosResultado = codigosFiltrados.ToList();
 
-                RefrescarTotales();
-            }
-
-            private void RefrescarTotales()
-            {
-                if (_gruposProductosMaster == null || txtValidos == null || txtInvalidos == null || btnTransferir == null)
-                    return;
-
-                int aptosSeleccionados = 0;
-                int omitidosOErrores = 0;
-
-                foreach (var grupo in _gruposProductosMaster)
+                if (codigosResultado.Any())
                 {
-                    if (grupo == null || grupo.CodigosInternos == null) continue;
-
-                    // 🌟 SI EL PRODUCTO ESTÁ SELECCIONADO:
-                    if (grupo.IsSelected)
+                    var vistaCopia = new ProductoGroupPreview
                     {
-                        aptosSeleccionados += grupo.CodigosInternos.Count(x => x != null && x.EstadoValido);
-                        omitidosOErrores += grupo.CodigosInternos.Count(x => x == null || !x.EstadoValido);
-                    }
-                    else // 🌟 SI EL PRODUCTO FUE DESMARCADO: TODOS SUS CÓDIGOS PASAN A OMITIDOS
-                    {
-                        omitidosOErrores += grupo.CodigosInternos.Count;
-                    }
-                }
-
-                txtValidos.Text = aptosSeleccionados.ToString();
-                txtInvalidos.Text = omitidosOErrores.ToString();
-
-                btnTransferir.IsEnabled = aptosSeleccionados > 0;
-                btnTransferir.Content = aptosSeleccionados > 0 ? $"Transferir ({aptosSeleccionados} Códigos Aptos)" : "Sin Selección Válida";
-
-                if (brdHealth != null && txtHealth != null)
-                {
-                    if (aptosSeleccionados > 0 && omitidosOErrores == 0)
-                    {
-                        brdHealth.Background = CrearPincelSeguro("#ECFDF5");
-                        txtHealth.Text = "🟢 Importación Íntegra";
-                        txtHealth.Foreground = CrearPincelSeguro("#065F46");
-                    }
-                    else
-                    {
-                        brdHealth.Background = CrearPincelSeguro("#FEF3C7");
-                        txtHealth.Text = $"🟡 Parcial ({aptosSeleccionados} Aptos)";
-                        txtHealth.Foreground = CrearPincelSeguro("#92400E");
-                    }
-                }
-            }
-
-            // 🌟 INTERCEPTOR DE RUEDA DEL MOUSE PARA MANTENER EL SCROLL FLUIDO
-            private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-            {
-                if (!e.Handled)
-                {
-                    e.Handled = true;
-                    var eventArgs = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
-                    {
-                        RoutedEvent = UIElement.MouseWheelEvent,
-                        Source = sender
+                        ProductoId = grupoMaster.ProductoId,
+                        ProductoNombre = grupoMaster.ProductoNombre ?? "Desconocido",
+                        TieneValidos = grupoMaster.TieneValidos,
+                        IsSelected = grupoMaster.IsSelected,
+                        ResumenDiagnostico = grupoMaster.ResumenDiagnostico,
+                        BadgeTexto = grupoMaster.BadgeTexto,
+                        BackgroundColor = grupoMaster.BackgroundColor,
+                        BorderColor = grupoMaster.BorderColor,
+                        BadgeColor = grupoMaster.BadgeColor,
+                        CodigosInternos = codigosResultado
                     };
-                    scrollPrincipal.RaiseEvent(eventArgs);
-                }
-            }
 
-            private void ChkSeleccionarTodos_Click(object sender, RoutedEventArgs e)
-            {
-                bool seleccionar = chkSeleccionarTodos.IsChecked == true;
-                foreach (var grupo in _gruposProductosMaster)
-                {
-                    if (grupo.TieneValidos)
+                    vistaCopia.PropertyChanged += (s, ev) =>
                     {
-                        grupo.IsSelected = seleccionar;
-                    }
+                        if (ev.PropertyName == nameof(ProductoGroupPreview.IsSelected))
+                        {
+                            grupoMaster.IsSelected = vistaCopia.IsSelected;
+                            RefrescarTotales();
+                        }
+                    };
+
+                    listaFiltrada.Add(vistaCopia);
                 }
-                RefrescarTotales();
             }
 
-            private void ChkProductoItem_Click(object sender, RoutedEventArgs e)
-            {
-                RefrescarTotales();
-            }
+            lstProductosAgrupados.ItemsSource = null;
+            lstProductosAgrupados.ItemsSource = listaFiltrada;
 
-            private void TxtBuscarCodigo_TextChanged(object sender, TextChangedEventArgs e)
-            {
-                FiltrarYMostrarDatos();
-            }
+            RefrescarTotales();
+        }
 
-            private void FiltroCategoria_Changed(object sender, RoutedEventArgs e)
-            {
-                FiltrarYMostrarDatos();
-            }
+        private void RefrescarTotales()
+        {
+            if (_gruposProductosMaster == null || txtValidos == null || txtInvalidos == null || btnTransferir == null)
+                return;
 
-            private void Button_Click_2(object sender, RoutedEventArgs e)
-            {
-                CodigosImportados = _gruposProductosMaster
-                    .Where(g => g.IsSelected)
-                    .SelectMany(g => g.CodigosInternos)
-                    .Where(c => c.EstadoValido)
-                    .Select(c => c.CodigoRaw)
-                    .ToList();
+            int aptosSeleccionados = 0;
+            int totalErroresEnArchivo = 0;
 
-                if (!CodigosImportados.Any())
+            foreach (var grupo in _gruposProductosMaster)
+            {
+                if (grupo == null || grupo.CodigosInternos == null) continue;
+
+                // Errores globales en el archivo cargado
+                totalErroresEnArchivo += grupo.CodigosInternos.Count(x => x == null || !x.EstadoValido);
+
+                if (grupo.IsSelected)
                 {
-                    MessageBox.Show("No hay códigos válidos seleccionados para transferir.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
+                    aptosSeleccionados += grupo.CodigosInternos.Count(x => x != null && x.EstadoValido);
                 }
-
-                DialogResult = true;
-                Close();
             }
 
-            private void Button_Click_1(object sender, RoutedEventArgs e) { DialogResult = false; Close(); }
+            txtValidos.Text = aptosSeleccionados.ToString();
+            txtInvalidos.Text = totalErroresEnArchivo.ToString();
 
-            // 🟢 Detección inteligente respetando la abreviatura del Excel
-        
+            // 🌟 CANDADO 100% VERDE: Solo transfiere si NO hay ningún error en todo el archivo cargado
+            bool todoEsValido = totalErroresEnArchivo == 0 && aptosSeleccionados > 0;
+
+            btnTransferir.IsEnabled = todoEsValido;
+
+            if (totalErroresEnArchivo > 0)
+            {
+                btnTransferir.Content = "⛔ Corrija los errores del archivo";
+                btnTransferir.Background = CrearPincelSeguro("#94A3B8"); // Gris bloqueado
+            }
+            else if (aptosSeleccionados > 0)
+            {
+                btnTransferir.Content = $"🟢 Transferir ({aptosSeleccionados:N0} Códigos)";
+                btnTransferir.Background = CrearPincelSeguro("#10B981"); // Verde listo
+            }
+            else
+            {
+                btnTransferir.Content = "Sin Códigos para Transferir";
+                btnTransferir.Background = CrearPincelSeguro("#94A3B8");
+            }
+
+            if (brdHealth != null && txtHealth != null)
+            {
+                if (todoEsValido)
+                {
+                    brdHealth.Background = CrearPincelSeguro("#ECFDF5");
+                    txtHealth.Text = "🟢 100% Válido para Importar";
+                    txtHealth.Foreground = CrearPincelSeguro("#065F46");
+                }
+                else
+                {
+                    brdHealth.Background = CrearPincelSeguro("#FEF2F2");
+                    txtHealth.Text = $"🔴 {totalErroresEnArchivo:N0} Inconsistencias Detectadas";
+                    txtHealth.Foreground = CrearPincelSeguro("#991B1B");
+                }
+            }
+        }
+
+        private void DataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (!e.Handled)
+            {
+                e.Handled = true;
+                var eventArgs = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+                {
+                    RoutedEvent = UIElement.MouseWheelEvent,
+                    Source = sender
+                };
+                scrollPrincipal.RaiseEvent(eventArgs);
+            }
+        }
+
+        private void ChkSeleccionarTodos_Click(object sender, RoutedEventArgs e)
+        {
+            bool seleccionar = chkSeleccionarTodos.IsChecked == true;
+            foreach (var grupo in _gruposProductosMaster)
+            {
+                if (grupo.TieneValidos)
+                {
+                    grupo.IsSelected = seleccionar;
+                }
+            }
+            RefrescarTotales();
+        }
+
+        private void ChkProductoItem_Click(object sender, RoutedEventArgs e)
+        {
+            RefrescarTotales();
+        }
+
+        private void TxtBuscarCodigo_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            FiltrarYMostrarDatos();
+        }
+
+        private void FiltroCategoria_Changed(object sender, RoutedEventArgs e)
+        {
+            FiltrarYMostrarDatos();
+        }
+
+        private void Button_Click_2(object sender, RoutedEventArgs e)
+        {
+            // 🛡️ Doble Candado de Seguridad
+            int totalErrores = _gruposProductosMaster
+                .SelectMany(g => g.CodigosInternos)
+                .Count(c => !c.EstadoValido);
+
+            if (totalErrores > 0)
+            {
+                MessageBox.Show("No se puede completar la transferencia porque el archivo contiene códigos con error o inexistentes.", "Operación Denegada", MessageBoxButton.OK, MessageBoxImage.Stop);
+                return;
+            }
+
+            CodigosImportados = _gruposProductosMaster
+                .Where(g => g.IsSelected)
+                .SelectMany(g => g.CodigosInternos)
+                .Where(c => c.EstadoValido)
+                .Select(c => c.CodigoRaw)
+                .ToList();
+
+            if (!CodigosImportados.Any())
+            {
+                MessageBox.Show("No hay códigos válidos seleccionados para transferir.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            DialogResult = true;
+            Close();
+        }
+
+        private void Button_Click_1(object sender, RoutedEventArgs e)
+        {
+            DialogResult = false;
+            Close();
         }
     }
+}
