@@ -143,7 +143,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 
         private async Task EjecutarBusquedaProductosAsync(string busqueda)
         {
-            if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Length < 2)
+            if (string.IsNullOrWhiteSpace(busqueda))
             {
                 CboProducto.IsDropDownOpen = false;
                 return;
@@ -151,10 +151,27 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 
             try
             {
-                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
-                var listaResultados = resultados?.ToList() ?? new List<Producto>();
+                List<Producto> listaResultados;
 
-                // 🌟 Capturamos el estado actual del cursor para evitar que retroceda o se borre la letra
+                // 🔍 Si el usuario escribió un ID numérico (ej. 1, 2, 3...)
+                if (int.TryParse(busqueda.Trim(), out int idBuscado))
+                {
+                    var prodPorId = await _productoService.ObtenerPorIdAsync(idBuscado);
+                    listaResultados = prodPorId != null
+                        ? new List<Producto> { prodPorId }
+                        : (await _productoService.BuscarProductosPorTextoAsync(busqueda))?.ToList() ?? new List<Producto>();
+                }
+                else if (busqueda.Trim().Length >= 2)
+                {
+                    var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda.Trim());
+                    listaResultados = resultados?.ToList() ?? new List<Producto>();
+                }
+                else
+                {
+                    CboProducto.IsDropDownOpen = false;
+                    return;
+                }
+
                 var textBox = CboProducto.Template?.FindName("PART_EditableTextBox", CboProducto) as TextBox;
                 int cursorPos = textBox?.SelectionStart ?? 0;
                 string textoActual = textBox?.Text ?? busqueda;
@@ -166,7 +183,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.KardexValorizado
 
                 CboProducto.SelectionChanged += CboProducto_SelectionChanged;
 
-                // 🌟 Restauramos el texto y la posición del cursor de manera exacta
                 if (textBox != null)
                 {
                     textBox.Text = textoActual;

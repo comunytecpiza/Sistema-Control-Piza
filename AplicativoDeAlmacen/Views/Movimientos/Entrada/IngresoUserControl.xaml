@@ -9,53 +9,8 @@
              FontFamily="Segoe UI">
 
     <UserControl.Resources>
-        <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="1" Color="#0F172A" Opacity="0.05"/>
-
-        <Style TargetType="TextBox">
-            <Setter Property="Padding" Value="10,6"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="#334155"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}" 
-                                BorderThickness="{TemplateBinding BorderThickness}" 
-                                CornerRadius="5">
-                            <ScrollViewer x:Name="PART_ContentHost" Focusable="false" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="border" Property="BorderBrush" Value="#6366F1"/>
-                                <Setter TargetName="border" Property="BorderThickness" Value="1.5"/>
-                            </Trigger>
-                            <Trigger Property="IsReadOnly" Value="True">
-                                <Setter Property="Background" Value="#F1F5F9"/>
-                                <Setter Property="Foreground" Value="#64748B"/>
-                                <Setter Property="BorderBrush" Value="#E2E8F0"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="10,4"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="Foreground" Value="#334155"/>
-        </Style>
-
-        <Style TargetType="DatePicker">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
-            <Setter Property="Padding" Value="4"/>
-        </Style>
+        <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="1" Color="#0F172A" Opacity="0.05"/>      
+        
 
         <Style x:Key="ModernButton" TargetType="Button">
             <Setter Property="Foreground" Value="White"/>
@@ -155,7 +110,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- ENCABEZADO -->
-                <Border Grid.Row="0" BorderBrush="#6366F1" BorderThickness="4,0,0,0" Padding="12,2,0,2" Margin="0,0,0,24">
+                <Border Grid.Row="0" BorderBrush="#10B981" BorderThickness="4,0,0,0" Padding="12,2,0,2" Margin="0,0,0,24">
                     <StackPanel>
                         <TextBlock Text="Ingreso de Productos" FontSize="22" FontWeight="Bold" Foreground="#1E293B" Height="34"/>
                         <TextBlock Text="Gestión de inventario, proveedores y asignación de códigos únicos" FontSize="12" Foreground="#64748B" Margin="0,2,0,0" Height="21"/>
@@ -167,16 +122,16 @@
                     <StackPanel>
                         <!-- Botones de acciones principales -->
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
-                            <Button x:Name="btnAgregar" Style="{StaticResource ModernButton}" Content="➕ Nuevo" Background="#10B981" Margin="0,0,8,0" MinWidth="105" Click="BtnAgregar_Click"/>
+                            <Button x:Name="btnAgregar" Style="{StaticResource ModernButton}" Content="➕ Nuevo" Background="#56c748" Margin="0,0,8,0" MinWidth="105" Click="BtnAgregar_Click"/>
                             <Button x:Name="btnEditar" Style="{StaticResource ModernButton}" Content="📝 Editar" Background="#F59E0B" Margin="0,0,8,0" MinWidth="105"/>
                             <Button x:Name="btnImprimir" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#64748B" Margin="0,0,8,0" MinWidth="105"/>
                             <Button x:Name="btnAnular" 
                                 Style="{StaticResource ModernButton}" 
-                                Content="🗑️ Anular Movimiento" 
+                                Content="🗑️ Anular" 
                                 Background="#EF4444" 
-                                MinWidth="150" 
+                                MinWidth="100" 
                                 Click="BtnAnular_Click"
-                                IsEnabled="False"/>
+                                IsEnabled="False" Width="36"/>
                         </StackPanel>
 
                         <!-- Formulario de datos -->
@@ -305,10 +260,10 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Orientation="Horizontal" Grid.Column="0" Margin="0,0,12,0" IsEnabled="True">
-                            <Button x:Name="btnAgregarProducto" Style="{StaticResource ModernButton}" Content="➕ Agregar Ítem" Background="#007BFF" Margin="0,0,8,0" MinWidth="120"/>
+                            <Button x:Name="btnAgregarProducto" Style="{StaticResource ModernButton}" Content="➕ Agregar Ítem" Background="#0EA5E9" Margin="0,0,8,0" MinWidth="120"/>
                             <Button x:Name="btnModificar" Style="{StaticResource ModernButton}" Content="✏️ Modificar" Background="#D97706" Margin="0,0,8,0" MinWidth="110"/>
                             <Button x:Name="btnEliminar" Style="{StaticResource ModernButton}" Content="🗑️ Eliminar" Background="#DC2626" Margin="0,0,8,0" MinWidth="110"/>
-                            <Button x:Name="btnImportar" Style="{StaticResource ModernButton}" Content="📥 Importar de Excel" Background="#7C3AED" Margin="0,0,8,0" MinWidth="150"/>
+                            <Button x:Name="btnImportar" Style="{StaticResource ModernButton}" Content="📥 Importar de Excel" Background="#56c748" Margin="0,0,8,0" MinWidth="150"/>
                             <Button x:Name="btnEscanear" Style="{StaticResource ModernButton}" Content="🔫 Escanear" Background="#8B5CF6" MinWidth="100" Click="BtnEscanear_Click"/>
                         </StackPanel>
 
@@ -338,7 +293,7 @@
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <Border Background="#4F46E5" CornerRadius="6,6,0,0" Padding="12,8">
+                            <Border Background="#10B981" CornerRadius="6,6,0,0" Padding="12,8">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="📋" Margin="0,0,6,0" VerticalAlignment="Center"/>
                                     <TextBlock Text="Productos Recibidos" Foreground="White" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>

@@ -151,9 +151,28 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
         private async void TxtProducto_TextChanged(object sender, TextChangedEventArgs e)
         {
             string busqueda = TxtProducto.Text.Trim();
-            if (busqueda.Length >= 2)
+            if (busqueda.Length >= 1)
             {
-                var resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
+                List<Producto> resultados;
+
+                // 🔍 Búsqueda por ID numérico directo o texto
+                if (int.TryParse(busqueda, out int idProd))
+                {
+                    var prodPorId = await _productoService.ObtenerPorIdAsync(idProd);
+                    resultados = prodPorId != null
+                        ? new List<Producto> { prodPorId }
+                        : await _productoService.BuscarProductosPorTextoAsync(busqueda);
+                }
+                else if (busqueda.Length >= 2)
+                {
+                    resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
+                }
+                else
+                {
+                    PopupProducto.IsOpen = false;
+                    return;
+                }
+
                 LstProducto.ItemsSource = resultados;
                 PopupProducto.IsOpen = resultados != null && resultados.Any();
             }
@@ -183,9 +202,30 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
         private async void TxtUbicacion_TextChanged(object sender, TextChangedEventArgs e)
         {
             string busqueda = TxtUbicacion.Text.Trim();
-            if (busqueda.Length >= 2)
+            if (busqueda.Length >= 1)
             {
-                var resultados = await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                List<Ubicacion> resultados;
+
+                // 🔍 Búsqueda por ID numérico directo o texto
+                if (int.TryParse(busqueda, out int idUbi))
+                {
+                    var todas = await _ubicacionService.ObtenerTodasAsync();
+                    var ubiPorId = todas?.FirstOrDefault(u => u.Id == idUbi);
+
+                    resultados = ubiPorId != null
+                        ? new List<Ubicacion> { ubiPorId }
+                        : await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                }
+                else if (busqueda.Length >= 2)
+                {
+                    resultados = await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                }
+                else
+                {
+                    PopupUbicacion.IsOpen = false;
+                    return;
+                }
+
                 LstUbicacion.ItemsSource = resultados;
                 PopupUbicacion.IsOpen = resultados != null && resultados.Any();
             }

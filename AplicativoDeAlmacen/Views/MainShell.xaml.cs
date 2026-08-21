@@ -5,6 +5,7 @@ using AplicativoDeAlmacen.Models.Almacen;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Transferencias;
 using AplicativoDeAlmacen.Models.UI;
+
 using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.Generic;
@@ -36,7 +37,7 @@ namespace AplicativoDeAlmacen.Views
         private ObservableCollection<NotaItem> _notasCompletadas = new ObservableCollection<NotaItem>();
         private string _rutaArchivoNotas;
         private readonly bool isAdmin;
-
+        private System.Windows.Media.Animation.Storyboard? _blinkGreenStoryboard;
         private readonly TransaccionesService _transaccionesService = new TransaccionesService();
         private readonly SincronizadorLeroService _sincronizador;
         private DispatcherTimer _timerPollingTransacciones;
@@ -99,10 +100,63 @@ namespace AplicativoDeAlmacen.Views
 
             int pendientes = await _transaccionesService.ContarTransferenciasPendientesAsync(miAlmacenId);
 
-            // Actualizamos el número del Badge en la UI
-            BadgeNotificaciones.Value = pendientes;
+            // 1. Localizar los elementos visuales dentro del template del botón
+            if (BtnBandejaTransacciones.Template?.FindName("TxtConteoNotificaciones", BtnBandejaTransacciones) is TextBlock txtConteo &&
+                BtnBandejaTransacciones.Template?.FindName("BordeContador", BtnBandejaTransacciones) is Border bordeContador)
+            {
+                txtConteo.Text = pendientes.ToString();
 
-            // 🔔 SI LLEGÓ UNA NUEVA TRANSFERENCIA: Reproducir sonido y lanzar alerta emergente
+                if (pendientes >= 1)
+                {
+                    // 🌟 MÁS DE 1: Crear e iniciar parpadeo verde en C#
+                    if (_blinkGreenStoryboard == null)
+                    {
+                        var animColor = new System.Windows.Media.Animation.ColorAnimation
+                        {
+                            From = (Color)ColorConverter.ConvertFromString("#10B981"),
+                            To = (Color)ColorConverter.ConvertFromString("#059669"),
+                            Duration = TimeSpan.FromMilliseconds(700),
+                            AutoReverse = true,
+                            RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
+                        };
+
+                        var animOpacity = new System.Windows.Media.Animation.DoubleAnimation
+                        {
+                            From = 1.0,
+                            To = 0.35,
+                            Duration = TimeSpan.FromMilliseconds(700),
+                            AutoReverse = true,
+                            RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
+                        };
+
+                        System.Windows.Media.Animation.Storyboard.SetTarget(animColor, bordeContador);
+                        System.Windows.Media.Animation.Storyboard.SetTargetProperty(animColor, new PropertyPath("(Border.Background).(SolidColorBrush.Color)"));
+
+                        System.Windows.Media.Animation.Storyboard.SetTarget(animOpacity, bordeContador);
+                        System.Windows.Media.Animation.Storyboard.SetTargetProperty(animOpacity, new PropertyPath("Opacity"));
+
+                        _blinkGreenStoryboard = new System.Windows.Media.Animation.Storyboard();
+                        _blinkGreenStoryboard.Children.Add(animColor);
+                        _blinkGreenStoryboard.Children.Add(animOpacity);
+                    }
+
+                    bordeContador.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10B981"));
+                    _blinkGreenStoryboard.Begin(bordeContador, isControllable: true);
+                }
+                else
+                {
+                    // ⚪ CERO: Detener animación y volver a Gris
+                    if (_blinkGreenStoryboard != null)
+                    {
+                        _blinkGreenStoryboard.Stop(bordeContador);
+                    }
+
+                    bordeContador.Opacity = 1.0;
+                    bordeContador.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#9CA3AF"));
+                }
+            }
+
+            // 🔔 2. ALERTA Y SONIDO SI LLEGÓ UNA NUEVA TRANSFERENCIA
             if (_ultimoConteoPendientes != -1 && pendientes > _ultimoConteoPendientes)
             {
                 ReproducirSonidoNotificacion();

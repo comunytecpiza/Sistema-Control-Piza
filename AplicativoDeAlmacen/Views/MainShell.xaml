@@ -108,51 +108,86 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
 
                     <!-- 🔔 1. CONTENEDOR DE LA BANDEJA DE TRANSACCIONES / NOTIFICACIONES -->
-                    <Grid Margin="0,0,15,0">
-                        <!-- Badge de HandyControl para mostrar la cantidad de pendientes -->
-                        <hc:Badge x:Name="BadgeNotificaciones" Value="0" BadgeMargin="0,0,0,0" Style="{StaticResource BadgeDanger}">
-                            <Button x:Name="BtnBandejaTransacciones" 
-                            Click="BtnBandejaTransacciones_Click"
-                            Width="36" Height="36" 
-                            Background="#F3F4F6" 
-                            BorderBrush="#E5E7EB" 
-                            BorderThickness="1"
-                            Cursor="Hand"
-                            ToolTip="Bandeja de Transferencias Entrantes">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" 
-                                        BorderBrush="{TemplateBinding BorderBrush}" 
-                                        BorderThickness="{TemplateBinding BorderThickness}" 
-                                        CornerRadius="18">
-                                            <TextBlock Text="🔔" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <!-- 🔔 1. CONTENEDOR DE LA BANDEJA DE NOTIFICACIONES -->
+                    <Grid Margin="0,0,15,0" Cursor="">
+                        <Grid.Resources>
+                            <!-- 🌟 Animación de Parpadeo Verde para Nuevas Transferencias -->
+                            <Storyboard x:Key="BlinkGreenStoryboard" RepeatBehavior="Forever">
+                                <ColorAnimation Storyboard.TargetName="BordeContador"
+                            Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                            From="#10B981" To="#059669"
+                            Duration="0:0:0.8" AutoReverse="True"/>
+                                <DoubleAnimation Storyboard.TargetName="BordeContador"
+                             Storyboard.TargetProperty="Opacity"
+                             From="1.0" To="0.4"
+                             Duration="0:0:0.8" AutoReverse="True"/>
+                            </Storyboard>
+                        </Grid.Resources>
+
+                        <!-- Botón Completo de la Campanita -->
+                        <Button x:Name="BtnBandejaTransacciones" 
+            Click="BtnBandejaTransacciones_Click"
+            Width="42" Height="42" 
+            Background="#F3F4F6" 
+            BorderBrush="#E5E7EB" 
+            BorderThickness="1"
+            Cursor="Hand"
+            ToolTip="Bandeja de Transferencias Entrantes">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Grid Background="Transparent">
+                                        <Border x:Name="btnFondo" 
+                            Background="{TemplateBinding Background}" 
+                            BorderBrush="{TemplateBinding BorderBrush}" 
+                            BorderThickness="{TemplateBinding BorderThickness}" 
+                            CornerRadius="21"/>
+
+                                        <TextBlock Text="🔔" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                                        <Border x:Name="BordeContador"
+                            IsHitTestVisible="False"
+                            Background="#9CA3AF"
+                            MinWidth="18" Height="18"
+                            CornerRadius="9"
+                            Padding="4,0"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,-2,-2,0">
+                                            <TextBlock x:Name="TxtConteoNotificaciones"
+                                   Text="0"
+                                   Foreground="White"
+                                   FontSize="10"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
                                         </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                        </hc:Badge>
+                                    </Grid>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="btnFondo" Property="Background" Value="#E5E7EB"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
 
                         <!-- POPUP FLOTANTE DE NOTIFICACIONES (TIPO TRAY) -->
                         <Popup x:Name="PopupBandeja" 
-                       PlacementTarget="{Binding ElementName=BtnBandejaTransacciones}" 
-                       Placement="Bottom" 
-                       StaysOpen="False" 
-                       AllowsTransparency="True" 
-                       PopupAnimation="Fade">
+           PlacementTarget="{Binding ElementName=BtnBandejaTransacciones}" 
+           Placement="Bottom" 
+           StaysOpen="False" 
+           AllowsTransparency="True" 
+           PopupAnimation="Fade">
                             <Border Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="12" Width="380" MaxHeight="480" Margin="0,5,10,10">
                                 <Border.Effect>
                                     <DropShadowEffect BlurRadius="15" ShadowDepth="4" Color="Black" Opacity="0.12"/>
                                 </Border.Effect>
 
-                                <!-- 🌟 CORRECCIÓN: Margin en lugar de Padding en el Grid -->
                                 <Grid Margin="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
-                                        <!-- Cabecera Popup -->
                                         <RowDefinition Height="*"/>
-                                        <!-- Lista de Movimientos -->
                                         <RowDefinition Height="Auto"/>
-                                        <!-- Pie del Popup -->
                                     </Grid.RowDefinitions>
 
                                     <!-- Cabecera -->
@@ -168,17 +203,14 @@
                                         <ItemsControl x:Name="LstTransaccionesBandeja">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <!-- Estilo dinámico: Blanco si es Pendiente, Gris si ya fue Procesado -->
                                                     <Border CornerRadius="8" Padding="12" Margin="0,0,0,8" BorderThickness="1">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
                                                                 <Setter Property="Background" Value="#FFFFFF"/>
                                                                 <Setter Property="BorderBrush" Value="#3B82F6"/>
-                                                                <!-- Borde Azul para Nuevas -->
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding EsPendiente}" Value="False">
                                                                         <Setter Property="Background" Value="#F3F4F6"/>
-                                                                        <!-- Gris para Procesadas -->
                                                                         <Setter Property="BorderBrush" Value="#E5E7EB"/>
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -226,28 +258,27 @@
                                                             <!-- Fila 2: Origen y Fecha -->
                                                             <StackPanel Grid.Row="1" Margin="0,6,0,6">
                                                                 <TextBlock FontSize="12" Foreground="#4B5563">
-                                                            <Run Text="Origen: " FontWeight="SemiBold"/>
-                                                            <Run Text="{Binding AlmacenOrigenNombre}"/>
+                                                <Run Text="Origen: " FontWeight="SemiBold"/>
+                                                <Run Text="{Binding AlmacenOrigenNombre}"/>
                                                                 </TextBlock>
                                                                 <TextBlock FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0">
-                                                            <Run Text="📦 "/>
-                                                            <Run Text="{Binding TotalProductos}"/>
-                                                            <Run Text=" Prod. ("/>
-                                                            <Run Text="{Binding TotalCodigos}"/>
-                                                            <Run Text=" cód) · "/>
-                                                            <Run Text="{Binding FechaMovimiento, StringFormat='{}{0:dd/MM/yyyy}'}"/>
+                                                <Run Text="📦 "/>
+                                                <Run Text="{Binding TotalProductos}"/>
+                                                <Run Text=" Prod. ("/>
+                                                <Run Text="{Binding TotalCodigos}"/>
+                                                <Run Text=" cód) · "/>
+                                                <Run Text="{Binding FechaMovimiento, StringFormat='{}{0:dd/MM/yyyy}'}"/>
                                                                 </TextBlock>
                                                             </StackPanel>
 
                                                             <!-- Fila 3: Acciones -->
-                                                            <!-- 🌟 CORRECCIÓN: ControlTemplate para manejar los bordes redondeados en el Button -->
                                                             <Button Grid.Row="2" 
-                                                            Content="📥 Ver / Recepcionar" 
-                                                            Tag="{Binding}" 
-                                                            Click="BtnAtenderTransferencia_Click" 
-                                                            Height="28" FontSize="11" FontWeight="SemiBold" 
-                                                            Background="#2563EB" Foreground="White" 
-                                                            BorderThickness="0" Cursor="Hand" Margin="0,4,0,0">
+                                                Content="📥 Ver / Recepcionar" 
+                                                Tag="{Binding}" 
+                                                Click="BtnAtenderTransferencia_Click" 
+                                                Height="28" FontSize="11" FontWeight="SemiBold" 
+                                                Background="#2563EB" Foreground="White" 
+                                                BorderThickness="0" Cursor="Hand" Margin="0,4,0,0">
                                                                 <Button.Template>
                                                                     <ControlTemplate TargetType="Button">
                                                                         <Border Background="{TemplateBinding Background}" CornerRadius="4">
@@ -384,28 +415,139 @@
                     <TextBlock Text="📍" Foreground="#9CA3AF" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
 
                     <!-- 🌟 COMBOBOX DINÁMICO DE CAMBIO DE ALMACÉN EN CALIENTE -->
+                    <!-- 🌟 COMBOBOX DE ALMACÉN COMPACTO (BORDE Y FLECHA AJUSTADOS EXACTAMENTE AL TEXTO) -->
                     <ComboBox x:Name="CboAlmacenBarra" 
-                      ItemsSource="{Binding AlmacenesPermitidos}" 
-                      DisplayMemberPath="Nombre" 
-                      SelectedValuePath="Id"
-                      SelectionChanged="CboAlmacenBarra_SelectionChanged"
-                      Width="240" Height="30" FontSize="13" FontWeight="SemiBold"
-                      Background="#374151" Foreground="White" BorderBrush="#4B5563"
-                      VerticalContentAlignment="Center"
-                      ToolTip="Cambiar de almacén activo">
+          ItemsSource="{Binding AlmacenesPermitidos}" 
+          SelectedValuePath="Id"
+          SelectionChanged="CboAlmacenBarra_SelectionChanged"
+          Height="32" FontSize="13" FontWeight="SemiBold"
+          Cursor="Hand"
+          HorizontalAlignment="Left"
+          ToolTip="Cambiar de almacén activo">
+
+                        <!-- 1. Plantilla del Ítem dentro del Menú -->
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Nombre}" 
+                       Foreground="#F1F5F9" 
+                       FontWeight="SemiBold" 
+                       VerticalAlignment="Center" 
+                       Margin="4,2"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+
+                        <!-- 2. Fondo y Estilo del Desplegable (Popup) -->
                         <ComboBox.ItemContainerStyle>
                             <Style TargetType="ComboBoxItem">
-                                <Setter Property="Background" Value="#374151"/>
-                                <Setter Property="Foreground" Value="White"/>
-                                <Setter Property="Padding" Value="8,4"/>
-                                <Style.Triggers>
-                                    <Trigger Property="IsHighlighted" Value="True">
-                                        <Setter Property="Background" Value="#4F46E5"/>
-                                        <Setter Property="Foreground" Value="White"/>
-                                    </Trigger>
-                                </Style.Triggers>
+                                <Setter Property="Background" Value="#1E293B"/>
+                                <Setter Property="Padding" Value="10,8"/>
+                                <Setter Property="Margin" Value="0,1"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ComboBoxItem">
+                                            <Border x:Name="ItemBorder" 
+                                Background="{TemplateBinding Background}" 
+                                CornerRadius="4" 
+                                Padding="{TemplateBinding Padding}" 
+                                Margin="2,1">
+                                                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsHighlighted" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#3B82F6"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#2563EB"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
                             </Style>
                         </ComboBox.ItemContainerStyle>
+
+                        <!-- 3. Plantilla Compacta: [Texto + Flecha pegada al final] -->
+                        <ComboBox.Template>
+                            <ControlTemplate TargetType="ComboBox">
+                                <Grid HorizontalAlignment="Left">
+                                    <!-- Botón de Fondo que envuelve el contenido de forma compacta -->
+                                    <ToggleButton x:Name="ToggleButton" 
+                              Focusable="False" 
+                              IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" 
+                              ClickMode="Press">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border x:Name="BtnBorder" 
+                                    Background="#374151" 
+                                    BorderBrush="#4B5563" 
+                                    BorderThickness="1" 
+                                    CornerRadius="6" 
+                                    Padding="10,0,10,0">
+                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <!-- Texto Seleccionado -->
+                                                        <ContentPresenter Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}" 
+                                                      ContentTemplate="{Binding ItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}" 
+                                                      VerticalAlignment="Center" 
+                                                      HorizontalAlignment="Left"
+                                                      IsHitTestVisible="False"/>
+                                                        <!-- Flecha siempre pegada al final de la palabra -->
+                                                        <Path x:Name="Arrow" 
+                                          Fill="#9CA3AF" 
+                                          VerticalAlignment="Center" 
+                                          Data="M 0 0 L 4 4 L 8 0 Z" 
+                                          Margin="8,0,0,0"/>
+                                                    </StackPanel>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="BtnBorder" Property="Background" Value="#4B5563"/>
+                                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="#6B7280"/>
+                                                        <Setter TargetName="Arrow" Property="Fill" Value="White"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="BtnBorder" Property="BorderBrush" Value="#3B82F6"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+
+                                    <!-- Popup que despliega la lista con ancho suficiente -->
+                                    <Popup x:Name="Popup" 
+                       Placement="Top" 
+                       IsOpen="{TemplateBinding IsDropDownOpen}" 
+                       AllowsTransparency="True" 
+                       Focusable="False" 
+                       PopupAnimation="Slide">
+                                        <Grid x:Name="DropDown" 
+                          SnapsToDevicePixels="True" 
+                          MinWidth="240" 
+                          MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                            <Border x:Name="DropDownBorder" 
+                                Background="#1E293B" 
+                                BorderBrush="#4B5563" 
+                                BorderThickness="1" 
+                                CornerRadius="6" 
+                                Padding="4" 
+                                Margin="0,0,0,4">
+                                                <Border.Effect>
+                                                    <DropShadowEffect BlurRadius="12" ShadowDepth="3" Direction="90" Color="Black" Opacity="0.3"/>
+                                                </Border.Effect>
+                                                <ScrollViewer SnapsToDevicePixels="True">
+                                                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                                </ScrollViewer>
+                                            </Border>
+                                        </Grid>
+                                    </Popup>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter Property="Opacity" Value="0.6"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </ComboBox.Template>
                     </ComboBox>
                 </StackPanel>
 

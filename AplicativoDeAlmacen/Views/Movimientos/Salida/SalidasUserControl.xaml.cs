@@ -2397,15 +2397,66 @@ namespace AplicativoDeAlmacen.Views
         private async Task EjecutarBusquedaClienteSalidaAsync()
         {
             string filtro = txtCliente.Text.Trim();
-            if (filtro.Length >= 2)
+            if (filtro.Length >= 1)
             {
-                _listaClientes = await _personaComercialService.BuscarPorRazonSocialAsync(filtro);
+                // 🔍 Si es numérico, busca por ID directo; si no, busca por texto
+                if (int.TryParse(filtro, out int idCliente))
+                {
+                    var clientePorId = await _personaComercialService.ObtenerPorIdAsync(idCliente);
+                    _listaClientes = clientePorId != null
+                        ? new List<PersonaComercial> { clientePorId }
+                        : await _personaComercialService.BuscarPorRazonSocialAsync(filtro);
+                }
+                else if (filtro.Length >= 2)
+                {
+                    _listaClientes = await _personaComercialService.BuscarPorRazonSocialAsync(filtro);
+                }
+                else
+                {
+                    popupClientes.IsOpen = false;
+                    return;
+                }
+
                 lstClientes.ItemsSource = _listaClientes;
                 popupClientes.IsOpen = _listaClientes != null && _listaClientes.Count > 0;
             }
             else
             {
                 popupClientes.IsOpen = false;
+            }
+        }
+
+        private async Task EjecutarBusquedaUbicacionSalidaAsync()
+        {
+            string filtro = txtUbicacion.Text.Trim();
+            if (filtro.Length >= 1)
+            {
+                // 🔍 Si es numérico, busca por ID directo; si no, busca por texto
+                if (int.TryParse(filtro, out int idUbicacion))
+                {
+                    var todas = await _ubicacionService.ObtenerTodasAsync();
+                    var ubicacionPorId = todas?.FirstOrDefault(u => u.Id == idUbicacion);
+
+                    _listaUbicaciones = ubicacionPorId != null
+                        ? new List<Ubicacion> { ubicacionPorId }
+                        : await _ubicacionService.BuscarUbicacionesPorNombreAsync(filtro);
+                }
+                else if (filtro.Length >= 2)
+                {
+                    _listaUbicaciones = await _ubicacionService.BuscarUbicacionesPorNombreAsync(filtro);
+                }
+                else
+                {
+                    popupUbicaciones.IsOpen = false;
+                    return;
+                }
+
+                lstUbicaciones.ItemsSource = _listaUbicaciones;
+                popupUbicaciones.IsOpen = _listaUbicaciones != null && _listaUbicaciones.Count > 0;
+            }
+            else
+            {
+                popupUbicaciones.IsOpen = false;
             }
         }
 
@@ -2416,20 +2467,7 @@ namespace AplicativoDeAlmacen.Views
             _timerUbicacionSalida.Start();
         }
 
-        private async Task EjecutarBusquedaUbicacionSalidaAsync()
-        {
-            string filtro = txtUbicacion.Text.Trim();
-            if (filtro.Length >= 2)
-            {
-                _listaUbicaciones = await _ubicacionService.BuscarUbicacionesPorNombreAsync(filtro);
-                lstUbicaciones.ItemsSource = _listaUbicaciones;
-                popupUbicaciones.IsOpen = _listaUbicaciones != null && _listaUbicaciones.Count > 0;
-            }
-            else
-            {
-                popupUbicaciones.IsOpen = false;
-            }
-        }
+        
 
         private void LstClientes_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {

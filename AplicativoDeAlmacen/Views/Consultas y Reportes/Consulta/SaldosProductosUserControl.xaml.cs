@@ -142,9 +142,11 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
+                // 🔍 Permite filtrar por Código, ID, Descripción o Abreviatura
                 var filtrados = _todosLosSaldos.Where(p =>
                     (p.Descripcion != null && p.Descripcion.ToLower().Contains(filtro)) ||
-                    (p.Codigo != null && p.Codigo.ToLower().Contains(filtro))
+                    (p.Codigo != null && p.Codigo.ToLower().Contains(filtro)) ||
+                    (p.Codigo != null && p.Codigo.Equals(filtro, StringComparison.OrdinalIgnoreCase))
                 ).ToList();
 
                 SaldosDataGrid.ItemsSource = null;

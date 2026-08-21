@@ -101,9 +101,30 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
 
             TxtCodigoEscaneado.IsEnabled = false;
 
-            if (TxtProducto.Text.Trim().Length >= 2)
+            string busqueda = TxtProducto.Text.Trim();
+
+            if (busqueda.Length >= 1)
             {
-                var resultados = await _productoService.BuscarProductosPorTextoAsync(TxtProducto.Text.Trim());
+                List<Producto> resultados;
+
+                // 🔍 Si es numérico, busca por ID de producto (1 al 11...)
+                if (int.TryParse(busqueda, out int idProd))
+                {
+                    var prodPorId = await _productoService.ObtenerPorIdAsync(idProd);
+                    resultados = prodPorId != null
+                        ? new List<Producto> { prodPorId }
+                        : await _productoService.BuscarProductosPorTextoAsync(busqueda);
+                }
+                else if (busqueda.Length >= 2)
+                {
+                    resultados = await _productoService.BuscarProductosPorTextoAsync(busqueda);
+                }
+                else
+                {
+                    PopupResultados.IsOpen = false;
+                    return;
+                }
+
                 LbProducto.ItemsSource = resultados;
                 PopupResultados.IsOpen = resultados != null && resultados.Any();
             }

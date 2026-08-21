@@ -282,7 +282,7 @@ namespace AplicativoDeAlmacen.Views
         {
             string textoBusqueda = txtProducto.Text.Trim();
 
-            if (textoBusqueda.Length < 2)
+            if (textoBusqueda.Length < 1)
             {
                 popupProductos.IsOpen = false;
                 return;
@@ -292,9 +292,27 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (_productoSeleccionado == null || _productoSeleccionado.Descripcion != txtProducto.Text)
                 {
-                    List<Producto> listaFiltrada = await _productoService.BuscarProductosPorTextoAsync(textoBusqueda);
+                    List<Producto> listaFiltrada;
 
-                    if (listaFiltrada.Count > 0)
+                    // 🔍 Si escribe un número, busca coincidencia exacta por ID de producto
+                    if (int.TryParse(textoBusqueda, out int idProducto))
+                    {
+                        var productoPorId = await _productoService.ObtenerPorIdAsync(idProducto);
+                        listaFiltrada = productoPorId != null
+                            ? new List<Producto> { productoPorId }
+                            : await _productoService.BuscarProductosPorTextoAsync(textoBusqueda);
+                    }
+                    else if (textoBusqueda.Length >= 2)
+                    {
+                        listaFiltrada = await _productoService.BuscarProductosPorTextoAsync(textoBusqueda);
+                    }
+                    else
+                    {
+                        popupProductos.IsOpen = false;
+                        return;
+                    }
+
+                    if (listaFiltrada != null && listaFiltrada.Count > 0)
                     {
                         lstSugerenciasProductos.ItemsSource = listaFiltrada;
                         popupProductos.IsOpen = true;

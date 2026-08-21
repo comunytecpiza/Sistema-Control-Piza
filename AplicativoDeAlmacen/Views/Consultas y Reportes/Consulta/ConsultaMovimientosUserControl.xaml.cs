@@ -616,7 +616,7 @@ namespace AplicativoDeAlmacen.Views
             var textBox = sender as TextBox;
             if (textBox == null) return;
 
-            string searchText = textBox.Text;
+            string searchText = textBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(searchText))
             {
                 CboProductos.IsDropDownOpen = false;
@@ -628,12 +628,28 @@ namespace AplicativoDeAlmacen.Views
             _estaSeleccionando = true;
             int cursorPosition = textBox.CaretIndex;
 
+            bool esNumero = int.TryParse(searchText, out int idBuscado);
+
+            // 🔍 Filtro en RAM por ID exacto, prefijo de ID, Descripción o Abreviatura
             var filtrados = _todosLosProductos
-                .Where(p => p.Descripcion != null && p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase))
-                .Take(5).ToList();
+                .Where(p => (esNumero && p.Id == idBuscado) ||
+                            p.Id.ToString().StartsWith(searchText) ||
+                            (p.Descripcion != null && p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase)) ||
+                            (p.Abreviatura != null && p.Abreviatura.Contains(searchText, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(p => (esNumero && p.Id == idBuscado) ? 0 : 1)
+                .ThenBy(p => p.Descripcion)
+                .Take(5)
+                .ToList();
 
             CboProductos.ItemsSource = filtrados;
             CboProductos.IsDropDownOpen = filtrados.Any();
+
+            // Auto-asignación de ID si es ID exacto
+            if (esNumero)
+            {
+                var match = _todosLosProductos.FirstOrDefault(p => p.Id == idBuscado);
+                if (match != null) _productoSeleccionadoId = match.Id;
+            }
 
             textBox.Text = searchText;
             textBox.CaretIndex = cursorPosition;
@@ -663,11 +679,30 @@ namespace AplicativoDeAlmacen.Views
             if (!TxtRazonSocial.IsEnabled || _isUpdatingFromSelection) return;
             string textoBusqueda = TxtRazonSocial.Text.Trim();
 
-            if (textoBusqueda.Length >= 2)
+            if (textoBusqueda.Length >= 1)
             {
                 try
                 {
-                    var sugerencias = await _personaService.BuscarPorRazonSocialAsync(textoBusqueda);
+                    List<PersonaComercial> sugerencias;
+
+                    // 🔍 Si es numérico, busca por ID directo
+                    if (int.TryParse(textoBusqueda, out int idPersona))
+                    {
+                        var personaPorId = await _personaService.ObtenerPorIdAsync(idPersona);
+                        sugerencias = personaPorId != null
+                            ? new List<PersonaComercial> { personaPorId }
+                            : await _personaService.BuscarPorRazonSocialAsync(textoBusqueda);
+                    }
+                    else if (textoBusqueda.Length >= 2)
+                    {
+                        sugerencias = await _personaService.BuscarPorRazonSocialAsync(textoBusqueda);
+                    }
+                    else
+                    {
+                        PopupRazonSocial.IsOpen = false;
+                        return;
+                    }
+
                     if (sugerencias != null && sugerencias.Count > 0)
                     {
                         LstRazonSocial.ItemsSource = sugerencias;
@@ -700,11 +735,32 @@ namespace AplicativoDeAlmacen.Views
             if (!TxtUbicacion.IsEnabled || _isUpdatingFromSelection) return;
             string textoBusqueda = TxtUbicacion.Text.Trim();
 
-            if (textoBusqueda.Length >= 2)
+            if (textoBusqueda.Length >= 1)
             {
                 try
                 {
-                    var sugerencias = await _ubicacionService.BuscarUbicacionesPorNombreAsync(textoBusqueda);
+                    List<Ubicacion> sugerencias;
+
+                    // 🔍 Si es numérico, busca por ID directo
+                    if (int.TryParse(textoBusqueda, out int idUbi))
+                    {
+                        var todas = await _ubicacionService.ObtenerTodasAsync();
+                        var ubiPorId = todas?.FirstOrDefault(u => u.Id == idUbi);
+
+                        sugerencias = ubiPorId != null
+                            ? new List<Ubicacion> { ubiPorId }
+                            : await _ubicacionService.BuscarUbicacionesPorNombreAsync(textoBusqueda);
+                    }
+                    else if (textoBusqueda.Length >= 2)
+                    {
+                        sugerencias = await _ubicacionService.BuscarUbicacionesPorNombreAsync(textoBusqueda);
+                    }
+                    else
+                    {
+                        PopupUbicacion.IsOpen = false;
+                        return;
+                    }
+
                     if (sugerencias != null && sugerencias.Count > 0)
                     {
                         LstUbicacion.ItemsSource = sugerencias;

@@ -2011,11 +2011,30 @@ namespace AplicativoDeAlmacen.Views
         private async Task EjecutarBusquedaRazonSocialAsync()
         {
             string textoBusqueda = txtRazonSocial.Text.Trim();
-            if (textoBusqueda.Length >= 2)
+            if (textoBusqueda.Length >= 1)
             {
                 try
                 {
-                    var sugerencias = await _service.BuscarPorRazonSocialAsync(textoBusqueda);
+                    List<PersonaComercial> sugerencias;
+
+                    // 🔍 Si es numérico, busca por ID primero; si no, por Razón Social
+                    if (int.TryParse(textoBusqueda, out int idBuscado))
+                    {
+                        var personaPorId = await _service.ObtenerPorIdAsync(idBuscado);
+                        sugerencias = personaPorId != null
+                            ? new List<PersonaComercial> { personaPorId }
+                            : await _service.BuscarPorRazonSocialAsync(textoBusqueda);
+                    }
+                    else if (textoBusqueda.Length >= 2)
+                    {
+                        sugerencias = await _service.BuscarPorRazonSocialAsync(textoBusqueda);
+                    }
+                    else
+                    {
+                        popupSugerencias.IsOpen = false;
+                        return;
+                    }
+
                     lstSugerencias.ItemsSource = sugerencias;
                     popupSugerencias.IsOpen = sugerencias != null && sugerencias.Count > 0;
                 }
@@ -2063,7 +2082,7 @@ namespace AplicativoDeAlmacen.Views
         private async Task EjecutarBusquedaUbicacionAsync()
         {
             string busqueda = txtUbicacion.Text.Trim();
-            if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Length < 2)
+            if (string.IsNullOrWhiteSpace(busqueda))
             {
                 if (popupUbicacion != null) popupUbicacion.IsOpen = false;
                 return;
@@ -2071,7 +2090,28 @@ namespace AplicativoDeAlmacen.Views
 
             try
             {
-                var resultados = await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                List<Ubicacion> resultados;
+
+                // 🔍 Si es numérico, busca por ID primero; si no, por Nombre/Descripción
+                if (int.TryParse(busqueda, out int idUbicacion))
+                {
+                    var todas = await _ubicacionService.ObtenerTodasAsync();
+                    var ubicacionPorId = todas?.FirstOrDefault(u => u.Id == idUbicacion);
+
+                    resultados = ubicacionPorId != null
+                        ? new List<Ubicacion> { ubicacionPorId }
+                        : await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                }
+                else if (busqueda.Length >= 2)
+                {
+                    resultados = await _ubicacionService.BuscarUbicacionesPorNombreAsync(busqueda);
+                }
+                else
+                {
+                    if (popupUbicacion != null) popupUbicacion.IsOpen = false;
+                    return;
+                }
+
                 if (resultados != null && resultados.Count > 0)
                 {
                     lstSugerenciasUbicacion.ItemsSource = resultados;

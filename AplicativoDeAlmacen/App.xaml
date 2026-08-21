@@ -6,59 +6,226 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!--
-                    Estos dos diccionarios le dan a HandyControl sus
-                    estilos, plantillas, colores y animaciones.
-                -->
                 <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/SkinDefault.xaml"/>
                 <ResourceDictionary Source="pack://application:,,,/HandyControl;component/Themes/Theme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- 🌟 CONFIGURACIÓN REGIONAL DE FECHAS -->
             <Style TargetType="Calendar">
                 <Setter Property="Language" Value="es-ES"/>
             </Style>
-
             <Style TargetType="CalendarDayButton">
                 <Setter Property="Language" Value="es-ES"/>
             </Style>
-
             <Style TargetType="CalendarItem">
                 <Setter Property="Language" Value="es-ES"/>
             </Style>
-            <!-- 🌟 1. ANULACIÓN DE COLORES DE SISTEMA DE WINDOWS (Evita el azul oscuro por defecto) -->
+
+            <!-- 🌟 ANULACIÓN DE COLORES DE SELECCIÓN -->
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#DBEAFE"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#0F172A"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#F1F5F9"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#334155"/>
 
-            <!-- Tu estilo original de botón -->
-            <Style x:Key="HoverButton" TargetType="Button">
-                <Setter Property="Background" Value="#DDDDDD"/>
-                <Setter Property="Foreground" Value="Black"/>
-                <Setter Property="BorderBrush" Value="#CCCCCC"/>
-                <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="Padding" Value="10,5"/>
+            <!-- ==================================================================== -->
+            <!-- 🌟 ESTILO GLOBAL PARA TODAS LAS CAJAS DE TEXTO (Nítidas y con Borde Marcado) -->
+            <!-- ==================================================================== -->
+            <Style TargetType="TextBox">
+                <Setter Property="Padding" Value="10,6"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="BorderBrush" Value="#94A3B8"/>
+                <!-- Borde gris oscuro definido -->
+                <Setter Property="BorderThickness" Value="1.2"/>
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="Foreground" Value="#0F172A"/>
+                <!-- Texto nítido -->
+                <Setter Property="FontSize" Value="13"/>
                 <Setter Property="Template">
                     <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <ControlTemplate TargetType="TextBox">
+                            <Border x:Name="border" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                                <ScrollViewer x:Name="PART_ContentHost" Focusable="false" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
                             </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="border" Property="BorderBrush" Value="#2563EB"/>
+                                    <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                                </Trigger>
+                                <Trigger Property="IsReadOnly" Value="True">
+                                    <Setter Property="Background" Value="#F1F5F9"/>
+                                    <Setter Property="Foreground" Value="#1E293B"/>
+                                    <Setter TargetName="border" Property="BorderBrush" Value="#CBD5E1"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Background" Value="#F8FAFC"/>
+                                    <Setter Property="Foreground" Value="#475569"/>
+                                    <Setter TargetName="border" Property="BorderBrush" Value="#CBD5E1"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
-                <Style.Triggers>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#BBBBBB"/>
-                    </Trigger>
-                    <Trigger Property="IsPressed" Value="True">
-                        <Setter Property="Background" Value="#999999"/>
-                    </Trigger>
-                </Style.Triggers>
             </Style>
 
-            <!-- Estilo global para TODOS los DataGrid de la aplicación -->
+            <!-- ==================================================================== -->
+            <!-- 🌟 ESTILO GLOBAL PARA TODOS LOS COMBOBOX (Borde Definido) -->
+            <!-- ==================================================================== -->
+            <Style TargetType="ComboBox">
+                <Setter Property="Padding" Value="10,6"/>
+                <Setter Property="BorderBrush" Value="#94A3B8"/>
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Foreground" Value="#0F172A"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="BorderThickness" Value="1.2"/>
+            </Style>
+
+            <!-- ==================================================================== -->
+            <!-- 🌟 ESTILO GLOBAL PARA LOS ÍTEMS DEL COMBOBOX (Texto Oscuro y Legible) -->
+            <!-- ==================================================================== -->
+            <Style TargetType="ComboBoxItem">
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="Foreground" Value="#0F172A"/>
+                <!-- Letras oscuras siempre -->
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Padding" Value="10,8"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="ItemBorder" 
+                                    Background="{TemplateBinding Background}" 
+                                    Padding="{TemplateBinding Padding}" 
+                                    CornerRadius="4" 
+                                    Margin="2,1">
+                                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center" 
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <!-- Al pasar el cursor por encima (Hover) -->
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="ItemBorder" Property="Background" Value="#DBEAFE"/>
+                                    <!-- Azul suave -->
+                                    <Setter Property="Foreground" Value="#1E40AF"/>
+                                    <!-- Azul oscuro nítido -->
+                                </Trigger>
+                                <!-- Cuando el ítem está seleccionado -->
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="ItemBorder" Property="Background" Value="#BFDBFE"/>
+                                    <!-- Azul intermedio -->
+                                    <Setter Property="Foreground" Value="#1E3A8A"/>
+                                    <!-- Azul marino oscuro -->
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <!-- ==================================================================== -->
+            <!-- 🌟 ESTILO GLOBAL MODERNO PARA DATEPICKER (Con Ícono Vectorial Limpio) -->
+            <!-- ==================================================================== -->
+            <Style TargetType="{x:Type DatePickerTextBox}">
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Padding" Value="6,0,0,0"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Foreground" Value="#0F172A"/>
+            </Style>
+
+            <Style TargetType="DatePicker">
+                <Setter Property="Foreground" Value="#0F172A"/>
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="BorderBrush" Value="#94A3B8"/>
+                <Setter Property="BorderThickness" Value="1.2"/>
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="Height" Value="34"/>
+                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                <Setter Property="Padding" Value="4,0,6,0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="DatePicker">
+                            <Border x:Name="OuterBorder"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="6"
+                        Padding="{TemplateBinding Padding}">
+                                <Grid x:Name="PART_Root" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Caja de entrada de fecha -->
+                                    <DatePickerTextBox x:Name="PART_TextBox"
+                                           Grid.Column="0"
+                                           Focusable="{TemplateBinding Focusable}"
+                                           HorizontalContentAlignment="Stretch"
+                                           VerticalContentAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           FontSize="{TemplateBinding FontSize}"/>
+
+                                    <!-- Botón estilizado solo con ícono de calendario SVG -->
+                                    <Button x:Name="PART_Button"
+                                Grid.Column="1"
+                                Focusable="False"
+                                Cursor="Hand"
+                                Width="26"
+                                Height="26"
+                                Margin="2,0,2,0"
+                                Background="Transparent"
+                                BorderThickness="0">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="btnBorder" Background="Transparent" CornerRadius="4" Padding="3">
+                                                    <Path x:Name="iconPath"
+                                              Width="15"
+                                              Height="15"
+                                              Stretch="Uniform"
+                                              Fill="#64748B"
+                                              Data="M19,4H18V2H16V4H8V2H6V4H5A2,2 0 0,0 3,6V20A2,2 0 0,0 5,22H19A2,2 0 0,0 21,20V6A2,2 0 0,0 19,4M19,20H5V10H19V20M19,8H5V6H19V8M9,14H7V12H9V14M13,14H11V12H13V14M17,14H15V12H17V14M9,18H7V16H9V18M13,18H11V16H13V18M17,18H15V16H17V18Z"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="btnBorder" Property="Background" Value="#F1F5F9"/>
+                                                        <Setter TargetName="iconPath" Property="Fill" Value="#2563EB"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsPressed" Value="True">
+                                                        <Setter TargetName="btnBorder" Property="Background" Value="#E2E8F0"/>
+                                                        <Setter TargetName="iconPath" Property="Fill" Value="#1D4ED8"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+
+                                    <Popup x:Name="PART_Popup"
+                               AllowsTransparency="True"
+                               Placement="Bottom"
+                               PlacementTarget="{Binding ElementName=OuterBorder}"
+                               StaysOpen="False"/>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                    <Setter TargetName="OuterBorder" Property="BorderBrush" Value="#2563EB"/>
+                                    <Setter TargetName="OuterBorder" Property="BorderThickness" Value="2"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="OuterBorder" Property="Background" Value="#F8FAFC"/>
+                                    <Setter TargetName="OuterBorder" Property="BorderBrush" Value="#CBD5E1"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- ==================================================================== -->
+            <!-- 🌟 ESTILOS DE TABLAS (DATAGRID) -->
+            <!-- ==================================================================== -->
             <Style TargetType="DataGrid">
                 <Setter Property="GridLinesVisibility" Value="All"/>
                 <Setter Property="HorizontalGridLinesBrush" Value="#CBD5E1"/>
@@ -70,10 +237,9 @@
                 <Setter Property="RowHeaderWidth" Value="0"/>
                 <Setter Property="HeadersVisibility" Value="Column"/>
                 <Setter Property="FontSize" Value="14"/>
-                <Setter Property="RowHeight" Value="42"/>
+                <Setter Property="RowHeight" Value="40"/>
             </Style>
 
-            <!-- Encabezados de columna -->
             <Style TargetType="DataGridColumnHeader">
                 <Setter Property="Background" Value="#1E293B"/>
                 <Setter Property="Foreground" Value="White"/>
@@ -85,19 +251,15 @@
                 <Setter Property="HorizontalContentAlignment" Value="Center"/>
             </Style>
 
-            <!-- 🌟 2. CELDAS CORREGIDAS (Mantiene el color original verde/rojo de los textos al seleccionar) -->
             <Style TargetType="DataGridCell">
                 <Setter Property="BorderBrush" Value="#CBD5E1"/>
                 <Setter Property="BorderThickness" Value="0,0,1,1"/>
                 <Setter Property="Padding" Value="8,4"/>
                 <Style.Triggers>
                     <Trigger Property="IsSelected" Value="True">
-                        <!-- Fondo azul muy suave para resaltar la celda -->
                         <Setter Property="Background" Value="#DBEAFE"/>
-                        <!-- Borde sutil alrededor de la celda activa -->
                         <Setter Property="BorderBrush" Value="#93C5FD"/>
                         <Setter Property="BorderThickness" Value="1"/>
-                        <!-- 🚀 IMPORTANTE: Eliminamos el Foreground forzado para que respeten el verde/rojo original -->
                     </Trigger>
                 </Style.Triggers>
             </Style>
