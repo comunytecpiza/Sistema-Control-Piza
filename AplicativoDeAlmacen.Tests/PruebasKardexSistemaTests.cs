@@ -18,7 +18,7 @@ namespace AplicativoDeAlmacen.Tests
         private readonly SalidaMovimientoService _salidaService;
         private readonly DatabaseConnection _database;
 
-        // Variables Globales de Prueba (Aquí está declarado PRODUCTO_LIBRO_ID)
+        // Variables Globales de Prueba
         private const int PRODUCTO_LIBRO_ID = 385;
         private const int PRODUCTO_GENERICO_ID = 9999;
         private const int ALMACEN_TRUJILLO = 1;
@@ -59,7 +59,6 @@ namespace AplicativoDeAlmacen.Tests
         [Fact]
         public async Task T02_IngresoTransferencia_MotivoBloqueado_DebeRebotarInmediatamente()
         {
-            // Se envía un motivo no permitido para Ingresos (por ejemplo, Motivo 5 = Salida Comercial/Venta)
             var cabecera = GenerarCabeceraEdicion(0, 5);
             cabecera.AlmacenId = ALMACEN_TRUJILLO;
 
@@ -110,7 +109,6 @@ namespace AplicativoDeAlmacen.Tests
             var prods = new List<VistaProductoGrid> { new VistaProductoGrid { ProductoId = prodId, Cantidad = 2, Detalle = new MovimientoDetalle { ProductoId = prodId, CantidadIngreso = 2 } } };
             var rangos = new List<RangoCodigoItem> { new RangoCodigoItem { productoId = prodId, AbreviaturaBase = prefijo, DesdeNum = 2, HastaNum = 3, Cantidad = "2", CategoriaProductoId = 2 } };
 
-            // Se captura InvalidOperationException y se valida el texto actualizado del servicio
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 _ingresoService.RegistrarMovimientoCompletoAsync(cabecera, prods, rangos, 0, movCompraId));
 
@@ -135,20 +133,15 @@ namespace AplicativoDeAlmacen.Tests
         [Fact]
         public async Task T07_IntentarVenderCodigoDeOtraSede_DebeRebotar()
         {
-            // 1. Creamos un código legítimo comprado en Trujillo (Almacén 1)
             var (_, codigosIds, _, prodId) = await CrearMovimientoIngresoPruebaAsync(1);
             int codigoTrujilloId = codigosIds[0];
 
-            // 2. Simulamos que ese código fue transferido formalmente a Lima (Almacén 2)
-            // Cambiamos su sede actual en la base de datos a Lima
             await EjecutarSqlEscalarAsync($"UPDATE codigos_creados SET almacen_id = {ALMACEN_LIMA}, estado_id = 3 WHERE id = {codigoTrujilloId}");
 
-            // 3. Intentamos despacharlo por Venta (Motivo 5) desde TRUJILLO (Almacén 1)
             var cabecera = GenerarCabeceraSalida(5, ALMACEN_TRUJILLO, PROMOTOR_A);
             var prods = new List<VistaProductoGrid> { new VistaProductoGrid { ProductoId = prodId, Cantidad = 1 } };
             var cods = new List<VistaCodigoGrid> { new VistaCodigoGrid { ProductoId = prodId, MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoTrujilloId } } };
 
-            // 4. ACT & ASSERT: El servicio de salida DEBE detectar que el código está en Lima y lanzar la excepción de restricción de sede
             var ex = await Assert.ThrowsAsync<Exception>(() =>
                 _salidaService.RegistrarSalidaCompletaAsync(cabecera, prods, cods, USUARIO_TEST, 1));
 
@@ -284,7 +277,6 @@ namespace AplicativoDeAlmacen.Tests
             string codigoAlfaUnico = $"ALFA-{Guid.NewGuid().ToString().Substring(0, 6).ToUpper()}";
             string now = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE();";
 
-            // 🌟 1. Creamos el registro y el código físico previo en la BD para que exista
             int regId = await EjecutarSqlEscalarAsync($"INSERT INTO registro_codigos (coleccion_id, cantidad, categoria_producto_id, producto_id, usuario_id, created_at) VALUES (1, 1, 2, {PRODUCTO_LIBRO_ID}, 1, {now}); SELECT LAST_INSERT_ID();");
             int codigoIdBD = await EjecutarSqlEscalarAsync($"INSERT INTO codigos_creados (registro_codigo_id, codigo, estado_id, almacen_id, usuario_id, created_at) VALUES ({regId}, '{codigoAlfaUnico}', 1, {ALMACEN_TRUJILLO}, 1, {now}); SELECT LAST_INSERT_ID();");
 
@@ -310,7 +302,6 @@ namespace AplicativoDeAlmacen.Tests
                 Assert.Equal("1", rango.Cantidad);
             }
 
-            // Ahora sí, como el código fue comprado/ingresado, su estado en la BD subirá a 3 (Disponible)
             int estado = await EjecutarSqlEscalarAsync($"SELECT estado_id FROM codigos_creados WHERE id = {codigoIdBD}");
             Assert.Equal(3, estado);
         }
@@ -346,7 +337,6 @@ namespace AplicativoDeAlmacen.Tests
             Assert.Equal(4, estado);
         }
 
-
         // =========================================================================
         // 🧪 BLOQUE 8: TRANSFERENCIAS, EDICIÓN Y REASIGNACIÓN DE CÓDIGOS
         // =========================================================================
@@ -354,18 +344,15 @@ namespace AplicativoDeAlmacen.Tests
         [Fact]
         public async Task T16_EditarIngresoTransferencia_QuitarCodigoConSalidaPosterior_DebeRebotarPorKardex()
         {
-            // 1. Ingreso de Compra inicial en Trujillo (Almacén 1)
             var (movCompraId, codigosIds, prefijo, prodId) = await CrearMovimientoIngresoPruebaAsync(2);
             int codigoObjetivoId = codigosIds[0];
 
-            // 2. Salida por Transferencia (Motivo 10) de Trujillo a Lima (Almacén 2)
             var cabSalidaTransf = GenerarCabeceraSalida(10, ALMACEN_TRUJILLO, null);
             cabSalidaTransf.AlmacenDestinoId = ALMACEN_LIMA;
             var prodsSal = new List<VistaProductoGrid> { new VistaProductoGrid { ProductoId = prodId, Cantidad = 2, Detalle = new MovimientoDetalle { ProductoId = prodId, CantidadSalida = 2 } } };
             var codsSal = codigosIds.Select(id => new VistaCodigoGrid { ProductoId = prodId, MovCodigo = new MovimientoCodigo { CodigoCreadoId = id } }).ToList();
             await _salidaService.RegistrarSalidaCompletaAsync(cabSalidaTransf, prodsSal, codsSal, USUARIO_TEST, 1);
 
-            // 3. Recepción/Ingreso por Transferencia (Motivo 4) en Lima
             string selloInLima = "PRUEBA_REC_LIMA_" + Guid.NewGuid().ToString("N");
             var cabIngresoTransf = GenerarCabeceraEdicion(0, 4);
             cabIngresoTransf.Observacion = selloInLima;
@@ -378,14 +365,12 @@ namespace AplicativoDeAlmacen.Tests
             await _ingresoService.RegistrarMovimientoCompletoAsync(cabIngresoTransf, prodsIng, rangosIng, 0);
             int movIngresoLimaId = await EjecutarSqlEscalarAsync($"SELECT id FROM movimientos WHERE observacion = '{selloInLima}'");
 
-            // 4. Salida comercial / promotoría posterior en Lima usando el código
             var cabSalidaProm = GenerarCabeceraSalida(5, ALMACEN_LIMA, PROMOTOR_A);
-            cabSalidaProm.FechaMovimiento = DateOnly.FromDateTime(DateTime.Today.AddDays(1));
+            cabSalidaProm.FechaMovimiento = DateTime.Today.AddDays(1); // 👈 Corregido a DateTime
             var prodsProm = new List<VistaProductoGrid> { new VistaProductoGrid { ProductoId = prodId, Cantidad = 1, Detalle = new MovimientoDetalle { ProductoId = prodId, CantidadSalida = 1 } } };
             var codsProm = new List<VistaCodigoGrid> { new VistaCodigoGrid { ProductoId = prodId, MovCodigo = new MovimientoCodigo { CodigoCreadoId = codigoObjetivoId } } };
             await _salidaService.RegistrarSalidaCompletaAsync(cabSalidaProm, prodsProm, codsProm, USUARIO_TEST, 1);
 
-            // 5. ACT & ASSERT: Intentar editar la recepción de Lima para quitar ese código debe rebotar
             var cabEdicionLima = GenerarCabeceraEdicion(movIngresoLimaId, 4);
             cabEdicionLima.AlmacenId = ALMACEN_LIMA;
             cabEdicionLima.AlmacenOrigenId = ALMACEN_TRUJILLO;
@@ -403,12 +388,10 @@ namespace AplicativoDeAlmacen.Tests
         [Fact]
         public async Task T17_FlujoCompleto_QuitarDeRecepcion_QuitarDeSalidaOrigen_YReasignarAOtroPromotor()
         {
-            // 1. Ingreso inicial en Trujillo (Almacén 1)
             var (movCompraId, codigosIds, prefijo, prodId) = await CrearMovimientoIngresoPruebaAsync(2);
             int codigoAfectadoId = codigosIds[0];
             int codigoConservadoId = codigosIds[1];
 
-            // 2. Salida por Transferencia (Motivo 10) de Trujillo a Lima (Almacén 2)
             string selloSalidaTransf = "PRUEBA_SAL_TRANSF_" + Guid.NewGuid().ToString("N");
             var cabSalidaTransf = GenerarCabeceraSalida(10, ALMACEN_TRUJILLO, null);
             cabSalidaTransf.Observacion = selloSalidaTransf;
@@ -419,7 +402,6 @@ namespace AplicativoDeAlmacen.Tests
             await _salidaService.RegistrarSalidaCompletaAsync(cabSalidaTransf, prodsSal, codsSal, USUARIO_TEST, 1);
             int movSalidaTransfId = await EjecutarSqlEscalarAsync($"SELECT id FROM movimientos WHERE observacion = '{selloSalidaTransf}'");
 
-            // 3. Recepción en Lima (Motivo 4)
             string selloIngresoLima = "PRUEBA_ING_LIMA_" + Guid.NewGuid().ToString("N");
             var cabIngresoLima = GenerarCabeceraEdicion(0, 4);
             cabIngresoLima.Observacion = selloIngresoLima;
@@ -432,7 +414,6 @@ namespace AplicativoDeAlmacen.Tests
             await _ingresoService.RegistrarMovimientoCompletoAsync(cabIngresoLima, prodsIngLima, rangosIngLima, 0);
             int movIngresoLimaId = await EjecutarSqlEscalarAsync($"SELECT id FROM movimientos WHERE observacion = '{selloIngresoLima}'");
 
-            // --- FASE 1: Quitar código afectado de la Recepción en Lima ---
             var cabEditIngLima = GenerarCabeceraEdicion(movIngresoLimaId, 4);
             cabEditIngLima.AlmacenId = ALMACEN_LIMA;
             cabEditIngLima.AlmacenOrigenId = ALMACEN_TRUJILLO;
@@ -444,13 +425,11 @@ namespace AplicativoDeAlmacen.Tests
             bool exitoQuitarRecepcion = await _ingresoService.RegistrarMovimientoCompletoAsync(cabEditIngLima, prodsEditLima, rangosEditLima, 0, movIngresoLimaId);
             Assert.True(exitoQuitarRecepcion);
 
-            // Verificación del descarte: El servicio de ingreso retornó el código a Estado 3 en Trujillo automáticamente
             int estadoTrasQuitarIngreso = await EjecutarSqlEscalarAsync($"SELECT estado_id FROM codigos_creados WHERE id = {codigoAfectadoId}");
             int almacenTrasQuitarIngreso = await EjecutarSqlEscalarAsync($"SELECT almacen_id FROM codigos_creados WHERE id = {codigoAfectadoId}");
             Assert.Equal(3, estadoTrasQuitarIngreso);
             Assert.Equal(ALMACEN_TRUJILLO, almacenTrasQuitarIngreso);
 
-            // --- FASE 2: Quitar el código de la Salida de Transferencia de Trujillo (Almacén A) ---
             var cabEditSalTransf = GenerarCabeceraSalida(10, ALMACEN_TRUJILLO, null, movSalidaTransfId);
             cabEditSalTransf.AlmacenDestinoId = ALMACEN_LIMA;
 
@@ -460,7 +439,6 @@ namespace AplicativoDeAlmacen.Tests
             bool exitoQuitarSalida = await _salidaService.RegistrarSalidaCompletaAsync(cabEditSalTransf, prodsEditSal, codsEditSal, USUARIO_TEST, 1, movSalidaTransfId);
             Assert.True(exitoQuitarSalida);
 
-            // Verificar desvinculación total de la salida
             int existeEnSalida = await EjecutarSqlEscalarAsync($"SELECT COUNT(*) FROM movimiento_codigos WHERE movimiento_id = {movSalidaTransfId} AND codigo_creado_id = {codigoAfectadoId}");
             Assert.Equal(0, existeEnSalida);
 
@@ -469,7 +447,6 @@ namespace AplicativoDeAlmacen.Tests
             Assert.Equal(3, estadoDisponibleTrujillo);
             Assert.Equal(ALMACEN_TRUJILLO, almacenActualTrujillo);
 
-            // --- FASE 3: Despachar el código liberado a otro Promotor (Promotor B) desde Trujillo ---
             string selloSalidaPromB = "PRUEBA_SAL_PROMB_" + Guid.NewGuid().ToString("N");
             var cabSalidaPromB = GenerarCabeceraSalida(5, ALMACEN_TRUJILLO, PROMOTOR_B);
             cabSalidaPromB.Observacion = selloSalidaPromB;
@@ -522,7 +499,7 @@ namespace AplicativoDeAlmacen.Tests
             string sello = "PRUEBA_" + Guid.NewGuid().ToString("N").Substring(0, 10);
             var cabecera = GenerarCabeceraSalida(5, ALMACEN_TRUJILLO, clienteId ?? PROMOTOR_A);
             cabecera.Observacion = sello;
-            if (fechaMov.HasValue) cabecera.FechaMovimiento = DateOnly.FromDateTime(fechaMov.Value);
+            if (fechaMov.HasValue) cabecera.FechaMovimiento = fechaMov.Value; // 👈 Corregido a DateTime
 
             var prods = new List<VistaProductoGrid>();
             if (codigosIds.Any()) prods.Add(new VistaProductoGrid { ProductoId = productoId, Cantidad = codigosIds.Count, Detalle = new MovimientoDetalle { ProductoId = productoId, CantidadSalida = codigosIds.Count } });
@@ -535,7 +512,7 @@ namespace AplicativoDeAlmacen.Tests
         private Movimiento GenerarCabeceraEdicion(int id, int motivo) => new Movimiento
         {
             Id = id,
-            FechaMovimiento = DateOnly.FromDateTime(DateTime.Today),
+            FechaMovimiento = DateTime.Today, // 👈 Corregido a DateTime
             MotivoProductoId = motivo,
             SerieDocumento = "0001",
             NumeroDocumento = "7" + new Random().Next(100000, 999999),
@@ -547,7 +524,7 @@ namespace AplicativoDeAlmacen.Tests
         private Movimiento GenerarCabeceraSalida(int motivo, int almId, int? cliente, int id = 0) => new Movimiento
         {
             Id = id,
-            FechaMovimiento = DateOnly.FromDateTime(DateTime.Today),
+            FechaMovimiento = DateTime.Today, // 👈 Corregido a DateTime
             MotivoProductoId = motivo,
             SerieDocumento = "0001",
             NumeroDocumento = "7" + new Random().Next(100000, 999999),

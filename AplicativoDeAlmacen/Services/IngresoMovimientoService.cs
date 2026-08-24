@@ -1,7 +1,9 @@
-﻿using AplicativoDeAlmacen.Data;
+﻿using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Motivo_y_Movimientos;
+using AplicativoDeAlmacen.Services.Politicas;
 using HandyControl.Controls;
 using System;
 using System.Collections.Generic;
@@ -32,9 +34,7 @@ namespace AplicativoDeAlmacen.Services
             _database = new DatabaseConnection();
         }
 
-        // =========================================================================
-        // 1. CARGAR ENTRADA NORMAL (Para Búsqueda, Edición o Impresión de Ingresos)
-        // =========================================================================
+
         // =========================================================================
         // 1. CARGAR ENTRADA NORMAL (Con candado estricto de Almacén de Sesión)
         // =========================================================================
@@ -50,11 +50,11 @@ namespace AplicativoDeAlmacen.Services
 
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
-            // 🌟 FILTRADO ESTRICTO: Solo busca movimientos de INGRESO (tipo_movimiento_id = 1)
             string query = @"
     SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
            m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
-           m.almacen_origen_id, m.almacen_destino_id, m.almacen_id
+           m.almacen_origen_id, m.almacen_destino_id, m.almacen_id, 
+           m.usuario_id, m.usuario_update_id, m.created_at, m.updated_at
     FROM movimientos m WITH (NOLOCK)
     INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
     WHERE m.serie_documento = @serie 
@@ -76,7 +76,7 @@ namespace AplicativoDeAlmacen.Services
                 result.Movimiento = new Movimiento
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
-                    FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateOnly?)null : DateOnly.FromDateTime(reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"))),
+                    FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("fecha_movimiento")),
                     SerieDocumento = reader["serie_documento"].ToString(),
                     NumeroDocumento = reader["numero_documento"].ToString(),
                     MotivoProductoId = reader.IsDBNull(reader.GetOrdinal("motivo_producto_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("motivo_producto_id")),
@@ -88,7 +88,11 @@ namespace AplicativoDeAlmacen.Services
                     AlmacenId = reader.IsDBNull(reader.GetOrdinal("almacen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_id")),
                     AlmacenOrigenId = reader.IsDBNull(reader.GetOrdinal("almacen_origen_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_origen_id")),
                     AlmacenDestinoId = reader.IsDBNull(reader.GetOrdinal("almacen_destino_id")) ? null : reader.GetInt32(reader.GetOrdinal("almacen_destino_id")),
-                    EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"))
+                    EstadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id")),
+                    UsuarioId = reader.IsDBNull(reader.GetOrdinal("usuario_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("usuario_id")),
+                    UsuarioUpdateId = reader.IsDBNull(reader.GetOrdinal("usuario_update_id")) ? null : reader.GetInt32(reader.GetOrdinal("usuario_update_id")),
+                    CreatedAt = reader.IsDBNull(reader.GetOrdinal("created_at")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("created_at")),
+                    UpdatedAt = reader.IsDBNull(reader.GetOrdinal("updated_at")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("updated_at"))
                 };
             }
 
@@ -127,12 +131,6 @@ namespace AplicativoDeAlmacen.Services
                     int categoriaId = rdrR.GetInt32(rdrR.GetOrdinal("categoria_producto_id"));
                     string baseAbrev = rdrR.IsDBNull(rdrR.GetOrdinal("abreviatura_base")) ? string.Empty : rdrR.GetString(rdrR.GetOrdinal("abreviatura_base"));
 
-                    string desdeText = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}";
-                    string hastaText = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}";
-
-                    string tipoTexto = categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA";
-                    string coleccionTipo = $"C2026 / {tipoTexto}";
-
                     result.Rangos.Add(new RangoCodigoItem
                     {
                         MovimientoDetalleId = rdrR.IsDBNull(rdrR.GetOrdinal("movimiento_detalle_id")) ? 0 : rdrR.GetInt32(rdrR.GetOrdinal("movimiento_detalle_id")),
@@ -142,9 +140,9 @@ namespace AplicativoDeAlmacen.Services
                         DesdeNum = desdeNum,
                         HastaNum = hastaNum,
                         Cantidad = desdeNum == -1 ? "1" : (hastaNum - desdeNum + 1).ToString(),
-                        Desde = desdeText,
-                        Hasta = hastaText,
-                        ColeccionTipo = coleccionTipo
+                        Desde = desdeNum == -1 ? baseAbrev : $"{baseAbrev}-{desdeNum:D7}",
+                        Hasta = hastaNum == -1 ? baseAbrev : $"{baseAbrev}-{hastaNum:D7}",
+                        ColeccionTipo = $"C2026 / {(categoriaId == 1 ? "LIBRO GUÍA" : "LIBRO VENTA")}"
                     });
                 }
             }
@@ -201,7 +199,7 @@ namespace AplicativoDeAlmacen.Services
                 result.Movimiento = new Movimiento
                 {
                     Id = reader.GetInt32(reader.GetOrdinal("id")),
-                    FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateOnly?)null : DateOnly.FromDateTime(reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"))),
+                    FechaMovimiento = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("fecha_movimiento")),
                     SerieDocumento = reader["serie_documento"].ToString(),
                     NumeroDocumento = reader["numero_documento"].ToString(),
                     MotivoProductoId = reader.IsDBNull(reader.GetOrdinal("motivo_producto_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("motivo_producto_id")),
@@ -589,11 +587,11 @@ namespace AplicativoDeAlmacen.Services
             return resultado;
         }
 
-        private async Task<int> GuardarCabeceraAsync(Movimiento cabecera, int ubicacionId, int? existingId, DbConnection conn, DbTransaction trans)
+        private async Task<int> GuardarCabeceraAsync(Movimiento cabecera, int ubicacionId, int? existingId, int usuarioActivoId, int totalProductos, DbConnection conn, DbTransaction trans)
         {
             string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
+            string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
 
-            // 🌟 VALIDACIÓN DE NULOS: Si es <= 0, envía DBNull.Value para evitar romper claves foráneas en MySQL
             object valUbicacion = (cabecera.UbicacionId.HasValue && cabecera.UbicacionId.Value > 0)
                 ? (object)cabecera.UbicacionId.Value
                 : ((ubicacionId > 0) ? (object)ubicacionId : DBNull.Value);
@@ -602,50 +600,95 @@ namespace AplicativoDeAlmacen.Services
                 ? (object)cabecera.PersonaComercialId.Value
                 : DBNull.Value;
 
+            DateTime fechaMovimientoFinal = cabecera.FechaMovimiento ?? DateTime.Now;
+
+            // -------------------------------------------------------------
+            // EDICIÓN DE INGRESO EXISTENTE
+            // -------------------------------------------------------------
             if (existingId.HasValue)
             {
-                string updateCab = @"
-    UPDATE movimientos 
-    SET fecha_movimiento = @fecha, 
-        motivo_producto_id = @motivoId, 
-        ubicacion_id = @ubicacionId, 
-        almacen_id = @almId,
-        almacen_origen_id = @almOrigen,
-        almacen_destino_id = @almDestino,
-        persona_comercial_id = @personaId, 
-        observacion = @observacion, 
-        serie_guia = @serieGuia, 
-        numero_guia = @numeroGuia 
-    WHERE id = @id";
+                // 1. Obtener observación previa para el historial
+                string observacionPrevia = string.Empty;
+                using (var cmdObsPrev = conn.CreateCommand())
+                {
+                    cmdObsPrev.Transaction = trans;
+                    cmdObsPrev.CommandText = QueryAdapter.FormatearConsulta("SELECT COALESCE(observacion, '') FROM movimientos WHERE id = @id");
+                    AgregarParametro(cmdObsPrev, "@id", existingId.Value);
+                    var resObs = await cmdObsPrev.ExecuteScalarAsync();
+                    observacionPrevia = resObs?.ToString() ?? string.Empty;
+                }
 
-                using var cmd = conn.CreateCommand();
-                cmd.Transaction = trans;
-                cmd.CommandText = QueryAdapter.FormatearConsulta(updateCab);
+                // 2. Modificar cabecera (fecha_movimiento se actualiza, created_at y usuario_id quedan intactos)
+                string updateCab = $@"
+        UPDATE movimientos 
+        SET fecha_movimiento = @fecha, 
+            motivo_producto_id = @motivoId, 
+            ubicacion_id = @ubicacionId, 
+            almacen_id = @almId,
+            almacen_origen_id = @almOrigen,
+            almacen_destino_id = @almDestino,
+            persona_comercial_id = @personaId, 
+            observacion = @observacion, 
+            serie_guia = @serieGuia, 
+            numero_guia = @numeroGuia,
+            usuario_update_id = @usrUpdateId,
+            updated_at = {nowFunc}
+        WHERE id = @id";
 
-                AgregarParametro(cmd, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
-                AgregarParametro(cmd, "@motivoId", cabecera.MotivoProductoId);
-                AgregarParametro(cmd, "@ubicacionId", valUbicacion);
-                AgregarParametro(cmd, "@almId", cabecera.AlmacenId);
-                AgregarParametro(cmd, "@almOrigen", cabecera.AlmacenOrigenId);
-                AgregarParametro(cmd, "@almDestino", cabecera.AlmacenDestinoId);
-                AgregarParametro(cmd, "@personaId", valPersona);
-                AgregarParametro(cmd, "@observacion", cabecera.Observacion);
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = trans;
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(updateCab);
 
-                AgregarParametro(cmd, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
-                AgregarParametro(cmd, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
+                    AgregarParametro(cmd, "@fecha", fechaMovimientoFinal);
+                    AgregarParametro(cmd, "@motivoId", cabecera.MotivoProductoId);
+                    AgregarParametro(cmd, "@ubicacionId", valUbicacion);
+                    AgregarParametro(cmd, "@almId", cabecera.AlmacenId);
+                    AgregarParametro(cmd, "@almOrigen", cabecera.AlmacenOrigenId);
+                    AgregarParametro(cmd, "@almDestino", cabecera.AlmacenDestinoId);
+                    AgregarParametro(cmd, "@personaId", valPersona);
+                    AgregarParametro(cmd, "@observacion", cabecera.Observacion);
+                    AgregarParametro(cmd, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
+                    AgregarParametro(cmd, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
+                    AgregarParametro(cmd, "@usrUpdateId", usuarioActivoId);
+                    AgregarParametro(cmd, "@id", existingId.Value);
 
-                AgregarParametro(cmd, "@id", existingId.Value);
-                await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                // 3. Registrar en tabla histórica de auditoría
+                string insertAuditoria = $@"
+        INSERT INTO movimientos_auditoria_ediciones
+        (movimiento_id, usuario_id, fecha_edicion, motivo_edicion, observacion_previa, observacion_nueva, total_items_nuevos)
+        VALUES
+        (@movId, @usrId, {nowFunc}, 'EDICIÓN DE INGRESO', @obsPrev, @obsNueva, @itemsCount)";
+
+                using (var cmdAudit = conn.CreateCommand())
+                {
+                    cmdAudit.Transaction = trans;
+                    cmdAudit.CommandText = QueryAdapter.FormatearConsulta(insertAuditoria);
+                    AgregarParametro(cmdAudit, "@movId", existingId.Value);
+                    AgregarParametro(cmdAudit, "@usrId", usuarioActivoId);
+                    AgregarParametro(cmdAudit, "@obsPrev", observacionPrevia);
+                    AgregarParametro(cmdAudit, "@obsNueva", cabecera.Observacion ?? string.Empty);
+                    AgregarParametro(cmdAudit, "@itemsCount", totalProductos);
+
+                    await cmdAudit.ExecuteNonQueryAsync();
+                }
+
                 return existingId.Value;
             }
 
+            // -------------------------------------------------------------
+            // NUEVO INGRESO (CREACIÓN)
+            // -------------------------------------------------------------
             string queryLock = @"
-SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
-FROM movimientos m
-INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-WHERE m.serie_documento = @serie 
-  AND mp.tipo_movimiento_id = 1
-  AND COALESCE(m.almacen_id, m.almacen_destino_id, 1) = @almId";
+    SELECT COALESCE(MAX(CAST(m.numero_documento AS INT)), 0) + 1 
+    FROM movimientos m
+    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+    WHERE m.serie_documento = @serie 
+      AND mp.tipo_movimiento_id = 1
+      AND COALESCE(m.almacen_id, m.almacen_destino_id, 1) = @almId";
 
             int nuevoNumero;
             using (var cmdLock = conn.CreateCommand())
@@ -660,17 +703,17 @@ WHERE m.serie_documento = @serie
             cabecera.NumeroDocumento = nuevoNumero.ToString("D7");
 
             string qCab = $@"
-INSERT INTO movimientos 
-(fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
- almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia) 
-VALUES 
-(@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @observacion, 1, @serieGuia, @numeroGuia); {selectId}";
+    INSERT INTO movimientos 
+    (fecha_movimiento, serie_documento, numero_documento, motivo_producto_id, ubicacion_id, 
+     almacen_id, almacen_origen_id, almacen_destino_id, usuario_id, persona_comercial_id, observacion, estado_id, serie_guia, numero_guia, created_at) 
+    VALUES 
+    (@fecha, @serie, @numero, @motivoId, @ubicacionId, @almId, @almOrigen, @almDestino, @usuarioId, @personaId, @observacion, 1, @serieGuia, @numeroGuia, {nowFunc}); {selectId}";
 
             using var cmdCab = conn.CreateCommand();
             cmdCab.Transaction = trans;
             cmdCab.CommandText = QueryAdapter.FormatearConsulta(qCab);
 
-            AgregarParametro(cmdCab, "@fecha", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
+            AgregarParametro(cmdCab, "@fecha", fechaMovimientoFinal);
             AgregarParametro(cmdCab, "@serie", cabecera.SerieDocumento);
             AgregarParametro(cmdCab, "@numero", nuevoNumero.ToString("D7"));
             AgregarParametro(cmdCab, "@motivoId", cabecera.MotivoProductoId);
@@ -678,10 +721,9 @@ VALUES
             AgregarParametro(cmdCab, "@almId", cabecera.AlmacenId ?? 1);
             AgregarParametro(cmdCab, "@almOrigen", cabecera.AlmacenOrigenId);
             AgregarParametro(cmdCab, "@almDestino", cabecera.AlmacenDestinoId);
-            AgregarParametro(cmdCab, "@usuarioId", cabecera.UsuarioId > 0 ? cabecera.UsuarioId : 1);
+            AgregarParametro(cmdCab, "@usuarioId", usuarioActivoId);
             AgregarParametro(cmdCab, "@personaId", valPersona);
             AgregarParametro(cmdCab, "@observacion", cabecera.Observacion);
-
             AgregarParametro(cmdCab, "@serieGuia", string.IsNullOrWhiteSpace(cabecera.SerieGuia) ? DBNull.Value : cabecera.SerieGuia);
             AgregarParametro(cmdCab, "@numeroGuia", string.IsNullOrWhiteSpace(cabecera.NumeroGuia) ? DBNull.Value : cabecera.NumeroGuia);
 
@@ -929,6 +971,30 @@ VALUES
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
+
+            int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+            int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+
+            // 🛑 CANDADO DE AUDITORÍA: Validar plazo de 5 días hábiles sobre created_at
+            if (existingMovimientoId.HasValue)
+            {
+                DateTime? fechaCreacionOriginal = null;
+                using (var cmdFecha = dbConn.CreateCommand())
+                {
+                    cmdFecha.CommandText = QueryAdapter.FormatearConsulta("SELECT created_at FROM movimientos WHERE id = @id");
+                    AgregarParametro(cmdFecha, "@id", existingMovimientoId.Value);
+                    var resFecha = await cmdFecha.ExecuteScalarAsync();
+                    if (resFecha != null && resFecha != DBNull.Value)
+                    {
+                        fechaCreacionOriginal = Convert.ToDateTime(resFecha);
+                    }
+                }
+
+                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaCreacionOriginal, rolUsuarioActivo, out string mensajeBloqueo))
+                {
+                    throw new InvalidOperationException(mensajeBloqueo);
+                }
+            }
             using var transaccion = dbConn.BeginTransaction();
             int movimientoId = 0;
             string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
@@ -964,7 +1030,8 @@ VALUES
                 }
 
                 progress?.Report(5);
-                movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, dbConn, transaccion);
+                // Línea donde se guarda la cabecera:
+                movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, usuarioActivoId, productos.Count, dbConn, transaccion);
 
 
                 var codigosPreviosEnBD = new HashSet<int>();
@@ -1084,7 +1151,7 @@ VALUES
 
                         AgregarParametro(cmdFuturo, "@movId", movimientoId);
                         AgregarParametro(cmdFuturo, "@movPadreId", idSalidaOrigenPadre.HasValue ? (object)idSalidaOrigenPadre.Value : DBNull.Value);
-                        AgregarParametro(cmdFuturo, "@fechaEdicion", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
+                        DateTime fechaConvertida = cabecera.FechaMovimiento ?? DateTime.Today;
 
                         for (int k = 0; k < batchDelCheck.Count; k++) AgregarParametro(cmdFuturo, $"@delCheck{k}", batchDelCheck[k]);
 
@@ -1308,7 +1375,7 @@ VALUES
                                 cmdFutLote.Transaction = transaccion;
                                 cmdFutLote.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoLote);
                                 AgregarParametro(cmdFutLote, "@movId", movimientoId);
-                                AgregarParametro(cmdFutLote, "@fechaEdicion", cabecera.FechaMovimiento?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today);
+                                DateTime fechaConvertida = cabecera.FechaMovimiento ?? DateTime.Today;
 
                                 for (int k = 0; k < batch.Count; k++)
                                 {
@@ -1747,9 +1814,7 @@ VALUES
                     {
                         cmdUpdCab.Transaction = transaccion;
                         cmdUpdCab.CommandText = QueryAdapter.FormatearConsulta(updateCab);
-                        DateTime fechaConvertida = cabecera.FechaMovimiento.HasValue
-                            ? cabecera.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue)
-                            : DateTime.Today;
+                        DateTime fechaConvertida = cabecera.FechaMovimiento ?? DateTime.Today;
                         AgregarParametro(cmdUpdCab, "@fecha", fechaConvertida);
                         AgregarParametro(cmdUpdCab, "@motivoId", cabecera.MotivoProductoId);
                         AgregarParametro(cmdUpdCab, "@ubicacionId", cabecera.UbicacionId);
@@ -1789,9 +1854,7 @@ VALUES
                         cmdCab.Transaction = transaccion;
                         cmdCab.CommandText = QueryAdapter.FormatearConsulta(queryCabecera);
 
-                        DateTime fechaConvertida = cabecera.FechaMovimiento.HasValue
-                            ? cabecera.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue)
-                            : DateTime.Today;
+                        DateTime fechaConvertida = cabecera.FechaMovimiento ?? DateTime.Today;
 
                         // 🌟 ACTUALIZACIÓN: Inicia con estado_id = 1 (PROCESADO en la tabla de cabeceras)
                         AgregarParametro(cmdCab, "@estadoId", 1);

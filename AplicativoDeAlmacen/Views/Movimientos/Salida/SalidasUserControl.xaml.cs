@@ -129,7 +129,7 @@ namespace AplicativoDeAlmacen.Views
                 var movimiento = movCompleto.Movimiento;
                 _idMovimientoActual = movimiento.Id;
 
-                dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento?.ToDateTime(TimeOnly.MinValue);
+                dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento;
                 cboMotivoSalida.SelectedValue = movimiento.MotivoProductoId;
                 txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
                 txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
@@ -1069,7 +1069,7 @@ namespace AplicativoDeAlmacen.Views
                     _idMovimientoActual = movimiento.Id;
 
                     // CARGA DE CABECERA
-                    dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento?.ToDateTime(TimeOnly.MinValue);
+                    dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento;
                     cboMotivoSalida.SelectedValue = movimiento.MotivoProductoId;
                     txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
                     txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
@@ -1778,11 +1778,16 @@ namespace AplicativoDeAlmacen.Views
                 int miAlmacenOrigen = SesionSistema.AlmacenActual?.Id ?? 1;
                 int? almacenDestinoSel = cboAlmacenDestino.SelectedValue != null ? Convert.ToInt32(cboAlmacenDestino.SelectedValue) : (int?)null;
 
+                // 🌟 1. Combinar fecha elegida con la hora actual exacta
+                DateTime fechaDespachoBase = dtpFechaDespacho.SelectedDate ?? DateTime.Today;
+                DateTime fechaDespachoConHora = fechaDespachoBase.Date.Add(DateTime.Now.TimeOfDay);
+
                 var movimiento = new Movimiento
                 {
+                    Id = _idMovimientoActual ?? 0,
                     SerieDocumento = txtSerieSalida.Text,
                     NumeroDocumento = txtNumeroSalida.Text,
-                    FechaMovimiento = dtpFechaDespacho.SelectedDate.HasValue ? DateOnly.FromDateTime(dtpFechaDespacho.SelectedDate.Value) : DateOnly.FromDateTime(DateTime.Now),
+                    FechaMovimiento = fechaDespachoConHora, // 👈 Se envía como DateTime con hora
 
                     UbicacionId = (almacenDestinoSel.HasValue || string.IsNullOrWhiteSpace(txtUbicacion.Text))
                         ? (int?)null
@@ -1798,8 +1803,8 @@ namespace AplicativoDeAlmacen.Views
                     UsuarioId = usuarioActivoId,
                     Observacion = txtObservacionSalida.Text,
                     SerieGuia = txtSerieGuia.Text,
-                    NumeroGuia = txtNumeroGuia.Text,
-                    CreatedAt = DateTime.Now
+                    NumeroGuia = txtNumeroGuia.Text
+                    // 👈 CreatedAt ya no se asigna aquí para proteger la fecha original al editar
                 };
 
                 pbCargaMasiva.Visibility = Visibility.Visible;

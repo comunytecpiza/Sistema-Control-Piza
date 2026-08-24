@@ -2,7 +2,27 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="White"
-             FontFamily="Segoe UI" Width="1006">
+             FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+        <!-- Estilos de Centrado y Colores de Cantidades -->
+        <Style x:Key="CenterAlignStyle" TargetType="DataGridCell">
+            <Setter Property="TextBlock.TextAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+
+        <Style x:Key="IngresoStyle" TargetType="DataGridCell" BasedOn="{StaticResource CenterAlignStyle}">
+            <Setter Property="Foreground" Value="#059669"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
+        <Style x:Key="SalidaStyle" TargetType="DataGridCell" BasedOn="{StaticResource CenterAlignStyle}">
+            <Setter Property="Foreground" Value="#DC2626"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+    </UserControl.Resources>
 
     <Grid Margin="15">
         <Grid.RowDefinitions>
@@ -11,17 +31,14 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Titulo -->
-        <TextBlock Grid.Row="0" Text="📄 Historial Trazable por Código Físico" FontSize="18" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,10"/>
+        <!-- Título -->
+        <TextBlock Grid.Row="0" Text="📄 Historial Trazable por Código Físico" FontSize="20" FontWeight="Bold" Foreground="#1F2937" Margin="0,0,0,12"/>
 
-        <!-- PANEL SUPERIOR -->
-        <Grid Grid.Row="1" Margin="0,10,0,15">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="650"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+        <!-- PANEL SUPERIOR COMPACTO -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,15" VerticalAlignment="Top">
 
-            <Border Grid.Column="0" BorderBrush="#2DD4BF" BorderThickness="1.5" Padding="15" Background="#FAFAFA" CornerRadius="8" Grid.ColumnSpan="2" Margin="0,0,290,0">
+            <!-- Bloque de Filtros (Ancho Fijo Compacto) -->
+            <Border Width="680" BorderBrush="#2DD4BF" BorderThickness="1.5" Padding="14" Background="#FAFAFA" CornerRadius="8" Margin="0,0,15,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -31,86 +48,217 @@
                     </Grid.RowDefinitions>
 
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="85"/>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="130"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Producto -->
-                    <TextBlock Grid.Row="0" Text="Producto :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                    <!-- Fila 0: Producto -->
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Producto :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" Margin="0,0,8,0"/>
                     <TextBox x:Name="TxtProducto" 
-                         Grid.Row="0" 
-                         Grid.Column="1" 
-                         Margin="10,2" 
-                         TextChanged="TxtProducto_TextChanged" 
-                         ToolTip="Escriba para buscar el producto"
-                         Focusable="True"
-                         IsTabStop="True"/>
+                             Grid.Row="0" 
+                             Grid.Column="1" 
+                             Margin="0,3" 
+                             Height="30"
+                             VerticalContentAlignment="Center"
+                             TextChanged="TxtProducto_TextChanged" 
+                             ToolTip="Escriba para buscar el producto por ID o Descripción"
+                             Focusable="True"
+                             IsTabStop="True"/>
 
-                    <Popup x:Name="PopupResultados" PlacementTarget="{Binding ElementName=TxtProducto}" Placement="Bottom" StaysOpen="False" Width="400">
-                        <Border Background="White" BorderBrush="#9CA3AF" BorderThickness="1" CornerRadius="4">
-                            <ListBox x:Name="LbProducto" MaxHeight="180" SelectionChanged="LbProducto_SelectionChanged" DisplayMemberPath="Descripcion"/>
+                    <Popup x:Name="PopupResultados" PlacementTarget="{Binding ElementName=TxtProducto}" Placement="Bottom" StaysOpen="False" Width="430">
+                        <Border Background="White" BorderBrush="#9CA3AF" BorderThickness="1" CornerRadius="4" MaxHeight="220">
+                            <ListBox x:Name="LbProducto" SelectionChanged="LbProducto_SelectionChanged" DisplayMemberPath="Descripcion"/>
                         </Border>
                     </Popup>
 
-                    <TextBox x:Name="TxtIdProducto" Grid.Row="0" Grid.Column="2" IsReadOnly="True" Margin="0,2"/>
+                    <TextBox x:Name="TxtIdProducto" Grid.Row="0" Grid.Column="2" IsReadOnly="True" Margin="8,3,0,3" Height="30" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontWeight="Bold" Background="#F3F4F6"/>
 
-                    <!-- Tipo -->
-                    <TextBlock Grid.Row="1" Text="Tipo :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="10,5">
-                        <RadioButton x:Name="RbLibroGuia" Content="Libro Guía (Docente)" IsEnabled="False" Checked="RbLibroGuia_Checked" Margin="0,0,20,0"/>
-                        <RadioButton x:Name="RbLibroVenta" Content="Libro Venta (Alumno)" IsEnabled="False" Checked="RbLibroVenta_Checked"/>
-                    </StackPanel>
+                    <!-- Fila 1: Tipo de Libro y Anulados -->
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Tipo :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                    <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <!-- Codigo -->
-                    <TextBlock Grid.Row="2" Text="Código :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TxtCodigoEscaneado" Grid.Row="2" Grid.Column="1" Margin="10,2" FontWeight="Bold" IsEnabled="False" KeyDown="TxtCodigoEscaneado_KeyDown"/>
-                    <CheckBox x:Name="ChkMostrarAnulados" Content="Mostrar Anulados" Margin="423,0,10,0" FontWeight="SemiBold" Foreground="#6B7280" Click="ChkMostrarAnulados_Click" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1"/>
-                    <TextBox x:Name="TxtAbreviatura" Grid.Row="2" Grid.Column="2" IsReadOnly="True" Margin="0,2"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <RadioButton x:Name="RbLibroGuia" Content="Libro Guía (Docente)" IsEnabled="False" Checked="RbLibroGuia_Checked" Margin="0,0,20,0" FontWeight="SemiBold"/>
+                            <RadioButton x:Name="RbLibroVenta" Content="Libro Venta (Alumno)" IsEnabled="False" Checked="RbLibroVenta_Checked" FontWeight="SemiBold"/>
+                        </StackPanel>
 
-                    <!-- Colección -->
-                    <TextBlock Grid.Row="3" Text="Colección :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TxtColeccion" Grid.Row="3" Grid.Column="1" Margin="10,2" IsReadOnly="True"/>
+                        <CheckBox x:Name="ChkMostrarAnulados" Grid.Column="1" Content="Mostrar Anulados" FontWeight="SemiBold" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,5,0" Click="ChkMostrarAnulados_Click"/>
+                    </Grid>
+
+                    <!-- Fila 2: Código Escaneado y Abreviatura -->
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Código :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TxtCodigoEscaneado" Grid.Row="2" Grid.Column="1" Margin="0,3" Height="30" VerticalContentAlignment="Center" FontWeight="Bold" FontSize="13" IsEnabled="False" KeyDown="TxtCodigoEscaneado_KeyDown"/>
+                    <TextBox x:Name="TxtAbreviatura" Grid.Row="2" Grid.Column="2" IsReadOnly="True" Margin="8,3,0,3" Height="30" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontWeight="SemiBold" Background="#F3F4F6"/>
+
+                    <!-- Fila 3: Colección -->
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Colección :" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TxtColeccion" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,3" Height="30" VerticalContentAlignment="Center" IsReadOnly="True" Background="#F3F4F6"/>
                 </Grid>
             </Border>
 
-            <!-- BOTONES -->
-            <StackPanel Grid.Column="1" Margin="20,0,0,0">
-                <Button x:Name="BtnLector" Content="🔍 Lector" Width="110" Height="42" Margin="0,0,0,8" Background="#8B5CF6" Foreground="White" FontWeight="Bold" Cursor="Hand" Click="BtnLector_Click"/>
-                <Button x:Name="BtnEjecutar" Content="⚙ Consultar" Width="110" Height="42" Margin="0,0,0,8" Background="#2563EB" Foreground="White" FontWeight="Bold" Cursor="Hand" Click="BtnEjecutar_Click"/>
-                <Button x:Name="BtnImprimir" Content="🖨 Imprimir" Width="110" Height="42" Margin="0,0,0,8" Background="#10B981" Foreground="White" FontWeight="Bold" Cursor="Hand" Click="BtnImprimir_Click"/>
+            <!-- BOTONES LATERALES -->
+            <StackPanel Width="120" VerticalAlignment="Center">
+                <Button x:Name="BtnLector" Content="🔍 Lector" Height="34" Margin="0,0,0,6" Background="#8B5CF6" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Click="BtnLector_Click"/>
+                <Button x:Name="BtnEjecutar" Content="⚙ Consultar" Height="34" Margin="0,0,0,6" Background="#2563EB" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Click="BtnEjecutar_Click"/>
+                <Button x:Name="BtnImprimir" Content="🖨 Imprimir" Height="34" Margin="0,0,0,6" Background="#10B981" Foreground="White" FontWeight="Bold" Cursor="Hand" BorderThickness="0" Click="BtnImprimir_Click"/>
+                <Button x:Name="BtnSalir" Content="🧹 Limpiar" Height="32" Background="#6B7280" Foreground="White" FontWeight="SemiBold" Cursor="Hand" BorderThickness="0" Click="BtnSalir_Click"/>
             </StackPanel>
-        </Grid>
+        </StackPanel>
 
-        <!-- HISTORIAL -->
-        <DataGrid x:Name="DgHistorial" 
-          Grid.Row="2" 
-          AutoGenerateColumns="False" 
-          IsReadOnly="True" 
-          HeadersVisibility="Column" 
-          GridLinesVisibility="Horizontal" 
-          RowHeight="32" 
-          Background="White"
-          MouseDoubleClick="DgHistorial_MouseDoubleClick">
-            <DataGrid.Resources>
-                <Style TargetType="DataGridColumnHeader">
-                    <Setter Property="Background" Value="#1E293B"/>
-                    <Setter Property="Foreground" Value="White"/>
-                    <Setter Property="FontWeight" Value="Bold"/>
-                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                    <Setter Property="Padding" Value="8"/>
-                </Style>
-            </DataGrid.Resources>
+        <!-- HISTORIAL DE MOVIMIENTOS -->
+        <Border Grid.Row="2" Background="White" CornerRadius="8" BorderBrush="#E5E7EB" BorderThickness="1">
+            <DataGrid x:Name="DgHistorial" 
+                      AutoGenerateColumns="False" 
+                      IsReadOnly="True" 
+                      HeadersVisibility="Column" 
+                      GridLinesVisibility="Horizontal" 
+                      RowHeight="34" 
+                      Background="White"
+                      BorderThickness="0"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      MouseDoubleClick="DgHistorial_MouseDoubleClick">
+                <DataGrid.Resources>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="#1E293B"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="FontWeight" Value="Bold"/>
+                        <Setter Property="FontSize" Value="11.5"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Setter Property="BorderBrush" Value="#334155"/>
+                    </Style>
+                </DataGrid.Resources>
 
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Fecha Operación" Binding="{Binding Fecha, StringFormat='dd/MM/yyyy HH:mm'}" Width="140"/>
-                <DataGridTextColumn Header="# Registro" Binding="{Binding Registro}" Width="130"/>
-                <DataGridTextColumn Header="# Guía" Binding="{Binding Guia}" Width="120"/>
-                <DataGridTextColumn Header="Tipo Movimiento" Binding="{Binding Tipo}" Width="180"/>
-                <DataGridTextColumn Header="Entidad / Ubicación / Almacén" Binding="{Binding RazonSocialUbicacion}" Width="*"/>
-                <DataGridTextColumn Header="Ingreso" Binding="{Binding IngresoNormal, StringFormat=N0}" Width="90"/>
-                <DataGridTextColumn Header="Salida" Binding="{Binding SalidaNormal, StringFormat=N0}" Width="90"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                <DataGrid.Columns>
+                    <!-- 1. FECHA MOVIMIENTO -->
+                    <DataGridTextColumn Header="FECHA MOV." Binding="{Binding Fecha, StringFormat='dd/MM/yyyy HH:mm'}" Width="125">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 2. FECHA DE CREACIÓN -->
+                    <DataGridTextColumn Header="FECHA CREACIÓN" Binding="{Binding CreatedAt, StringFormat='dd/MM/yyyy HH:mm'}" Width="125">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Foreground" Value="#4B5563"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 3. USUARIO QUE CREÓ -->
+                    <DataGridTextColumn Header="USUARIO CREÓ" Binding="{Binding UsuarioCreador}" Width="110">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Foreground" Value="#1F2937"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 4. FECHA DE MODIFICACIÓN -->
+                    <DataGridTextColumn Header="FECHA MODIF." Binding="{Binding UpdatedAt, StringFormat='dd/MM/yyyy HH:mm', TargetNullValue='-'}" Width="120">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Foreground" Value="#6B7280"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 5. USUARIO QUE MODIFICÓ -->
+                    <DataGridTextColumn Header="USUARIO MODIF." Binding="{Binding UsuarioModificador, TargetNullValue='-'}" Width="110">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Foreground" Value="#B45309"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 6. COMPROBANTE -->
+                    <DataGridTextColumn Header="COMPROBANTE" Binding="{Binding Registro}" Width="115">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 7. GUÍA -->
+                    <DataGridTextColumn Header="GUÍA" Binding="{Binding Guia}" Width="105">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 8. TIPO / MOTIVO -->
+                    <DataGridTextColumn Header="MOTIVO / TIPO" Binding="{Binding Tipo}" Width="135">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 9. ENTIDAD / UBICACIÓN / ALMACÉN -->
+                    <DataGridTextColumn Header="ENTIDAD / UBICACIÓN / ALMACÉN" Binding="{Binding RazonSocialUbicacion}" Width="*" MinWidth="220">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Left"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Margin" Value="8,0,0,0"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 10. INGRESO (Centrado Verde) -->
+                    <DataGridTextColumn Header="INGRESO" Binding="{Binding IngresoNormal, StringFormat=N0}" Width="85" CellStyle="{StaticResource IngresoStyle}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="TextAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 11. SALIDA (Centrado Rojo) -->
+                    <DataGridTextColumn Header="SALIDA" Binding="{Binding SalidaNormal, StringFormat=N0}" Width="85" CellStyle="{StaticResource SalidaStyle}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="HorizontalAlignment" Value="Center"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="TextAlignment" Value="Center"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
     </Grid>
 </UserControl>

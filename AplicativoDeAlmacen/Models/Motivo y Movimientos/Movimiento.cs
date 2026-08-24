@@ -9,7 +9,8 @@ public partial class Movimiento
 {
     public int Id { get; set; }
 
-    public DateOnly? FechaMovimiento { get; set; }
+    // 🌟 DateTime para conservar fecha y hora operativa exacta
+    public DateTime? FechaMovimiento { get; set; }
 
     public string SerieDocumento { get; set; }
 
@@ -24,6 +25,7 @@ public partial class Movimiento
     public int? AlmacenDestinoId { get; set; }
 
     public int UsuarioId { get; set; }
+    public int? UsuarioUpdateId { get; set; } // 🌟 NUEVO: Usuario que editó
 
     public int? PersonaComercialId { get; set; }
 
@@ -35,5 +37,7 @@ public partial class Movimiento
 
     public int EstadoId { get; set; }
     public string TipoMovimiento { get; set; }
+
     public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; } // 🌟 NUEVO: Fecha/hora de última edición
 }

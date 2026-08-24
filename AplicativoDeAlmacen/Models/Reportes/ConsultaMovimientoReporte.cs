@@ -8,18 +8,23 @@ namespace AplicativoDeAlmacen.Models.Models
     public class ConsultaMovimientoItem
     {
         public DateTime Fecha { get; set; }
-        public string NumeroRegistro { get; set; }
-        public string RazonSocialUbicacion { get; set; }
-        public string NumeroGuia { get; set; }
+        public string NumeroRegistro { get; set; } = string.Empty;
+        public string RazonSocialUbicacion { get; set; } = string.Empty;
+        public string NumeroGuia { get; set; } = string.Empty;
         public decimal Ingreso { get; set; }
         public decimal Salida { get; set; }
-        public bool IsAnulado { get;  set; }
+        public bool IsAnulado { get; set; }
         public decimal SaldoAcumulado { get; set; }
         public int CategoriaProductoId { get; set; }
-        // 🌟 AGREGA ESTA PROPIEDAD
         public int AlmacenId { get; set; }
         public XLCellValue Guia { get; internal set; }
         public List<ConsultaCodigoItem> CodigosAsociados { get; set; } = new List<ConsultaCodigoItem>();
+
+        // 🌟 PROPIEDADES DE AUDITORÍA
+        public DateTime? CreatedAt { get; set; }
+        public string UsuarioCreador { get; set; } = string.Empty;
+        public DateTime? UpdatedAt { get; set; }
+        public string? UsuarioModificador { get; set; }
     }
 
     public class ConsultaCodigoItem

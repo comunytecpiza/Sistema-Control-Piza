@@ -557,7 +557,9 @@ namespace AplicativoDeAlmacen.Views
             _currentMovimientoId = movimiento.Id;
 
             if (movimiento.FechaMovimiento.HasValue)
-                dtpFechaRecepcion.SelectedDate = movimiento.FechaMovimiento.Value.ToDateTime(TimeOnly.MinValue);
+            {
+                dtpFechaRecepcion.SelectedDate = movimiento.FechaMovimiento.Value;
+            }
 
             txtNumSerie.Text = movimiento.SerieDocumento;
             txtNumDocumento.Text = movimiento.NumeroDocumento;
@@ -1028,16 +1030,11 @@ namespace AplicativoDeAlmacen.Views
                 }
                 else
                 {
-                    // 🎒 PRODUCTO SIN CÓDIGO: Forzamos a que tome exactamente la cantidad visual de la grilla (ej. 100)
                     p.Detalle.CantidadIngreso = p.Cantidad > 0 ? p.Cantidad : p.Detalle.CantidadIngreso;
                 }
             }
 
             int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
-
-            int? almacenDestinoId = cboAlmacenDestino.SelectedValue != null
-                ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
-                : (int?)null;
 
             int idMotivoIngreso = Convert.ToInt32(cboMotivo.SelectedValue);
             int? almacenOrigenReal = null;
@@ -1052,22 +1049,21 @@ namespace AplicativoDeAlmacen.Views
                 almacenDestinoReal = miAlmacenActual;
             }
 
+            // 🌟 COMBINAR FECHA DEL DATEPICKER CON LA HORA EXACTA ACTUAL
+            DateTime fechaBase = dtpFechaRecepcion.SelectedDate ?? DateTime.Today;
+            DateTime fechaConHoraExacta = fechaBase.Date.Add(DateTime.Now.TimeOfDay);
+
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
                 {
-                    FechaMovimiento = dtpFechaRecepcion.SelectedDate.HasValue
-                        ? DateOnly.FromDateTime(dtpFechaRecepcion.SelectedDate.Value)
-                        : DateOnly.FromDateTime(DateTime.Today),
+                    FechaMovimiento = fechaConHoraExacta, // 👈 Guarda fecha y hora completa
                     SerieDocumento = txtNumSerie.Text.Trim(),
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = idMotivoIngreso,
-
-                    // 🌟 Si es motivo 4 (Transferencia entre almacenes) y hay almacén físico, UbicacionId es null.
-                    // 🌟 Para cualquier otro motivo (como Devolución/Promotoría), SIEMPRE guarda _idUbicacionSeleccionada.
                     UbicacionId = (idMotivoIngreso == 4 && almacenOrigenReal.HasValue)
-                    ? (int?)null
-                    : _idUbicacionSeleccionada,
+                        ? (int?)null
+                        : _idUbicacionSeleccionada,
 
                     AlmacenId = miAlmacenActual,
                     AlmacenOrigenId = almacenOrigenReal,

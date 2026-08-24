@@ -108,6 +108,11 @@ SELECT
     CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
     m.estado_id,
     m.motivo_producto_id,
+    -- 🌟 CAMPOS DE AUDITORÍA (Corregido 'nombres')
+    m.created_at,
+    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+    m.updated_at,
+    usr_u.nombres AS usuario_modificador,
     {subqueryTrazabilidad}
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
@@ -116,6 +121,9 @@ LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
 LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
 LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
 LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+-- 👥 JOINS REALES A LA TABLA USUARIOS
+LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE md.producto_id = @ProductoId
   AND m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
@@ -128,8 +136,9 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
+                    DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
@@ -142,14 +151,26 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                         {
                             int motivoId = reader.IsDBNull(9) ? 0 : reader.GetInt32(9);
                             string motivoTexto = Convert.ToString(reader.GetValue(1)) ?? "";
-                            bool esDevolucionReal = !reader.IsDBNull(10) && Convert.ToInt32(reader.GetValue(10)) == 1;
+
+                            // 🌟 Índice 14 corresponde a es_devolucion_real al final del SELECT
+                            bool esDevolucionReal = !reader.IsDBNull(14) && Convert.ToInt32(reader.GetValue(14)) == 1;
 
                             decimal ing = reader.GetDecimal(6);
                             decimal sal = reader.GetDecimal(7);
 
+                            DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
+                            DateTime? createdAtRaw = reader.IsDBNull(10) ? (DateTime?)null : reader.GetDateTime(10);
+
+                            // 🌟 Si fecha_movimiento no tiene hora (00:00:00), le inyectamos la hora exacta de creacion
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
+
                             var item = new KardexFisicoItem
                             {
-                                Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
+                                Fecha = fechaMovFinal, // 👈 Fecha con hora operativa completa
                                 Tipo = motivoTexto,
                                 Registro = Convert.ToString(reader.GetValue(3)) ?? "",
                                 Guia = Convert.ToString(reader.GetValue(4)) ?? "",
@@ -158,12 +179,18 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                                 Salida = sal,
                                 IngresoNormal = ing,
                                 SalidaNormal = sal,
-                                IsAnulado = false
+                                IsAnulado = false,
+
+                                // 🌟 Datos de Auditoría
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(11) ? "" : Convert.ToString(reader.GetValue(11))!,
+                                UpdatedAt = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12),
+                                UsuarioModificador = reader.IsDBNull(13) ? null : Convert.ToString(reader.GetValue(13))
                             };
 
                             reporte.TotalSalidas += sal;
 
-                            // 🌟 CLASIFICACIÓN CONTABLE EXACTA
+                            // Clasificación Contable
                             if (ing > 0)
                             {
                                 string motivoUpper = motivoTexto.ToUpperInvariant();
@@ -172,7 +199,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                                 if (esAlmacenCentral)
                                 {
-                                    // En Central: Compras e ingresos brutos (sin salida previa) van a TotalIngresos
                                     if (esCompra || (!esDevolucionReal && motivoId != 2 && !esTransferencia))
                                     {
                                         reporte.TotalIngresos += ing;
@@ -184,7 +210,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                                 }
                                 else
                                 {
-                                    // En Sucursales: Transferencias e ingresos iniciales van a TotalIngresos
                                     if (esTransferencia || esCompra || (!esDevolucionReal && motivoId != 2))
                                     {
                                         reporte.TotalIngresos += ing;
@@ -225,39 +250,43 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                 {
                     string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
                     string queryRaw = $@"
-            WITH MovimientosRango AS (
-                SELECT
-                    md.producto_id,
-                    SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN 
-                             (CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END) -
-                             (CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END)
-                        ELSE 0 END) AS StockInicial,
-                    SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta AND mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
-                    SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta AND mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
-                FROM movimiento_detalles md {nolock}
-                INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-                WHERE m.estado_id != 2
-                  AND (
-                     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-                     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-                  )
-                GROUP BY md.producto_id
-            )
-            SELECT
-                COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo,
-                p.descripcion,
-                COALESCE(mr.StockInicial,   0) AS StockInicial,
-                COALESCE(mr.TotalIngresos,  0) AS TotalIngresos,
-                COALESCE(mr.TotalSalidas,   0) AS TotalSalidas
-            FROM productos p {nolock}
-            LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
-            WHERE p.estado_id = 1
-            ORDER BY p.descripcion";
+    WITH MovimientosRango AS (
+        SELECT
+            md.producto_id,
+            SUM(CASE WHEN m.fecha_movimiento < @FechaDesde THEN 
+                     (CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END) -
+                     (CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END)
+                ELSE 0 END) AS StockInicial,
+            SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta AND mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END) AS TotalIngresos,
+            SUM(CASE WHEN m.fecha_movimiento >= @FechaDesde AND m.fecha_movimiento <= @FechaHasta AND mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END) AS TotalSalidas
+        FROM movimiento_detalles md {nolock}
+        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+        WHERE m.estado_id != 2
+          AND (
+             (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+             (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+          )
+        GROUP BY md.producto_id
+    )
+    SELECT
+        COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo,
+        p.descripcion,
+        COALESCE(mr.StockInicial,   0) AS StockInicial,
+        COALESCE(mr.TotalIngresos,  0) AS TotalIngresos,
+        COALESCE(mr.TotalSalidas,   0) AS TotalSalidas
+    FROM productos p {nolock}
+    LEFT JOIN MovimientosRango mr ON p.id = mr.producto_id
+    WHERE p.estado_id = 1
+    ORDER BY p.descripcion";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+
+                    // 🌟 Cobertura completa del rango operativo
+                    DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
+
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
@@ -355,8 +384,9 @@ WHERE md.producto_id = @ProductoId
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
+                    DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     if (!string.IsNullOrWhiteSpace(razonSocial))
@@ -465,7 +495,7 @@ WHERE md.producto_id = @ProductoId
         }
 
         // =========================================================
-        // 4. KARDEX VALORIZADO INDEPENDIENTE POR ALMACÉN
+        // 4. KARDEX VALORIZADO INDEPENDIENTE POR ALMACÉN (CORREGIDO)
         // =========================================================
         public async Task<KardexValorizadoReporte> GenerarKardexValorizadoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta, int almacenId)
         {
@@ -493,15 +523,15 @@ WHERE md.producto_id = @ProductoId
                 using (IDbCommand cmdInit = conn.CreateCommand())
                 {
                     string qInit = $@"
-                        SELECT 
-                            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
-                            COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
-                        FROM movimiento_detalles md {nolock}
-                        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-                        WHERE md.producto_id = @ProductoId
-                          AND m.fecha_movimiento < @FechaDesde
-                          AND m.estado_id != 2";
+                SELECT 
+                    COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId THEN md.cantidad_ingreso ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END), 0)
+                FROM movimiento_detalles md {nolock}
+                INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+                WHERE md.producto_id = @ProductoId
+                  AND m.fecha_movimiento < @FechaDesde
+                  AND m.estado_id != 2";
 
                     cmdInit.CommandText = QueryAdapter.FormatearConsulta(qInit);
                     AgregarParametro(cmdInit, "@ProductoId", productoId);
@@ -512,44 +542,54 @@ WHERE md.producto_id = @ProductoId
                     stockInicialFisico = (resInit != null && resInit != DBNull.Value) ? Convert.ToDecimal(resInit) : 0m;
                 }
 
-                // 🌟 2. CONSULTA DE MOVIMIENTOS EN RANGO (FORZANDO EL COSTO UNITARIO DEL DETALLE)
+                // 🌟 2. CONSULTA DE MOVIMIENTOS EN RANGO CON AUDITORÍA COMPLETA
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = $@"
-                        SELECT
-                            m.fecha_movimiento,
-                            mp.descripcion AS motivo,
-                            CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
-                            CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
-                            COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
-                            CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-                            CASE WHEN mp.tipo_movimiento_id = 1 THEN COALESCE(md.cantidad_ingreso, 0) ELSE 0 END AS cantidad_ingreso,
-                            CASE WHEN mp.tipo_movimiento_id = 2 THEN COALESCE(md.cantidad_salida, 0) ELSE 0 END AS cantidad_salida,
-                            COALESCE(md.costo_unitario, 0) AS costo_unitario, -- 👈 LECTURA DIRECTA Y EXCLUSIVA DEL COSTO DEL MOVIMIENTO
-                            m.estado_id,
-                            alm.id AS alm_id,
-                            alm.nombre AS alm_nombre
-                        FROM movimiento_detalles md {nolock}
-                        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-                        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-                        LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-                        LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-                        LEFT JOIN almacenes alm {nolock} ON alm.id = @AlmacenId
-                        WHERE md.producto_id = @ProductoId
-                          AND m.fecha_movimiento >= @FechaDesde
-                          AND m.fecha_movimiento <= @FechaHasta
-                          AND m.estado_id != 2 
-                          AND (
-                             (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-                             (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-                          )
-                        ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                SELECT
+                    m.fecha_movimiento,
+                    mp.descripcion AS motivo,
+                    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'entrada' WHEN mp.tipo_movimiento_id = 2 THEN 'salida' ELSE 'otro' END AS tipo_movimiento,
+                    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+                    COALESCE(pc.razon_social, COALESCE(u.descripcion, 'SIN UBICACIÓN')) AS razon_ubicacion,
+                    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+                    CASE WHEN mp.tipo_movimiento_id = 1 THEN COALESCE(md.cantidad_ingreso, 0) ELSE 0 END AS cantidad_ingreso,
+                    CASE WHEN mp.tipo_movimiento_id = 2 THEN COALESCE(md.cantidad_salida, 0) ELSE 0 END AS cantidad_salida,
+                    COALESCE(md.costo_unitario, 0) AS costo_unitario,
+                    m.estado_id,
+                    alm.id AS alm_id,
+                    alm.nombre AS alm_nombre,
+                    -- 🌟 AUDITORÍA REAL DE USUARIOS Y FECHAS
+                    m.created_at,
+                    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+                    m.updated_at,
+                    usr_u.nombres AS usuario_modificador
+                FROM movimiento_detalles md {nolock}
+                INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+                LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+                LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+                LEFT JOIN almacenes alm {nolock} ON alm.id = @AlmacenId
+                LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+                LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
+                WHERE md.producto_id = @ProductoId
+                  AND m.fecha_movimiento >= @FechaDesde
+                  AND m.fecha_movimiento <= @FechaHasta
+                  AND m.estado_id != 2 
+                  AND (
+                     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+                     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+                  )
+                ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
+                    // 🌟 Cobertura completa del rango operativo (hasta 23:59:59)
+                    DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
+
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
@@ -560,19 +600,35 @@ WHERE md.producto_id = @ProductoId
 
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
+                            DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
+                            DateTime? createdAtRaw = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12);
+
+                            // 🌟 Fusión de hora si viene en 00:00:00
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
+
                             var item = new KardexValorizadoItem
                             {
-                                Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
+                                Fecha = fechaMovFinal,
                                 Tipo = Convert.ToString(reader.GetValue(1)) ?? "",
                                 Registro = Convert.ToString(reader.GetValue(3)) ?? "",
                                 RazonSocialUbicacion = Convert.ToString(reader.GetValue(4)) ?? "",
                                 Guia = Convert.ToString(reader.GetValue(5)) ?? "",
                                 IngresoFisico = reader.GetDecimal(6),
                                 SalidaFisico = reader.GetDecimal(7),
-                                CostoUnitario = reader.GetDecimal(8), // 👈 Toma el 95.00 o el costo que tenga el detalle
+                                CostoUnitario = reader.GetDecimal(8),
                                 IsAnulado = false,
-                                AlmacenId = reader.IsDBNull(reader.GetOrdinal("alm_id")) ? almacenId : reader.GetInt32(reader.GetOrdinal("alm_id")),
-                                AlmacenNombre = reader.IsDBNull(reader.GetOrdinal("alm_nombre")) ? reporte.AlmacenNombre : Convert.ToString(reader.GetValue(reader.GetOrdinal("alm_nombre")))!
+                                AlmacenId = reader.IsDBNull(10) ? almacenId : reader.GetInt32(10),
+                                AlmacenNombre = reader.IsDBNull(11) ? reporte.AlmacenNombre : Convert.ToString(reader.GetValue(11))!,
+
+                                // 🌟 Mapeo de Auditoría
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(13) ? "" : Convert.ToString(reader.GetValue(13))!,
+                                UpdatedAt = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14),
+                                UsuarioModificador = reader.IsDBNull(15) ? null : Convert.ToString(reader.GetValue(15))
                             };
 
                             if (costoPromedioActual == 95.00m && item.CostoUnitario > 0)
@@ -691,21 +747,17 @@ WHERE md.producto_id = @ProductoId
                 }
 
                 // 🌟 2. NORMALIZACIÓN INTELIGENTE DEL CÓDIGO
-                // Convierte comillas simples a guiones y limpia espacios
                 string codigoLimpio = codigoEscaneado.Trim().Replace("'", "-");
 
-                // Caso A: El usuario digitó solo el correlativo (ej: "86" -> "PL3-C24-G-G-0000086")
                 if (int.TryParse(codigoLimpio, out int numParsed))
                 {
                     codigoLimpio = $"{abreviaturaBase}-{numParsed:D7}";
                 }
-                // Caso B: El código no tiene la abreviatura completa
                 else if (!codigoLimpio.Contains("-") && !string.IsNullOrEmpty(abreviaturaBase))
                 {
                     codigoLimpio = $"{abreviaturaBase}-{codigoLimpio}";
                 }
 
-                // Crear versión alternativa reemplazando el primer guión por espacio para cubrir variaciones de BD (ej. "PL3 C24-G-G-0000086")
                 string codigoVariacionEspacio = codigoLimpio;
                 int primerGuion = codigoLimpio.IndexOf('-');
                 if (primerGuion > 0)
@@ -718,40 +770,46 @@ WHERE md.producto_id = @ProductoId
                     string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
                     string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 2 ";
 
+                    // 🌟 3. CONSULTA CON AUDITORÍA REAL DE USUARIOS Y TIEMPOS
                     string sql = $@"
-    SELECT DISTINCT
-        m.fecha_movimiento,
-        m.created_at,
-        CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
-        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
-        COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
-        CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
-        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
-        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
-        m.estado_id,
-        CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre
-    FROM movimiento_codigos mc {nolock}
-    INNER JOIN movimiento_detalles md {nolock} ON mc.movimiento_detalle_id = md.id
-    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-    LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-    LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-    LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-    LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-    INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-    INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-    LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
-    WHERE md.producto_id = @ProductoId
-      AND rc.categoria_producto_id = @CategoriaProductoId
-      AND (
-            cc.codigo = @CodigoBusqueda 
-            OR cc.codigo = @CodigoVariacion
-            OR REPLACE(cc.codigo, '''', '-') = @CodigoBusqueda
-            OR REPLACE(cc.codigo, ' ', '-') = @CodigoBusqueda
-          )
-      AND m.almacen_id = @AlmacenId
-      {sqlAnuladosFiltro}
-    ORDER BY m.created_at ASC";
+SELECT DISTINCT
+    m.fecha_movimiento,
+    m.created_at,
+    CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
+    COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
+    CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
+    CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
+    CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
+    m.estado_id,
+    CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre,
+    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+    m.updated_at,
+    usr_u.nombres AS usuario_modificador
+FROM movimiento_codigos mc {nolock}
+INNER JOIN movimiento_detalles md {nolock} ON mc.movimiento_detalle_id = md.id
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
+LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
+WHERE md.producto_id = @ProductoId
+  AND rc.categoria_producto_id = @CategoriaProductoId
+  AND (
+        cc.codigo = @CodigoBusqueda 
+        OR cc.codigo = @CodigoVariacion
+        OR REPLACE(cc.codigo, '''', '-') = @CodigoBusqueda
+        OR REPLACE(cc.codigo, ' ', '-') = @CodigoBusqueda
+      )
+  AND m.almacen_id = @AlmacenId
+  {sqlAnuladosFiltro}
+ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
 
@@ -768,9 +826,19 @@ WHERE md.producto_id = @ProductoId
                             int estId = reader.IsDBNull(8) ? 1 : reader.GetInt32(8);
                             bool anulado = (estId == 2);
 
+                            DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
+                            DateTime? createdAtRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
+
+                            // 🌟 Fusión inteligente de hora si fecha_movimiento viene en 00:00:00
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
+
                             var item = new KardexFisicoItem
                             {
-                                Fecha = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0),
+                                Fecha = fechaMovFinal,
                                 Tipo = Convert.ToString(reader.GetValue(2)) ?? "",
                                 Registro = Convert.ToString(reader.GetValue(3)) ?? "",
                                 RazonSocialUbicacion = Convert.ToString(reader.GetValue(4)) ?? "",
@@ -779,7 +847,13 @@ WHERE md.producto_id = @ProductoId
                                 SalidaNormal = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
                                 Ingreso = reader.IsDBNull(6) ? 0 : reader.GetDecimal(6),
                                 Salida = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
-                                IsAnulado = anulado
+                                IsAnulado = anulado,
+
+                                // 🌟 Auditoría Completa
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(10) ? "" : Convert.ToString(reader.GetValue(10))!,
+                                UpdatedAt = reader.IsDBNull(11) ? (DateTime?)null : reader.GetDateTime(11),
+                                UsuarioModificador = reader.IsDBNull(12) ? null : Convert.ToString(reader.GetValue(12))
                             };
 
                             lista.Add(item);
@@ -827,7 +901,7 @@ WHERE md.producto_id = @ProductoId
 
 
         // =========================================================
-        // 🌟 MÉTODO EXCLUSIVO: KÁRDEX POR UBICACIÓN (Aislado y Escalable)
+        // 🌟 MÉTODO EXCLUSIVO: KÁRDEX POR UBICACIÓN (CORREGIDO)
         // =========================================================
         public async Task<ConsultaMovimientoReporte> ConsultarKardexPorUbicacionAsync(
             int productoId,
@@ -843,37 +917,44 @@ WHERE md.producto_id = @ProductoId
                 await ((DbConnection)conn).OpenAsync();
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
-                // 🌟 1. TABLA IZQUIERDA: MOVIMIENTOS EXCLUSIVAMENTE CON UBICACIÓN
+                // 🌟 Límite de fecha exacto hasta las 23:59:59.999
+                DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
+
+                // 🌟 1. TABLA IZQUIERDA: MOVIMIENTOS EXCLUSIVAMENTE CON UBICACIÓN Y AUDITORÍA
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = $@"
-    SELECT DISTINCT
-        m.id,
-        m.fecha_movimiento,
-        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
-        u.descripcion AS ubicacion_nombre, -- 👈 Muestra ÚNICAMENTE el nombre de la Ubicación
-        CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
-        CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
-        CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
-        m.estado_id,
-        m.motivo_producto_id,
-        mp.tipo_movimiento_id
-    FROM movimiento_detalles md {nolock}
-    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-    INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id -- 👈 INNER JOIN ESTRICTO: Ignora clientes/proveedores/almacenes
-    WHERE md.producto_id = @ProductoId
-      AND m.fecha_movimiento >= @FechaDesde
-      AND m.fecha_movimiento <= @FechaHasta
-      AND m.estado_id != 2
-      AND (
-         (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-         (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-      )";
+SELECT DISTINCT
+    m.id,
+    m.fecha_movimiento,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+    u.descripcion AS ubicacion_nombre,
+    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
+    CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
+    m.estado_id,
+    m.motivo_producto_id,
+    mp.tipo_movimiento_id,
+    -- 🌟 AUDITORÍA REAL
+    m.created_at,
+    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+    m.updated_at,
+    usr_u.nombres AS usuario_modificador
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
+WHERE md.producto_id = @ProductoId
+  AND m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
 
-                    // 🎯 Lógica del Filtro:
-                    // Si vino un texto en Ubicación, filtra por esa ubicación específica.
-                    // Si viene VACÍO, la consulta con INNER JOIN ya trae TODAS las ubicaciones registradas.
                     if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
                     {
                         queryRaw += " AND u.descripcion LIKE @FiltroUbicacion";
@@ -885,7 +966,7 @@ WHERE md.producto_id = @ProductoId
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
@@ -900,45 +981,61 @@ WHERE md.producto_id = @ProductoId
                             int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
                             bool anulado = (estadoId == 2);
 
+                            DateTime? fechaMovRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
+                            DateTime? createdAtRaw = reader.IsDBNull(10) ? (DateTime?)null : reader.GetDateTime(10);
+
+                            // 🌟 Fusión de hora operativa
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
+
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
-                                Fecha = reader.IsDBNull(1) ? DateTime.MinValue : reader.GetDateTime(1),
+                                Fecha = fechaMovFinal ?? DateTime.MinValue,
                                 NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + Convert.ToString(reader.GetValue(2)),
-                                RazonSocialUbicacion = Convert.ToString(reader.GetValue(3)) ?? "SIN UBICACIÓN", // Muestra únicamente la Ubicación
+                                RazonSocialUbicacion = Convert.ToString(reader.GetValue(3)) ?? "SIN UBICACIÓN",
                                 NumeroGuia = Convert.ToString(reader.GetValue(4)) ?? "",
                                 Ingreso = reader.GetDecimal(5),
                                 Salida = reader.GetDecimal(6),
-                                IsAnulado = anulado
+                                IsAnulado = anulado,
+
+                                // 🌟 Asignación de Auditoría
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(11) ? "" : Convert.ToString(reader.GetValue(11))!,
+                                UpdatedAt = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12),
+                                UsuarioModificador = reader.IsDBNull(13) ? null : Convert.ToString(reader.GetValue(13))
                             });
                         }
                     }
                 }
 
-                // 🌟 2. TABLA DERECHA: CÓDIGOS ASOCIADOS A DICHOS MOVIMIENTOS
+                // 🌟 2. TABLA DERECHA: CÓDIGOS ASOCIADOS
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = $@"
-    SELECT DISTINCT
-        COALESCE(cc.codigo, 'N/A') AS codigo,
-        COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
-        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
-        CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
-    FROM movimiento_detalles md {nolock}
-    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-    INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id -- 👈 INNER JOIN ESTRICTO
-    INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
-    INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-    INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-    LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
-    WHERE md.producto_id = @ProductoId
-      AND m.fecha_movimiento >= @FechaDesde
-      AND m.fecha_movimiento <= @FechaHasta
-      AND m.estado_id != 2
-      AND (
-         (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
-         (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-      )";
+SELECT DISTINCT
+    COALESCE(cc.codigo, 'N/A') AS codigo,
+    COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
+WHERE md.producto_id = @ProductoId
+  AND m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
 
                     if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
                     {
@@ -951,7 +1048,7 @@ WHERE md.producto_id = @ProductoId
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))

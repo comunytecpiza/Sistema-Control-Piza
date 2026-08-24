@@ -32,6 +32,12 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal Ingreso { get; set; }
         public decimal Salida { get; set; }
         public decimal SaldoAcumulado { get; set; }
+
+        // 🌟 CAMPOS DE AUDITORÍA DINÁMICOS
+        public DateTime? CreatedAt { get; set; }
+        public string UsuarioCreador { get; set; } = string.Empty;
+        public DateTime? UpdatedAt { get; set; }
+        public string? UsuarioModificador { get; set; }
     }
 
     // Representa el reporte completo con sus totales
@@ -88,6 +94,12 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal SalidaValorado { get; set; }
         public decimal SaldoValorado { get; set; }
         public bool IsAnulado { get; set; }
+
+        // 🌟 CAMPOS DE AUDITORÍA DINÁMICOS
+        public DateTime? CreatedAt { get; set; }
+        public string UsuarioCreador { get; set; } = string.Empty;
+        public DateTime? UpdatedAt { get; set; }
+        public string? UsuarioModificador { get; set; }
     }
 
     // Reporte Kárdex Valorizado Completo (ORIGINAL)
