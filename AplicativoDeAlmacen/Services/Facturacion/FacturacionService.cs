@@ -433,81 +433,65 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
 
         public async Task<LectoraResultDTO> ProcesarCodigoPorLectoraAsync(string codigoEscaneado)
         {
-            using (var conn = _database.GetConnection())
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            string codigoLimpio = codigoEscaneado.Replace("'", "-").Trim();
+
+            string topClause = QueryAdapter.EsMySQL ? "" : "TOP 1";
+            string limitClause = QueryAdapter.EsMySQL ? "LIMIT 1" : "";
+
+            // 🌟 Consulta corregida con los nombres reales de columnas
+            string sql = $@"
+SELECT {topClause}
+    cc.id AS codigo_id,
+    cc.codigo,
+    cc.estado_id,
+    cc.almacen_id,
+    rc.producto_id,
+    rc.categoria_producto_id,
+    cp.nombre AS categoria_producto,
+    p.descripcion,
+    COALESCE(p.precio_unitario, 0) AS precio_unitario,
+    CASE WHEN cc.estado_id = 4 THEN 1 ELSE 0 END AS tiene_salida
+FROM codigos_creados cc
+INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+INNER JOIN productos p ON rc.producto_id = p.id
+LEFT JOIN categoria_producto cp ON rc.categoria_producto_id = cp.id
+WHERE cc.codigo = @codigo OR REPLACE(cc.codigo, '''', '-') = @codigo
+{limitClause};";
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.CommandTimeout = 5;
+
+            var p = cmd.CreateParameter();
+            p.ParameterName = "@codigo";
+            p.Value = codigoLimpio;
+            cmd.Parameters.Add(p);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
+                throw new Exception($"El código '{codigoLimpio}' no existe en la base de datos.");
+
+            return new LectoraResultDTO
             {
-                var dbConn = (DbConnection)conn;
-                await dbConn.OpenAsync();
-
-                string codigoLimpio = codigoEscaneado.Replace("'", "-").Trim();
-
-                string queryPrincipal = @"
-            SELECT TOP 1 
-                p.id as producto_id, p.descripcion, p.precio_unitario,
-                cc.id as codigo_creado_id, cc.codigo as codigo_string, cc.estado_id,
-                m.id as movimiento_id, mp.tipo_movimiento
-            FROM codigos_creados cc
-            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-            INNER JOIN productos p ON rc.producto_id = p.id
-            INNER JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-            INNER JOIN movimiento_detalles md ON mc.movimiento_detalle_id = md.id
-            INNER JOIN movimientos m ON md.movimiento_id = m.id
-            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-            WHERE REPLACE(cc.codigo, '''', '-') = @CodigoLimpio
-            ORDER BY m.fecha_movimiento DESC, m.created_at DESC";
-
-                LectoraResultDTO resultado = null;
-                string tipoMovimiento = "";
-                int estadoInterno = 0;
-
-                using (var cmd = dbConn.CreateCommand())
-                {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryPrincipal);
-                    AgregarParametro(cmd, "@CodigoLimpio", codigoLimpio);
-
-                    using (var reader = await cmd.ExecuteReaderAsync())
-                    {
-                        if (await reader.ReadAsync())
-                        {
-                            resultado = new LectoraResultDTO
-                            {
-                                ProductoId = Convert.ToInt32(reader["producto_id"]),
-                                DescripcionProducto = reader["descripcion"].ToString(),
-                                PrecioUnitario = reader["precio_unitario"] != DBNull.Value ? Convert.ToDecimal(reader["precio_unitario"]) : 0,
-                                UnidadMedida = "UNIDAD",
-                                CodigoCreadoId = Convert.ToInt32(reader["codigo_creado_id"]),
-                                CodigoCompleto = reader["codigo_string"].ToString(),
-                                MovimientoId = Convert.ToInt32(reader["movimiento_id"])
-                            };
-                            tipoMovimiento = reader["tipo_movimiento"].ToString().ToLower();
-                            estadoInterno = Convert.ToInt32(reader["estado_id"]);
-                        }
-                    }
-                }
-
-                if (resultado == null)
-                    throw new Exception($"El código '{codigoEscaneado}' no existe en el sistema o no tiene movimientos en Kardex.");
-
-                // 🌟 VALIDACIÓN EN ORDEN CORRECTO
-                // 1. Primero evaluamos la línea de tiempo (Kardex)
-                if (tipoMovimiento != "salida")
-                    throw new Exception($"El código '{resultado.CodigoCompleto}' no está disponible. Su último movimiento en Kardex fue '{tipoMovimiento.ToUpper()}'.");
-
-                // 2. Si el Kardex dice salida, evaluamos que el estado no esté corrompido
-                if (estadoInterno != 4)
-                    throw new Exception($"¡ATENCIÓN! El Kardex indica SALIDA, pero el código '{resultado.CodigoCompleto}' tiene un estado interno corrupto ({estadoInterno}). Solicite revisión.");
-
-                // 3. Verificamos si no se vendió
-                string queryVendido = "SELECT TOP 1 1 FROM facturacion_detalle_codigos fdc INNER JOIN facturacion_cabecera fc ON fdc.facturacion_detalle_id = fc.id WHERE fdc.codigo_creado_id = @CodigoId AND fc.estado_registro = 1";
-                using (var cmd = dbConn.CreateCommand())
-                {
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryVendido);
-                    AgregarParametro(cmd, "@CodigoId", resultado.CodigoCreadoId);
-                    if (await cmd.ExecuteScalarAsync() != null)
-                        throw new Exception($"El código '{resultado.CodigoCompleto}' ya ha sido facturado en un comprobante activo.");
-                }
-
-                return resultado;
-            }
+                CodigoCreadoId = Convert.ToInt32(reader["codigo_id"]),
+                CodigoCompleto = reader["codigo"]?.ToString() ?? string.Empty,
+                EstadoId = Convert.ToInt32(reader["estado_id"]),
+                AlmacenId = reader["almacen_id"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["almacen_id"]),
+                ProductoId = Convert.ToInt32(reader["producto_id"]),
+                CategoriaProductoId = Convert.ToInt32(reader["categoria_producto_id"]),
+                CategoriaProducto = reader["categoria_producto"]?.ToString() ?? string.Empty,
+                DescripcionProducto = reader["descripcion"]?.ToString() ?? string.Empty,
+                PrecioUnitario = Convert.ToDecimal(reader["precio_unitario"]),
+                UnidadMedida = "PACK",
+                MovimientoId = 0,
+                TipoMovimiento = string.Empty,
+                TieneSalida = Convert.ToInt32(reader["tiene_salida"]) == 1
+            };
         }
 
         public async Task<FacturacionCabecera> ObtenerComprobantePorNumeroAsync(string serie, string numero)

@@ -664,11 +664,11 @@ WHERE md.producto_id = @ProductoId
         }
 
         public async Task<List<KardexFisicoItem>> ObtenerHistorialCompletoPorCodigoAsync(
-            int productoId,
-            string codigoEscaneado,
-            int categoriaProductoId,
-            int almacenId = 1,
-            bool incluirAnulados = false)
+    int productoId,
+    string codigoEscaneado,
+    int categoriaProductoId,
+    int almacenId = 1,
+    bool incluirAnulados = false)
         {
             var lista = new List<KardexFisicoItem>();
 
@@ -676,7 +676,7 @@ WHERE md.producto_id = @ProductoId
             {
                 await ((DbConnection)conn).OpenAsync();
 
-                // 🌟 1. OBTENEMOS LA ABREVIATURA REAL DEL PRODUCTO DESDE LA BD (Ej: "LMA3 C26-G-G")
+                // 🌟 1. OBTENER LA ABREVIATURA BASE DEL PRODUCTO
                 string abreviaturaBase = "";
                 using (var cmdAbrev = conn.CreateCommand())
                 {
@@ -690,15 +690,27 @@ WHERE md.producto_id = @ProductoId
                     }
                 }
 
-                // 🌟 2. FORMATEAMOS EL CÓDIGO EXACTO CON LA ABREVIATURA Y LOS 7 DÍGITOS (Ej: LMA3 C26-G-G-0000010)
-                string codigoLimpio = codigoEscaneado.Trim();
+                // 🌟 2. NORMALIZACIÓN INTELIGENTE DEL CÓDIGO
+                // Convierte comillas simples a guiones y limpia espacios
+                string codigoLimpio = codigoEscaneado.Trim().Replace("'", "-");
+
+                // Caso A: El usuario digitó solo el correlativo (ej: "86" -> "PL3-C24-G-G-0000086")
                 if (int.TryParse(codigoLimpio, out int numParsed))
                 {
                     codigoLimpio = $"{abreviaturaBase}-{numParsed:D7}";
                 }
+                // Caso B: El código no tiene la abreviatura completa
                 else if (!codigoLimpio.Contains("-") && !string.IsNullOrEmpty(abreviaturaBase))
                 {
                     codigoLimpio = $"{abreviaturaBase}-{codigoLimpio}";
+                }
+
+                // Crear versión alternativa reemplazando el primer guión por espacio para cubrir variaciones de BD (ej. "PL3 C24-G-G-0000086")
+                string codigoVariacionEspacio = codigoLimpio;
+                int primerGuion = codigoLimpio.IndexOf('-');
+                if (primerGuion > 0)
+                {
+                    codigoVariacionEspacio = string.Concat(codigoLimpio.AsSpan(0, primerGuion), " ", codigoLimpio.AsSpan(primerGuion + 1));
                 }
 
                 using (var cmd = conn.CreateCommand())
@@ -707,40 +719,46 @@ WHERE md.producto_id = @ProductoId
                     string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 2 ";
 
                     string sql = $@"
-            SELECT DISTINCT
-                m.fecha_movimiento,
-                m.created_at,
-                CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
-                CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
-                COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
-                CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
-                CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
-                CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
-                m.estado_id,
-                CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre
-            FROM movimiento_codigos mc {nolock}
-            INNER JOIN movimiento_detalles md {nolock} ON mc.movimiento_detalle_id = md.id
-            INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-            INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-            LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-            LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-            LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
-            LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
-            INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-            INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-            LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
-            WHERE md.producto_id = @ProductoId
-              AND rc.categoria_producto_id = @CategoriaProductoId
-              AND cc.codigo = @CodigoBusqueda
-              AND m.almacen_id = @AlmacenId
-              {sqlAnuladosFiltro}
-            ORDER BY m.created_at ASC";
+    SELECT DISTINCT
+        m.fecha_movimiento,
+        m.created_at,
+        CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
+        CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
+        COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
+        CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
+        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
+        CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
+        m.estado_id,
+        CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre
+    FROM movimiento_codigos mc {nolock}
+    INNER JOIN movimiento_detalles md {nolock} ON mc.movimiento_detalle_id = md.id
+    INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+    INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+    LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+    LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+    LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+    LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+    INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+    INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+    LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
+    WHERE md.producto_id = @ProductoId
+      AND rc.categoria_producto_id = @CategoriaProductoId
+      AND (
+            cc.codigo = @CodigoBusqueda 
+            OR cc.codigo = @CodigoVariacion
+            OR REPLACE(cc.codigo, '''', '-') = @CodigoBusqueda
+            OR REPLACE(cc.codigo, ' ', '-') = @CodigoBusqueda
+          )
+      AND m.almacen_id = @AlmacenId
+      {sqlAnuladosFiltro}
+    ORDER BY m.created_at ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
                     AgregarParametro(cmd, "@CategoriaProductoId", categoriaProductoId);
-                    AgregarParametro(cmd, "@CodigoBusqueda", codigoLimpio); // 👈 Buscará el código completo formateado
+                    AgregarParametro(cmd, "@CodigoBusqueda", codigoLimpio);
+                    AgregarParametro(cmd, "@CodigoVariacion", codigoVariacionEspacio);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     using (var reader = await ((DbCommand)cmd).ExecuteReaderAsync())
@@ -749,7 +767,6 @@ WHERE md.producto_id = @ProductoId
                         {
                             int estId = reader.IsDBNull(8) ? 1 : reader.GetInt32(8);
                             bool anulado = (estId == 2);
-                            string coleccionCalculada = reader.IsDBNull(9) ? "" : reader.GetString(9);
 
                             var item = new KardexFisicoItem
                             {

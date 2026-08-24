@@ -106,9 +106,13 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
+                // 🌟 Normalizamos el filtro (admitiendo guión o comillas simples si escanean con pistola)
+                string filtroNormalizado = filtro.Replace("'", "-");
+
                 var filtrados = _listaCodigosCompleta
-                    .Where(c => (c.Codigo != null && c.Codigo.ToLower().Contains(filtro)) ||
-                                c.Id.ToString().Contains(filtro) ||
+                    .Where(c => (c.Codigo != null &&
+                                (c.Codigo.ToLower().Contains(filtro) ||
+                                 c.Codigo.ToLower().Replace("'", "-").Contains(filtroNormalizado))) ||
                                 (c.AlmacenNombre != null && c.AlmacenNombre.ToLower().Contains(filtro)))
                     .ToList();
 

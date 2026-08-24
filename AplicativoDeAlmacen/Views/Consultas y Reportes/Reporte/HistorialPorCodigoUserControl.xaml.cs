@@ -3,6 +3,7 @@ using AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Services.Reportes;
+using AplicativoDeAlmacen.Views.Movimientos.Lectora;
 using AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante;
 using System;
 using System.Collections.Generic;
@@ -197,8 +198,9 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
             TxtCodigoEscaneado.Focus();
         }
 
-        // 🌟 BOTÓN LECTOR: Abre la lectora modal para buscar 1 código por lectura
-        private async void BtnLector_Click(object sender, RoutedEventArgs e)
+        // 🌟 BOTÓN LECTOR: Abre la lectora global y procesa la trazabilidad al instante
+        // 🌟 BOTÓN LECTOR: Abre la lectora global y procesa la trazabilidad al instante
+        private void BtnLector_Click(object sender, RoutedEventArgs e)
         {
             if (_productoIdSeleccionado == 0)
             {
@@ -212,22 +214,30 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Reporte
                 return;
             }
 
-            // Creamos una colección temporal para la LectorWindow
-            var itemsTemp = new ObservableCollection<ItemGridDTO>();
-            var lectorModal = new LectorWindow(itemsTemp)
+            // 1. Declaramos la variable primero para permitir su captura dentro del callback
+            LectorGlobalWindow lectorModal = null!;
+
+            lectorModal = new LectorGlobalWindow(async resultado =>
+            {
+                // 2. Asignamos el código a la caja de texto en la vista principal
+                TxtCodigoEscaneado.Text = resultado.CodigoCompleto;
+
+                // 3. Ejecutamos la búsqueda de trazabilidad
+                await ProcesarLecturaAsync();
+
+                // 4. Cerramos la ventana lectora automáticamente desde el hilo UI
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    lectorModal.Close();
+                });
+
+                return (true, "Código cargado correctamente");
+            })
             {
                 Owner = Window.GetWindow(this)
             };
 
             lectorModal.ShowDialog();
-
-            // Al cerrar la lectora, recuperamos el código si se leyó alguno
-            if (itemsTemp.Any() && itemsTemp.First().Codigos.Any())
-            {
-                string codigoLeido = itemsTemp.First().Codigos.First().CodigoString;
-                TxtCodigoEscaneado.Text = codigoLeido;
-                await ProcesarLecturaAsync();
-            }
         }
 
         // 🌟 1. Evento para recargar la tabla al marcar/desmarcar el CheckBox

@@ -1,0 +1,44 @@
+﻿<Window x:Class="AplicativoDeAlmacen.Views.Movimientos.Lectora.ModalExportarLectora"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Opciones de Exportación - Auditoría"
+        Height="360" Width="460"
+        WindowStartupLocation="CenterOwner"
+        Background="#F8FAFC"
+        FontFamily="Segoe UI"
+        ResizeMode="NoResize">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border BorderBrush="#10B981" BorderThickness="3,0,0,0" Padding="8,0,0,0" Margin="0,0,0,14">
+            <StackPanel>
+                <TextBlock Text="Generar Reporte de Lectura" FontSize="16" FontWeight="Bold" Foreground="#0F172A"/>
+                <TextBlock Text="Seleccione los datos que desea incluir en el archivo" FontSize="12" Foreground="#64748B"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Opciones -->
+        <Border Grid.Row="1" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="FILTRO DE DATOS" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="0,0,0,10"/>
+
+                <RadioButton x:Name="RbTodo" Content="📋 Exportar Todo (Aceptados y Rechazados)" Margin="0,0,0,10" IsChecked="True" FontWeight="SemiBold" Foreground="#334155"/>
+                <RadioButton x:Name="RbSoloBuenos" Content="🟢 Exportar Solo Códigos Aceptados (Válidos)" Margin="0,0,0,10" FontWeight="SemiBold" Foreground="#047857"/>
+                <RadioButton x:Name="RbSoloErrores" Content="🔴 Exportar Solo Incidencias / Rechazados" Margin="0,0,0,10" FontWeight="SemiBold" Foreground="#B91C1C"/>
+                <RadioButton x:Name="RbSoloVenta" Content="📙 Solo Tipo VENTA" Margin="0,0,0,6" Foreground="#1E40AF"/>
+                <RadioButton x:Name="RbSoloGuia" Content="📘 Solo Tipo GUÍA" Foreground="#5B21B6"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Botones de Acción -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancelar" Background="#94A3B8" Foreground="White" Width="90" Height="34" Margin="0,0,10,0" FontWeight="SemiBold" Cursor="Hand" Click="BtnCancelar_Click"/>
+            <Button Content="📊 Abrir en Excel" Background="#10B981" Foreground="White" Width="140" Height="34" FontWeight="Bold" Cursor="Hand" Click="BtnGenerarExcel_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

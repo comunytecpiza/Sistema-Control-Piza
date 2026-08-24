@@ -111,7 +111,7 @@
             </Grid.RowDefinitions>
 
             <!-- ENCABEZADO PRINCIPAL -->
-            <Border Grid.Row="0" BorderBrush="#DC2626" BorderThickness="4,0,0,0" Padding="16,4,0,4" Margin="0,0,0,24" CornerRadius="0">
+            <Border Grid.Row="0" BorderBrush="#DC2626" BorderThickness="10,0,0,0" Padding="16,4,0,4" Margin="0,0,0,24" CornerRadius="0">
                 <TextBlock Text="Salida de Productos" FontSize="24" FontWeight="Bold" Foreground="#111827"/>
             </Border>
 
@@ -120,7 +120,7 @@
                 <StackPanel>
                     <!-- BOTONES PRINCIPALES -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                        <Button x:Name="btnNuevo" Style="{StaticResource ModernButton}" Content="➕ Nueva Salida" Background="#3B82F6" Margin="0,0,10,0" MinWidth="130" Click="BtnNuevo_Click"/>
+                        <Button x:Name="btnNuevo" Style="{StaticResource ModernButton}" Content="➕ Nueva Salida" Background="#56c748" Margin="0,0,10,0" MinWidth="130" Click="BtnNuevo_Click"/>
                         <Button x:Name="btnModificarCabecera" Style="{StaticResource ModernButton}" Content="✏️ Modificar" Background="#F59E0B" Margin="0,0,10,0" MinWidth="110" Click="BtnModificar_Click" />
                         <Button x:Name="btnImprimirTicket" Style="{StaticResource ModernButton}" Content="🖨️ Imprimir" Background="#6B7280" Margin="0,0,10,0" MinWidth="120" Click="BtnImprimir_Click"/>
                         <Button x:Name="btnAnularSalida" Style="{StaticResource ModernButton}" Content="🗑️ Anular" Background="#DC2626" MinWidth="110" Click="BtnAnular_Click"/>

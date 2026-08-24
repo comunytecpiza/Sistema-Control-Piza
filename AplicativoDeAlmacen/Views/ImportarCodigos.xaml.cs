@@ -269,32 +269,40 @@ namespace AplicativoDeAlmacen.Views
                         string observacion = "❌ NO EXISTE EN BASE DE DATOS";
                         int categoriaId = (norm.Contains("-V-") || norm.Contains("'V'") || norm.Contains("-V'") || norm.Contains(" V ") || norm.Contains("VENTA")) ? 2 : 1;
 
+                        // 🌟 SI ESTAMOS EDITANDO Y EL CÓDIGO YA PERTENECE AL MOVIMIENTO:
+                        // Se marca como informativo/omitido para no bloquear los nuevos.
                         if (yaExisteEnMovimiento)
                         {
-                            nombreProd = "⚠️ CÓDIGOS YA ENLAZADOS EN ESTE MOVIMIENTO";
-                            observacion = "❌ YA FUE AGREGADO EN EL MOVIMIENTO ACTUAL";
+                            if (coincidencia.ProductoId.HasValue && prodMap.TryGetValue(coincidencia.ProductoId.Value, out string? pDescYa))
+                                nombreProd = pDescYa;
+                            else
+                                nombreProd = "ℹ️ CÓDIGOS YA PRESENTES EN ESTE DOCUMENTO";
+
+                            observacion = "ℹ️ YA GUARDADO EN ESTE MOVIMIENTO (SE MANTIENE)";
+                            esValido = false; // No se re-inserta para no duplicar en grilla
                         }
                         else if (duplicadoEnExcel)
                         {
                             nombreProd = "⚠️ COLISIONES / DUPLICADOS EN EXCEL";
                             observacion = "❌ DUPLICADO EN EL MISMO EXCEL";
+                            totalErroresDetectados++;
                         }
                         else if (!existeEnBD)
                         {
-                            // 🌟 SEPARACIÓN INTELIGENTE DE CÓDIGOS NO REGISTRADOS POR PREFIJO DE CATÁLOGO
                             string codigoLimpioParaPrefijo = norm.Replace(" ", "").Replace("-", "").ToUpperInvariant();
                             var productoEmparejado = listaCatalogoProductos.FirstOrDefault(p => codigoLimpioParaPrefijo.StartsWith(p.AbreviaturaLimpia, StringComparison.OrdinalIgnoreCase));
 
                             if (!string.IsNullOrEmpty(productoEmparejado.Descripcion))
                             {
-                                nombreProd = $"⚠️ Códigos no creados / sin registrar de: {productoEmparejado.Descripcion}";
-                                observacion = "❌ EL PRODUCTO EXISTE PERO EL CÓDIGO NUNCA FUE CREADO EN EL SISTEMA";
+                                nombreProd = $"⚠️ Códigos no creados de: {productoEmparejado.Descripcion}";
+                                observacion = "❌ EL PRODUCTO EXISTE PERO EL CÓDIGO NUNCA FUE CREADO";
                             }
                             else
                             {
-                                nombreProd = "❌ CÓDIGOS CON FORMATO O PRODUCTO DESCONOCIDO";
+                                nombreProd = "❌ CÓDIGOS CON FORMATO DESCONOCIDO";
                                 observacion = "❌ NO COINCIDE CON NINGÚN PRODUCTO DEL CATÁLOGO";
                             }
+                            totalErroresDetectados++;
                         }
                         else
                         {
@@ -313,16 +321,19 @@ namespace AplicativoDeAlmacen.Views
                             {
                                 nombreProd = "⚠️ CÓDIGOS CON HISTORIAL FUTURO";
                                 observacion = "❌ TIENE MOVIMIENTOS POSTERIORES EN LA LÍNEA DE TIEMPO";
+                                totalErroresDetectados++;
                             }
                             else if (estadoCodigo == 5)
                             {
-                                nombreProd = "⚠️ CÓDIGOS EN TRÁNSITO (ESTADO 5)";
-                                observacion = "❌ EN TRÁNSITO: NO SE PUEDE DESPACHAR NI INGRESAR DIRECTAMENTE";
+                                nombreProd = "🚚 CÓDIGOS EN TRÁNSITO ENTRE ALMACENES";
+                                observacion = "🚚 EN TRÁNSITO ENTRE ALMACENES (NO DISPONIBLE)";
+                                totalErroresDetectados++;
                             }
                             else if (!perteneceAMiAlmacen && EstadoPermitido == 3)
                             {
-                                nombreProd = "⚠️ CÓDIGOS NO DISPONIBLES EN SU STOCK";
-                                observacion = "❌ NO PERTENECE A TU ALMACÉN ACTUAL";
+                                nombreProd = "⚠️ CÓDIGOS DE OTRA SEDE";
+                                observacion = "🏢 NO PERTENECE A TU ALMACÉN ACTUAL";
+                                totalErroresDetectados++;
                             }
                             else
                             {
@@ -333,11 +344,13 @@ namespace AplicativoDeAlmacen.Views
                                 if (EstadoPermitido == 3 && !infoCondicion.PermitirSalida)
                                 {
                                     nombreProd = "⚠️ CÓDIGOS CON CONDICIÓN RESTRICTIVA";
-                                    observacion = $"❌ {infoCondicion.NombreCondicion.ToUpper()} (NO PERMITE SALIDA)";
+                                    observacion = $"🚫 {infoCondicion.NombreCondicion.ToUpper()} (NO PERMITE SALIDA)";
+                                    totalErroresDetectados++;
                                 }
                                 else if (EstadoPermitido != 0 && estadoCodigo != EstadoPermitido)
                                 {
-                                    observacion = $"❌ ESTADO INVÁLIDO (Estado: {estadoCodigo})";
+                                    observacion = ObtenerDescripcionEstadoAmigable(estadoCodigo, EstadoPermitido);
+                                    totalErroresDetectados++;
                                 }
                                 else
                                 {
@@ -346,8 +359,6 @@ namespace AplicativoDeAlmacen.Views
                                 }
                             }
                         }
-
-                        if (!esValido) totalErroresDetectados++;
 
                         if (!dictTemp.ContainsKey(nombreProd)) dictTemp[nombreProd] = new List<ItemCodigoPreview>();
 
@@ -447,6 +458,30 @@ namespace AplicativoDeAlmacen.Views
                                     "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
+        }
+
+        private string ObtenerDescripcionEstadoAmigable(int estadoCodigo, int estadoPermitido)
+        {
+            return estadoCodigo switch
+            {
+                // 🔹 ESTADO 1: Creado sin ingreso al almacén
+                1 => "❌ NO DISPONIBLE (ESTÁ CREADO PERO NO TIENE INGRESO)",
+
+                // 🔹 ESTADO 3: Disponible en stock
+                3 => estadoPermitido == 3
+                        ? "❌ NO DISPONIBLE (STOCK YA REGISTRADO EN ALMACÉN)"
+                        : "ℹ️ CÓDIGO DISPONIBLE EN ALMACÉN (NO APLICA PARA ESTA OPERACIÓN)",
+
+                // 🔹 ESTADO 4: Ya despachado o vendido
+                4 => "❌ NO DISPONIBLE (TIENE SALIDA / YA FUE VENDIDO)",
+
+                // 🔹 ESTADO 5: Tránsito entre almacenes/sedes
+                5 => "🚚 NO DISPONIBLE (EN TRÁNSITO ENTRE ALMACENES)",
+
+                // 🔹 OTROS ESTADOS
+                6 => "❌ NO DISPONIBLE (CÓDIGO ANULADO O DE BAJA)",
+                _ => $"❌ NO DISPONIBLE (ESTADO NO RECONOCIDO: {estadoCodigo})"
+            };
         }
 
         private void FiltrarYMostrarDatos()
@@ -629,27 +664,23 @@ namespace AplicativoDeAlmacen.Views
 
         private void Button_Click_2(object sender, RoutedEventArgs e)
         {
-            // 🛡️ Doble Candado de Seguridad
-            int totalErrores = _gruposProductosMaster
-                .SelectMany(g => g.CodigosInternos)
-                .Count(c => !c.EstadoValido);
-
-            if (totalErrores > 0)
-            {
-                MessageBox.Show("No se puede completar la transferencia porque el archivo contiene códigos con error o inexistentes.", "Operación Denegada", MessageBoxButton.OK, MessageBoxImage.Stop);
-                return;
-            }
-
+            // 🌟 Extraer exclusivamente los códigos nuevos y válidos marcados
             CodigosImportados = _gruposProductosMaster
                 .Where(g => g.IsSelected)
                 .SelectMany(g => g.CodigosInternos)
                 .Where(c => c.EstadoValido)
                 .Select(c => c.CodigoRaw)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             if (!CodigosImportados.Any())
             {
-                MessageBox.Show("No hay códigos válidos seleccionados para transferir.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(
+                    "No hay códigos nuevos y válidos para agregar.\n\n" +
+                    "Los códigos presentes en el Excel ya están guardados en este movimiento o contienen errores.",
+                    "Sin Nuevos Códigos",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
                 return;
             }
 

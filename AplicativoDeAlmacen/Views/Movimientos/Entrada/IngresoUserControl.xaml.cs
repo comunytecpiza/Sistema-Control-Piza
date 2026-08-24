@@ -1615,14 +1615,11 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        
+
 
         private void BtnEscanear_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn)
-            {
-                btn.IsEnabled = false;
-            }
+            if (sender is Button btn) btn.IsEnabled = false;
 
             foreach (System.Windows.Window window in System.Windows.Application.Current.Windows)
             {
@@ -1636,12 +1633,7 @@ namespace AplicativoDeAlmacen.Views
 
             var lector = new LectorGlobalWindow(async resultado =>
             {
-                bool seAgregoConExito = await ProcesarCodigoEscaneadoAsync(resultado);
-                if (seAgregoConExito)
-                {
-                    Application.Current.Dispatcher.Invoke(() => { RefrescarGrillas(); });
-                }
-                return seAgregoConExito;
+                return await ProcesarCodigoEscaneadoAsync(resultado);
             });
 
             lector.Owner = System.Windows.Window.GetWindow(this);
@@ -1649,43 +1641,90 @@ namespace AplicativoDeAlmacen.Views
             lector.Closed += (s, ev) =>
             {
                 if (sender is Button b) b.IsEnabled = true;
+                RefrescarGrillas();
             };
 
             lector.ShowDialog();
-            RefrescarGrillas();
         }
 
-        private async Task<bool> ProcesarCodigoEscaneadoAsync(LectoraResultDTO resultado)
+        private async Task<(bool Exito, string Mensaje)> ProcesarCodigoEscaneadoAsync(LectoraResultDTO resultado)
         {
+            // 🛑 1. Validar duplicados en la grilla actual
             if (_codigosGridList.Any(x => x.CodigoUnique.Equals(resultado.CodigoCompleto, StringComparison.OrdinalIgnoreCase)))
-                return false;
-
-            string tipoBD = await _serviceMovimiento.ObtenerColeccionTipoBDAsync(resultado.CodigoCreadoId);
-
-            var producto = await ObtenerOAgregarProductoEnListaAsync(
-            resultado.ProductoId,
-            resultado.DescripcionProducto,
-            resultado.PrecioUnitario);
-
-            var nuevosCodigos = new List<VistaCodigoGrid>
             {
-                new VistaCodigoGrid
+                return (false, $"'{resultado.CodigoCompleto}' ya está cargado en esta lista.");
+            }
+
+            // 🛑 2. Obtener motivo seleccionado
+            string motivoSeleccionado = "";
+            int motivoId = 0;
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                dynamic item = cboMotivo.SelectedItem;
+                motivoSeleccionado = item?.Descripcion?.ToString()?.ToLower() ?? cboMotivo.Text.ToLower();
+                motivoId = item?.Id != null ? Convert.ToInt32(item.Id) : 0;
+            });
+
+            bool esDevolucion = motivoSeleccionado.Contains("devoluc") || motivoSeleccionado.Contains("retorno") || motivoId == 2;
+
+            // 🛑 3. Reglas de Estado idénticas a la importación de Excel
+            if (esDevolucion)
+            {
+                if (resultado.EstadoId != 4 && !resultado.TieneSalida)
                 {
-                    ProductoId = resultado.ProductoId,
-                    CodigoUnique = resultado.CodigoCompleto,
-                    ColeccionTipo = tipoBD,
-                    MovCodigo = new MovimientoCodigo { CodigoCreadoId = resultado.CodigoCreadoId }
+                    return (false, $"'{resultado.CodigoCompleto}' no puede devolverse (nunca ha salido del almacén).");
                 }
-            };
+            }
+            else
+            {
+                if (resultado.EstadoId == 3)
+                {
+                    return (false, $"'{resultado.CodigoCompleto}' ya tiene ingreso y figura disponible en almacén.");
+                }
+                if (resultado.EstadoId == 4)
+                {
+                    return (false, $"'{resultado.CodigoCompleto}' ya fue despachado/vendido anteriormente.");
+                }
+                if (resultado.EstadoId == 5)
+                {
+                    return (false, $"'{resultado.CodigoCompleto}' se encuentra en tránsito entre sedes.");
+                }
+                if (resultado.EstadoId != 1)
+                {
+                    return (false, $"'{resultado.CodigoCompleto}' no es nuevo/creado (Estado actual: {resultado.EstadoId}).");
+                }
+            }
 
-            _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, producto.ProductoId, nuevosCodigos);
+            // 🌟 4. Asignación inmediata sin reconsultas a la BD
+            var producto = await ObtenerOAgregarProductoEnListaAsync(
+                resultado.ProductoId,
+                resultado.DescripcionProducto,
+                resultado.PrecioUnitario);
 
-            var codigosDelProducto = _codigosGridList.Where(c => c.ProductoId == producto.ProductoId).ToList();
-            var nuevosRangos = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosDelProducto);
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                var nuevosCodigos = new List<VistaCodigoGrid>
+        {
+            new VistaCodigoGrid
+            {
+                ProductoId = resultado.ProductoId,
+                CodigoUnique = resultado.CodigoCompleto,
+                ColeccionTipo = resultado.CategoriaProducto,
+                MovCodigo = new MovimientoCodigo { CodigoCreadoId = resultado.CodigoCreadoId }
+            }
+        };
 
-            _serviceMovimiento.ReemplazarRangosProducto(_rangosProcesadosGlobal, producto.ProductoId, nuevosRangos);
+                _serviceMovimiento.AgregarCodigosIndividuales(_codigosGridList, producto.ProductoId, nuevosCodigos);
 
-            return true;
+                var codigosDelProducto = _codigosGridList.Where(c => c.ProductoId == producto.ProductoId).ToList();
+                var nuevosRangos = _serviceMovimiento.GenerarRangosDesdeCodigos(codigosDelProducto);
+
+                _serviceMovimiento.ReemplazarRangosProducto(_rangosProcesadosGlobal, producto.ProductoId, nuevosRangos);
+
+                RefrescarGrillas();
+            });
+
+            return (true, "Aceptado");
         }
 
         private async Task<VistaProductoGrid> ObtenerOAgregarProductoEnListaAsync(int productoId, string descripcion, decimal precio)
