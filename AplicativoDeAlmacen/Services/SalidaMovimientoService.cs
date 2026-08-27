@@ -497,31 +497,35 @@ namespace AplicativoDeAlmacen.Services
         }
 
         public async Task<bool> RegistrarSalidaCompletaAsync(
-    Movimiento cabecera,
-    List<VistaProductoGrid> listaProductos,
-    List<VistaCodigoGrid> listaCodigos,
-    int usuarioId,
-    int estadoId,
-    int? existingMovimientoId = null,
-    IProgress<int>? progress = null)
+            Movimiento cabecera,
+            List<VistaProductoGrid> listaProductos,
+            List<VistaCodigoGrid> listaCodigos,
+            int usuarioId,
+            int estadoId,
+            int? existingMovimientoId = null,
+            IProgress<int>? progress = null)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            // 🛑 1. CANDADO DE AUDITORÍA: Validar plazo de 5 días hábiles sobre created_at si es edición
+            
+            // 🛑 1. CANDADO DE AUDITORÍA: Validar plazo sobre created_at (o fecha_movimiento de respaldo)
             if (existingMovimientoId.HasValue)
             {
                 int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
                 DateTime? fechaCreacionOriginal = null;
+
                 using (var cmdFecha = dbConn.CreateCommand())
                 {
-                    cmdFecha.CommandText = QueryAdapter.FormatearConsulta("SELECT created_at FROM movimientos WHERE id = @id");
+                    cmdFecha.CommandText = QueryAdapter.FormatearConsulta("SELECT created_at, fecha_movimiento FROM movimientos WHERE id = @id");
                     AgregarParametro(cmdFecha, "@id", existingMovimientoId.Value);
-                    var resFecha = await cmdFecha.ExecuteScalarAsync();
-                    if (resFecha != null && resFecha != DBNull.Value)
+                    using var rdrFecha = await cmdFecha.ExecuteReaderAsync();
+                    if (await rdrFecha.ReadAsync())
                     {
-                        fechaCreacionOriginal = Convert.ToDateTime(resFecha);
+                        DateTime? cAt = rdrFecha.IsDBNull(0) ? (DateTime?)null : rdrFecha.GetDateTime(0);
+                        DateTime? fMov = rdrFecha.IsDBNull(1) ? (DateTime?)null : rdrFecha.GetDateTime(1);
+                        fechaCreacionOriginal = cAt ?? fMov;
                     }
                 }
 

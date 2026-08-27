@@ -120,4 +120,25 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal TotalSalidaValorado { get; set; }
         public decimal SaldoFinalValorado { get; set; }
     }
+
+    public class MatrizKardexItemDTO
+    {
+        public int MovimientoId { get; set; }
+        public int TipoMovimientoId { get; set; } // 1 = Ingreso/Devolución, 2 = Salida/Despacho
+        public string OrdenDocumento { get; set; } = string.Empty;
+        public DateTime Fecha { get; set; }
+        public int ProductoId { get; set; }
+        public string CodigoProducto { get; set; } = string.Empty;
+        public string DescripcionProducto { get; set; } = string.Empty;
+        public decimal Cantidad { get; set; }
+    }
+
+    public class ProductoColumnaDTO
+    {
+        public int ProductoId { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string Descripcion { get; set; } = string.Empty;
+        public string Nivel { get; set; } = "INICIAL"; // INICIAL, PRIMARIA, SECUNDARIA
+        public string GrupoSerie { get; set; } = "OTROS"; // LMA, MDA, MAT, COM, etc.
+    }
 }

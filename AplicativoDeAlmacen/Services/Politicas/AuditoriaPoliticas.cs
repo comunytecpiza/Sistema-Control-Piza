@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace AplicativoDeAlmacen.Services.Politicas
 {
@@ -17,28 +13,54 @@ namespace AplicativoDeAlmacen.Services.Politicas
 
             if (!fechaCreacion.HasValue) return true;
 
-            DateTime fechaInicio = fechaCreacion.Value.Date;
-            DateTime fechaActual = DateTime.Today;
+            DateTime inicio = fechaCreacion.Value;
+            DateTime fin = DateTime.Now;
 
-            if (fechaInicio >= fechaActual) return true;
+            if (inicio >= fin) return true;
 
-            int diasHabiles = 0;
-            DateTime cursor = fechaInicio;
+            // Jornadas operativas:
+            // Lun-Vie: 8:00 a 17:30 = 9.5 hrs/día
+            // Sáb: 8:00 a 13:30 = 5.5 hrs/día
+            // Límite fijado a 3 días hábiles completos (28.5 horas)
+            const double LIMITE_HORAS_HABIL = 28.5;
 
-            while (cursor < fechaActual)
+            double horasHabilesTranscurridas = 0;
+            DateTime cursor = inicio;
+
+            while (cursor < fin)
             {
-                cursor = cursor.AddDays(1);
-                if (cursor.DayOfWeek != DayOfWeek.Saturday && cursor.DayOfWeek != DayOfWeek.Sunday)
+                DateTime siguientePaso = cursor.AddMinutes(30);
+                if (siguientePaso > fin) siguientePaso = fin;
+
+                DayOfWeek dia = cursor.DayOfWeek;
+                TimeSpan hora = cursor.TimeOfDay;
+
+                if (dia >= DayOfWeek.Monday && dia <= DayOfWeek.Friday)
                 {
-                    diasHabiles++;
+                    // Lunes a Viernes: 08:00 a 17:30
+                    if (hora >= new TimeSpan(8, 0, 0) && hora < new TimeSpan(17, 30, 0))
+                    {
+                        horasHabilesTranscurridas += (siguientePaso - cursor).TotalHours;
+                    }
                 }
+                else if (dia == DayOfWeek.Saturday)
+                {
+                    // Sábados: 08:00 a 13:30
+                    if (hora >= new TimeSpan(8, 0, 0) && hora < new TimeSpan(13, 30, 0))
+                    {
+                        horasHabilesTranscurridas += (siguientePaso - cursor).TotalHours;
+                    }
+                }
+                // Domingo se omite
+
+                cursor = siguientePaso;
             }
 
-            if (diasHabiles > 5)
+            if (horasHabilesTranscurridas > LIMITE_HORAS_HABIL)
             {
                 mensajeError = $"⛔ PLAZO DE EDICIÓN VENCIDO:\n\n" +
                                $"Este movimiento fue registrado el {fechaCreacion.Value:dd/MM/yyyy HH:mm}.\n" +
-                               $"Han transcurrido {diasHabiles} días hábiles (el límite permitido es 5 días hábiles).\n\n" +
+                               $"El límite permitido para edición por almacén (3 días hábiles) ha caducado.\n\n" +
                                $"Solo un usuario con rol de Administrador puede autorizar o modificar este registro.";
                 return false;
             }

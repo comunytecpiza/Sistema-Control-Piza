@@ -26,6 +26,7 @@ using Window = HandyControl.Controls.Window;
 using Color = System.Windows.Media.Color;
 using ColorConverter = System.Windows.Media.ColorConverter;
 using LiveChartsCore.SkiaSharpView.WPF;
+using AplicativoDeAlmacen.Services.Politicas;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -347,7 +348,6 @@ namespace AplicativoDeAlmacen.Views
         {
             if (e.Key == Key.Enter)
             {
-                // 🛑 1. CANDADO ATÓMICO ANTI DOBLE ENTER
                 e.Handled = true;
 
                 if (_isBuscandoDocumento) return;
@@ -369,28 +369,64 @@ namespace AplicativoDeAlmacen.Views
                     txtNumDocumento.Text = numero;
                 }
 
-                // 🛑 2. BLOQUEO INMEDIATO DE LA CAJA AL PRIMER ENTER
-                txtNumDocumento.IsReadOnly = true;
-                txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
-
-                // 🛑 3. LIMPIEZA PREVENTIVA DE MEMORIA PARA EVITAR DUPLICACIONES
-                _productosGridList.Clear();
-                _codigosGridList.Clear();
-                _rangosProcesadosGlobal.Clear();
-
                 try
                 {
                     this.Cursor = Cursors.Wait;
+                    int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                    // 🛑 1. VALIDACIÓN TEMPRANA (Solo en Modo Edición)
+                    if (!_printMode && !_anularMode)
+                    {
+                        int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+
+                        // Consulta rápida y ligera a la cabecera
+                        using (var conn = _dbConnHelper.GetConnection())
+                        {
+                            var dbConn = (System.Data.Common.DbConnection)conn;
+                            await dbConn.OpenAsync();
+                            using var cmdCheck = dbConn.CreateCommand();
+                            cmdCheck.CommandText = QueryAdapter.FormatearConsulta(
+                                "SELECT created_at, fecha_movimiento FROM movimientos WHERE serie_documento = @s AND numero_documento = @n AND estado_id = 1 AND ISNULL(almacen_id, ISNULL(almacen_destino_id, 1)) = @almId");
+
+                            var p1 = cmdCheck.CreateParameter(); p1.ParameterName = "@s"; p1.Value = serie; cmdCheck.Parameters.Add(p1);
+                            var p2 = cmdCheck.CreateParameter(); p2.ParameterName = "@n"; p2.Value = numero; cmdCheck.Parameters.Add(p2);
+                            var p3 = cmdCheck.CreateParameter(); p3.ParameterName = "@almId"; p3.Value = miAlmacenId; cmdCheck.Parameters.Add(p3);
+
+                            using var rdr = await cmdCheck.ExecuteReaderAsync();
+                            if (await rdr.ReadAsync())
+                            {
+                                DateTime? fechaCreatedAt = rdr.IsDBNull(0) ? (DateTime?)null : rdr.GetDateTime(0);
+                                DateTime? fechaMov = rdr.IsDBNull(1) ? (DateTime?)null : rdr.GetDateTime(1);
+                                DateTime? fechaEvaluacion = fechaCreatedAt ?? fechaMov;
+
+                                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaEvaluacion, rolUsuarioActivo, out string mensajeBloqueo))
+                                {
+                                    MessageBox.Show(mensajeBloqueo, "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                                    // 🛑 Cancela todo inmediatamente y limpia
+                                    EstablecerEstadoInicial();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    // 🛑 2. CARGA NORMAL SI CUMPLE EL PLAZO
+                    txtNumDocumento.IsReadOnly = true;
+                    txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+                    _productosGridList.Clear();
+                    _codigosGridList.Clear();
+                    _rangosProcesadosGlobal.Clear();
                     _currentMovimientoId = null;
 
                     await LoadMovimientoBySerieNumeroAsync(serie, numero);
 
                     if (!_currentMovimientoId.HasValue)
                     {
-                        MessageBox.Show("Movimiento de ingreso no encontrado en este almacén. Verifique el número e intente de nuevo.",
+                        MessageBox.Show("Movimiento de ingreso no encontrado en este almacén.",
                                         "Búsqueda fallida", MessageBoxButton.OK, MessageBoxImage.Warning);
 
-                        // 🔓 SI NO EXISTE: RESTAURAR LA CAJA PARA QUE PUEDA VOLVER A ESCRIBIR SIN "DESCONECTARSE"
                         txtNumDocumento.IsReadOnly = false;
                         txtNumDocumento.Background = System.Windows.Media.Brushes.White;
                         txtNumDocumento.Focus();
@@ -401,15 +437,13 @@ namespace AplicativoDeAlmacen.Views
                 {
                     MessageBox.Show($"Error al buscar movimiento: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     _currentMovimientoId = null;
-
-                    // 🔓 RESTAURACIÓN EN CASO DE ERROR
                     txtNumDocumento.IsReadOnly = false;
                     txtNumDocumento.Background = System.Windows.Media.Brushes.White;
                     txtNumDocumento.Focus();
                 }
                 finally
                 {
-                    _isBuscandoDocumento = false; // 🔓 Libera el candado
+                    _isBuscandoDocumento = false;
                     this.Cursor = Cursors.Arrow;
                 }
             }
@@ -671,8 +705,8 @@ namespace AplicativoDeAlmacen.Views
             txtNumDocumento.IsReadOnly = true;
             txtNumDocumento.Background = System.Windows.Media.Brushes.WhiteSmoke;
 
-            
-            
+
+
             // 🌟 2. EVALUACIÓN SEGÚN EL MODO ACTIVADO
             if (_printMode)
             {
@@ -686,6 +720,15 @@ namespace AplicativoDeAlmacen.Views
             }
             else
             {
+                // 🛑 VALIDACIÓN DE PLAZO AL CARGAR EN MODO EDICIÓN
+                int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+                if (!AuditoriaPoliticas.ValidarPlazoEdicion(movimiento.CreatedAt, rolUsuarioActivo, out string mensajeBloqueo))
+                {
+                    MessageBox.Show(mensajeBloqueo, "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    BloquearParaImpresion(); // Carga solo como lectura/consulta
+                    return;
+                }
+
                 HabilitarCamposFormulario(true);
                 btnGrabar.IsEnabled = true;
                 btnCancelar.IsEnabled = true;
@@ -1035,7 +1078,6 @@ namespace AplicativoDeAlmacen.Views
             }
 
             int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
-
             int idMotivoIngreso = Convert.ToInt32(cboMotivo.SelectedValue);
             int? almacenOrigenReal = null;
             int? almacenDestinoReal = miAlmacenActual;
@@ -1049,15 +1091,41 @@ namespace AplicativoDeAlmacen.Views
                 almacenDestinoReal = miAlmacenActual;
             }
 
-            // 🌟 COMBINAR FECHA DEL DATEPICKER CON LA HORA EXACTA ACTUAL
+            // 🌟 REGLA DE ORO DE HORAS OPERATIVAS:
+            // Si es edición, rescata la hora original de created_at para no alterar el orden cronológico.
             DateTime fechaBase = dtpFechaRecepcion.SelectedDate ?? DateTime.Today;
-            DateTime fechaConHoraExacta = fechaBase.Date.Add(DateTime.Now.TimeOfDay);
+            TimeSpan horaOperativa = DateTime.Now.TimeOfDay;
+
+            if (_currentMovimientoId.HasValue)
+            {
+                using (var conn = _dbConnHelper.GetConnection())
+                {
+                    var dbConn = (System.Data.Common.DbConnection)conn;
+                    dbConn.Open();
+                    using var cmdH = dbConn.CreateCommand();
+                    cmdH.CommandText = QueryAdapter.FormatearConsulta("SELECT created_at, fecha_movimiento FROM movimientos WHERE id = @id");
+                    var pId = cmdH.CreateParameter(); pId.ParameterName = "@id"; pId.Value = _currentMovimientoId.Value; cmdH.Parameters.Add(pId);
+                    using var rdrH = cmdH.ExecuteReader();
+                    if (rdrH.Read())
+                    {
+                        DateTime? cAt = rdrH.IsDBNull(0) ? (DateTime?)null : rdrH.GetDateTime(0);
+                        DateTime? fMov = rdrH.IsDBNull(1) ? (DateTime?)null : rdrH.GetDateTime(1);
+
+                        if (cAt.HasValue && cAt.Value.TimeOfDay != TimeSpan.Zero)
+                            horaOperativa = cAt.Value.TimeOfDay;
+                        else if (fMov.HasValue && fMov.Value.TimeOfDay != TimeSpan.Zero)
+                            horaOperativa = fMov.Value.TimeOfDay;
+                    }
+                }
+            }
+
+            DateTime fechaConHoraExacta = fechaBase.Date.Add(horaOperativa);
 
             return new SolicitudMovimiento
             {
                 Movimiento = new Movimiento
                 {
-                    FechaMovimiento = fechaConHoraExacta, // 👈 Guarda fecha y hora completa
+                    FechaMovimiento = fechaConHoraExacta,
                     SerieDocumento = txtNumSerie.Text.Trim(),
                     NumeroDocumento = txtNumDocumento.Text.Trim(),
                     MotivoProductoId = idMotivoIngreso,

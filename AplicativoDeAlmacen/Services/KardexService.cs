@@ -29,6 +29,9 @@ namespace AplicativoDeAlmacen.Services
             cmd.Parameters.Add(p);
         }
 
+        // =========================================================
+        // 1. GENERAR KÁRDEX FÍSICO
+        // =========================================================
         public async Task<KardexFisicoReporte> GenerarKardexFisicoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta, int almacenId)
         {
             var reporte = new KardexFisicoReporte { AlmacenId = almacenId };
@@ -39,7 +42,7 @@ namespace AplicativoDeAlmacen.Services
 
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
-                // 1. CÁLCULO DE STOCK INICIAL (Excluye explícitamente m.estado_id = 2)
+                // 1. CÁLCULO DE STOCK INICIAL
                 using (IDbCommand cmdInit = conn.CreateCommand())
                 {
                     string qInit = $@"
@@ -62,16 +65,13 @@ WHERE md.producto_id = @ProductoId
                     reporte.StockInicial = (resInit != null && resInit != DBNull.Value) ? Convert.ToDecimal(resInit) : 0m;
                 }
 
-                // 2. CONSULTA DE MOVIMIENTOS EN RANGO CON DETECCIÓN DE DEVOLUCIÓN REAL
+                // 2. CONSULTA DE MOVIMIENTOS EN RANGO
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string subqueryTrazabilidad = $@"
             CASE 
-                -- Devolución expresa por motivo 2
                 WHEN m.motivo_producto_id = 2 THEN 1
-                -- Compra expresa por motivo 1
                 WHEN m.motivo_producto_id = 1 THEN 0
-                -- Motivo OTROS (13) o Promotoría (3): Verificar si sus códigos ya registraron salidas previas en el sistema
                 WHEN mp.tipo_movimiento_id = 1 THEN 
                     CASE WHEN EXISTS (
                         SELECT 1 
@@ -86,6 +86,10 @@ WHERE md.producto_id = @ProductoId
                     ) THEN 1 ELSE 0 END
                 ELSE 0 
             END AS es_devolucion_real";
+
+                    string exprFechaOrden = QueryAdapter.EsMySQL
+                        ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                        : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
 
                     string queryRaw = $@"
 SELECT
@@ -108,7 +112,6 @@ SELECT
     CASE WHEN mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId THEN md.cantidad_salida ELSE 0 END AS Salida,
     m.estado_id,
     m.motivo_producto_id,
-    -- 🌟 CAMPOS DE AUDITORÍA (Corregido 'nombres')
     m.created_at,
     COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
     m.updated_at,
@@ -121,7 +124,6 @@ LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
 LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
 LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
 LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
--- 👥 JOINS REALES A LA TABLA USUARIOS
 LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
 LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE md.producto_id = @ProductoId
@@ -132,7 +134,7 @@ WHERE md.producto_id = @ProductoId
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
   )
-ORDER BY m.fecha_movimiento ASC, m.id ASC";
+ORDER BY {exprFechaOrden} ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -152,7 +154,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                             int motivoId = reader.IsDBNull(9) ? 0 : reader.GetInt32(9);
                             string motivoTexto = Convert.ToString(reader.GetValue(1)) ?? "";
 
-                            // 🌟 Índice 14 corresponde a es_devolucion_real al final del SELECT
                             bool esDevolucionReal = !reader.IsDBNull(14) && Convert.ToInt32(reader.GetValue(14)) == 1;
 
                             decimal ing = reader.GetDecimal(6);
@@ -161,7 +162,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                             DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
                             DateTime? createdAtRaw = reader.IsDBNull(10) ? (DateTime?)null : reader.GetDateTime(10);
 
-                            // 🌟 Si fecha_movimiento no tiene hora (00:00:00), le inyectamos la hora exacta de creacion
                             DateTime? fechaMovFinal = fechaMovRaw;
                             if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
                             {
@@ -170,7 +170,7 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                             var item = new KardexFisicoItem
                             {
-                                Fecha = fechaMovFinal, // 👈 Fecha con hora operativa completa
+                                Fecha = fechaMovFinal,
                                 Tipo = motivoTexto,
                                 Registro = Convert.ToString(reader.GetValue(3)) ?? "",
                                 Guia = Convert.ToString(reader.GetValue(4)) ?? "",
@@ -181,7 +181,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                                 SalidaNormal = sal,
                                 IsAnulado = false,
 
-                                // 🌟 Datos de Auditoría
                                 CreatedAt = createdAtRaw,
                                 UsuarioCreador = reader.IsDBNull(11) ? "" : Convert.ToString(reader.GetValue(11))!,
                                 UpdatedAt = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12),
@@ -190,7 +189,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                             reporte.TotalSalidas += sal;
 
-                            // Clasificación Contable
                             if (ing > 0)
                             {
                                 string motivoUpper = motivoTexto.ToUpperInvariant();
@@ -200,24 +198,16 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                                 if (esAlmacenCentral)
                                 {
                                     if (esCompra || (!esDevolucionReal && motivoId != 2 && !esTransferencia))
-                                    {
                                         reporte.TotalIngresos += ing;
-                                    }
                                     else
-                                    {
                                         reporte.TotalDevoluciones += ing;
-                                    }
                                 }
                                 else
                                 {
                                     if (esTransferencia || esCompra || (!esDevolucionReal && motivoId != 2))
-                                    {
                                         reporte.TotalIngresos += ing;
-                                    }
                                     else
-                                    {
                                         reporte.TotalDevoluciones += ing;
-                                    }
                                 }
                             }
 
@@ -282,7 +272,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
-                    // 🌟 Cobertura completa del rango operativo
                     DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
 
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
@@ -309,16 +298,16 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
         }
 
         // =========================================================
-        // 3. CONSULTA DE MOVIMIENTOS DETALLADOS (Aislamiento por Almacén + Fix Double Cast)
+        // 3. CONSULTA DE MOVIMIENTOS DETALLADOS
         // =========================================================
         public async Task<ConsultaMovimientoReporte> ConsultarMovimientosDetalladosAsync(
-    int productoId,
-    DateTime fechaDesde,
-    DateTime fechaHasta,
-    string? razonSocial = null,
-    string? ubicacion = null,
-    int? categoriaProductoId = null,
-    int almacenId = 1)
+            int productoId,
+            DateTime fechaDesde,
+            DateTime fechaHasta,
+            string? razonSocial = null,
+            string? ubicacion = null,
+            int? categoriaProductoId = null,
+            int almacenId = 1)
         {
             var reporte = new ConsultaMovimientoReporte();
 
@@ -326,6 +315,10 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
             {
                 await ((DbConnection)conn).OpenAsync();
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+
+                string exprFechaOrden = QueryAdapter.EsMySQL
+                    ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                    : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
 
                 // 1. TABLA IZQUIERDA — Movimientos
                 using (IDbCommand cmd = conn.CreateCommand())
@@ -352,7 +345,13 @@ SELECT DISTINCT
     m.motivo_producto_id,
     mp.tipo_movimiento_id,
     rc.categoria_producto_id,
-    COALESCE(m.almacen_destino_id, COALESCE(m.almacen_origen_id, m.almacen_id)) AS alm_relacionado_id
+    COALESCE(m.almacen_destino_id, COALESCE(m.almacen_origen_id, m.almacen_id)) AS alm_relacionado_id,
+    m.created_at,
+    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+    m.updated_at,
+    usr_u.nombres AS usuario_modificador,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
@@ -363,6 +362,8 @@ LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
 LEFT JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
 LEFT JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
 LEFT JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE md.producto_id = @ProductoId
   AND m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
@@ -380,7 +381,7 @@ WHERE md.producto_id = @ProductoId
                     if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
                         queryRaw += " AND (rc.categoria_producto_id = @CategoriaId OR rc.categoria_producto_id IS NULL)";
 
-                    queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                    queryRaw += $" ORDER BY {exprFechaOrden} ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -402,20 +403,35 @@ WHERE md.producto_id = @ProductoId
                     {
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
-                            int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
+                            int estadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"));
                             bool anulado = (estadoId == 2);
-                            int almRelId = reader.IsDBNull(11) ? 0 : reader.GetInt32(11);
+                            int almRelId = reader.IsDBNull(reader.GetOrdinal("alm_relacionado_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("alm_relacionado_id"));
+
+                            DateTime? fechaMovRaw = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"));
+                            DateTime? createdAtRaw = reader.IsDBNull(reader.GetOrdinal("created_at")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("created_at"));
+
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
 
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
-                                Fecha = reader.IsDBNull(1) ? DateTime.MinValue : reader.GetDateTime(1),
-                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + Convert.ToString(reader.GetValue(2)),
-                                RazonSocialUbicacion = Convert.ToString(reader.GetValue(3)) ?? "",
-                                NumeroGuia = Convert.ToString(reader.GetValue(4)) ?? "",
-                                Ingreso = reader.GetDecimal(5),
-                                Salida = reader.GetDecimal(6),
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
+                                Fecha = fechaMovFinal ?? DateTime.MinValue,
+                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + reader["registro"].ToString(),
+                                RazonSocialUbicacion = reader["razon_ubicacion"].ToString() ?? "",
+                                NumeroGuia = reader["guia"].ToString() ?? "",
+                                Ingreso = reader.GetDecimal(reader.GetOrdinal("cantidad_ingreso")),
+                                Salida = reader.GetDecimal(reader.GetOrdinal("cantidad_salida")),
                                 IsAnulado = anulado,
-                                AlmacenId = almRelId // 👈 ¡ASIGNACIÓN CLAVE PARA EL FILTRADO Y EXCEL!
+                                AlmacenId = almRelId,
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(reader.GetOrdinal("usuario_creador")) ? "" : reader["usuario_creador"].ToString()!,
+                                UpdatedAt = reader.IsDBNull(reader.GetOrdinal("updated_at")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("updated_at")),
+                                UsuarioModificador = reader.IsDBNull(reader.GetOrdinal("usuario_modificador")) ? null : reader["usuario_modificador"].ToString()
                             });
                         }
                     }
@@ -426,10 +442,12 @@ WHERE md.producto_id = @ProductoId
                 {
                     string queryRaw = $@"
 SELECT DISTINCT
-    COALESCE(cc.codigo, 'N/A') AS codigo,
+    cc.codigo AS codigo,
     COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
     CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
-    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
@@ -462,8 +480,9 @@ WHERE md.producto_id = @ProductoId
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
                     AgregarParametro(cmd, "@ProductoId", productoId);
+                    DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
                     AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
-                    AgregarParametro(cmd, "@FechaHasta", fechaHasta.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmd, "@AlmacenId", almacenId);
 
                     if (!string.IsNullOrWhiteSpace(razonSocial))
@@ -481,10 +500,12 @@ WHERE md.producto_id = @ProductoId
                         {
                             reporte.Codigos.Add(new ConsultaCodigoItem
                             {
-                                Codigo = Convert.ToString(reader.GetValue(0)) ?? "N/A",
-                                ColeccionTipo = Convert.ToString(reader.GetValue(1)) ?? "SIN TIPO",
-                                NumeroRegistro = Convert.ToString(reader.GetValue(2)) ?? "",
-                                TipoMovimiento = Convert.ToString(reader.GetValue(3)) ?? ""
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
+                                Codigo = reader["codigo"].ToString() ?? "N/A",
+                                ColeccionTipo = reader["coleccion_tipo"].ToString() ?? "SIN TIPO",
+                                NumeroRegistro = reader["numero_registro"].ToString() ?? "",
+                                TipoMovimiento = reader["tipo_mov"].ToString() ?? ""
                             });
                         }
                     }
@@ -495,7 +516,7 @@ WHERE md.producto_id = @ProductoId
         }
 
         // =========================================================
-        // 4. KARDEX VALORIZADO INDEPENDIENTE POR ALMACÉN (CORREGIDO)
+        // 4. KARDEX VALORIZADO INDEPENDIENTE POR ALMACÉN
         // =========================================================
         public async Task<KardexValorizadoReporte> GenerarKardexValorizadoAsync(int productoId, DateTime fechaDesde, DateTime fechaHasta, int almacenId)
         {
@@ -518,7 +539,7 @@ WHERE md.producto_id = @ProductoId
 
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
-                // 🌟 1. CÁLCULO DEL STOCK INICIAL REAL (Excluyendo anulados)
+                // 1. CÁLCULO DEL STOCK INICIAL REAL
                 decimal stockInicialFisico = 0m;
                 using (IDbCommand cmdInit = conn.CreateCommand())
                 {
@@ -542,9 +563,13 @@ WHERE md.producto_id = @ProductoId
                     stockInicialFisico = (resInit != null && resInit != DBNull.Value) ? Convert.ToDecimal(resInit) : 0m;
                 }
 
-                // 🌟 2. CONSULTA DE MOVIMIENTOS EN RANGO CON AUDITORÍA COMPLETA
+                // 2. CONSULTA DE MOVIMIENTOS EN RANGO CON AUDITORÍA
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
+                    string exprFechaOrden = QueryAdapter.EsMySQL
+                        ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                        : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
+
                     string queryRaw = $@"
                 SELECT
                     m.fecha_movimiento,
@@ -559,7 +584,6 @@ WHERE md.producto_id = @ProductoId
                     m.estado_id,
                     alm.id AS alm_id,
                     alm.nombre AS alm_nombre,
-                    -- 🌟 AUDITORÍA REAL DE USUARIOS Y FECHAS
                     m.created_at,
                     COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
                     m.updated_at,
@@ -580,11 +604,10 @@ WHERE md.producto_id = @ProductoId
                      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
                      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
                   )
-                ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                ORDER BY {exprFechaOrden} ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
-                    // 🌟 Cobertura completa del rango operativo (hasta 23:59:59)
                     DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
 
                     AgregarParametro(cmd, "@ProductoId", productoId);
@@ -603,7 +626,6 @@ WHERE md.producto_id = @ProductoId
                             DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
                             DateTime? createdAtRaw = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12);
 
-                            // 🌟 Fusión de hora si viene en 00:00:00
                             DateTime? fechaMovFinal = fechaMovRaw;
                             if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
                             {
@@ -624,7 +646,6 @@ WHERE md.producto_id = @ProductoId
                                 AlmacenId = reader.IsDBNull(10) ? almacenId : reader.GetInt32(10),
                                 AlmacenNombre = reader.IsDBNull(11) ? reporte.AlmacenNombre : Convert.ToString(reader.GetValue(11))!,
 
-                                // 🌟 Mapeo de Auditoría
                                 CreatedAt = createdAtRaw,
                                 UsuarioCreador = reader.IsDBNull(13) ? "" : Convert.ToString(reader.GetValue(13))!,
                                 UpdatedAt = reader.IsDBNull(14) ? (DateTime?)null : reader.GetDateTime(14),
@@ -719,12 +740,15 @@ WHERE md.producto_id = @ProductoId
             return lista;
         }
 
+        // =========================================================
+        // 5. HISTORIAL TRAZABLE POR CÓDIGO FÍSICO
+        // =========================================================
         public async Task<List<KardexFisicoItem>> ObtenerHistorialCompletoPorCodigoAsync(
-    int productoId,
-    string codigoEscaneado,
-    int categoriaProductoId,
-    int almacenId = 1,
-    bool incluirAnulados = false)
+            int productoId,
+            string codigoEscaneado,
+            int categoriaProductoId,
+            int almacenId = 1,
+            bool incluirAnulados = false)
         {
             var lista = new List<KardexFisicoItem>();
 
@@ -732,7 +756,6 @@ WHERE md.producto_id = @ProductoId
             {
                 await ((DbConnection)conn).OpenAsync();
 
-                // 🌟 1. OBTENER LA ABREVIATURA BASE DEL PRODUCTO
                 string abreviaturaBase = "";
                 using (var cmdAbrev = conn.CreateCommand())
                 {
@@ -746,7 +769,6 @@ WHERE md.producto_id = @ProductoId
                     }
                 }
 
-                // 🌟 2. NORMALIZACIÓN INTELIGENTE DEL CÓDIGO
                 string codigoLimpio = codigoEscaneado.Trim().Replace("'", "-");
 
                 if (int.TryParse(codigoLimpio, out int numParsed))
@@ -770,7 +792,10 @@ WHERE md.producto_id = @ProductoId
                     string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
                     string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 2 ";
 
-                    // 🌟 3. CONSULTA CON AUDITORÍA REAL DE USUARIOS Y TIEMPOS
+                    string exprFechaOrden = QueryAdapter.EsMySQL
+                        ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                        : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
+
                     string sql = $@"
 SELECT DISTINCT
     m.fecha_movimiento,
@@ -807,9 +832,9 @@ WHERE md.producto_id = @ProductoId
         OR REPLACE(cc.codigo, '''', '-') = @CodigoBusqueda
         OR REPLACE(cc.codigo, ' ', '-') = @CodigoBusqueda
       )
-  AND m.almacen_id = @AlmacenId
+  AND (m.almacen_id = @AlmacenId OR m.almacen_origen_id = @AlmacenId OR m.almacen_destino_id = @AlmacenId)
   {sqlAnuladosFiltro}
-ORDER BY m.fecha_movimiento ASC, m.id ASC";
+ORDER BY {exprFechaOrden} ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
 
@@ -829,7 +854,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                             DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
                             DateTime? createdAtRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
 
-                            // 🌟 Fusión inteligente de hora si fecha_movimiento viene en 00:00:00
                             DateTime? fechaMovFinal = fechaMovRaw;
                             if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
                             {
@@ -849,7 +873,6 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                                 Salida = reader.IsDBNull(7) ? 0 : reader.GetDecimal(7),
                                 IsAnulado = anulado,
 
-                                // 🌟 Auditoría Completa
                                 CreatedAt = createdAtRaw,
                                 UsuarioCreador = reader.IsDBNull(10) ? "" : Convert.ToString(reader.GetValue(10))!,
                                 UpdatedAt = reader.IsDBNull(11) ? (DateTime?)null : reader.GetDateTime(11),
@@ -864,6 +887,9 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
             return lista;
         }
 
+        // =========================================================
+        // 6. OBTENER NOMBRE COLECCIÓN POR CÓDIGO
+        // =========================================================
         public async Task<string> ObtenerNombreColeccionCodigoAsync(int productoId, string codigo, int categoriaProductoId)
         {
             try
@@ -899,9 +925,8 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
             }
         }
 
-
         // =========================================================
-        // 🌟 MÉTODO EXCLUSIVO: KÁRDEX POR UBICACIÓN (CORREGIDO)
+        // 7. KÁRDEX POR UBICACIÓN (VINCULACIÓN EXACTA POR DETALLE)
         // =========================================================
         public async Task<ConsultaMovimientoReporte> ConsultarKardexPorUbicacionAsync(
             int productoId,
@@ -917,10 +942,13 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                 await ((DbConnection)conn).OpenAsync();
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
-                // 🌟 Límite de fecha exacto hasta las 23:59:59.999
                 DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
 
-                // 🌟 1. TABLA IZQUIERDA: MOVIMIENTOS EXCLUSIVAMENTE CON UBICACIÓN Y AUDITORÍA
+                string exprFechaOrden = QueryAdapter.EsMySQL
+                    ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                    : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
+
+                // 1. TABLA IZQUIERDA: MOVIMIENTOS
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = $@"
@@ -935,11 +963,12 @@ SELECT DISTINCT
     m.estado_id,
     m.motivo_producto_id,
     mp.tipo_movimiento_id,
-    -- 🌟 AUDITORÍA REAL
     m.created_at,
     COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
     m.updated_at,
-    usr_u.nombres AS usuario_modificador
+    usr_u.nombres AS usuario_modificador,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
@@ -960,7 +989,7 @@ WHERE md.producto_id = @ProductoId
                         queryRaw += " AND u.descripcion LIKE @FiltroUbicacion";
                     }
 
-                    queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
+                    queryRaw += $" ORDER BY {exprFechaOrden} ASC, m.id ASC";
 
                     cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
 
@@ -984,7 +1013,6 @@ WHERE md.producto_id = @ProductoId
                             DateTime? fechaMovRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
                             DateTime? createdAtRaw = reader.IsDBNull(10) ? (DateTime?)null : reader.GetDateTime(10);
 
-                            // 🌟 Fusión de hora operativa
                             DateTime? fechaMovFinal = fechaMovRaw;
                             if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
                             {
@@ -993,6 +1021,8 @@ WHERE md.producto_id = @ProductoId
 
                             reporte.Movimientos.Add(new ConsultaMovimientoItem
                             {
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
                                 Fecha = fechaMovFinal ?? DateTime.MinValue,
                                 NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + Convert.ToString(reader.GetValue(2)),
                                 RazonSocialUbicacion = Convert.ToString(reader.GetValue(3)) ?? "SIN UBICACIÓN",
@@ -1000,8 +1030,6 @@ WHERE md.producto_id = @ProductoId
                                 Ingreso = reader.GetDecimal(5),
                                 Salida = reader.GetDecimal(6),
                                 IsAnulado = anulado,
-
-                                // 🌟 Asignación de Auditoría
                                 CreatedAt = createdAtRaw,
                                 UsuarioCreador = reader.IsDBNull(11) ? "" : Convert.ToString(reader.GetValue(11))!,
                                 UpdatedAt = reader.IsDBNull(12) ? (DateTime?)null : reader.GetDateTime(12),
@@ -1011,15 +1039,17 @@ WHERE md.producto_id = @ProductoId
                     }
                 }
 
-                // 🌟 2. TABLA DERECHA: CÓDIGOS ASOCIADOS
+                // 2. TABLA DERECHA: CÓDIGOS ASOCIADOS
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string queryRaw = $@"
 SELECT DISTINCT
-    COALESCE(cc.codigo, 'N/A') AS codigo,
+    cc.codigo AS codigo,
     COALESCE(cat.nombre, 'SIN TIPO') AS coleccion_tipo,
     CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
-    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
@@ -1062,6 +1092,8 @@ WHERE md.producto_id = @ProductoId
                         {
                             reporte.Codigos.Add(new ConsultaCodigoItem
                             {
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
                                 Codigo = Convert.ToString(reader.GetValue(0)) ?? "N/A",
                                 ColeccionTipo = Convert.ToString(reader.GetValue(1)) ?? "SIN TIPO",
                                 NumeroRegistro = Convert.ToString(reader.GetValue(2)) ?? "",
@@ -1074,8 +1106,558 @@ WHERE md.producto_id = @ProductoId
 
             return reporte;
         }
+
+        // =========================================================
+        // 8. CONSULTAR MOVIMIENTOS POR ENTIDAD GENERAL (SIN PRODUCTO)
+        // =========================================================
+        public async Task<ConsultaMovimientoReporte> ConsultarMovimientosPorEntidadGeneralAsync(
+            DateTime fechaDesde,
+            DateTime fechaHasta,
+            string? filtroEntidadTexto = null,
+            int? categoriaProductoId = null,
+            int almacenId = 1)
+        {
+            var reporte = new ConsultaMovimientoReporte();
+
+            using (IDbConnection conn = _database.GetConnection())
+            {
+                await ((DbConnection)conn).OpenAsync();
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+                DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
+
+                string exprFechaOrden = QueryAdapter.EsMySQL
+                    ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                    : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
+
+                // 1. TABLA IZQUIERDA: MOVIMIENTOS GENERALES
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+SELECT DISTINCT
+    m.id,
+    m.fecha_movimiento,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+    COALESCE(
+        pc.razon_social,
+        u.descripcion,
+        CASE 
+            WHEN mp.tipo_movimiento_id = 1 AND m.motivo_producto_id = 4 THEN alm_orig.nombre
+            WHEN mp.tipo_movimiento_id = 2 AND m.motivo_producto_id = 10 THEN alm_dest.nombre
+            ELSE NULL 
+        END,
+        'ALMACÉN'
+    ) AS entidad_nombre,
+    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
+    CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
+    m.estado_id,
+    m.motivo_producto_id,
+    mp.tipo_movimiento_id,
+    COALESCE(p.abreviatura, p.descripcion) AS producto_nombre,
+    COALESCE(m.almacen_destino_id, COALESCE(m.almacen_origen_id, m.almacen_id)) AS alm_relacionado_id,
+    m.created_at,
+    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+    m.updated_at,
+    usr_u.nombres AS usuario_modificador,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN productos p {nolock} ON md.producto_id = p.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+LEFT JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+LEFT JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+LEFT JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
+WHERE m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
+
+                    if (!string.IsNullOrWhiteSpace(filtroEntidadTexto))
+                    {
+                        queryRaw += " AND (pc.razon_social LIKE @FiltroEntidad OR u.descripcion LIKE @FiltroEntidad OR alm_orig.nombre LIKE @FiltroEntidad OR alm_dest.nombre LIKE @FiltroEntidad)";
+                    }
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                    {
+                        queryRaw += " AND (rc.categoria_producto_id = @CategoriaId OR rc.categoria_producto_id IS NULL)";
+                    }
+
+                    queryRaw += $" ORDER BY {exprFechaOrden} ASC, m.id ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+
+                    AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    if (!string.IsNullOrWhiteSpace(filtroEntidadTexto))
+                        AgregarParametro(cmd, "@FiltroEntidad", "%" + filtroEntidadTexto.Trim() + "%");
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        AgregarParametro(cmd, "@CategoriaId", categoriaProductoId.Value);
+
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            int estadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"));
+                            bool anulado = (estadoId == 2);
+                            int almRelId = reader.IsDBNull(reader.GetOrdinal("alm_relacionado_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("alm_relacionado_id"));
+
+                            DateTime? fechaMovRaw = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"));
+                            DateTime? createdAtRaw = reader.IsDBNull(reader.GetOrdinal("created_at")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("created_at"));
+
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
+
+                            string prodNombre = reader["producto_nombre"].ToString() ?? "";
+                            string entNombre = reader["entidad_nombre"].ToString() ?? "ALMACÉN";
+
+                            reporte.Movimientos.Add(new ConsultaMovimientoItem
+                            {
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
+                                Fecha = fechaMovFinal ?? DateTime.MinValue,
+                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + reader["registro"].ToString(),
+                                RazonSocialUbicacion = $"[{prodNombre}] - {entNombre}",
+                                NumeroGuia = reader["guia"].ToString() ?? "",
+                                Ingreso = reader.GetDecimal(reader.GetOrdinal("cantidad_ingreso")),
+                                Salida = reader.GetDecimal(reader.GetOrdinal("cantidad_salida")),
+                                IsAnulado = anulado,
+                                AlmacenId = almRelId,
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(reader.GetOrdinal("usuario_creador")) ? "" : reader["usuario_creador"].ToString()!,
+                                UpdatedAt = reader.IsDBNull(reader.GetOrdinal("updated_at")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("updated_at")),
+                                UsuarioModificador = reader.IsDBNull(reader.GetOrdinal("usuario_modificador")) ? null : reader["usuario_modificador"].ToString()
+                            });
+                        }
+                    }
+                }
+
+                // 2. TABLA DERECHA: CÓDIGOS ASOCIADOS
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+SELECT DISTINCT
+    cc.codigo AS codigo,
+    CONCAT(COALESCE(p.abreviatura, p.descripcion), ' - ', COALESCE(cat.nombre, 'SIN TIPO')) AS coleccion_tipo,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN productos p {nolock} ON md.producto_id = p.id
+INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
+LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
+WHERE m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
+
+                    if (!string.IsNullOrWhiteSpace(filtroEntidadTexto))
+                    {
+                        queryRaw += " AND (pc.razon_social LIKE @FiltroEntidad OR u.descripcion LIKE @FiltroEntidad OR alm_orig.nombre LIKE @FiltroEntidad OR alm_dest.nombre LIKE @FiltroEntidad)";
+                    }
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                    {
+                        queryRaw += " AND rc.categoria_producto_id = @CategoriaId";
+                    }
+
+                    queryRaw += " ORDER BY codigo ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+                    AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    if (!string.IsNullOrWhiteSpace(filtroEntidadTexto))
+                        AgregarParametro(cmd, "@FiltroEntidad", "%" + filtroEntidadTexto.Trim() + "%");
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        AgregarParametro(cmd, "@CategoriaId", categoriaProductoId.Value);
+
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            reporte.Codigos.Add(new ConsultaCodigoItem
+                            {
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
+                                Codigo = reader["codigo"].ToString() ?? "N/A",
+                                ColeccionTipo = reader["coleccion_tipo"].ToString() ?? "SIN TIPO",
+                                NumeroRegistro = reader["numero_registro"].ToString() ?? "",
+                                TipoMovimiento = reader["tipo_mov"].ToString() ?? ""
+                            });
+                        }
+                    }
+                }
+            }
+
+            return reporte;
+        }
+
+        // =========================================================
+        // 9. CONSULTAR KÁRDEX POR UBICACIÓN (SIN PRODUCTO)
+        // =========================================================
+        public async Task<ConsultaMovimientoReporte> ConsultarKardexPorUbicacionSinProductoAsync(
+            DateTime fechaDesde,
+            DateTime fechaHasta,
+            string? filtroUbicacionTexto = null,
+            int almacenId = 1)
+        {
+            var reporte = new ConsultaMovimientoReporte();
+
+            using (IDbConnection conn = _database.GetConnection())
+            {
+                await ((DbConnection)conn).OpenAsync();
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+                DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
+
+                string exprFechaOrden = QueryAdapter.EsMySQL
+                    ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
+                    : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
+
+                // 1. TABLA IZQUIERDA: MOVIMIENTOS
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+SELECT DISTINCT
+    m.id,
+    m.fecha_movimiento,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS registro,
+    u.descripcion AS ubicacion_nombre,
+    CONCAT(COALESCE(m.serie_guia, '000'), '-', COALESCE(m.numero_guia, '0000000')) AS guia,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE 0 END AS cantidad_ingreso,
+    CASE WHEN mp.tipo_movimiento_id = 2 THEN md.cantidad_salida ELSE 0 END AS cantidad_salida,
+    m.estado_id,
+    m.motivo_producto_id,
+    mp.tipo_movimiento_id,
+    COALESCE(p.abreviatura, p.descripcion) AS producto_nombre,
+    m.created_at,
+    COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
+    m.updated_at,
+    usr_u.nombres AS usuario_modificador,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN productos p {nolock} ON md.producto_id = p.id
+INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
+LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
+WHERE m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                    {
+                        queryRaw += " AND u.descripcion LIKE @FiltroUbicacion";
+                    }
+
+                    queryRaw += $" ORDER BY {exprFechaOrden} ASC, m.id ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+
+                    AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                        AgregarParametro(cmd, "@FiltroUbicacion", "%" + filtroUbicacionTexto.Trim() + "%");
+
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
+                            bool anulado = (estadoId == 2);
+
+                            DateTime? fechaMovRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
+                            DateTime? createdAtRaw = reader.IsDBNull(11) ? (DateTime?)null : reader.GetDateTime(11);
+
+                            DateTime? fechaMovFinal = fechaMovRaw;
+                            if (fechaMovRaw.HasValue && createdAtRaw.HasValue && fechaMovRaw.Value.TimeOfDay == TimeSpan.Zero)
+                            {
+                                fechaMovFinal = fechaMovRaw.Value.Date.Add(createdAtRaw.Value.TimeOfDay);
+                            }
+
+                            string prodNombre = Convert.ToString(reader.GetValue(10)) ?? "";
+                            string ubicNombre = Convert.ToString(reader.GetValue(3)) ?? "SIN UBICACIÓN";
+
+                            reporte.Movimientos.Add(new ConsultaMovimientoItem
+                            {
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
+                                Fecha = fechaMovFinal ?? DateTime.MinValue,
+                                NumeroRegistro = (anulado ? "❌ ANULADO - " : "") + Convert.ToString(reader.GetValue(2)),
+                                RazonSocialUbicacion = $"[{prodNombre}] - {ubicNombre}",
+                                NumeroGuia = Convert.ToString(reader.GetValue(4)) ?? "",
+                                Ingreso = reader.GetDecimal(5),
+                                Salida = reader.GetDecimal(6),
+                                IsAnulado = anulado,
+                                CreatedAt = createdAtRaw,
+                                UsuarioCreador = reader.IsDBNull(12) ? "" : Convert.ToString(reader.GetValue(12))!,
+                                UpdatedAt = reader.IsDBNull(13) ? (DateTime?)null : reader.GetDateTime(13),
+                                UsuarioModificador = reader.IsDBNull(14) ? null : Convert.ToString(reader.GetValue(14))
+                            });
+                        }
+                    }
+                }
+
+                // 2. TABLA DERECHA: CÓDIGOS ASOCIADOS
+                using (IDbCommand cmd = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+SELECT DISTINCT
+    cc.codigo AS codigo,
+    CONCAT(COALESCE(p.abreviatura, p.descripcion), ' - ', COALESCE(cat.nombre, 'SIN TIPO')) AS coleccion_tipo,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN 'ENTRADA' ELSE 'SALIDA' END AS tipo_mov,
+    md.id AS movimiento_detalle_id,
+    md.producto_id
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN productos p {nolock} ON md.producto_id = p.id
+INNER JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+INNER JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+INNER JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
+WHERE m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                    {
+                        queryRaw += " AND u.descripcion LIKE @FiltroUbicacion";
+                    }
+
+                    queryRaw += " ORDER BY codigo ASC";
+
+                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+                    AgregarParametro(cmd, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmd, "@FechaHasta", fechaHastaFinDia);
+                    AgregarParametro(cmd, "@AlmacenId", almacenId);
+
+                    if (!string.IsNullOrWhiteSpace(filtroUbicacionTexto))
+                        AgregarParametro(cmd, "@FiltroUbicacion", "%" + filtroUbicacionTexto.Trim() + "%");
+
+                    using (IDataReader reader = await ((DbCommand)cmd).ExecuteReaderAsync())
+                    {
+                        while (await ((DbDataReader)reader).ReadAsync())
+                        {
+                            reporte.Codigos.Add(new ConsultaCodigoItem
+                            {
+                                MovimientoDetalleId = reader.GetInt32(reader.GetOrdinal("movimiento_detalle_id")),
+                                ProductoId = reader.GetInt32(reader.GetOrdinal("producto_id")),
+                                Codigo = Convert.ToString(reader.GetValue(0)) ?? "N/A",
+                                ColeccionTipo = Convert.ToString(reader.GetValue(1)) ?? "SIN TIPO",
+                                NumeroRegistro = Convert.ToString(reader.GetValue(2)) ?? "",
+                                TipoMovimiento = Convert.ToString(reader.GetValue(3)) ?? ""
+                            });
+                        }
+                    }
+                }
+            }
+
+            return reporte;
+        }
+
+        // =========================================================
+        // 10. OBTENER DATOS PARA MATRIZ AVANZADA POR UBICACIÓN (SEGURO Y ORDENADO)
+        // =========================================================
+        public async Task<(List<MatrizKardexItemDTO> Movimientos, List<ProductoColumnaDTO> CatalogoProductos)> ObtenerDatosMatrizAvanzadaAsync(
+            int? ubicacionId,
+            string? nombreUbicacion,
+            DateTime fechaDesde,
+            DateTime fechaHasta,
+            int? categoriaProductoId = null,
+            int almacenId = 1)
+        {
+            var movimientos = new List<MatrizKardexItemDTO>();
+            var catalogo = new List<ProductoColumnaDTO>();
+
+            using (IDbConnection conn = _database.GetConnection())
+            {
+                await ((DbConnection)conn).OpenAsync();
+                string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+                DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
+
+                // 🌟 1. OBTENER CATÁLOGO PURO DE PRODUCTOS (Sin joins a tablas inexistentes)
+                using (IDbCommand cmdProd = conn.CreateCommand())
+                {
+                    string qProd = $@"
+SELECT 
+    p.id,
+    COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo,
+    p.descripcion
+FROM productos p {nolock}
+WHERE p.estado_id = 1
+ORDER BY p.id ASC";
+
+                    cmdProd.CommandText = QueryAdapter.FormatearConsulta(qProd);
+                    using var rdrProd = await ((DbCommand)cmdProd).ExecuteReaderAsync();
+                    while (await ((DbDataReader)rdrProd).ReadAsync())
+                    {
+                        int id = rdrProd.GetInt32(0);
+                        string abrev = Convert.ToString(rdrProd.GetValue(1)) ?? "";
+                        string desc = Convert.ToString(rdrProd.GetValue(2)) ?? "";
+
+                        // Clasificación inteligente por Nivel y Grupo/Familia basada en la abreviatura y descripción
+                        string nivel = "INICIAL";
+                        string descUp = desc.ToUpper();
+                        string abrevUp = abrev.ToUpper();
+
+                        if (descUp.Contains("PRIMARIA") || abrevUp.StartsWith("PL") || abrevUp.StartsWith("MAT") || abrevUp.StartsWith("COM") || abrevUp.StartsWith("CAL") || abrevUp.StartsWith("CL"))
+                            nivel = "PRIMARIA";
+                        else if (descUp.Contains("SECUNDARIA"))
+                            nivel = "SECUNDARIA";
+
+                        string grupoSerie = "GENERAL";
+                        if (abrevUp.StartsWith("JA") || abrevUp.StartsWith("LAM")) grupoSerie = "LAM Y JA";
+                        else if (abrevUp.StartsWith("LMA")) grupoSerie = "LMA";
+                        else if (abrevUp.StartsWith("MDA")) grupoSerie = "MDA";
+                        else if (abrevUp.StartsWith("CV") || abrevUp.StartsWith("PL")) grupoSerie = "CUENTOS Y VALORES";
+                        else if (abrevUp.StartsWith("MAT")) grupoSerie = "MATEMATICA";
+                        else if (abrevUp.StartsWith("COM")) grupoSerie = "COMUNICACION";
+                        else if (abrevUp.StartsWith("CAL") || abrevUp.StartsWith("CL")) grupoSerie = "CALIGRAFIA";
+                        else if (abrevUp.StartsWith("MA")) grupoSerie = "MUNDO AVENTURAS";
+
+                        catalogo.Add(new ProductoColumnaDTO
+                        {
+                            ProductoId = id,
+                            Codigo = abrev,
+                            Descripcion = desc,
+                            Nivel = nivel,
+                            GrupoSerie = grupoSerie
+                        });
+                    }
+                }
+
+                // 🌟 2. ORDENAR CATÁLOGO EN MEMORIA POR NIVEL, GRUPO Y ID (Garantiza el orden correlativo de grados/años)
+                catalogo = catalogo
+                    .OrderBy(p => p.Nivel)
+                    .ThenBy(p => p.GrupoSerie)
+                    .ThenBy(p => p.ProductoId)
+                    .ToList();
+
+                // 🌟 3. OBTENER MOVIMIENTOS CON NÚMERO DE ORDEN LIMPIO
+                using (IDbCommand cmdMov = conn.CreateCommand())
+                {
+                    string queryRaw = $@"
+SELECT 
+    m.id,
+    mp.tipo_movimiento_id,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS orden_documento,
+    m.fecha_movimiento,
+    md.producto_id,
+    COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo_producto,
+    p.descripcion AS descripcion_producto,
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE md.cantidad_salida END AS cantidad
+FROM movimiento_detalles md {nolock}
+INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+INNER JOIN productos p {nolock} ON md.producto_id = p.id
+LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+LEFT JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
+LEFT JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
+LEFT JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+WHERE m.fecha_movimiento >= @FechaDesde
+  AND m.fecha_movimiento <= @FechaHasta
+  AND m.estado_id != 2
+  AND (
+     (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
+     (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
+  )";
+
+                    if (ubicacionId.HasValue && ubicacionId.Value > 0)
+                    {
+                        queryRaw += " AND m.ubicacion_id = @UbicacionId";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(nombreUbicacion))
+                    {
+                        queryRaw += " AND (u.descripcion LIKE @NomUbi OR pc.razon_social LIKE @NomUbi)";
+                    }
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                    {
+                        queryRaw += " AND (rc.categoria_producto_id = @CategoriaId OR rc.categoria_producto_id IS NULL)";
+                    }
+
+                    queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
+
+                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+                    AgregarParametro(cmdMov, "@FechaDesde", fechaDesde.Date);
+                    AgregarParametro(cmdMov, "@FechaHasta", fechaHastaFinDia);
+                    AgregarParametro(cmdMov, "@AlmacenId", almacenId);
+
+                    if (ubicacionId.HasValue && ubicacionId.Value > 0)
+                        AgregarParametro(cmdMov, "@UbicacionId", ubicacionId.Value);
+                    else if (!string.IsNullOrWhiteSpace(nombreUbicacion))
+                        AgregarParametro(cmdMov, "@NomUbi", "%" + nombreUbicacion.Trim() + "%");
+
+                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
+                        AgregarParametro(cmdMov, "@CategoriaId", categoriaProductoId.Value);
+
+                    using var rdr = await ((DbCommand)cmdMov).ExecuteReaderAsync();
+                    while (await ((DbDataReader)rdr).ReadAsync())
+                    {
+                        movimientos.Add(new MatrizKardexItemDTO
+                        {
+                            MovimientoId = rdr.GetInt32(0),
+                            TipoMovimientoId = rdr.GetInt32(1),
+                            OrdenDocumento = Convert.ToString(rdr.GetValue(2)) ?? "",
+                            Fecha = rdr.IsDBNull(3) ? DateTime.MinValue : rdr.GetDateTime(3),
+                            ProductoId = rdr.GetInt32(4),
+                            CodigoProducto = Convert.ToString(rdr.GetValue(5)) ?? "",
+                            DescripcionProducto = Convert.ToString(rdr.GetValue(6)) ?? "",
+                            Cantidad = rdr.GetDecimal(7)
+                        });
+                    }
+                }
+            }
+
+            return (movimientos, catalogo);
+        }
+
+
+
     }
-
-
-
 }

@@ -361,12 +361,6 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                if (CboProductos.SelectedItem == null && string.IsNullOrWhiteSpace(CboProductos.Text))
-                {
-                    MessageBox.Show("Seleccione un producto para exportar el reporte.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
                 if (_todosLosMovimientosRaw == null || !_todosLosMovimientosRaw.Any())
                 {
                     MessageBox.Show("Primero haga clic en 'Ejecutar' para cargar los movimientos a exportar.", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -382,7 +376,7 @@ namespace AplicativoDeAlmacen.Views
                     movimientos = movimientos.Where(m => !m.IsAnulado && !m.NumeroRegistro.Contains("ANULADO"));
                 }
 
-                // 2. Filtro por Almacén / Razón Social / Ubicación (Evaluación por texto)
+                // 2. Filtro por Almacén / Razón Social / Ubicación
                 bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
                 if (hayFiltroAlmacen)
                 {
@@ -391,11 +385,10 @@ namespace AplicativoDeAlmacen.Views
                                                         (_almacenFiltroId.HasValue && m.AlmacenId == _almacenFiltroId.Value));
                 }
 
-                // 3. Reglas de Selección de Opciones de Impresión
-                bool incluirSalidas = enviar || transferidosEnPoder; // 👈 Si marca "En su poder", DEBE incluir los despachos/salidas
+                // 3. Opciones de Impresión
+                bool incluirSalidas = enviar || transferidosEnPoder;
                 bool incluirIngresos = devolver;
 
-                // Si no marcó ningún check, exporta todo
                 if (!enviar && !devolver && !transferidosEnPoder)
                 {
                     incluirSalidas = true;
@@ -414,51 +407,19 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                // 4. Enlazar Códigos Físicos a cada Movimiento
-                // Si seleccionó exclusivamente "Transferidos en su poder", calcula los códigos netos no retornados
-                if (transferidosEnPoder && !enviar && !devolver)
+                // 4. Enlazar Códigos Físicos a cada Detalle de Movimiento
+                foreach (var mov in movimientosFiltrados)
                 {
-                    var codigosNetosEnPoder = _todosLosCodigos
-                        .GroupBy(c => c.Codigo)
-                        .Where(g => g.Count(x => x.TipoMovimiento == "SALIDA") > g.Count(x => x.TipoMovimiento == "ENTRADA"))
-                        .Select(g => g.First())
+                    string regLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
+                    bool esIngreso = mov.Ingreso > 0;
+                    string tipoEsperado = esIngreso ? "ENTRADA" : "SALIDA";
+
+                    mov.CodigosAsociados = _todosLosCodigos
+                        .Where(c => ((mov.MovimientoDetalleId > 0 && c.MovimientoDetalleId == mov.MovimientoDetalleId)
+                                  || (c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase) && c.ProductoId == mov.ProductoId))
+                                  && c.TipoMovimiento == tipoEsperado)
                         .ToList();
-
-                    foreach (var mov in movimientosFiltrados)
-                    {
-                        string regLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
-                        mov.CodigosAsociados = codigosNetosEnPoder
-                            .Where(c => c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-                    }
-
-                    movimientosFiltrados = movimientosFiltrados.Where(m => m.CodigosAsociados.Any()).ToList();
                 }
-                else
-                {
-                    // Mapeo general estándar
-                    foreach (var mov in movimientosFiltrados)
-                    {
-                        string regLimpio = mov.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim();
-                        bool esIngreso = mov.Ingreso > 0;
-                        string tipoEsperado = esIngreso ? "ENTRADA" : "SALIDA";
-
-                        mov.CodigosAsociados = _todosLosCodigos
-                            .Where(c => c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase) && c.TipoMovimiento == tipoEsperado)
-                            .ToList();
-                    }
-                }
-
-                if (!movimientosFiltrados.Any())
-                {
-                    MessageBox.Show("No se encontraron códigos asociados a la selección.", "Sin Datos", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                // 5. Textos de Cabecera para el Excel
-                string nombreProd = CboProductos.Text;
-                string tipoProd = (RbGuia?.IsChecked == true) ? "SOLO GUÍAS" : ((RbVenta?.IsChecked == true) ? "SOLO VENTAS" : "TODOS");
-                string unidadMed = "PACKS";
 
                 string origenDest = "TODOS";
                 if (hayFiltroAlmacen) origenDest = TxtAlmacen.Text;
@@ -468,20 +429,42 @@ namespace AplicativoDeAlmacen.Views
                 DateTime fechaDesde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime fechaHasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                // 6. Generación del Archivo Excel
                 var excelService = new AplicativoDeAlmacen.Services.Reportes.ReporteExcelService();
-                excelService.ExportarKardexConCodigos(
-                    nombreProd,
-                    tipoProd,
-                    unidadMed,
-                    origenDest,
-                    fechaDesde,
-                    fechaHasta,
-                    movimientosFiltrados,
-                    enviar,
-                    devolver,
-                    transferidosEnPoder
-                );
+
+                // 🌟 DECISIÓN: REPORTE ESPECÍFICO O REPORTE GENERAL CONSOLIDADO
+                if (_productoSeleccionadoId > 0)
+                {
+                    string nombreProd = CboProductos.Text;
+                    string tipoProd = (RbGuia?.IsChecked == true) ? "SOLO GUÍAS" : ((RbVenta?.IsChecked == true) ? "SOLO VENTAS" : "TODOS");
+                    string unidadMed = "PACKS";
+
+                    excelService.ExportarKardexConCodigos(
+                        nombreProd,
+                        tipoProd,
+                        unidadMed,
+                        origenDest,
+                        fechaDesde,
+                        fechaHasta,
+                        movimientosFiltrados,
+                        enviar,
+                        devolver,
+                        transferidosEnPoder
+                    );
+                }
+                else
+                {
+                    // 🌟 NUEVO REPORTE GENERAL POR ENTIDAD (Múltiples productos)
+                    excelService.ExportarKardexGeneralEntidad(
+                        origenDest,
+                        fechaDesde,
+                        fechaHasta,
+                        movimientosFiltrados,
+                        _todosLosCodigos,
+                        enviar,
+                        devolver,
+                        transferidosEnPoder
+                    );
+                }
             }
             catch (Exception ex)
             {
@@ -791,9 +774,29 @@ namespace AplicativoDeAlmacen.Views
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
             if (_isCargando) return;
-            if (_productoSeleccionadoId == 0) { MessageBox.Show("Seleccione un producto maestro para auditar.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
 
-            Button btn = sender as Button;
+            string? filtroRazon = null;
+            if (ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text))
+            {
+                filtroRazon = TxtAlmacen.Text.Trim();
+            }
+            else if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
+            {
+                filtroRazon = TxtRazonSocial.Text.Trim();
+            }
+
+            string? filtroUbicacion = ChkUbicacion.IsChecked == true ? TxtUbicacion.Text.Trim() : null;
+
+            // 🌟 NUEVA REGLA FLEXIBLE: Debe haber al menos un Producto O una Entidad/Ubicación/Almacén
+            bool tieneEntidad = !string.IsNullOrWhiteSpace(filtroRazon) || !string.IsNullOrWhiteSpace(filtroUbicacion);
+
+            if (_productoSeleccionadoId == 0 && !tieneEntidad)
+            {
+                MessageBox.Show("Seleccione un Producto o escriba un Almacén, Razón Social o Ubicación para consultar.", "Criterio requerido", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            Button? btn = sender as Button;
             string txtOriginal = btn?.Content?.ToString() ?? "Ejecutar";
 
             _isCargando = true;
@@ -805,32 +808,38 @@ namespace AplicativoDeAlmacen.Views
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Today;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
 
-                string? filtroRazon = null;
-                if (ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text))
-                {
-                    filtroRazon = TxtAlmacen.Text;
-                }
-                else if (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text))
-                {
-                    filtroRazon = TxtRazonSocial.Text;
-                }
-
-                string? filtroUbicacion = ChkUbicacion.IsChecked == true ? TxtUbicacion.Text : null;
-
                 int? categoriaIdFiltro = null;
                 if (RbGuia != null && RbGuia.IsChecked == true) categoriaIdFiltro = 1;
                 else if (RbVenta != null && RbVenta.IsChecked == true) categoriaIdFiltro = 2;
 
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                var reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(
-                    _productoSeleccionadoId,
-                    desde,
-                    hasta,
-                    filtroRazon,
-                    filtroUbicacion,
-                    categoriaIdFiltro,
-                    miAlmacenId);
+                ConsultaMovimientoReporte reporte;
+
+                if (_productoSeleccionadoId > 0)
+                {
+                    // 🔍 1. Consulta tradicional por producto específico
+                    reporte = await _kardexService.ConsultarMovimientosDetalladosAsync(
+                        _productoSeleccionadoId,
+                        desde,
+                        hasta,
+                        filtroRazon,
+                        filtroUbicacion,
+                        categoriaIdFiltro,
+                        miAlmacenId);
+                }
+                else
+                {
+                    // 🌟 2. BÚSQUEDA GENERAL: Agrupa todos los productos asociados a la entidad/ubicación
+                    string? filtroGlobal = !string.IsNullOrWhiteSpace(filtroRazon) ? filtroRazon : filtroUbicacion;
+
+                    reporte = await _kardexService.ConsultarMovimientosPorEntidadGeneralAsync(
+                        desde,
+                        hasta,
+                        filtroGlobal,
+                        categoriaIdFiltro,
+                        miAlmacenId);
+                }
 
                 _todosLosMovimientosRaw = reporte.Movimientos;
                 _todosLosCodigos = reporte.Codigos;
@@ -838,7 +847,10 @@ namespace AplicativoDeAlmacen.Views
                 AjustarModoPerspectivaUI();
                 RefrescarVistaMovimientos();
             }
-            catch (Exception ex) { MessageBox.Show("Error al ejecutar consulta: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error); }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al ejecutar consulta: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
             finally
             {
                 _isCargando = false;
@@ -847,9 +859,10 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
+        // 🌟 TARJETA GENERAL: SALDO TOTAL PENDIENTE
         private void CardSaldoEnPoder_Click(object sender, MouseButtonEventArgs e)
         {
-            if (_productoSeleccionadoId == 0) return;
+            if (_todosLosCodigos == null || !_todosLosCodigos.Any()) return;
 
             bool hayFiltroAlmacen = ChkAlmacen.IsChecked == true && !string.IsNullOrWhiteSpace(TxtAlmacen.Text);
             bool hayFiltroTercero = (ChkRazonSocial.IsChecked == true && !string.IsNullOrWhiteSpace(TxtRazonSocial.Text)) ||
@@ -857,40 +870,87 @@ namespace AplicativoDeAlmacen.Views
 
             string entidadSeleccionada = hayFiltroAlmacen
                 ? TxtAlmacen.Text
-                : (hayFiltroTercero ? (!string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text : TxtRazonSocial.Text) : "MI ALMACÉN");
+                : (hayFiltroTercero ? (!string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text : TxtRazonSocial.Text) : "CONSULTA GENERAL");
 
-            var codigosEnPoder = _todosLosCodigos
+            // Agrupa todos los códigos del reporte y extrae los que fueron entregados y aún no devueltos
+            var codigosEnPoderTotal = _todosLosCodigos
                 .GroupBy(c => c.Codigo)
-                .Where(g => g.Count() % 2 != 0)
+                .Where(g => g.Count(x => x.TipoMovimiento == "SALIDA") > g.Count(x => x.TipoMovimiento == "ENTRADA"))
                 .Select(g => g.First())
                 .ToList();
 
             CodigosDataGrid.ItemsSource = null;
-            CodigosDataGrid.ItemsSource = codigosEnPoder;
+            CodigosDataGrid.ItemsSource = codigosEnPoderTotal;
 
-            TxtTotalCodigos.Text = $"📦 Hay {codigosEnPoder.Count} códigos físicos asociados a: {entidadSeleccionada}";
+            TxtTotalCodigos.Text = $"📦 Balance Global en Poder: {codigosEnPoderTotal.Count} códigos físicos ({entidadSeleccionada})";
         }
 
         private void MovimientosDataGrid_SelectedCellsChanged(object sender, SelectedCellsChangedEventArgs e)
         {
-            if (MovimientosDataGrid.CurrentCell.Column != null)
+            if (MovimientosDataGrid.CurrentCell.Column != null && MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem itemSeleccionado)
             {
                 int columnIndex = MovimientosDataGrid.Columns.IndexOf(MovimientosDataGrid.CurrentCell.Column);
 
-                if (columnIndex == 6 && MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem itemSeleccionado)
+                // 🌟 COLUMNA 6: TOTAL EN PODER (Muestra los códigos acumulados hasta esa fila)
+                if (columnIndex == 6)
                 {
-                    MostrarCodigosPendientesEnPoder();
+                    MostrarCodigosAcumuladosEnPoderHastaFila(itemSeleccionado);
                 }
-                else if ((columnIndex == 4 || columnIndex == 5) && MovimientosDataGrid.CurrentItem is ConsultaMovimientoItem current)
+                // 🌟 CUALQUIER OTRA COLUMNA (FECHA, COMPROBANTE, ENVIADO, DEVUELTO)
+                else
                 {
-                    MostrarCodigosParaMovimiento(current);
+                    MostrarCodigosParaMovimiento(itemSeleccionado);
                 }
             }
         }
 
+        // 🌟 MÉTODO PARA CALCULAR Y MOSTRAR LOS CÓDIGOS ACUMULADOS HASTA LA FILA SELECCIONADA
+        private void MostrarCodigosAcumuladosEnPoderHastaFila(ConsultaMovimientoItem filaSeleccionada)
+        {
+            if (filaSeleccionada == null || _todosLosMovimientosRaw == null || _todosLosCodigos == null) return;
+
+            if (MovimientosDataGrid.ItemsSource is not IEnumerable<ConsultaMovimientoItem> listaVisible)
+                return;
+
+            var listaFilas = listaVisible.ToList();
+            int indiceActual = listaFilas.IndexOf(filaSeleccionada);
+            if (indiceActual < 0) indiceActual = listaFilas.Count - 1;
+
+            // 1. Tomamos todos los movimientos visibles desde la fila 0 hasta la fila donde se hizo clic
+            var movimientosHastaEstaFila = listaFilas
+                .Take(indiceActual + 1)
+                .Where(m => !m.IsAnulado)
+                .ToList();
+
+            var detallesIdsHastaFila = movimientosHastaEstaFila
+                .Where(m => m.MovimientoDetalleId > 0)
+                .Select(m => m.MovimientoDetalleId)
+                .ToHashSet();
+
+            var registrosHastaFila = movimientosHastaEstaFila
+                .Select(m => m.NumeroRegistro.Replace("❌ ANULADO - ", "").Trim())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // 2. Códigos despachados hasta este punto menos los que ya fueron devueltos hasta este punto
+            var codigosHastaEstaFila = _todosLosCodigos
+                .Where(c => (detallesIdsHastaFila.Contains(c.MovimientoDetalleId) || registrosHastaFila.Contains(c.NumeroRegistro.Trim())))
+                .ToList();
+
+            var codigosAcumuladosEnPoder = codigosHastaEstaFila
+                .GroupBy(c => c.Codigo)
+                .Where(g => g.Count(x => x.TipoMovimiento == "SALIDA") > g.Count(x => x.TipoMovimiento == "ENTRADA"))
+                .Select(g => g.First())
+                .ToList();
+
+            CodigosDataGrid.ItemsSource = null;
+            CodigosDataGrid.ItemsSource = codigosAcumuladosEnPoder;
+
+            TxtTotalCodigos.Text = $"📦 Saldo Acumulado en Poder: {codigosAcumuladosEnPoder.Count} códigos hasta este registro";
+        }
+
         private void MostrarCodigosParaMovimiento(ConsultaMovimientoItem movimiento)
         {
-            if (movimiento == null) return;
+            if (movimiento == null || _todosLosCodigos == null) return;
 
             string registroLimpio = movimiento.NumeroRegistro?
                 .Replace("❌ ANULADO - ", "")
@@ -899,10 +959,11 @@ namespace AplicativoDeAlmacen.Views
             bool esIngreso = movimiento.Ingreso > 0;
             string tipoBuscado = esIngreso ? "ENTRADA" : "SALIDA";
 
+            // Filtra exactamente los códigos correspondientes a ese detalle y producto de la fila
             var codigos = _todosLosCodigos
-                .Where(c => (c.NumeroRegistro.Equals(registroLimpio, StringComparison.OrdinalIgnoreCase) ||
-                            c.NumeroRegistro.Equals(movimiento.NumeroRegistro, StringComparison.OrdinalIgnoreCase))
-                            && c.TipoMovimiento == tipoBuscado)
+                .Where(c => ((movimiento.MovimientoDetalleId > 0 && c.MovimientoDetalleId == movimiento.MovimientoDetalleId)
+                          || (c.NumeroRegistro.Equals(registroLimpio, StringComparison.OrdinalIgnoreCase) && (movimiento.ProductoId == 0 || c.ProductoId == movimiento.ProductoId)))
+                          && c.TipoMovimiento == tipoBuscado)
                 .ToList();
 
             CodigosDataGrid.ItemsSource = null;
@@ -910,11 +971,11 @@ namespace AplicativoDeAlmacen.Views
 
             if (movimiento.IsAnulado || movimiento.NumeroRegistro.Contains("ANULADO"))
             {
-                TxtTotalCodigos.Text = $"⚠️ [ANULADO] {codigos.Count} códigos en esta operación.";
+                TxtTotalCodigos.Text = $"⚠️ [ANULADO] {codigos.Count} códigos en este ítem.";
             }
             else
             {
-                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos";
+                TxtTotalCodigos.Text = $"Se auditaron {codigos.Count} Códigos Físicos para este ítem";
             }
         }
 
@@ -941,7 +1002,19 @@ namespace AplicativoDeAlmacen.Views
         {
             if (MovimientosDataGrid.SelectedItem is ConsultaMovimientoItem movimiento)
             {
-                MostrarCodigosParaMovimiento(movimiento);
+                // Si el usuario tiene seleccionada la columna 6 de acumulado, no sobreescribir con la fila puntual
+                int colIndex = MovimientosDataGrid.CurrentCell.Column != null
+                    ? MovimientosDataGrid.Columns.IndexOf(MovimientosDataGrid.CurrentCell.Column)
+                    : -1;
+
+                if (colIndex == 6)
+                {
+                    MostrarCodigosAcumuladosEnPoderHastaFila(movimiento);
+                }
+                else
+                {
+                    MostrarCodigosParaMovimiento(movimiento);
+                }
             }
         }
 

@@ -8,6 +8,7 @@ using AplicativoDeAlmacen.Services.facturaciòn;
 using AplicativoDeAlmacen.Services.Reportes;
 using AplicativoDeAlmacen.Services.Ubicaciones;
 using AplicativoDeAlmacen.Views.Movimientos.Lectora;
+using AplicativoDeAlmacen.Services.Politicas;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -1025,19 +1026,11 @@ namespace AplicativoDeAlmacen.Views
                 if (_isBuscandoDocumento) return;
                 _isBuscandoDocumento = true;
 
-                // 🛑 2. DESENGANCHAR EVENTO Y BLOQUEAR CAJA AL PRIMER ENTER
-                txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
-                txtNumeroSalida.IsReadOnly = true;
-                txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
-
                 string serie = txtSerieSalida.Text.Trim();
                 string numStr = txtNumeroSalida.Text.Trim();
 
                 if (string.IsNullOrWhiteSpace(numStr))
                 {
-                    txtNumeroSalida.IsReadOnly = false;
-                    txtNumeroSalida.Background = System.Windows.Media.Brushes.White;
-                    txtNumeroSalida.KeyDown += txtNumeroSalida_KeyDown;
                     _isBuscandoDocumento = false;
                     return;
                 }
@@ -1045,16 +1038,55 @@ namespace AplicativoDeAlmacen.Views
                 if (int.TryParse(numStr, out int numVal)) numStr = numVal.ToString("D7");
                 txtNumeroSalida.Text = numStr;
 
-                // 🛑 3. LIMPIEZA PREVENTIVA DE MEMORIA
-                _productosLista.Clear();
-                _codigosLista.Clear();
-
                 try
                 {
                     this.Cursor = Cursors.Wait;
-                    _idMovimientoActual = null;
-
                     int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+
+                    // 🛑 2. VALIDACIÓN TEMPRANA DE AUDITORÍA (Solo en Modo Edición Normal, no en Imprimir ni Anular)
+                    if (_modoActual == ModoFormulario.BuscandoParaEditar && !_anularMode)
+                    {
+                        int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+
+                        using (var conn = _database.GetConnection())
+                        {
+                            var dbConn = (System.Data.Common.DbConnection)conn;
+                            await dbConn.OpenAsync();
+                            using var cmdCheck = dbConn.CreateCommand();
+                            cmdCheck.CommandText = QueryAdapter.FormatearConsulta(
+                                "SELECT created_at, fecha_movimiento FROM movimientos WHERE serie_documento = @s AND numero_documento = @n AND estado_id = 1 AND ISNULL(almacen_id, ISNULL(almacen_origen_id, 1)) = @almId");
+
+                            var p1 = cmdCheck.CreateParameter(); p1.ParameterName = "@s"; p1.Value = serie; cmdCheck.Parameters.Add(p1);
+                            var p2 = cmdCheck.CreateParameter(); p2.ParameterName = "@n"; p2.Value = numStr; cmdCheck.Parameters.Add(p2);
+                            var p3 = cmdCheck.CreateParameter(); p3.ParameterName = "@almId"; p3.Value = miAlmacenId; cmdCheck.Parameters.Add(p3);
+
+                            using var rdr = await cmdCheck.ExecuteReaderAsync();
+                            if (await rdr.ReadAsync())
+                            {
+                                DateTime? fechaCreatedAt = rdr.IsDBNull(0) ? (DateTime?)null : rdr.GetDateTime(0);
+                                DateTime? fechaMov = rdr.IsDBNull(1) ? (DateTime?)null : rdr.GetDateTime(1);
+                                DateTime? fechaEvaluacion = fechaCreatedAt ?? fechaMov;
+
+                                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaEvaluacion, rolUsuarioActivo, out string mensajeBloqueo))
+                                {
+                                    MessageBox.Show(mensajeBloqueo, "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                                    // 🛑 Cancela todo inmediatamente y limpia el formulario
+                                    EstadoInicialFormulario();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    // 🛑 3. DESENGANCHAR EVENTO Y BLOQUEAR CAJA AL CARGAR
+                    txtNumeroSalida.KeyDown -= txtNumeroSalida_KeyDown;
+                    txtNumeroSalida.IsReadOnly = true;
+                    txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+                    _productosLista.Clear();
+                    _codigosLista.Clear();
+                    _idMovimientoActual = null;
 
                     var movCompleto = await _salidaService.GetMovimientoCompletoAsync(serie, numStr, miAlmacenId);
 
@@ -1125,16 +1157,16 @@ namespace AplicativoDeAlmacen.Views
                             using (var cmd = ((DbConnection)conn).CreateCommand())
                             {
                                 cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-                                    SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, 
-                                           CASE 
-                                               WHEN rc.categoria_producto_id = 1 THEN CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO GUÍA')
-                                               ELSE CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO VENTA')
-                                           END AS tipo_coleccion
-                                    FROM movimiento_codigos mc 
-                                    INNER JOIN codigos_creados cc {indexHint} ON mc.codigo_creado_id = cc.id 
-                                    LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-                                    LEFT JOIN colecciones c ON rc.coleccion_id = c.id
-                                    WHERE mc.movimiento_id = @movId");
+                            SELECT mc.movimiento_detalle_id, cc.id, cc.codigo, 
+                                   CASE 
+                                       WHEN rc.categoria_producto_id = 1 THEN CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO GUÍA')
+                                       ELSE CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), 'LIBRO VENTA')
+                                   END AS tipo_coleccion
+                            FROM movimiento_codigos mc 
+                            INNER JOIN codigos_creados cc {indexHint} ON mc.codigo_creado_id = cc.id 
+                            LEFT JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                            LEFT JOIN colecciones c ON rc.coleccion_id = c.id
+                            WHERE mc.movimiento_id = @movId");
 
                                 var p = cmd.CreateParameter(); p.ParameterName = "@movId"; p.Value = _idMovimientoActual.Value; cmd.Parameters.Add(p);
 
@@ -1778,16 +1810,41 @@ namespace AplicativoDeAlmacen.Views
                 int miAlmacenOrigen = SesionSistema.AlmacenActual?.Id ?? 1;
                 int? almacenDestinoSel = cboAlmacenDestino.SelectedValue != null ? Convert.ToInt32(cboAlmacenDestino.SelectedValue) : (int?)null;
 
-                // 🌟 1. Combinar fecha elegida con la hora actual exacta
+                // 🌟 1. REGLA DE ORO DE HORAS OPERATIVAS:
                 DateTime fechaDespachoBase = dtpFechaDespacho.SelectedDate ?? DateTime.Today;
-                DateTime fechaDespachoConHora = fechaDespachoBase.Date.Add(DateTime.Now.TimeOfDay);
+                TimeSpan horaOperativaSalida = DateTime.Now.TimeOfDay;
+
+                if (_idMovimientoActual.HasValue)
+                {
+                    using (var conn = _database.GetConnection())
+                    {
+                        var dbConn = (DbConnection)conn;
+                        dbConn.Open();
+                        using var cmdH = dbConn.CreateCommand();
+                        cmdH.CommandText = QueryAdapter.FormatearConsulta("SELECT created_at, fecha_movimiento FROM movimientos WHERE id = @id");
+                        var pId = cmdH.CreateParameter(); pId.ParameterName = "@id"; pId.Value = _idMovimientoActual.Value; cmdH.Parameters.Add(pId);
+                        using var rdrH = cmdH.ExecuteReader();
+                        if (rdrH.Read())
+                        {
+                            DateTime? cAt = rdrH.IsDBNull(0) ? (DateTime?)null : rdrH.GetDateTime(0);
+                            DateTime? fMov = rdrH.IsDBNull(1) ? (DateTime?)null : rdrH.GetDateTime(1);
+
+                            if (cAt.HasValue && cAt.Value.TimeOfDay != TimeSpan.Zero)
+                                horaOperativaSalida = cAt.Value.TimeOfDay;
+                            else if (fMov.HasValue && fMov.Value.TimeOfDay != TimeSpan.Zero)
+                                horaOperativaSalida = fMov.Value.TimeOfDay;
+                        }
+                    }
+                }
+
+                DateTime fechaDespachoConHora = fechaDespachoBase.Date.Add(horaOperativaSalida);
 
                 var movimiento = new Movimiento
                 {
                     Id = _idMovimientoActual ?? 0,
                     SerieDocumento = txtSerieSalida.Text,
                     NumeroDocumento = txtNumeroSalida.Text,
-                    FechaMovimiento = fechaDespachoConHora, // 👈 Se envía como DateTime con hora
+                    FechaMovimiento = fechaDespachoConHora,
 
                     UbicacionId = (almacenDestinoSel.HasValue || string.IsNullOrWhiteSpace(txtUbicacion.Text))
                         ? (int?)null
@@ -1804,7 +1861,6 @@ namespace AplicativoDeAlmacen.Views
                     Observacion = txtObservacionSalida.Text,
                     SerieGuia = txtSerieGuia.Text,
                     NumeroGuia = txtNumeroGuia.Text
-                    // 👈 CreatedAt ya no se asigna aquí para proteger la fecha original al editar
                 };
 
                 pbCargaMasiva.Visibility = Visibility.Visible;

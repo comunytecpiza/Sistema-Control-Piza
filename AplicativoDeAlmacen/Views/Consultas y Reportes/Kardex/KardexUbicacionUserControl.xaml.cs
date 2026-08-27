@@ -63,26 +63,39 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                 return;
             }
 
-            if (_productoSeleccionadoId <= 0)
+            string? filtroUbicacion = !string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text.Trim() : null;
+
+            // 🌟 NUEVA REGLA: Si no hay producto, debe haber al menos una ubicación escrita
+            if (_productoSeleccionadoId <= 0 && string.IsNullOrWhiteSpace(filtroUbicacion))
             {
-                MessageBox.Show("Por favor, busque y seleccione un producto de la lista.", "Faltan datos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Seleccione un Producto o escriba una Ubicación para consultar.", "Faltan criterios de búsqueda", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
                 Mouse.OverrideCursor = Cursors.Wait;
-
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-                string? filtroUbicacion = !string.IsNullOrWhiteSpace(TxtUbicacion.Text) ? TxtUbicacion.Text.Trim() : null;
 
-                // 🌟 LLAMADA AL NUEVO MÉTODO EXCLUSIVO PARA UBICACIONES
-                _reporteActual = await _kardexService.ConsultarKardexPorUbicacionAsync(
-                    productoId: _productoSeleccionadoId,
-                    fechaDesde: DpDesde.SelectedDate.Value,
-                    fechaHasta: DpHasta.SelectedDate.Value,
-                    filtroUbicacionTexto: filtroUbicacion,
-                    almacenId: miAlmacenId);
+                if (_productoSeleccionadoId > 0)
+                {
+                    // 🔍 1. Búsqueda específica tradicional por Producto + Ubicación opcional
+                    _reporteActual = await _kardexService.ConsultarKardexPorUbicacionAsync(
+                        productoId: _productoSeleccionadoId,
+                        fechaDesde: DpDesde.SelectedDate.Value,
+                        fechaHasta: DpHasta.SelectedDate.Value,
+                        filtroUbicacionTexto: filtroUbicacion,
+                        almacenId: miAlmacenId);
+                }
+                else
+                {
+                    // 🌟 2. BÚSQUEDA GLOBAL POR UBICACIÓN (Muestra todos los productos recibidos/enviados)
+                    _reporteActual = await _kardexService.ConsultarKardexPorUbicacionSinProductoAsync(
+                        fechaDesde: DpDesde.SelectedDate.Value,
+                        fechaHasta: DpHasta.SelectedDate.Value,
+                        filtroUbicacionTexto: filtroUbicacion,
+                        almacenId: miAlmacenId);
+                }
 
                 DgResumen.ItemsSource = _reporteActual.Movimientos;
                 DgDetalles.ItemsSource = null; // Limpiar lista derecha
@@ -140,9 +153,10 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             {
                 string regLimpio = movimiento.NumeroRegistro?.Replace("❌ ANULADO - ", "").Trim() ?? "";
 
+                // 🌟 FILTRO EXACTO POR DETALLE O (DOCUMENTO + PRODUCTO)
                 DgDetalles.ItemsSource = _reporteActual.Codigos
-                    .Where(c => c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase) ||
-                                c.NumeroRegistro.Equals(movimiento.NumeroRegistro, StringComparison.OrdinalIgnoreCase))
+                    .Where(c => (movimiento.MovimientoDetalleId > 0 && c.MovimientoDetalleId == movimiento.MovimientoDetalleId)
+                             || (c.NumeroRegistro.Equals(regLimpio, StringComparison.OrdinalIgnoreCase) && c.ProductoId == movimiento.ProductoId))
                     .ToList();
             }
         }
@@ -251,7 +265,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             }
         }
 
-        private void BtnImprimir_Click(object sender, RoutedEventArgs e)
+        private async void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_reporteActual == null || _reporteActual.Movimientos == null || !_reporteActual.Movimientos.Any())
             {
@@ -259,14 +273,73 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                 return;
             }
 
+            var ventanaModal = new FiltroImpresionKardexUbicacionWindow();
+            var windowPadre = Window.GetWindow(this);
+            if (windowPadre != null) ventanaModal.Owner = windowPadre;
+
+            ventanaModal.ShowDialog();
+            if (!ventanaModal.SeConfirmoImpresion) return;
+
             try
             {
-                string producto = TxtProducto.Text;
-                string ubicacion = TxtUbicacion.Text;
+                string ubicacion = TxtUbicacion.Text.Trim();
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Now;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Now;
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                _reporteExcel.ExportarKardexUbicacion(_reporteActual, producto, ubicacion, desde, hasta);
+                if (ventanaModal.EsModoAvanzado)
+                {
+                    int? catId = ventanaModal.CategoriaIdSeleccionada;
+                    string campana = ventanaModal.CampanaSeleccionada;
+                    var alcance = ventanaModal.AlcanceMatriz;
+
+                    var listaPaquetes = new List<(string NombreUbicacion, List<MatrizKardexItemDTO> Movimientos)>();
+
+                    if (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual)
+                    {
+                        // 🎯 1. Solo la ubicación actual
+                        var (movs, catProds) = await _kardexService.ObtenerDatosMatrizAvanzadaAsync(
+                            _ubicacionSeleccionadaId > 0 ? _ubicacionSeleccionadaId : null,
+                            ubicacion, desde, hasta, catId, miAlmacenId);
+
+                        listaPaquetes.Add((string.IsNullOrWhiteSpace(ubicacion) ? "UBICACIÓN ACTUAL" : ubicacion, movs));
+
+                        _reporteExcel.GenerarLibroMatrizLiquidacionCompleto(campana, catProds, listaPaquetes, false);
+                    }
+                    else
+                    {
+                        // 🌐 2 y 3. Todas las ubicaciones (Cada una en su pestaña + Consolidado opcional)
+                        var todasLasUbicaciones = await _ubicacionService.ObtenerTodasAsync();
+                        List<ProductoColumnaDTO> catalogo = new List<ProductoColumnaDTO>();
+
+                        foreach (var ub in todasLasUbicaciones)
+                        {
+                            var (movs, catProds) = await _kardexService.ObtenerDatosMatrizAvanzadaAsync(
+                                ub.Id, ub.Descripcion, desde, hasta, catId, miAlmacenId);
+
+                            if (movs.Any())
+                            {
+                                listaPaquetes.Add((ub.Descripcion, movs));
+                                if (!catalogo.Any()) catalogo = catProds;
+                            }
+                        }
+
+                        bool incluirConsolidado = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.TotalConsolidado || alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.TodosLosPromotores);
+
+                        _reporteExcel.GenerarLibroMatrizLiquidacionCompleto(campana, catalogo, listaPaquetes, incluirConsolidado);
+                    }
+                }
+                else
+                {
+                    // MODO NORMAL DETALLADO TRADICIONAL
+                    bool porFila = ventanaModal.IncluirCodigosPorFila;
+                    bool tablaLateral = ventanaModal.IncluirTablaLateral;
+
+                    if (_productoSeleccionadoId > 0)
+                        _reporteExcel.ExportarKardexUbicacion(_reporteActual, TxtProducto.Text, ubicacion, desde, hasta, porFila, tablaLateral);
+                    else
+                        _reporteExcel.ExportarKardexUbicacionGeneral(_reporteActual, ubicacion, desde, hasta, porFila, tablaLateral);
+                }
             }
             catch (Exception ex)
             {
@@ -274,6 +347,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             }
         }
 
-        
+
     }
 }

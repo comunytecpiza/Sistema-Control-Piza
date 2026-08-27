@@ -17,23 +17,28 @@ namespace AplicativoDeAlmacen.Models.Models
         public decimal SaldoAcumulado { get; set; }
         public int CategoriaProductoId { get; set; }
         public int AlmacenId { get; set; }
-        public XLCellValue Guia { get; internal set; }
-        public List<ConsultaCodigoItem> CodigosAsociados { get; set; } = new List<ConsultaCodigoItem>();
 
-        // 🌟 PROPIEDADES DE AUDITORÍA
+        // 🌟 IDENTIFICADORES PARA VINCULACIÓN EXACTA
+        public int ProductoId { get; set; }
+        public int MovimientoDetalleId { get; set; }
+
         public DateTime? CreatedAt { get; set; }
         public string UsuarioCreador { get; set; } = string.Empty;
         public DateTime? UpdatedAt { get; set; }
         public string? UsuarioModificador { get; set; }
+        public List<ConsultaCodigoItem> CodigosAsociados { get; set; } = new List<ConsultaCodigoItem>();
     }
 
     public class ConsultaCodigoItem
     {
-        public string Codigo { get; set; }
-        public string ColeccionTipo { get; set; }
-        public string NumeroRegistro { get; set; }
+        public string Codigo { get; set; } = string.Empty;
+        public string ColeccionTipo { get; set; } = string.Empty;
+        public string NumeroRegistro { get; set; } = string.Empty;
         public string TipoMovimiento { get; set; } = string.Empty;
-    
+
+        // 🌟 IDENTIFICADORES PARA VINCULACIÓN EXACTA
+        public int ProductoId { get; set; }
+        public int MovimientoDetalleId { get; set; }
     }
 
     public class ConsultaMovimientoReporte
