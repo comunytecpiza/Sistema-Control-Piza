@@ -1,11 +1,11 @@
 ﻿<Window x:Class="AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex.FiltroImpresionKardexUbicacionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Opciones de Impresión - Kardex" 
-        Height="520" Width="520"
-        MinHeight="460" MinWidth="480"
+        Title="Configuración de Exportación - Kardex por Ubicación" 
+        Height="540" Width="530"
+        MinHeight="480" MinWidth="490"
         WindowStartupLocation="CenterOwner" 
-        Background="#F8FAFC"
+        Background="#F1F5F9"
         FontFamily="Segoe UI">
 
     <Grid Margin="18">
@@ -15,61 +15,82 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- TÍTULO -->
-        <TextBlock Grid.Row="0" Text="🖨️ Opciones de Exportación a Excel" FontSize="18" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,12"/>
+        <!-- CABECERA -->
+        <Border Grid.Row="0" Background="#1E293B" CornerRadius="8" Padding="14,10" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="📊" FontSize="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock Text="Opciones de Generación y Reporte" FontSize="15" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
 
-        <!-- TABS -->
+        <!-- PESTAÑAS -->
         <TabControl x:Name="TabOpciones" Grid.Row="1" Background="White" BorderBrush="#CBD5E1" BorderThickness="1">
 
-            <!-- PESTAÑA 1: MODO NORMAL -->
-            <TabItem Header="Modo Normal" FontWeight="SemiBold" Padding="14,8">
+            <!-- 🌟 PESTAÑA 1: MODO DETALLADO TRADICIONAL -->
+            <TabItem Header="Modo Normal (Detalle)" FontWeight="SemiBold" Padding="14,7">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="16">
-                        <TextBlock Text="Seleccione las opciones para el reporte detallado:" FontWeight="Bold" FontSize="13" Foreground="#334155" Margin="0,0,0,12"/>
+                        <TextBlock Text="Formato Tradicional Línea por Línea" FontWeight="Bold" FontSize="13" Foreground="#1E293B" Margin="0,0,0,6"/>
+                        <TextBlock Text="Genera un reporte correlativo con cada movimiento y auditoría de códigos." FontSize="12" Foreground="#64748B" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,10">
+                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,10">
                             <StackPanel>
                                 <CheckBox x:Name="ChkCodigosPorFila" 
-                                          Content="Incluir códigos debajo de cada movimiento" 
+                                          Content="Incluir códigos físicos debajo de cada movimiento" 
                                           IsChecked="True" 
-                                          FontSize="13" 
-                                          Foreground="#1E293B" 
+                                          FontSize="12.5" 
+                                          FontWeight="SemiBold"
+                                          Foreground="#334155" 
                                           Margin="0,0,0,10"/>
 
                                 <CheckBox x:Name="ChkTablaLateralCodigos" 
-                                          Content="Incluir tabla lateral derecha con códigos puros" 
+                                          Content="Incluir tabla lateral derecha con códigos puros auditados" 
                                           IsChecked="True" 
-                                          FontSize="13" 
-                                          Foreground="#1E293B"/>
+                                          FontSize="12.5" 
+                                          FontWeight="SemiBold"
+                                          Foreground="#334155"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
-            <!-- PESTAÑA 2: MODO AVANZADO (MATRIZ MULTI-HOJA) -->
-            <TabItem Header="Modo Avanzado (Matriz)" FontWeight="SemiBold" Padding="14,8">
+            <!-- 🌟 PESTAÑA 2: MODO AVANZADO (MATRIZ DE LIQUIDACIÓN) -->
+            <TabItem Header="Modo Avanzado (Matriz)" FontWeight="SemiBold" Padding="14,7">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="16">
-                        <TextBlock Text="📊 Generación de Matriz de Liquidación" FontWeight="Bold" FontSize="13.5" Foreground="#1E293B" Margin="0,0,0,12"/>
+                        <TextBlock Text="Matriz Contable de Liquidación (Doble Entrada)" FontWeight="Bold" FontSize="13.5" Foreground="#1E293B" Margin="0,0,0,4"/>
+                        <TextBlock Text="Organiza los productos en columnas (Nivel / Familia / Grado) y clasifica en 3 bloques: Ingresos, Salidas y Devoluciones." FontSize="11.5" Foreground="#64748B" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
-                        <TextBlock Text="Campaña / Año:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,4"/>
-                        <TextBox x:Name="TxtCampana" Text="C-2026" Height="32" VerticalContentAlignment="Center" Padding="8,0" Margin="0,0,0,12"/>
+                        <!-- Parámetros de Cabecera -->
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
 
-                        <TextBlock Text="Tipo de Producto:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,4"/>
-                        <ComboBox x:Name="CboTipoAvanzado" SelectedIndex="0" Height="32" Margin="0,0,0,14">
-                            <ComboBoxItem Content="Solo Libros Guías (Docente)"/>
-                            <ComboBoxItem Content="Solo Libros Ventas (Alumno)"/>
-                            <ComboBoxItem Content="Todos los Productos"/>
-                        </ComboBox>
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="Campaña / Año:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,4"/>
+                                <TextBox x:Name="TxtCampana" Text="C-2026" Height="32" VerticalContentAlignment="Center" Padding="8,0"/>
+                            </StackPanel>
 
-                        <!-- SELECCIÓN DE ALCANCE -->
-                        <TextBlock Text="Alcance de la Matriz:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,4"/>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock Text="Tipo de Producto:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="CboTipoAvanzado" SelectedIndex="2" Height="32">
+                                    <ComboBoxItem Content="Solo Libros Guías (Docente)"/>
+                                    <ComboBoxItem Content="Solo Libros Ventas (Alumno)"/>
+                                    <ComboBoxItem Content="Todos (Guías y Ventas)"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Alcance de la Matriz -->
+                        <TextBlock Text="Alcance de la Exportación:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,4,0,4"/>
                         <Border Background="#F8FAFC" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,10">
                             <StackPanel>
-                                <RadioButton x:Name="RbSoloActual" Content="1. Solo la Ubicación / Promotor actual" IsChecked="True" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,8"/>
-                                <RadioButton x:Name="RbTodosPaginados" Content="2. Todos los Promotores (Una hoja por cada uno)" Foreground="#334155" Margin="0,0,0,8"/>
-                                <RadioButton x:Name="RbTotalGeneral" Content="3. Consolidado Total General (Suma de todas las sedes)" Foreground="#334155"/>
+                                <RadioButton x:Name="RbSoloActual" Content="1. Solo la Ubicación / Promotor seleccionado" IsChecked="True" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,8"/>
+                                <RadioButton x:Name="RbTodosPaginados" Content="2. Todas las Ubicaciones (Una pestaña por cada una)" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,8"/>
+                                <RadioButton x:Name="RbTotalGeneral" Content="3. Consolidado Nacional (Suma total en una sola matriz)" FontWeight="SemiBold" Foreground="#334155"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -78,9 +99,9 @@
         </TabControl>
 
         <!-- BOTONES -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-            <Button x:Name="BtnCancelar" Content="Cancelar" Width="100" Height="36" Background="#E2E8F0" Foreground="#334155" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" Click="BtnCancelar_Click"/>
-            <Button x:Name="BtnExportar" Content="📊 Exportar" Width="115" Height="36" Background="#10B981" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Click="BtnExportar_Click"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="BtnCancelar" Content="Cancelar" Width="95" Height="35" Background="#E2E8F0" Foreground="#334155" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" Click="BtnCancelar_Click"/>
+            <Button x:Name="BtnExportar" Content="📊 Exportar Excel" Width="125" Height="35" Background="#10B981" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Click="BtnExportar_Click"/>
         </StackPanel>
     </Grid>
 </Window>

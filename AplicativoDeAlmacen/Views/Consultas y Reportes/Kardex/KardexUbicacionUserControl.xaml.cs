@@ -289,49 +289,33 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
 
                 if (ventanaModal.EsModoAvanzado)
                 {
+                    // 🚀 MODO AVANZADO (MATRIZ CONSOLIDADA / INDIVIDUAL)
                     int? catId = ventanaModal.CategoriaIdSeleccionada;
                     string campana = ventanaModal.CampanaSeleccionada;
                     var alcance = ventanaModal.AlcanceMatriz;
 
-                    var listaPaquetes = new List<(string NombreUbicacion, List<MatrizKardexItemDTO> Movimientos)>();
+                    int? uIdFiltro = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual && _ubicacionSeleccionadaId > 0)
+                        ? _ubicacionSeleccionadaId
+                        : (int?)null;
 
-                    if (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual)
-                    {
-                        // 🎯 1. Solo la ubicación actual
-                        var (movs, catProds) = await _kardexService.ObtenerDatosMatrizAvanzadaAsync(
-                            _ubicacionSeleccionadaId > 0 ? _ubicacionSeleccionadaId : null,
-                            ubicacion, desde, hasta, catId, miAlmacenId);
+                    var (ubicacionesData, catalogoProds) = await _kardexService.ObtenerDatosMatrizConsolidadaCompletaAsync(
+                        desde,
+                        hasta,
+                        catId,
+                        uIdFiltro,
+                        miAlmacenId);
 
-                        listaPaquetes.Add((string.IsNullOrWhiteSpace(ubicacion) ? "UBICACIÓN ACTUAL" : ubicacion, movs));
+                    bool soloUna = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual);
 
-                        _reporteExcel.GenerarLibroMatrizLiquidacionCompleto(campana, catProds, listaPaquetes, false);
-                    }
-                    else
-                    {
-                        // 🌐 2 y 3. Todas las ubicaciones (Cada una en su pestaña + Consolidado opcional)
-                        var todasLasUbicaciones = await _ubicacionService.ObtenerTodasAsync();
-                        List<ProductoColumnaDTO> catalogo = new List<ProductoColumnaDTO>();
-
-                        foreach (var ub in todasLasUbicaciones)
-                        {
-                            var (movs, catProds) = await _kardexService.ObtenerDatosMatrizAvanzadaAsync(
-                                ub.Id, ub.Descripcion, desde, hasta, catId, miAlmacenId);
-
-                            if (movs.Any())
-                            {
-                                listaPaquetes.Add((ub.Descripcion, movs));
-                                if (!catalogo.Any()) catalogo = catProds;
-                            }
-                        }
-
-                        bool incluirConsolidado = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.TotalConsolidado || alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.TodosLosPromotores);
-
-                        _reporteExcel.GenerarLibroMatrizLiquidacionCompleto(campana, catalogo, listaPaquetes, incluirConsolidado);
-                    }
+                    _reporteExcel.GenerarLibroMatrizCompletoConResumen(
+                        campana,
+                        catalogoProds,
+                        ubicacionesData,
+                        soloUna);
                 }
                 else
                 {
-                    // MODO NORMAL DETALLADO TRADICIONAL
+                    // 📄 MODO NORMAL (DETALLADO CON CÓDIGOS)
                     bool porFila = ventanaModal.IncluirCodigosPorFila;
                     bool tablaLateral = ventanaModal.IncluirTablaLateral;
 

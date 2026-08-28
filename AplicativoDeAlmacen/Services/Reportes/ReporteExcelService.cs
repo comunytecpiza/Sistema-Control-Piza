@@ -1534,356 +1534,306 @@ namespace AplicativoDeAlmacen.Services.Reportes
             Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true });
         }
 
-        public void ExportarMatrizKardexUbicacionAvanzado(
-    string nombreUbicacion,
+
+
+        // =========================================================================
+        // 🌟 MÉTODO ÚNICO PARA GENERAR LA MATRIZ (INDIVIDUAL O CONSOLIDADO)
+        // =========================================================================
+        public void GenerarLibroMatrizCompletoConResumen(
     string campanaTexto,
-    DateTime desde,
-    DateTime hasta,
-    List<MatrizKardexItemDTO> movimientos,
-    List<ProductoColumnaDTO> catalogoProductos)
+    List<ProductoColumnaDTO> catalogoProductos,
+    List<UbicacionMatrizDTO> ubicaciones,
+    bool soloUnaUbicacion = false)
         {
             using var wb = new XLWorkbook();
-            string nombreHoja = string.IsNullOrWhiteSpace(nombreUbicacion) ? "TRUJILLO 1" : nombreUbicacion.ToUpper();
-            if (nombreHoja.Length > 30) nombreHoja = nombreHoja.Substring(0, 30);
 
-            // Limpieza de caracteres prohibidos en nombres de pestañas de Excel
-            foreach (char c in new[] { ':', '\\', '/', '?', '*', '[', ']' }) nombreHoja = nombreHoja.Replace(c, '_');
-
-            var ws = wb.Worksheets.Add(nombreHoja);
-            ws.ShowGridLines = true;
-
-            // 🌟 FILTRAR SOLO PRODUCTOS QUE TIENEN MOVIMIENTOS O MOSTRAR CATÁLOGO ESTRUCTURADO
-            var prodsConMov = movimientos.Select(m => m.ProductoId).ToHashSet();
-            var columnasProductos = catalogoProductos.Where(p => prodsConMov.Contains(p.ProductoId) || catalogoProductos.Count <= 40).ToList();
-
+            var prodsConMov = ubicaciones.SelectMany(u => u.Movimientos).Select(m => m.ProductoId).ToHashSet();
+            var columnasProductos = catalogoProductos.Where(p => prodsConMov.Contains(p.ProductoId) || catalogoProductos.Count <= 35).ToList();
             if (!columnasProductos.Any()) columnasProductos = catalogoProductos.Take(30).ToList();
 
-            // 1. TÍTULO PRINCIPAL (Fila 1)
-            ws.Cell("D1").Value = $"LIBROS GUIAS CAMPANA {campanaTexto.ToUpper()} - {nombreUbicacion.ToUpper()}";
-            ws.Cell("D1").Style.Font.Bold = true;
-            ws.Cell("D1").Style.Font.FontSize = 14;
-            ws.Cell("D1").Style.Font.Underline = XLFontUnderlineValues.Single;
+            // 1. Diccionario de nombres seguros de hoja para enlazar hipervínculos exactos
+            var mapNombresHojas = new Dictionary<int, string>();
+            foreach (var ub in ubicaciones)
+            {
+                string nHoja = ub.Nombre.ToUpper().Trim();
+                if (nHoja.Length > 28) nHoja = nHoja.Substring(0, 28);
+                foreach (char c in new[] { ':', '\\', '/', '?', '*', '[', ']' }) nHoja = nHoja.Replace(c, '_');
+                mapNombresHojas[ub.UbicacionId] = nHoja;
+            }
 
-            // 2. CONSTRUCCIÓN DE CABECERAS DINÁMICAS (Filas 3 y 4)
-            ws.Cell(3, 1).Value = ""; // Espacio para etiqueta vertical SALIDAS/INGRESOS
-            ws.Cell(3, 2).Value = "ORDEN";
+            // 2. RESUMEN GENERAL (Si son múltiples sedes)
+            if (!soloUnaUbicacion && ubicaciones.Count > 1)
+            {
+                var wsResumen = wb.Worksheets.Add("RESUMEN GENERAL");
+                wsResumen.TabColor = XLColor.FromHtml("#047857");
+                ConstruirHojaResumenConsolidada(wsResumen, campanaTexto, ubicaciones, columnasProductos, mapNombresHojas);
+            }
+
+            // 3. Hojas individuales por cada Ubicación
+            foreach (var ub in ubicaciones)
+            {
+                if (!soloUnaUbicacion && !ub.Movimientos.Any()) continue;
+
+                string nombreHoja = mapNombresHojas[ub.UbicacionId];
+                var ws = wb.Worksheets.Add(nombreHoja);
+
+                if (ub.TipoUbicacionId == 4)
+                    ws.TabColor = XLColor.FromHtml("#3B82F6"); // 🔵 Distribuidor
+                else if (ub.TipoUbicacionId == 3)
+                    ws.TabColor = XLColor.FromHtml("#F59E0B"); // 🟡 Promotoría
+                else
+                    ws.TabColor = XLColor.FromHtml("#64748B"); // ⚪ Almacén
+
+                ConstruirHojaMatrizIndividual(ws, ub.Nombre, campanaTexto, ub.Movimientos, columnasProductos, ub.TipoUbicacionId, !soloUnaUbicacion);
+            }
+
+            string ruta = Path.Combine(Path.GetTempPath(), $"Matriz_Liquidacion_{campanaTexto}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+            wb.SaveAs(ruta);
+            Process.Start(new ProcessStartInfo { FileName = ruta, UseShellExecute = true });
+        }
+
+        // =========================================================================
+        // 🌟 1. RESUMEN CON HIPERVÍNCULOS EN TEXTO NEGRO Y SIN SUBRAYADO
+        // =========================================================================
+        private void ConstruirHojaResumenConsolidada(
+            IXLWorksheet ws,
+            string campanaTexto,
+            List<UbicacionMatrizDTO> ubicaciones,
+            List<ProductoColumnaDTO> columnasProductos,
+            Dictionary<int, string> mapNombresHojas)
+        {
+            ws.ShowGridLines = true;
+
+            // Título Principal
+            ws.Range("B1:H1").Merge().Value = $"RESUMEN GENERAL DE LIBROS CAMPAÑA {campanaTexto.ToUpper()}";
+            ws.Range("B1:H1").Style.Font.Bold = true;
+            ws.Range("B1:H1").Style.Font.FontSize = 14;
+            ws.Range("B1:H1").Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+            // Cabecera Fila 3 y 4
+            ws.Cell(3, 1).Value = "";
+            ws.Cell(3, 2).Value = "ZONA / SEDE";
             ws.Range(3, 2, 4, 2).Merge().Style.Font.Bold = true;
             ws.Range(3, 2, 4, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center);
             ws.Range(3, 2, 4, 2).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
 
-            ws.Cell(3, 3).Value = "FECHA";
-            ws.Range(3, 3, 4, 3).Merge().Style.Font.Bold = true;
-            ws.Range(3, 3, 4, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center);
-            ws.Range(3, 3, 4, 3).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-
-            int colIndex = 4;
-            var mapColumnaProducto = new Dictionary<int, int>(); // ProductoId -> NumeroColumna
-            var gruposNivel = columnasProductos.GroupBy(p => p.Nivel).ToList();
+            int colIndex = 3;
+            var mapColumnaProducto = new Dictionary<int, int>();
+            var gruposNivel = columnasProductos.GroupBy(p => p.NivelNombre).ToList();
             var columnasSubtotales = new List<(int ColSubtotal, int ColInicio, int ColFin)>();
 
             foreach (var grupoNivel in gruposNivel)
             {
                 int colInicioNivel = colIndex;
-                var gruposSerie = grupoNivel.GroupBy(p => p.GrupoSerie).ToList();
+                var gruposFamilia = grupoNivel.GroupBy(p => p.FamiliaNombre).ToList();
 
-                foreach (var serie in gruposSerie)
+                foreach (var familia in gruposFamilia)
                 {
-                    int colInicioSerie = colIndex;
-                    foreach (var prod in serie)
+                    int colInicioFamilia = colIndex;
+                    foreach (var prod in familia)
                     {
                         mapColumnaProducto[prod.ProductoId] = colIndex;
-                        ws.Cell(4, colIndex).Value = prod.Codigo;
+                        string codigoLimpio = prod.Codigo.Replace("-V-V-", " V ").Replace("-G-G-", " G ").Replace("-G-G", " G").Replace("-V-V", " V").Trim();
+                        ws.Cell(4, colIndex).Value = codigoLimpio;
                         ws.Cell(4, colIndex).Style.Font.Bold = true;
-                        ws.Cell(4, colIndex).Style.Font.FontSize = 9;
-                        ws.Cell(4, colIndex).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                        ws.Cell(4, colIndex).Style.Font.FontSize = 8.5;
+                        ws.Cell(4, colIndex).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center).Alignment.SetWrapText(true);
                         ws.Cell(4, colIndex).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                         colIndex++;
                     }
 
-                    // Columna de Subtotal de Serie (Verde)
                     int colSubtotal = colIndex;
-                    columnasSubtotales.Add((colSubtotal, colInicioSerie, colIndex - 1));
-                    ws.Cell(4, colSubtotal).Value = $"TOTAL\n{serie.Key}";
+                    columnasSubtotales.Add((colSubtotal, colInicioFamilia, colIndex - 1));
+                    ws.Cell(4, colSubtotal).Value = $"TOTAL\n{familia.Key}";
                     ws.Cell(4, colSubtotal).Style.Font.Bold = true;
-                    ws.Cell(4, colSubtotal).Style.Font.FontSize = 8.5;
-                    ws.Cell(4, colSubtotal).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetWrapText(true);
-                    ws.Cell(4, colSubtotal).Style.Fill.BackgroundColor = XLColor.FromHtml("#C6E0B4"); // Verde suave
+                    ws.Cell(4, colSubtotal).Style.Font.FontSize = 8;
+                    ws.Cell(4, colSubtotal).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center).Alignment.SetWrapText(true);
+                    ws.Cell(4, colSubtotal).Style.Fill.BackgroundColor = XLColor.FromHtml("#FDBA74");
                     ws.Cell(4, colSubtotal).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                     colIndex++;
                 }
 
-                // Merge del Nivel (INICIAL, PRIMARIA)
                 var rangoNivel = ws.Range(3, colInicioNivel, 3, colIndex - 1);
                 rangoNivel.Merge().Value = grupoNivel.Key;
                 rangoNivel.Style.Font.Bold = true;
-                rangoNivel.Style.Font.FontSize = 12;
-                rangoNivel.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                rangoNivel.Style.Font.FontSize = 11;
+                rangoNivel.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center);
                 rangoNivel.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
             }
 
             int ultimaColumna = colIndex - 1;
-
-            // 3. LLENADO DE SALIDAS (Filas Amarillas)
             int filaActual = 5;
-            int filaInicioSalidas = filaActual;
 
-            var salidasAgrupadas = movimientos
-                .Where(m => m.TipoMovimientoId == 2)
-                .GroupBy(m => new { m.MovimientoId, m.OrdenDocumento, m.Fecha })
-                .OrderBy(g => g.Key.Fecha)
-                .ToList();
+            var filasTotalesGrupos = new List<int>();
 
-            foreach (var grupoSalida in salidasAgrupadas)
+            int RenderizarGrupoConTotales(string tituloGrupo, string textoTotalGrupo, int tipoUbicacionId, XLColor colorEtiqueta, XLColor colorFilaTotal)
             {
-                ws.Cell(filaActual, 2).Value = grupoSalida.Key.OrdenDocumento;
-                ws.Cell(filaActual, 2).Style.Font.Bold = true;
-                ws.Cell(filaActual, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#FEF08A"); // Amarillo
-                ws.Cell(filaActual, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                var listaUbicacionesGrupo = ubicaciones.Where(u => u.TipoUbicacionId == tipoUbicacionId).ToList();
+                if (!listaUbicacionesGrupo.Any()) return 0;
 
-                ws.Cell(filaActual, 3).Value = grupoSalida.Key.Fecha.ToString("dd/MM/yyyy");
-                ws.Cell(filaActual, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                int filaInicioGrupo = filaActual;
 
-                // Asignar cantidades a sus columnas
-                foreach (var item in grupoSalida)
+                foreach (var ub in listaUbicacionesGrupo)
                 {
-                    if (mapColumnaProducto.TryGetValue(item.ProductoId, out int cIdx))
+                    var celdaNombre = ws.Cell(filaActual, 2);
+                    celdaNombre.Value = ub.Nombre;
+                    celdaNombre.Style.Font.Bold = true;
+
+                    // 🌟 HIPERVÍNCULO EN NEGRO PURO Y SIN LÍNEA DE SUBRAYADO
+                    if (mapNombresHojas.TryGetValue(ub.UbicacionId, out string? nombreHojaDestino))
                     {
-                        ws.Cell(filaActual, cIdx).Value = item.Cantidad;
-                        ws.Cell(filaActual, cIdx).Style.NumberFormat.Format = "#,##0";
-                        ws.Cell(filaActual, cIdx).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                        celdaNombre.CreateHyperlink().InternalAddress = $"'{nombreHojaDestino}'!A1";
+                        celdaNombre.Style.Font.Underline = XLFontUnderlineValues.None; // 👈 Sin línea abajo
+                        celdaNombre.Style.Font.FontColor = XLColor.Black;               // 👈 Texto negro
                     }
+
+                    var saldosPorProd = ub.Movimientos
+                        .GroupBy(m => m.ProductoId)
+                        .ToDictionary(
+                            g => g.Key,
+                            g => g.Where(x => x.BloqueTipo == 2).Sum(x => x.Cantidad) - g.Where(x => x.BloqueTipo == 3).Sum(x => x.Cantidad)
+                        );
+
+                    foreach (var kvp in saldosPorProd)
+                    {
+                        if (mapColumnaProducto.TryGetValue(kvp.Key, out int cIdx))
+                        {
+                            ws.Cell(filaActual, cIdx).Value = kvp.Value;
+                            ws.Cell(filaActual, cIdx).Style.NumberFormat.Format = "#,##0";
+                            ws.Cell(filaActual, cIdx).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                        }
+                    }
+
+                    foreach (var sub in columnasSubtotales)
+                    {
+                        string colLetraIni = ws.Cell(filaActual, sub.ColInicio).WorksheetColumn().ColumnLetter();
+                        string colLetraFin = ws.Cell(filaActual, sub.ColFin).WorksheetColumn().ColumnLetter();
+                        var cellSub = ws.Cell(filaActual, sub.ColSubtotal);
+                        cellSub.FormulaA1 = $"SUM({colLetraIni}{filaActual}:{colLetraFin}{filaActual})";
+                        cellSub.Style.NumberFormat.Format = "#,##0";
+                        cellSub.Style.Font.Bold = true;
+                        cellSub.Style.Font.FontColor = XLColor.FromHtml("#991B1B");
+                        cellSub.Style.Fill.BackgroundColor = XLColor.FromHtml("#FFEDD5");
+                        cellSub.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                    }
+
+                    ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                    ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Hair;
+                    filaActual++;
                 }
 
-                // Fórmulas de Subtotales por fila (Verdes)
-                foreach (var sub in columnasSubtotales)
+                int filaFinGrupo = filaActual - 1;
+
+                var rangoEtiqueta = ws.Range(filaInicioGrupo, 1, filaFinGrupo, 1);
+                rangoEtiqueta.Merge().Value = tituloGrupo;
+                rangoEtiqueta.Style.Font.Bold = true;
+                rangoEtiqueta.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
+                                             .Alignment.SetVertical(XLAlignmentVerticalValues.Center)
+                                             .Alignment.SetTextRotation(90);
+                rangoEtiqueta.Style.Fill.BackgroundColor = colorEtiqueta;
+                rangoEtiqueta.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+
+                int filaSubtotalGrupo = filaActual;
+                ws.Range(filaSubtotalGrupo, 1, filaSubtotalGrupo, 2).Merge().Value = textoTotalGrupo;
+                ws.Range(filaSubtotalGrupo, 1, filaSubtotalGrupo, 2).Style.Font.Bold = true;
+                ws.Range(filaSubtotalGrupo, 1, filaSubtotalGrupo, 2).Style.Fill.BackgroundColor = colorFilaTotal;
+                ws.Range(filaSubtotalGrupo, 1, filaSubtotalGrupo, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+                for (int c = 3; c <= ultimaColumna; c++)
                 {
-                    string colLetraIni = ws.Cell(filaActual, sub.ColInicio).WorksheetColumn().ColumnLetter();
-                    string colLetraFin = ws.Cell(filaActual, sub.ColFin).WorksheetColumn().ColumnLetter();
-                    var cellSub = ws.Cell(filaActual, sub.ColSubtotal);
-                    cellSub.FormulaA1 = $"SUM({colLetraIni}{filaActual}:{colLetraFin}{filaActual})";
-                    cellSub.Style.NumberFormat.Format = "#,##0";
-                    cellSub.Style.Font.Bold = true;
-                    cellSub.Style.Font.FontColor = XLColor.FromHtml("#166534");
-                    cellSub.Style.Fill.BackgroundColor = XLColor.FromHtml("#DCFCE7");
-                    cellSub.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                    string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
+                    var cellTot = ws.Cell(filaSubtotalGrupo, c);
+                    cellTot.FormulaA1 = $"SUM({colLetra}{filaInicioGrupo}:{colLetra}{filaFinGrupo})";
+                    cellTot.Style.Font.Bold = true;
+                    cellTot.Style.NumberFormat.Format = "#,##0";
+                    cellTot.Style.Fill.BackgroundColor = colorFilaTotal;
+                    cellTot.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
                 }
+                ws.Range(filaSubtotalGrupo, 1, filaSubtotalGrupo, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
 
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Hair;
-                filaActual++;
+                filasTotalesGrupos.Add(filaSubtotalGrupo);
+                filaActual += 2;
+
+                return filaSubtotalGrupo;
             }
 
-            int filaFinSalidas = filaActual - 1;
+            // 1. PROMOTORES
+            RenderizarGrupoConTotales("PROMOTORES", "TOTAL PROMOTORES", 3, XLColor.FromHtml("#FDE047"), XLColor.FromHtml("#FEF08A"));
 
-            // Etiqueta lateral vertical SALIDAS
-            if (filaFinSalidas >= filaInicioSalidas)
-            {
-                var rangoEtiquetaSalidas = ws.Range(filaInicioSalidas, 1, filaFinSalidas, 1);
-                rangoEtiquetaSalidas.Merge().Value = "SALIDAS";
-                rangoEtiquetaSalidas.Style.Font.Bold = true;
-                rangoEtiquetaSalidas.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
-                                   .Alignment.SetVertical(XLAlignmentVerticalValues.Center)
-                                   .Alignment.SetTextRotation(90);
-                rangoEtiquetaSalidas.Style.Fill.BackgroundColor = XLColor.FromHtml("#FDE047");
-                rangoEtiquetaSalidas.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-            }
+            // 2. DISTRIBUIDORES
+            RenderizarGrupoConTotales("DISTRIBUIDORES", "TOTAL DISTRIBUIDORES", 4, XLColor.FromHtml("#93C5FD"), XLColor.FromHtml("#BFDBFE"));
 
-            // Fila TOTAL SALIDAS
-            int filaTotalSalidas = filaActual;
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Merge().Value = "TOTAL SALIDAS";
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Style.Font.Bold = true;
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FACC15");
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            // 3. ALMACENES
+            RenderizarGrupoConTotales("ALMACENES", "TOTAL ALMACENES", 1, XLColor.FromHtml("#E2E8F0"), XLColor.FromHtml("#F1F5F9"));
 
-            for (int c = 4; c <= ultimaColumna; c++)
+            // 4. TOTAL CONSOLIDADO GENERAL
+            int filaGranTotal = filaActual;
+            ws.Range(filaGranTotal, 1, filaGranTotal, 2).Merge().Value = "TOTAL CONSOLIDADO GENERAL";
+            ws.Range(filaGranTotal, 1, filaGranTotal, 2).Style.Font.Bold = true;
+            ws.Range(filaGranTotal, 1, filaGranTotal, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#FACC15");
+            ws.Range(filaGranTotal, 1, filaGranTotal, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+            for (int c = 3; c <= ultimaColumna; c++)
             {
                 string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
-                var cellTot = ws.Cell(filaTotalSalidas, c);
-                cellTot.FormulaA1 = (filaFinSalidas >= filaInicioSalidas) ? $"SUM({colLetra}{filaInicioSalidas}:{colLetra}{filaFinSalidas})" : "0";
+                var cellTot = ws.Cell(filaGranTotal, c);
+
+                if (filasTotalesGrupos.Any())
+                {
+                    cellTot.FormulaA1 = string.Join("+", filasTotalesGrupos.Select(f => $"{colLetra}{f}"));
+                }
+                else
+                {
+                    cellTot.FormulaA1 = $"SUM({colLetra}5:{colLetra}{filaGranTotal - 1})";
+                }
+
                 cellTot.Style.Font.Bold = true;
                 cellTot.Style.NumberFormat.Format = "#,##0";
+                cellTot.Style.Fill.BackgroundColor = XLColor.FromHtml("#FDE047");
                 cellTot.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
             }
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-            filaActual += 2;
-
-            // 4. LLENADO DE INGRESOS / DEVOLUCIONES (Filas Inferiores)
-            int filaInicioIngresos = filaActual;
-
-            var ingresosAgrupados = movimientos
-                .Where(m => m.TipoMovimientoId == 1)
-                .GroupBy(m => new { m.MovimientoId, m.OrdenDocumento, m.Fecha })
-                .OrderBy(g => g.Key.Fecha)
-                .ToList();
-
-            foreach (var grupoIngreso in ingresosAgrupados)
-            {
-                ws.Cell(filaActual, 2).Value = grupoIngreso.Key.OrdenDocumento;
-                ws.Cell(filaActual, 2).Style.Font.Bold = true;
-                ws.Cell(filaActual, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                ws.Cell(filaActual, 3).Value = grupoIngreso.Key.Fecha.ToString("dd/MM/yyyy");
-                ws.Cell(filaActual, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                foreach (var item in grupoIngreso)
-                {
-                    if (mapColumnaProducto.TryGetValue(item.ProductoId, out int cIdx))
-                    {
-                        ws.Cell(filaActual, cIdx).Value = item.Cantidad;
-                        ws.Cell(filaActual, cIdx).Style.NumberFormat.Format = "#,##0";
-                        ws.Cell(filaActual, cIdx).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-                    }
-                }
-
-                foreach (var sub in columnasSubtotales)
-                {
-                    string colLetraIni = ws.Cell(filaActual, sub.ColInicio).WorksheetColumn().ColumnLetter();
-                    string colLetraFin = ws.Cell(filaActual, sub.ColFin).WorksheetColumn().ColumnLetter();
-                    var cellSub = ws.Cell(filaActual, sub.ColSubtotal);
-                    cellSub.FormulaA1 = $"SUM({colLetraIni}{filaActual}:{colLetraFin}{filaActual})";
-                    cellSub.Style.NumberFormat.Format = "#,##0";
-                    cellSub.Style.Font.Bold = true;
-                    cellSub.Style.Font.FontColor = XLColor.FromHtml("#166534");
-                    cellSub.Style.Fill.BackgroundColor = XLColor.FromHtml("#DCFCE7");
-                    cellSub.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-                }
-
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Hair;
-                filaActual++;
-            }
-
-            int filaFinIngresos = filaActual - 1;
-
-            // Etiqueta lateral vertical INGRESOS
-            if (filaFinIngresos >= filaInicioIngresos)
-            {
-                var rangoEtiquetaIngresos = ws.Range(filaInicioIngresos, 1, filaFinIngresos, 1);
-                rangoEtiquetaIngresos.Merge().Value = "INGRESOS";
-                rangoEtiquetaIngresos.Style.Font.Bold = true;
-                rangoEtiquetaIngresos.Style.Font.FontColor = XLColor.Red;
-                rangoEtiquetaIngresos.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
-                                    .Alignment.SetVertical(XLAlignmentVerticalValues.Center)
-                                    .Alignment.SetTextRotation(90);
-                rangoEtiquetaIngresos.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-            }
-
-            // Fila TOTAL INGRESOS
-            int filaTotalIngresos = filaActual;
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Merge().Value = "TOTAL INGRESOS";
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Style.Font.Bold = true;
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FDE047");
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-            for (int c = 4; c <= ultimaColumna; c++)
-            {
-                string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
-                var cellTot = ws.Cell(filaTotalIngresos, c);
-                cellTot.FormulaA1 = (filaFinIngresos >= filaInicioIngresos) ? $"SUM({colLetra}{filaInicioIngresos}:{colLetra}{filaFinIngresos})" : "0";
-                cellTot.Style.Font.Bold = true;
-                cellTot.Style.NumberFormat.Format = "#,##0";
-                cellTot.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-            }
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-            filaActual += 2;
-
-            // 5. FILA FINAL DE LIQUIDACIÓN / SALDO NETO (Dorado / Naranja)
-            int filaSaldoFinal = filaActual;
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Merge().Value = $"TOTAL {campanaTexto.ToUpper()} (SALDO)";
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Font.Bold = true;
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Font.Italic = true;
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FDBA74"); // Naranja dorado
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-            for (int c = 4; c <= ultimaColumna; c++)
-            {
-                string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
-                var cellSaldo = ws.Cell(filaSaldoFinal, c);
-                cellSaldo.FormulaA1 = $"{colLetra}{filaTotalSalidas}-{colLetra}{filaTotalIngresos}";
-                cellSaldo.Style.Font.Bold = true;
-                cellSaldo.Style.NumberFormat.Format = "#,##0";
-                cellSaldo.Style.Fill.BackgroundColor = XLColor.FromHtml("#FED7AA");
-                cellSaldo.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                // Si es subtotal de serie, resaltar en rojo
-                if (columnasSubtotales.Any(x => x.ColSubtotal == c))
-                {
-                    cellSaldo.Style.Font.FontColor = XLColor.Red;
-                }
-            }
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+            ws.Range(filaGranTotal, 1, filaGranTotal, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
 
             ws.Columns().AdjustToContents();
-            ws.Column(1).Width = 4;
-            ws.Column(2).Width = 10;
-            ws.Column(3).Width = 13;
-
-            string ruta = Path.Combine(Path.GetTempPath(), $"Matriz_Liquidacion_{nombreHoja}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
-            wb.SaveAs(ruta);
-            Process.Start(new ProcessStartInfo { FileName = ruta, UseShellExecute = true });
-        }
-        // 🌟 CONSTRUCTOR DE MATRIZ DE LIQUIDACIÓN MULTI-HOJA
-        public void GenerarLibroMatrizLiquidacionCompleto(
-            string campanaTexto,
-            List<ProductoColumnaDTO> catalogoCompleto,
-            List<(string NombreUbicacion, List<MatrizKardexItemDTO> Movimientos)> ubicacionesConMovimientos,
-            bool incluirHojaConsolidadaTotal = false)
-        {
-            using var wb = new XLWorkbook();
-
-            // 1. Filtrar productos relevantes
-            var prodsConMov = ubicacionesConMovimientos.SelectMany(u => u.Movimientos).Select(m => m.ProductoId).ToHashSet();
-            var columnasProductos = catalogoCompleto.Where(p => prodsConMov.Contains(p.ProductoId) || catalogoCompleto.Count <= 35).ToList();
-            if (!columnasProductos.Any()) columnasProductos = catalogoCompleto.Take(30).ToList();
-
-            // 2. Si se pidió una hoja por cada ubicación
-            foreach (var ub in ubicacionesConMovimientos)
-            {
-                string nombreLimpio = string.IsNullOrWhiteSpace(ub.NombreUbicacion) ? "SIN NOMBRE" : ub.NombreUbicacion.ToUpper();
-                if (nombreLimpio.Length > 28) nombreLimpio = nombreLimpio.Substring(0, 28);
-                foreach (char c in new[] { ':', '\\', '/', '?', '*', '[', ']' }) nombreLimpio = nombreLimpio.Replace(c, '_');
-
-                var ws = wb.Worksheets.Add(nombreLimpio);
-                ws.TabColor = XLColor.FromHtml("#F59E0B"); // Color dorado en la pestaña
-                ConstruirHojaMatrizIndividual(ws, ub.NombreUbicacion, campanaTexto, ub.Movimientos, columnasProductos);
-            }
-
-            // 3. Si se pidió el consolidado total general
-            if (incluirHojaConsolidadaTotal && ubicacionesConMovimientos.Count > 1)
-            {
-                var wsTotal = wb.Worksheets.Add("TOTAL GENERAL");
-                wsTotal.TabColor = XLColor.FromHtml("#1E293B"); // Pestaña oscura
-                var todosLosMovs = ubicacionesConMovimientos.SelectMany(u => u.Movimientos).ToList();
-                ConstruirHojaMatrizIndividual(wsTotal, "CONSOLIDADO NACIONAL", campanaTexto, todosLosMovs, columnasProductos);
-            }
-
-            string ruta = Path.Combine(Path.GetTempPath(), $"Liquidacion_Campana_{campanaTexto}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
-            wb.SaveAs(ruta);
-            Process.Start(new ProcessStartInfo { FileName = ruta, UseShellExecute = true });
+            ws.Column(1).Width = 3.5;
+            ws.Column(2).Width = 24;
+            for (int c = 3; c <= ultimaColumna; c++) ws.Column(c).Width = 7;
         }
 
-        // 🌟 MÉTODO AUXILIAR QUE DIBUJA LA HOJA DE MATRIZ PUNTUAL
+        // =========================================================================
+        // 🌟 2. HOJA INDIVIDUAL CON BOTÓN VOLVER EN LA ESQUINA (A1)
+        // =========================================================================
         private void ConstruirHojaMatrizIndividual(
-    IXLWorksheet ws,
-    string tituloUbicacion,
-    string campanaTexto,
-    List<MatrizKardexItemDTO> movimientos,
-    List<ProductoColumnaDTO> catalogoProductos)
+            IXLWorksheet ws,
+            string tituloUbicacion,
+            string campanaTexto,
+            List<MatrizKardexItemDTO> movimientos,
+            List<ProductoColumnaDTO> catalogoProductos,
+            int tipoUbicacionId = 3,
+            bool incluirBotonRetorno = true)
         {
             ws.ShowGridLines = true;
 
-            // ==========================================
-            // 1. TÍTULO PRINCIPAL (Fila 1)
-            // ==========================================
-            ws.Cell("D1").Value = $"LIBROS GUIAS CAMPANA {campanaTexto.ToUpper()} - {tituloUbicacion.ToUpper()}";
+            // 🌟 BOTÓN DE RETORNO DISCRETO UBICADO EN LA ESQUINA A1
+            if (incluirBotonRetorno)
+            {
+                var celdaRetorno = ws.Cell("A1");
+                celdaRetorno.Value = "🏠 RESUMEN";
+                celdaRetorno.CreateHyperlink().InternalAddress = "'RESUMEN GENERAL'!A1";
+                celdaRetorno.Style.Font.Bold = true;
+                celdaRetorno.Style.Font.FontSize = 9;
+                celdaRetorno.Style.Font.FontColor = XLColor.White;
+                celdaRetorno.Style.Font.Underline = XLFontUnderlineValues.None;
+                celdaRetorno.Style.Fill.BackgroundColor = XLColor.FromHtml("#1E293B"); // Fondo oscuro discreto
+                celdaRetorno.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center);
+                celdaRetorno.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            }
+
+            // Título Principal
+            ws.Cell("D1").Value = $"LIBROS GUIAS Y VENTAS CAMPANA {campanaTexto.ToUpper()} - {tituloUbicacion.ToUpper()}";
             ws.Cell("D1").Style.Font.Bold = true;
             ws.Cell("D1").Style.Font.FontSize = 13;
             ws.Cell("D1").Style.Font.Underline = XLFontUnderlineValues.Single;
-
-            // ==========================================
-            // 2. CONSTRUCCIÓN DE CABECERAS (Filas 3 y 4)
-            // ==========================================
-            ws.Cell(3, 1).Value = "";
 
             ws.Cell(3, 2).Value = "ORDEN";
             ws.Range(3, 2, 4, 2).Merge().Style.Font.Bold = true;
@@ -1897,23 +1847,21 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             int colIndex = 4;
             var mapColumnaProducto = new Dictionary<int, int>();
-            var gruposNivel = catalogoProductos.GroupBy(p => p.Nivel).ToList();
+            var gruposNivel = catalogoProductos.GroupBy(p => p.NivelNombre).ToList();
             var columnasSubtotales = new List<(int ColSubtotal, int ColInicio, int ColFin)>();
 
             foreach (var grupoNivel in gruposNivel)
             {
                 int colInicioNivel = colIndex;
-                var gruposSerie = grupoNivel.GroupBy(p => p.GrupoSerie).ToList();
+                var gruposFamilia = grupoNivel.GroupBy(p => p.FamiliaNombre).ToList();
 
-                foreach (var serie in gruposSerie)
+                foreach (var familia in gruposFamilia)
                 {
-                    int colInicioSerie = colIndex;
-                    foreach (var prod in serie)
+                    int colInicioFamilia = colIndex;
+                    foreach (var prod in familia)
                     {
                         mapColumnaProducto[prod.ProductoId] = colIndex;
-
-                        // Texto de columna corto y limpio
-                        string codigoLimpio = prod.Codigo.Replace("-V-V-", " ").Replace("-G-G-", " ").Trim();
+                        string codigoLimpio = prod.Codigo.Replace("-V-V-", " V ").Replace("-G-G-", " G ").Replace("-G-G", " G").Replace("-V-V", " V").Trim();
                         ws.Cell(4, colIndex).Value = codigoLimpio;
                         ws.Cell(4, colIndex).Style.Font.Bold = true;
                         ws.Cell(4, colIndex).Style.Font.FontSize = 8.5;
@@ -1922,10 +1870,9 @@ namespace AplicativoDeAlmacen.Services.Reportes
                         colIndex++;
                     }
 
-                    // Columna de Subtotal de Serie (Verde claro)
                     int colSubtotal = colIndex;
-                    columnasSubtotales.Add((colSubtotal, colInicioSerie, colIndex - 1));
-                    ws.Cell(4, colSubtotal).Value = $"TOTAL\n{serie.Key}";
+                    columnasSubtotales.Add((colSubtotal, colInicioFamilia, colIndex - 1));
+                    ws.Cell(4, colSubtotal).Value = $"TOTAL\n{familia.Key}";
                     ws.Cell(4, colSubtotal).Style.Font.Bold = true;
                     ws.Cell(4, colSubtotal).Style.Font.FontSize = 8;
                     ws.Cell(4, colSubtotal).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetVertical(XLAlignmentVerticalValues.Center).Alignment.SetWrapText(true);
@@ -1934,7 +1881,6 @@ namespace AplicativoDeAlmacen.Services.Reportes
                     colIndex++;
                 }
 
-                // Fusión de nivel en Fila 3
                 var rangoNivel = ws.Range(3, colInicioNivel, 3, colIndex - 1);
                 rangoNivel.Merge().Value = grupoNivel.Key;
                 rangoNivel.Style.Font.Bold = true;
@@ -1944,211 +1890,121 @@ namespace AplicativoDeAlmacen.Services.Reportes
             }
 
             int ultimaColumna = colIndex - 1;
-
-            // ==========================================
-            // 3. BLOQUE 1: SALIDAS / DESPACHOS
-            // ==========================================
             int filaActual = 5;
-            int filaInicioSalidas = filaActual;
 
-            var salidasAgrupadas = movimientos
-                .Where(m => m.TipoMovimientoId == 2)
-                .GroupBy(m => new { m.MovimientoId, m.OrdenDocumento, m.Fecha })
-                .OrderBy(g => g.Key.Fecha)
-                .ToList();
-
-            // 🌟 Asegura al menos 6 filas de formato para el bloque
-            int filasSalidasTotal = Math.Max(salidasAgrupadas.Count, 6);
-
-            for (int i = 0; i < filasSalidasTotal; i++)
+            int RenderizarBloque(string etiquetaVertical, string tituloTotal, XLColor colorEtiqueta, XLColor colorFilaTotal, int tipoBloqueId, XLColor? colorFondoOrden = null)
             {
-                if (i < salidasAgrupadas.Count)
+                int filaInicio = filaActual;
+                var grupoFilas = movimientos
+                    .Where(m => m.BloqueTipo == tipoBloqueId)
+                    .GroupBy(m => new { m.MovimientoId, m.OrdenDocumento, m.Fecha })
+                    .OrderBy(g => g.Key.Fecha)
+                    .ToList();
+
+                int totalFilasPintar = Math.Max(grupoFilas.Count, 4);
+
+                for (int i = 0; i < totalFilasPintar; i++)
                 {
-                    var grupo = salidasAgrupadas[i];
-
-                    // Número de orden limpio (si viene 0001-0004314 muestra 4314 o 0001-4314)
-                    string ordenLimpia = grupo.Key.OrdenDocumento;
-                    if (ordenLimpia.Contains("-"))
+                    if (i < grupoFilas.Count)
                     {
-                        var partes = ordenLimpia.Split('-');
-                        if (partes.Length > 1 && int.TryParse(partes[1], out int num))
-                            ordenLimpia = num.ToString();
-                    }
-
-                    ws.Cell(filaActual, 2).Value = ordenLimpia;
-                    ws.Cell(filaActual, 2).Style.Font.Bold = true;
-                    ws.Cell(filaActual, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#FEF08A"); // Amarillo
-                    ws.Cell(filaActual, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                    ws.Cell(filaActual, 3).Value = grupo.Key.Fecha.ToString("dd/MM/yyyy");
-                    ws.Cell(filaActual, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                    foreach (var item in grupo)
-                    {
-                        if (mapColumnaProducto.TryGetValue(item.ProductoId, out int cIdx))
+                        var grupo = grupoFilas[i];
+                        string ordenLimpia = grupo.Key.OrdenDocumento;
+                        if (ordenLimpia.Contains("-"))
                         {
-                            ws.Cell(filaActual, cIdx).Value = item.Cantidad;
-                            ws.Cell(filaActual, cIdx).Style.NumberFormat.Format = "#,##0";
-                            ws.Cell(filaActual, cIdx).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                            var partes = ordenLimpia.Split('-');
+                            if (partes.Length > 1 && int.TryParse(partes[1], out int num))
+                                ordenLimpia = num.ToString();
+                        }
+                        else if (int.TryParse(ordenLimpia, out int numPuro))
+                        {
+                            ordenLimpia = numPuro.ToString();
+                        }
+
+                        ws.Cell(filaActual, 2).Value = ordenLimpia;
+                        ws.Cell(filaActual, 2).Style.Font.Bold = true;
+                        if (colorFondoOrden != null) ws.Cell(filaActual, 2).Style.Fill.BackgroundColor = colorFondoOrden;
+                        ws.Cell(filaActual, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+                        ws.Cell(filaActual, 3).Value = grupo.Key.Fecha.ToString("dd/MM/yyyy");
+                        ws.Cell(filaActual, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+                        foreach (var item in grupo)
+                        {
+                            if (mapColumnaProducto.TryGetValue(item.ProductoId, out int cIdx))
+                            {
+                                ws.Cell(filaActual, cIdx).Value = item.Cantidad;
+                                ws.Cell(filaActual, cIdx).Style.NumberFormat.Format = "#,##0";
+                                ws.Cell(filaActual, cIdx).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                            }
                         }
                     }
-                }
-                else
-                {
-                    // Fila vacía formateada
-                    ws.Cell(filaActual, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#FEF08A");
-                }
-
-                // Subtotales verdes por fila
-                foreach (var sub in columnasSubtotales)
-                {
-                    string colLetraIni = ws.Cell(filaActual, sub.ColInicio).WorksheetColumn().ColumnLetter();
-                    string colLetraFin = ws.Cell(filaActual, sub.ColFin).WorksheetColumn().ColumnLetter();
-                    var cellSub = ws.Cell(filaActual, sub.ColSubtotal);
-                    cellSub.FormulaA1 = $"SUM({colLetraIni}{filaActual}:{colLetraFin}{filaActual})";
-                    cellSub.Style.NumberFormat.Format = "#,##0";
-                    cellSub.Style.Font.Bold = true;
-                    cellSub.Style.Font.FontColor = XLColor.FromHtml("#166534");
-                    cellSub.Style.Fill.BackgroundColor = XLColor.FromHtml("#DCFCE7");
-                    cellSub.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-                }
-
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Hair;
-                filaActual++;
-            }
-
-            int filaFinSalidas = filaActual - 1;
-
-            // Etiqueta vertical "SALIDAS"
-            var rangoEtiquetaSalidas = ws.Range(filaInicioSalidas, 1, filaFinSalidas, 1);
-            rangoEtiquetaSalidas.Merge().Value = "SALIDAS";
-            rangoEtiquetaSalidas.Style.Font.Bold = true;
-            rangoEtiquetaSalidas.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
-                                               .Alignment.SetVertical(XLAlignmentVerticalValues.Center)
-                                               .Alignment.SetTextRotation(90);
-            rangoEtiquetaSalidas.Style.Fill.BackgroundColor = XLColor.FromHtml("#FDE047");
-            rangoEtiquetaSalidas.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-
-            // Fila TOTAL SALIDAS
-            int filaTotalSalidas = filaActual;
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Merge().Value = "TOTAL SALIDAS";
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Style.Font.Bold = true;
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FACC15");
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-            for (int c = 4; c <= ultimaColumna; c++)
-            {
-                string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
-                var cellTot = ws.Cell(filaTotalSalidas, c);
-                cellTot.FormulaA1 = $"SUM({colLetra}{filaInicioSalidas}:{colLetra}{filaFinSalidas})";
-                cellTot.Style.Font.Bold = true;
-                cellTot.Style.NumberFormat.Format = "#,##0";
-                cellTot.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-            }
-            ws.Range(filaTotalSalidas, 1, filaTotalSalidas, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-            filaActual += 2;
-
-            // ==========================================
-            // 4. BLOQUE 2: INGRESOS / DEVOLUCIONES
-            // ==========================================
-            int filaInicioIngresos = filaActual;
-
-            var ingresosAgrupados = movimientos
-                .Where(m => m.TipoMovimientoId == 1)
-                .GroupBy(m => new { m.MovimientoId, m.OrdenDocumento, m.Fecha })
-                .OrderBy(g => g.Key.Fecha)
-                .ToList();
-
-            // 🌟 Asegura al menos 6 filas de formato para el bloque
-            int filasIngresosTotal = Math.Max(ingresosAgrupados.Count, 6);
-
-            for (int i = 0; i < filasIngresosTotal; i++)
-            {
-                if (i < ingresosAgrupados.Count)
-                {
-                    var grupo = ingresosAgrupados[i];
-
-                    string ordenLimpia = grupo.Key.OrdenDocumento;
-                    if (ordenLimpia.Contains("-"))
+                    else
                     {
-                        var partes = ordenLimpia.Split('-');
-                        if (partes.Length > 1 && int.TryParse(partes[1], out int num))
-                            ordenLimpia = num.ToString();
+                        if (colorFondoOrden != null) ws.Cell(filaActual, 2).Style.Fill.BackgroundColor = colorFondoOrden;
                     }
 
-                    ws.Cell(filaActual, 2).Value = ordenLimpia;
-                    ws.Cell(filaActual, 2).Style.Font.Bold = true;
-                    ws.Cell(filaActual, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                    ws.Cell(filaActual, 3).Value = grupo.Key.Fecha.ToString("dd/MM/yyyy");
-                    ws.Cell(filaActual, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-                    foreach (var item in grupo)
+                    foreach (var sub in columnasSubtotales)
                     {
-                        if (mapColumnaProducto.TryGetValue(item.ProductoId, out int cIdx))
-                        {
-                            ws.Cell(filaActual, cIdx).Value = item.Cantidad;
-                            ws.Cell(filaActual, cIdx).Style.NumberFormat.Format = "#,##0";
-                            ws.Cell(filaActual, cIdx).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-                        }
+                        string colLetraIni = ws.Cell(filaActual, sub.ColInicio).WorksheetColumn().ColumnLetter();
+                        string colLetraFin = ws.Cell(filaActual, sub.ColFin).WorksheetColumn().ColumnLetter();
+                        var cellSub = ws.Cell(filaActual, sub.ColSubtotal);
+                        cellSub.FormulaA1 = $"SUM({colLetraIni}{filaActual}:{colLetraFin}{filaActual})";
+                        cellSub.Style.NumberFormat.Format = "#,##0";
+                        cellSub.Style.Font.Bold = true;
+                        cellSub.Style.Font.FontColor = XLColor.FromHtml("#166534");
+                        cellSub.Style.Fill.BackgroundColor = XLColor.FromHtml("#DCFCE7");
+                        cellSub.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
                     }
+
+                    ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                    ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Hair;
+                    filaActual++;
                 }
 
-                foreach (var sub in columnasSubtotales)
+                int filaFin = filaActual - 1;
+
+                var rangoEtiqueta = ws.Range(filaInicio, 1, filaFin, 1);
+                rangoEtiqueta.Merge().Value = etiquetaVertical;
+                rangoEtiqueta.Style.Font.Bold = true;
+                rangoEtiqueta.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
+                                             .Alignment.SetVertical(XLAlignmentVerticalValues.Center)
+                                             .Alignment.SetTextRotation(90);
+                rangoEtiqueta.Style.Fill.BackgroundColor = colorEtiqueta;
+                rangoEtiqueta.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+
+                int filaTotal = filaActual;
+                ws.Range(filaTotal, 1, filaTotal, 3).Merge().Value = tituloTotal;
+                ws.Range(filaTotal, 1, filaTotal, 3).Style.Font.Bold = true;
+                ws.Range(filaTotal, 1, filaTotal, 3).Style.Fill.BackgroundColor = colorFilaTotal;
+                ws.Range(filaTotal, 1, filaTotal, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+
+                for (int c = 4; c <= ultimaColumna; c++)
                 {
-                    string colLetraIni = ws.Cell(filaActual, sub.ColInicio).WorksheetColumn().ColumnLetter();
-                    string colLetraFin = ws.Cell(filaActual, sub.ColFin).WorksheetColumn().ColumnLetter();
-                    var cellSub = ws.Cell(filaActual, sub.ColSubtotal);
-                    cellSub.FormulaA1 = $"SUM({colLetraIni}{filaActual}:{colLetraFin}{filaActual})";
-                    cellSub.Style.NumberFormat.Format = "#,##0";
-                    cellSub.Style.Font.Bold = true;
-                    cellSub.Style.Font.FontColor = XLColor.FromHtml("#166534");
-                    cellSub.Style.Fill.BackgroundColor = XLColor.FromHtml("#DCFCE7");
-                    cellSub.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                    string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
+                    var cellTot = ws.Cell(filaTotal, c);
+                    cellTot.FormulaA1 = $"SUM({colLetra}{filaInicio}:{colLetra}{filaFin})";
+                    cellTot.Style.Font.Bold = true;
+                    cellTot.Style.NumberFormat.Format = "#,##0";
+                    cellTot.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
                 }
+                ws.Range(filaTotal, 1, filaTotal, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
+                filaActual += 2;
 
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                ws.Range(filaActual, 2, filaActual, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Hair;
-                filaActual++;
+                return filaTotal;
             }
 
-            int filaFinIngresos = filaActual - 1;
-
-            // Etiqueta vertical "INGRESOS"
-            var rangoEtiquetaIngresos = ws.Range(filaInicioIngresos, 1, filaFinIngresos, 1);
-            rangoEtiquetaIngresos.Merge().Value = "INGRESOS";
-            rangoEtiquetaIngresos.Style.Font.Bold = true;
-            rangoEtiquetaIngresos.Style.Font.FontColor = XLColor.Red;
-            rangoEtiquetaIngresos.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
-                                                .Alignment.SetVertical(XLAlignmentVerticalValues.Center)
-                                                .Alignment.SetTextRotation(90);
-            rangoEtiquetaIngresos.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-
-            // Fila TOTAL INGRESOS
-            int filaTotalIngresos = filaActual;
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Merge().Value = "TOTAL INGRESOS";
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Style.Font.Bold = true;
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FDE047");
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
-
-            for (int c = 4; c <= ultimaColumna; c++)
+            int filaTotIngresos = 0;
+            if (tipoUbicacionId == 1)
             {
-                string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
-                var cellTot = ws.Cell(filaTotalIngresos, c);
-                cellTot.FormulaA1 = $"SUM({colLetra}{filaInicioIngresos}:{colLetra}{filaFinIngresos})";
-                cellTot.Style.Font.Bold = true;
-                cellTot.Style.NumberFormat.Format = "#,##0";
-                cellTot.Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+                filaTotIngresos = RenderizarBloque("INGRESOS", "TOTAL INGRESOS", XLColor.FromHtml("#93C5FD"), XLColor.FromHtml("#BFDBFE"), 1);
             }
-            ws.Range(filaTotalIngresos, 1, filaTotalIngresos, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
-            filaActual += 2;
 
-            // ==========================================
-            // 5. FILA FINAL DE LIQUIDACIÓN / SALDO NETO
-            // ==========================================
+            int filaTotSalidas = RenderizarBloque("SALIDAS", "TOTAL SALIDAS", XLColor.FromHtml("#FDE047"), XLColor.FromHtml("#FACC15"), 2, XLColor.FromHtml("#FEF08A"));
+            int filaTotDevoluciones = RenderizarBloque("DEVOLUCIONES", "TOTAL DEVOLUCIONES", XLColor.FromHtml("#FCA5A5"), XLColor.FromHtml("#FECACA"), 3);
+
+            // SALDO NETO EN PODER
             int filaSaldoFinal = filaActual;
-            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Merge().Value = $"TOTAL {campanaTexto.ToUpper()}";
+            ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Merge().Value = $"TOTAL {campanaTexto.ToUpper()} (SALDO EN PODER)";
             ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Font.Bold = true;
             ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Font.Italic = true;
             ws.Range(filaSaldoFinal, 1, filaSaldoFinal, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#FDBA74");
@@ -2158,7 +2014,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             {
                 string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
                 var cellSaldo = ws.Cell(filaSaldoFinal, c);
-                cellSaldo.FormulaA1 = $"{colLetra}{filaTotalSalidas}-{colLetra}{filaTotalIngresos}";
+                cellSaldo.FormulaA1 = $"{colLetra}{filaTotSalidas}-{colLetra}{filaTotDevoluciones}";
                 cellSaldo.Style.Font.Bold = true;
                 cellSaldo.Style.NumberFormat.Format = "#,##0";
                 cellSaldo.Style.Fill.BackgroundColor = XLColor.FromHtml("#FED7AA");
@@ -2171,17 +2027,13 @@ namespace AplicativoDeAlmacen.Services.Reportes
             }
             ws.Range(filaSaldoFinal, 1, filaSaldoFinal, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
 
-            // ==========================================
-            // 6. ANCHOS DE COLUMNAS EXACTOS Y CUADRADOS
-            // ==========================================
-            ws.Column(1).Width = 3.5;  // Espacio para la etiqueta vertical
-            ws.Column(2).Width = 8.5;  // ORDEN
-            ws.Column(3).Width = 11.5; // FECHA
-
-            for (int c = 4; c <= ultimaColumna; c++)
-            {
-                ws.Column(c).Width = 6.5; // Ancho cuadrado homogéneo para cada producto
-            }
+            ws.Columns().AdjustToContents();
+            ws.Column(1).Width = 14; // Ancho ajustado para el botón "🏠 RESUMEN" en A1
+            ws.Column(2).Width = 9;
+            ws.Column(3).Width = 12;
+            for (int c = 4; c <= ultimaColumna; c++) ws.Column(c).Width = 7;
         }
+
+
     }
 }

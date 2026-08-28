@@ -1500,17 +1500,18 @@ WHERE m.fecha_movimiento >= @FechaDesde
         }
 
         // =========================================================
-        // 10. OBTENER DATOS PARA MATRIZ AVANZADA POR UBICACIÓN (SEGURO Y ORDENADO)
+        // 10. OBTENER DATOS PARA MATRIZ AVANZADA (3 BLOQUES + ORDEN ACADÉMICO)
         // =========================================================
-        public async Task<(List<MatrizKardexItemDTO> Movimientos, List<ProductoColumnaDTO> CatalogoProductos)> ObtenerDatosMatrizAvanzadaAsync(
-            int? ubicacionId,
-            string? nombreUbicacion,
-            DateTime fechaDesde,
-            DateTime fechaHasta,
-            int? categoriaProductoId = null,
-            int almacenId = 1)
+        
+
+        public async Task<(List<UbicacionMatrizDTO> Ubicaciones, List<ProductoColumnaDTO> CatalogoProductos)> ObtenerDatosMatrizConsolidadaCompletaAsync(
+    DateTime fechaDesde,
+    DateTime fechaHasta,
+    int? filtroTipoEdicion = null, // 1: Guías, 2: Ventas, null: Todos
+    int? ubicacionIdFiltro = null,
+    int almacenId = 1)
         {
-            var movimientos = new List<MatrizKardexItemDTO>();
+            var ubicacionesMap = new Dictionary<int, UbicacionMatrizDTO>();
             var catalogo = new List<ProductoColumnaDTO>();
 
             using (IDbConnection conn = _database.GetConnection())
@@ -1519,145 +1520,155 @@ WHERE m.fecha_movimiento >= @FechaDesde
                 string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
                 DateTime fechaHastaFinDia = fechaHasta.Date.AddDays(1).AddTicks(-1);
 
-                // 🌟 1. OBTENER CATÁLOGO PURO DE PRODUCTOS (Sin joins a tablas inexistentes)
+                // 1. CARGA DEL CATÁLOGO DE PRODUCTOS ORDENADO
                 using (IDbCommand cmdProd = conn.CreateCommand())
                 {
                     string qProd = $@"
 SELECT 
     p.id,
     COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo,
-    p.descripcion
+    p.descripcion,
+    COALESCE(p.nivel_id, 1) AS nivel_id,
+    COALESCE(n.nombre, 'Inicial') AS nivel_nombre,
+    COALESCE(p.grado_id, 0) AS grado_id,
+    COALESCE(g.nombre, '') AS grado_nombre,
+    COALESCE(p.titulo_curso_id, 0) AS titulo_curso_id
 FROM productos p {nolock}
+LEFT JOIN niveles n {nolock} ON p.nivel_id = n.id
+LEFT JOIN grados g {nolock} ON p.grado_id = g.id
 WHERE p.estado_id = 1
-ORDER BY p.id ASC";
+ORDER BY p.nivel_id ASC, p.titulo_curso_id ASC, p.grado_id ASC, p.id ASC";
 
                     cmdProd.CommandText = QueryAdapter.FormatearConsulta(qProd);
                     using var rdrProd = await ((DbCommand)cmdProd).ExecuteReaderAsync();
                     while (await ((DbDataReader)rdrProd).ReadAsync())
                     {
-                        int id = rdrProd.GetInt32(0);
                         string abrev = Convert.ToString(rdrProd.GetValue(1)) ?? "";
                         string desc = Convert.ToString(rdrProd.GetValue(2)) ?? "";
-
-                        // Clasificación inteligente por Nivel y Grupo/Familia basada en la abreviatura y descripción
-                        string nivel = "INICIAL";
-                        string descUp = desc.ToUpper();
                         string abrevUp = abrev.ToUpper();
 
-                        if (descUp.Contains("PRIMARIA") || abrevUp.StartsWith("PL") || abrevUp.StartsWith("MAT") || abrevUp.StartsWith("COM") || abrevUp.StartsWith("CAL") || abrevUp.StartsWith("CL"))
-                            nivel = "PRIMARIA";
-                        else if (descUp.Contains("SECUNDARIA"))
-                            nivel = "SECUNDARIA";
+                        string tipoEdicion = (abrevUp.Contains("-V-V") || abrevUp.Contains("-V") || desc.ToUpper().Contains("VENTA")) ? "V" : "G";
+                        if (filtroTipoEdicion == 1 && tipoEdicion != "G") continue;
+                        if (filtroTipoEdicion == 2 && tipoEdicion != "V") continue;
 
-                        string grupoSerie = "GENERAL";
-                        if (abrevUp.StartsWith("JA") || abrevUp.StartsWith("LAM")) grupoSerie = "LAM Y JA";
-                        else if (abrevUp.StartsWith("LMA")) grupoSerie = "LMA";
-                        else if (abrevUp.StartsWith("MDA")) grupoSerie = "MDA";
-                        else if (abrevUp.StartsWith("CV") || abrevUp.StartsWith("PL")) grupoSerie = "CUENTOS Y VALORES";
-                        else if (abrevUp.StartsWith("MAT")) grupoSerie = "MATEMATICA";
-                        else if (abrevUp.StartsWith("COM")) grupoSerie = "COMUNICACION";
-                        else if (abrevUp.StartsWith("CAL") || abrevUp.StartsWith("CL")) grupoSerie = "CALIGRAFIA";
-                        else if (abrevUp.StartsWith("MA")) grupoSerie = "MUNDO AVENTURAS";
+                        string familia = "VARIOS";
+                        if (abrevUp.StartsWith("LMA") || desc.ToUpper().Contains("MAGIA")) familia = "LMA";
+                        else if (abrevUp.StartsWith("PL") || abrevUp.StartsWith("CV") || desc.ToUpper().Contains("CUENTOS")) familia = "CUENTOS";
+                        else if (abrevUp.StartsWith("MA") || desc.ToUpper().Contains("AVENTURAS")) familia = "AVENTURAS";
+                        else if (abrevUp.StartsWith("MAT") || desc.ToUpper().Contains("MATEMATICA")) familia = "MATEMATICA";
+                        else if (abrevUp.StartsWith("COM") || desc.ToUpper().Contains("COMUNICACION")) familia = "COMUNICACION";
+                        else if (abrevUp.StartsWith("CAL") || abrevUp.StartsWith("CL") || desc.ToUpper().Contains("CALIGRAFIA")) familia = "CALIGRAFIA";
+                        else if (abrevUp.StartsWith("JA") || abrevUp.StartsWith("LAM")) familia = "LAM Y JA";
+                        else if (abrevUp.StartsWith("MDA")) familia = "MDA";
 
                         catalogo.Add(new ProductoColumnaDTO
                         {
-                            ProductoId = id,
+                            ProductoId = rdrProd.GetInt32(0),
                             Codigo = abrev,
                             Descripcion = desc,
-                            Nivel = nivel,
-                            GrupoSerie = grupoSerie
+                            NivelId = rdrProd.GetInt32(3),
+                            NivelNombre = Convert.ToString(rdrProd.GetValue(4))?.ToUpper() ?? "INICIAL",
+                            GradoId = rdrProd.GetInt32(5),
+                            GradoNombre = Convert.ToString(rdrProd.GetValue(6)) ?? "",
+                            FamiliaNombre = $"{familia} {(tipoEdicion == "G" ? "GUÍA" : "VENTA")}",
+                            TipoEdicion = tipoEdicion
                         });
                     }
                 }
 
-                // 🌟 2. ORDENAR CATÁLOGO EN MEMORIA POR NIVEL, GRUPO Y ID (Garantiza el orden correlativo de grados/años)
-                catalogo = catalogo
-                    .OrderBy(p => p.Nivel)
-                    .ThenBy(p => p.GrupoSerie)
-                    .ThenBy(p => p.ProductoId)
-                    .ToList();
+                // 2. CARGA DE TODAS LAS UBICACIONES CON SU TIPO REAL
+                using (IDbCommand cmdUbi = conn.CreateCommand())
+                {
+                    string qUbi = $@"
+SELECT 
+    u.id, 
+    u.descripcion, 
+    COALESCE(u.tipo_ubicacion_id, 3) AS tipo_ubicacion_id, 
+    COALESCE(tu.nombre, 'ZONA DE PROMOTORIA') AS tipo_nombre 
+FROM ubicaciones u {nolock}
+LEFT JOIN tipo_ubicacion tu {nolock} ON u.tipo_ubicacion_id = tu.id
+WHERE u.estado_id = 1
+ORDER BY u.tipo_ubicacion_id ASC, u.descripcion ASC";
 
-                // 🌟 3. OBTENER MOVIMIENTOS CON NÚMERO DE ORDEN LIMPIO
+                    cmdUbi.CommandText = QueryAdapter.FormatearConsulta(qUbi);
+                    using var rdrUbi = await ((DbCommand)cmdUbi).ExecuteReaderAsync();
+                    while (await ((DbDataReader)rdrUbi).ReadAsync())
+                    {
+                        int uId = rdrUbi.GetInt32(0);
+                        if (ubicacionIdFiltro.HasValue && ubicacionIdFiltro.Value > 0 && uId != ubicacionIdFiltro.Value)
+                            continue;
+
+                        ubicacionesMap[uId] = new UbicacionMatrizDTO
+                        {
+                            UbicacionId = uId,
+                            Nombre = Convert.ToString(rdrUbi.GetValue(1)) ?? "",
+                            TipoUbicacionId = rdrUbi.GetInt32(2),
+                            TipoUbicacionNombre = Convert.ToString(rdrUbi.GetValue(3)) ?? "ZONA DE PROMOTORIA"
+                        };
+                    }
+                }
+
+                // 3. CARGA DE MOVIMIENTOS DETALLADOS
                 using (IDbCommand cmdMov = conn.CreateCommand())
                 {
-                    string queryRaw = $@"
+                    string qMov = $@"
 SELECT 
     m.id,
+    m.motivo_producto_id,
     mp.tipo_movimiento_id,
-    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS orden_documento,
+    CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS numero_registro,
     m.fecha_movimiento,
     md.producto_id,
-    COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo_producto,
-    p.descripcion AS descripcion_producto,
-    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE md.cantidad_salida END AS cantidad
+    CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE md.cantidad_salida END AS cantidad,
+    m.ubicacion_id
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-INNER JOIN productos p {nolock} ON md.producto_id = p.id
-LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
-LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
-LEFT JOIN movimiento_codigos mc {nolock} ON mc.movimiento_detalle_id = md.id
-LEFT JOIN codigos_creados cc {nolock} ON mc.codigo_creado_id = cc.id
-LEFT JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
 WHERE m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
   AND m.estado_id != 2
+  AND m.ubicacion_id IS NOT NULL
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
-  )";
+  )
+ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
-                    if (ubicacionId.HasValue && ubicacionId.Value > 0)
-                    {
-                        queryRaw += " AND m.ubicacion_id = @UbicacionId";
-                    }
-                    else if (!string.IsNullOrWhiteSpace(nombreUbicacion))
-                    {
-                        queryRaw += " AND (u.descripcion LIKE @NomUbi OR pc.razon_social LIKE @NomUbi)";
-                    }
-
-                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
-                    {
-                        queryRaw += " AND (rc.categoria_producto_id = @CategoriaId OR rc.categoria_producto_id IS NULL)";
-                    }
-
-                    queryRaw += " ORDER BY m.fecha_movimiento ASC, m.id ASC";
-
-                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(queryRaw);
+                    cmdMov.CommandText = QueryAdapter.FormatearConsulta(qMov);
                     AgregarParametro(cmdMov, "@FechaDesde", fechaDesde.Date);
                     AgregarParametro(cmdMov, "@FechaHasta", fechaHastaFinDia);
                     AgregarParametro(cmdMov, "@AlmacenId", almacenId);
 
-                    if (ubicacionId.HasValue && ubicacionId.Value > 0)
-                        AgregarParametro(cmdMov, "@UbicacionId", ubicacionId.Value);
-                    else if (!string.IsNullOrWhiteSpace(nombreUbicacion))
-                        AgregarParametro(cmdMov, "@NomUbi", "%" + nombreUbicacion.Trim() + "%");
-
-                    if (categoriaProductoId.HasValue && categoriaProductoId.Value > 0)
-                        AgregarParametro(cmdMov, "@CategoriaId", categoriaProductoId.Value);
-
-                    using var rdr = await ((DbCommand)cmdMov).ExecuteReaderAsync();
-                    while (await ((DbDataReader)rdr).ReadAsync())
+                    using var rdrMov = await ((DbCommand)cmdMov).ExecuteReaderAsync();
+                    while (await ((DbDataReader)rdrMov).ReadAsync())
                     {
-                        movimientos.Add(new MatrizKardexItemDTO
+                        int uId = rdrMov.GetInt32(7);
+                        if (!ubicacionesMap.ContainsKey(uId)) continue;
+
+                        int motivoId = rdrMov.GetInt32(1);
+                        int tipoMovId = rdrMov.GetInt32(2);
+
+                        int bloque = 2; // Salida
+                        if (tipoMovId == 1)
                         {
-                            MovimientoId = rdr.GetInt32(0),
-                            TipoMovimientoId = rdr.GetInt32(1),
-                            OrdenDocumento = Convert.ToString(rdr.GetValue(2)) ?? "",
-                            Fecha = rdr.IsDBNull(3) ? DateTime.MinValue : rdr.GetDateTime(3),
-                            ProductoId = rdr.GetInt32(4),
-                            CodigoProducto = Convert.ToString(rdr.GetValue(5)) ?? "",
-                            DescripcionProducto = Convert.ToString(rdr.GetValue(6)) ?? "",
-                            Cantidad = rdr.GetDecimal(7)
+                            bloque = (motivoId == 2 || motivoId == 3) ? 3 : 1; // 3: Devolución, 1: Ingreso/Compra
+                        }
+
+                        ubicacionesMap[uId].Movimientos.Add(new MatrizKardexItemDTO
+                        {
+                            MovimientoId = rdrMov.GetInt32(0),
+                            BloqueTipo = bloque,
+                            OrdenDocumento = Convert.ToString(rdrMov.GetValue(3)) ?? "",
+                            Fecha = rdrMov.IsDBNull(4) ? DateTime.MinValue : rdrMov.GetDateTime(4),
+                            ProductoId = rdrMov.GetInt32(5),
+                            Cantidad = rdrMov.GetDecimal(6)
                         });
                     }
                 }
             }
 
-            return (movimientos, catalogo);
+            return (ubicacionesMap.Values.ToList(), catalogo);
         }
-
-
 
     }
 }

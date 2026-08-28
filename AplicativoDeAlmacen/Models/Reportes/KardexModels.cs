@@ -124,12 +124,11 @@ namespace AplicativoDeAlmacen.Models.Models
     public class MatrizKardexItemDTO
     {
         public int MovimientoId { get; set; }
-        public int TipoMovimientoId { get; set; } // 1 = Ingreso/Devolución, 2 = Salida/Despacho
+        public int BloqueTipo { get; set; } // 1 = Ingresos de Almacén/Compras, 2 = Salidas/Despachos, 3 = Devoluciones de Promotor
         public string OrdenDocumento { get; set; } = string.Empty;
         public DateTime Fecha { get; set; }
         public int ProductoId { get; set; }
         public string CodigoProducto { get; set; } = string.Empty;
-        public string DescripcionProducto { get; set; } = string.Empty;
         public decimal Cantidad { get; set; }
     }
 
@@ -138,7 +137,20 @@ namespace AplicativoDeAlmacen.Models.Models
         public int ProductoId { get; set; }
         public string Codigo { get; set; } = string.Empty;
         public string Descripcion { get; set; } = string.Empty;
-        public string Nivel { get; set; } = "INICIAL"; // INICIAL, PRIMARIA, SECUNDARIA
-        public string GrupoSerie { get; set; } = "OTROS"; // LMA, MDA, MAT, COM, etc.
+        public int NivelId { get; set; }
+        public string NivelNombre { get; set; } = "INICIAL";
+        public int GradoId { get; set; }
+        public string GradoNombre { get; set; } = "";
+        public string FamiliaNombre { get; set; } = "GENERAL";
+        public string TipoEdicion { get; set; } = "G"; // "G" = Guía, "V" = Venta
+    }
+
+    public class UbicacionMatrizDTO
+    {
+        public int UbicacionId { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public int TipoUbicacionId { get; set; } // 1: Almacén, 2: Punto Venta, 3: Promotoría, 4: Distribuidor
+        public string TipoUbicacionNombre { get; set; } = string.Empty;
+        public List<MatrizKardexItemDTO> Movimientos { get; set; } = new List<MatrizKardexItemDTO>();
     }
 }
