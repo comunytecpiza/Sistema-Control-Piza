@@ -1797,7 +1797,20 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Columns().AdjustToContents();
             ws.Column(1).Width = 3.5;
             ws.Column(2).Width = 24;
-            for (int c = 3; c <= ultimaColumna; c++) ws.Column(c).Width = 7;
+
+            // 🌟 Ancho dinámico para que "BOLSOS", "CATÁLOGOS", etc. no se corten
+            for (int c = 3; c <= ultimaColumna; c++)
+            {
+                var textoHeader = ws.Cell(4, c).GetString();
+                if (textoHeader.Length > 8)
+                {
+                    ws.Column(c).Width = Math.Max(textoHeader.Length + 2, 11);
+                }
+                else
+                {
+                    ws.Column(c).Width = 7;
+                }
+            }
         }
 
         // =========================================================================
@@ -2028,10 +2041,23 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Range(filaSaldoFinal, 1, filaSaldoFinal, ultimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
 
             ws.Columns().AdjustToContents();
-            ws.Column(1).Width = 14; // Ancho ajustado para el botón "🏠 RESUMEN" en A1
-            ws.Column(2).Width = 9;
-            ws.Column(3).Width = 12;
-            for (int c = 4; c <= ultimaColumna; c++) ws.Column(c).Width = 7;
+            ws.Column(1).Width = 14; // Botón "🏠 RESUMEN" en A1
+            ws.Column(2).Width = 9;  // ORDEN
+            ws.Column(3).Width = 12; // FECHA
+
+            // 🌟 Ancho dinámico para columnas de productos
+            for (int c = 4; c <= ultimaColumna; c++)
+            {
+                var textoHeader = ws.Cell(4, c).GetString();
+                if (textoHeader.Length > 8)
+                {
+                    ws.Column(c).Width = Math.Max(textoHeader.Length + 2, 11);
+                }
+                else
+                {
+                    ws.Column(c).Width = 7;
+                }
+            }
         }
 
 

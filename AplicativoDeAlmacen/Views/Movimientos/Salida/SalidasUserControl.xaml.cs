@@ -421,22 +421,17 @@ namespace AplicativoDeAlmacen.Views
         {
             RecalcularNumerosFila();
 
-            // 🌟 BLINDAJE DE CANTIDADES PARA PRODUCTOS CON Y SIN CÓDIGO
             foreach (var prod in _productosLista)
             {
                 int cantidadCodigosEnGrilla = _codigosLista.Count(x => x.ProductoId == prod.ProductoId);
 
                 if (cantidadCodigosEnGrilla > 0)
                 {
-                    // Producto con códigos
                     prod.Cantidad = cantidadCodigosEnGrilla;
-
-                    if (prod.Detalle != null)
-                        prod.Detalle.CantidadSalida = cantidadCodigosEnGrilla;
+                    if (prod.Detalle != null) prod.Detalle.CantidadSalida = cantidadCodigosEnGrilla;
                 }
                 else if (prod.Detalle != null && prod.Detalle.CantidadSalida > 0)
                 {
-                    // 🎒 Producto sin código: respetar la cantidad guardada
                     prod.Cantidad = (int)prod.Detalle.CantidadSalida;
                 }
             }
@@ -456,20 +451,11 @@ namespace AplicativoDeAlmacen.Views
                     .ToList();
 
                 int totalCodigosProducto = codigosDelProducto.Count;
-
                 dgCodigosSalida.ItemsSource = codigosDelProducto.Take(500);
 
-                if (totalCodigosProducto > 500)
-                {
-                    lblResumenCodigos.Text = $"500 (Viendo) / {totalCodigosProducto}";
-                    lblResumenCodigos.ToolTip =
-                        "La vista previa muestra los primeros 500 códigos por rendimiento de pantalla. El lote completo está resguardado en memoria RAM para el despacho.";
-                }
-                else
-                {
-                    lblResumenCodigos.Text = $"{totalCodigosProducto} / {totalCodigosProducto}";
-                    lblResumenCodigos.ToolTip = null;
-                }
+                lblResumenCodigos.Text = totalCodigosProducto > 500
+                    ? $"500 (Viendo) / {totalCodigosProducto}"
+                    : $"{totalCodigosProducto} / {totalCodigosProducto}";
             }
             else
             {
@@ -1384,8 +1370,7 @@ namespace AplicativoDeAlmacen.Views
         {
             var modal = new AgregarItemWindow { Owner = Window.GetWindow(this) };
             modal.IsAddAction = true;
-            modal.EstadoPermitido = 3; // Estado 3 = Disponible en Almacén
-
+            modal.EstadoPermitido = 3; // Disponible en Almacén
             modal.MovimientoIdActual = _idMovimientoActual;
 
             if (modal.ShowDialog() == true && modal.FueGrabado)
@@ -1397,10 +1382,8 @@ namespace AplicativoDeAlmacen.Views
                 int idProducto = productoSelected.Id;
                 int miAlmacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                // 🌟 Identificamos si es un producto genérico SIN CÓDIGO (ej. Mochilas)
-                bool esProductoSinCodigo = string.IsNullOrWhiteSpace(productoSelected.Abreviatura);
-
-                if (!esProductoSinCodigo && (rangosDelModal == null || !rangosDelModal.Any())) return;
+                // 🌟 Detecta producto sin código por abreviatura o ausencia de rangos
+                bool esProductoSinCodigo = string.IsNullOrWhiteSpace(productoSelected.Abreviatura) || rangosDelModal == null || !rangosDelModal.Any();
 
                 this.Cursor = Cursors.Wait;
                 try
@@ -1410,14 +1393,14 @@ namespace AplicativoDeAlmacen.Views
 
                     if (esProductoSinCodigo)
                     {
-                        // 🎒 PRODUCTO SIN CÓDIGO: La cantidad viene directamente de la caja general de la ventana modal
+                        // 🎒 PRODUCTOS GENÉRICOS (Bolsos, botellas, catálogos)
                         cantidadFinal = modal.CantidadProductoIngresada;
                     }
                     else
                     {
-                        // 📚 PRODUCTO CON CÓDIGO: Desglosamos y validamos las series en stock
+                        // 📚 PRODUCTOS CON CÓDIGOS (Libros)
                         var listaStrings = new List<string>();
-                        foreach (var rango in rangosDelModal)
+                        foreach (var rango in rangosDelModal!)
                         {
                             if (rango.DesdeNum == -1)
                             {
@@ -1495,14 +1478,11 @@ namespace AplicativoDeAlmacen.Views
                     var prodService = new ProductoService();
                     var prodData = await prodService.ObtenerPorIdAsync(idProducto);
 
-                    int cantidadMostrar = esProductoSinCodigo
-                    ? modal.CantidadProductoIngresada
-                    : cantidadFinal;
+                    int cantidadMostrar = esProductoSinCodigo ? modal.CantidadProductoIngresada : cantidadFinal;
 
                     var existente = _productosLista.FirstOrDefault(p => p.ProductoId == idProducto);
 
                     if (existente != null)
-
                     {
                         existente.EsProductoSinCodigo = esProductoSinCodigo;
                         existente.Cantidad = cantidadMostrar;
@@ -1879,10 +1859,9 @@ namespace AplicativoDeAlmacen.Views
 
                 var snapshot = _productosLista.ToList();
 
-                // ✅ VALIDACIÓN CRÍTICAs
                 if (snapshot == null || !snapshot.Any())
                 {
-                    MessageBox.Show("❌ Error crítico: La lista de productos está vacía al guardar.", "Error de Datos", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("No hay productos en la lista para procesar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -1893,16 +1872,26 @@ namespace AplicativoDeAlmacen.Views
                     Descripcion = p.Descripcion,
                     UnidadMedida = p.UnidadMedida,
                     Cantidad = p.Cantidad,
+                    EsProductoSinCodigo = p.EsProductoSinCodigo || !_codigosLista.Any(c => c.ProductoId == p.ProductoId),
                     Detalle = new MovimientoDetalle
                     {
                         ProductoId = p.ProductoId,
                         CantidadIngreso = 0,
-                        CantidadSalida = p.Cantidad,  // ✅ Usa directamente p.Cantidad
+                        CantidadSalida = p.Cantidad > 0 ? p.Cantidad : (p.Detalle?.CantidadSalida ?? 0),
                         CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
-                        
                         Id = p.Detalle?.Id ?? 0
                     }
                 }).ToList();
+
+                foreach (var prod in detallesPlanos)
+                {
+                    bool tieneCodigos = _codigosLista.Any(c => c.ProductoId == prod.ProductoId);
+                    if (!prod.EsProductoSinCodigo && !tieneCodigos)
+                    {
+                        MessageBox.Show($"El producto '{prod.Descripcion}' requiere códigos físicos asociados.", "Validación de Códigos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                }
 
                 // ✅ VALIDACIÓN
                 if (!detallesPlanos.Any())
@@ -2569,15 +2558,28 @@ namespace AplicativoDeAlmacen.Views
         {
             foreach (var producto in _productosLista)
             {
-                if (producto.EsProductoSinCodigo)
-                    continue;
-
                 int count = _codigosLista.Count(c => c.ProductoId == producto.ProductoId);
 
-                producto.Cantidad = count;
-
-                if (producto.Detalle != null)
-                    producto.Detalle.CantidadSalida = count;
+                if (count > 0)
+                {
+                    // Producto con códigos seriados
+                    producto.Cantidad = count;
+                    if (producto.Detalle != null)
+                        producto.Detalle.CantidadSalida = count;
+                }
+                else
+                {
+                    // 🎒 Producto sin códigos (bolsos, catálogos): MANTENER la cantidad manual ingresada
+                    if (producto.Detalle != null && producto.Detalle.CantidadSalida > 0)
+                    {
+                        producto.Cantidad = (int)producto.Detalle.CantidadSalida;
+                    }
+                    else if (producto.Cantidad > 0)
+                    {
+                        producto.Detalle ??= new MovimientoDetalle { ProductoId = producto.ProductoId };
+                        producto.Detalle.CantidadSalida = producto.Cantidad;
+                    }
+                }
             }
 
             dgProductosSalida.Items.Refresh();

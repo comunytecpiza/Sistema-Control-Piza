@@ -762,14 +762,15 @@ namespace AplicativoDeAlmacen.Services
                             if (resDet != null && resDet != DBNull.Value) idDetalle = Convert.ToInt32(resDet);
                         }
 
-                        int cantidadDespachoPura = listaCodigos.Count(c => c.ProductoId == item.ProductoId);
+                        // 🌟 Cantidad prioritaria directa desde el item de la grilla
+                        int cantidadDespachoPura = (int)item.Cantidad;
                         if (cantidadDespachoPura == 0 && item.Detalle != null && item.Detalle.CantidadSalida > 0)
                         {
                             cantidadDespachoPura = Convert.ToInt32(item.Detalle.CantidadSalida);
                         }
                         if (cantidadDespachoPura == 0)
                         {
-                            cantidadDespachoPura = Convert.ToInt32(item.Cantidad);
+                            cantidadDespachoPura = listaCodigos.Count(c => c.ProductoId == item.ProductoId);
                         }
 
                         decimal costoUnitarioPuro = item.Detalle?.CostoUnitario ?? 0;
@@ -783,6 +784,33 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmdUpd, "@costo", costoUnitarioPuro);
                             AgregarParametro(cmdUpd, "@detId", idDetalle);
                             await cmdUpd.ExecuteNonQueryAsync();
+                        }
+                        else
+                        {
+                            // 🌟 Si el producto es nuevo en la edición (ej. agregaste bolsos después), hace el INSERT
+                            string queryDetalle = $@"INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
+                                     VALUES (@movId, @prodId, 0, @cant, @costo, {nowFunc}); {selectId}";
+                            using var cmdDet = dbConn.CreateCommand();
+                            cmdDet.Transaction = transaccion;
+                            cmdDet.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
+                            AgregarParametro(cmdDet, "@movId", movimientoIdInserted);
+                            AgregarParametro(cmdDet, "@prodId", item.ProductoId);
+                            AgregarParametro(cmdDet, "@cant", cantidadDespachoPura);
+                            AgregarParametro(cmdDet, "@costo", costoUnitarioPuro);
+                            idDetalle = Convert.ToInt32(await cmdDet.ExecuteScalarAsync());
+
+                            // Registrar rango genérico si no tiene códigos
+                            if (!listaCodigos.Any(c => c.ProductoId == item.ProductoId))
+                            {
+                                string sqlInsRango = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
+                                         VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
+                                using var cmdRG = dbConn.CreateCommand();
+                                cmdRG.Transaction = transaccion;
+                                cmdRG.CommandText = QueryAdapter.FormatearConsulta(sqlInsRango);
+                                AgregarParametro(cmdRG, "@pId", item.ProductoId);
+                                AgregarParametro(cmdRG, "@detId", idDetalle);
+                                await cmdRG.ExecuteNonQueryAsync();
+                            }
                         }
                     }
 
@@ -812,17 +840,17 @@ namespace AplicativoDeAlmacen.Services
                         var paramNamesCheck = batchDelCheck.Select((id, idx) => $"@delCheck{idx}").ToList();
 
                         string sqlFuturoBulk = $@"
-                SELECT DISTINCT cc.codigo 
-                FROM movimiento_codigos mc WITH (NOLOCK)
-                INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-                WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesCheck)})
-                  AND m.id != @movId
-                  AND m.estado_id = 1
-                  AND (
-                      m.fecha_movimiento > @fechaEdicion 
-                      OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
-                  )";
+SELECT DISTINCT cc.codigo 
+FROM movimiento_codigos mc WITH (NOLOCK)
+INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+INNER JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesCheck)})
+  AND m.id != @movId
+  AND m.estado_id = 1
+  AND (
+      m.fecha_movimiento > @fechaEdicion 
+      OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId)
+  )";
 
                         using var cmdFuturo = dbConn.CreateCommand();
                         cmdFuturo.Transaction = transaccion;
@@ -855,37 +883,37 @@ namespace AplicativoDeAlmacen.Services
                     for (int i = 0; i < codigosAEliminar.Count; i += checkBatchSize)
                     {
                         var batchDel = codigosAEliminar.Skip(i).Take(checkBatchSize).ToList();
-                        var paramNames = batchDel.Select((id, idx) => $"@h{idx}").ToList();
+                        var paramNames = batchDel.Select((_, idx) => $"@h{idx}").ToList();
 
                         string queryHistorialLote = QueryAdapter.EsMySQL
                             ? $@"
-                SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
-                       COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
-                       COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
-                FROM movimiento_codigos mc
-                INNER JOIN movimientos m ON mc.movimiento_id = m.id
-                INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)})
-                  AND m.id != @movId
-                  AND m.estado_id = 1
-                  AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx)
-                ORDER BY mc.codigo_creado_id, m.id DESC"
+SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
+       COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
+       COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
+FROM movimiento_codigos mc
+INNER JOIN movimientos m ON mc.movimiento_id = m.id
+INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)})
+  AND m.id != @movId
+  AND m.estado_id = 1
+  AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx)
+ORDER BY mc.codigo_creado_id, m.id DESC"
                             : $@"
-                WITH HistorialOrdenado AS (
-                    SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
-                           ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
-                           ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen,
-                           ROW_NUMBER() OVER(PARTITION BY mc.codigo_creado_id ORDER BY m.id DESC) as rn
-                    FROM movimiento_codigos mc WITH (NOLOCK)
-                    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                    WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)})
-                      AND m.id != @movId
-                      AND m.estado_id = 1
-                      AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx)
-                )
-                SELECT codigo_creado_id, motivo_producto_id, tipo_movimiento_id, alm_destino, alm_origen
-                FROM HistorialOrdenado WHERE rn = 1";
+WITH HistorialOrdenado AS (
+    SELECT mc.codigo_creado_id, m.motivo_producto_id, mp.tipo_movimiento_id,
+           ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
+           ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen,
+           ROW_NUMBER() OVER(PARTITION BY mc.codigo_creado_id ORDER BY m.id DESC) as rn
+    FROM movimiento_codigos mc WITH (NOLOCK)
+    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE mc.codigo_creado_id IN ({string.Join(",", paramNames)})
+      AND m.id != @movId
+      AND m.estado_id = 1
+      AND (m.almacen_destino_id = @almCtx OR m.almacen_origen_id = @almCtx OR m.almacen_id = @almCtx)
+)
+SELECT codigo_creado_id, motivo_producto_id, tipo_movimiento_id, alm_destino, alm_origen
+FROM HistorialOrdenado WHERE rn = 1";
 
                         using var cmdHist = dbConn.CreateCommand();
                         cmdHist.Transaction = transaccion;
@@ -954,14 +982,15 @@ namespace AplicativoDeAlmacen.Services
                         if (resDet != null && resDet != DBNull.Value) idDetalle = Convert.ToInt32(resDet);
                     }
 
-                    int cantidadDespachoPura = listaCodigos.Count(c => c.ProductoId == item.ProductoId);
+                    // 🌟 Cantidad fiel de la grilla
+                    int cantidadDespachoPura = (int)item.Cantidad;
                     if (cantidadDespachoPura == 0 && item.Detalle != null && item.Detalle.CantidadSalida > 0)
                     {
                         cantidadDespachoPura = Convert.ToInt32(item.Detalle.CantidadSalida);
                     }
                     if (cantidadDespachoPura == 0)
                     {
-                        cantidadDespachoPura = Convert.ToInt32(item.Cantidad);
+                        cantidadDespachoPura = listaCodigos.Count(c => c.ProductoId == item.ProductoId);
                     }
 
                     decimal costoUnitarioPuro = item.Detalle?.CostoUnitario ?? 0;
@@ -985,7 +1014,7 @@ namespace AplicativoDeAlmacen.Services
                     else
                     {
                         string queryDetalle = $@"INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
-                                         VALUES (@movId, @prodId, 0, @cant, @costo, {nowFunc}); {selectId}";
+                                 VALUES (@movId, @prodId, 0, @cant, @costo, {nowFunc}); {selectId}";
                         using var cmdDet = dbConn.CreateCommand();
                         cmdDet.Transaction = transaccion;
                         cmdDet.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
@@ -1031,67 +1060,21 @@ namespace AplicativoDeAlmacen.Services
                             .Distinct()
                             .ToList();
 
-                        var codigosParaActualizarEstado = new List<int>();
-
-                        if (existingMovimientoId.HasValue && idsAProcesar.Any())
-                        {
-                            const int batchCheckSize = 1000;
-                            for (int bIdx = 0; bIdx < idsAProcesar.Count; bIdx += batchCheckSize)
-                            {
-                                var subBatch = idsAProcesar.Skip(bIdx).Take(batchCheckSize).ToList();
-                                var paramNamesBatch = subBatch.Select((_, idx) => $"@subChk{idx}").ToList();
-
-                                string sqlFuturoSalida = $@"
-                        SELECT DISTINCT mc.codigo_creado_id
-                        FROM movimiento_codigos mc WITH (NOLOCK)
-                        INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                        WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesBatch)})
-                          AND m.id != @movId
-                          AND m.estado_id = 1
-                          AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
-
-                                var setCodigosConFuturoSalida = new HashSet<int>();
-                                using (var cmdFutLote = dbConn.CreateCommand())
-                                {
-                                    cmdFutLote.Transaction = transaccion;
-                                    cmdFutLote.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoSalida);
-                                    AgregarParametro(cmdFutLote, "@movId", movimientoIdInserted);
-                                    AgregarParametro(cmdFutLote, "@fechaEdicion", cabecera.FechaMovimiento ?? DateTime.Today);
-
-                                    for (int k = 0; k < subBatch.Count; k++)
-                                    {
-                                        AgregarParametro(cmdFutLote, $"@subChk{k}", subBatch[k]);
-                                    }
-
-                                    using var rdrFutLote = await cmdFutLote.ExecuteReaderAsync();
-                                    while (await rdrFutLote.ReadAsync())
-                                    {
-                                        setCodigosConFuturoSalida.Add(rdrFutLote.GetInt32(0));
-                                    }
-                                }
-
-                                codigosParaActualizarEstado.AddRange(subBatch.Where(id => !setCodigosConFuturoSalida.Contains(id)));
-                            }
-                        }
-                        else
-                        {
-                            codigosParaActualizarEstado = idsAProcesar;
-                        }
-
-                        if (codigosParaActualizarEstado.Any())
+                        if (idsAProcesar.Any())
                         {
                             const int bulkSize = 1000;
-                            for (int k = 0; k < codigosParaActualizarEstado.Count; k += bulkSize)
+                            for (int k = 0; k < idsAProcesar.Count; k += bulkSize)
                             {
-                                var batchState = codigosParaActualizarEstado.Skip(k).Take(bulkSize).ToList();
+                                var batchState = idsAProcesar.Skip(k).Take(bulkSize).ToList();
                                 await ActualizarEstadoYAlmacenCodigosMasivoAsync(batchState, estadoFinalCodigo, almacenFinalCodigo, dbConn, transaccion);
                             }
                         }
                     }
                     else
                     {
+                        // 🎒 PRODUCTO SIN CÓDIGO (Bolsos, cartucheras, botellas): Inserta registro genérico
                         string sqlInsRangoGenerico = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                                                 VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
+                                         VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
                         using var cmdRG = dbConn.CreateCommand();
                         cmdRG.Transaction = transaccion;
                         cmdRG.CommandText = QueryAdapter.FormatearConsulta(sqlInsRangoGenerico);
@@ -1105,27 +1088,13 @@ namespace AplicativoDeAlmacen.Services
                     progress?.Report(pct);
                 }
 
+                // 🌟 PURGA SEGURA: Solo elimina detalles con cantidad <= 0 (conserva productos sin códigos)
                 string sqlPurgarDetallesVacios = @"
-        DELETE rr FROM registro_rangos rr
-        INNER JOIN movimiento_detalles md ON rr.movimiento_detalle_id = md.id
-        WHERE md.movimiento_id = @movId 
-          AND (
-              md.cantidad_salida <= 0 
-              OR (
-                  md.id NOT IN (SELECT DISTINCT mc.movimiento_detalle_id FROM movimiento_codigos mc WHERE mc.movimiento_id = @movId)
-                  AND md.id NOT IN (SELECT DISTINCT sub_rr.movimiento_detalle_id FROM (SELECT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL) AS sub_rr)
-              )
-          );
+    DELETE FROM registro_rangos 
+    WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId AND cantidad_salida <= 0);
 
-        DELETE md FROM movimiento_detalles md
-        WHERE md.movimiento_id = @movId 
-          AND (
-              md.cantidad_salida <= 0 
-              OR (
-                  md.id NOT IN (SELECT DISTINCT mc.movimiento_detalle_id FROM movimiento_codigos mc WHERE mc.movimiento_id = @movId)
-                  AND md.id NOT IN (SELECT DISTINCT sub_rr2.movimiento_detalle_id FROM (SELECT movimiento_detalle_id FROM registro_rangos WHERE abreviatura_base = 'SIN_CODIGO' AND movimiento_detalle_id IS NOT NULL) AS sub_rr2)
-              )
-          );";
+    DELETE FROM movimiento_detalles 
+    WHERE movimiento_id = @movId AND cantidad_salida <= 0;";
 
                 using (var cmdPurga = dbConn.CreateCommand())
                 {

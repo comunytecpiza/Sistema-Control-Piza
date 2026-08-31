@@ -1526,10 +1526,10 @@ WHERE m.fecha_movimiento >= @FechaDesde
                     string qProd = $@"
 SELECT 
     p.id,
-    COALESCE(p.abreviatura, CAST(p.id AS CHAR)) AS codigo,
+    p.abreviatura,
     p.descripcion,
-    COALESCE(p.nivel_id, 1) AS nivel_id,
-    COALESCE(n.nombre, 'Inicial') AS nivel_nombre,
+    p.nivel_id,
+    n.nombre AS nivel_nombre,
     COALESCE(p.grado_id, 0) AS grado_id,
     COALESCE(g.nombre, '') AS grado_nombre,
     COALESCE(p.titulo_curso_id, 0) AS titulo_curso_id
@@ -1537,16 +1537,45 @@ FROM productos p {nolock}
 LEFT JOIN niveles n {nolock} ON p.nivel_id = n.id
 LEFT JOIN grados g {nolock} ON p.grado_id = g.id
 WHERE p.estado_id = 1
-ORDER BY p.nivel_id ASC, p.titulo_curso_id ASC, p.grado_id ASC, p.id ASC";
+ORDER BY 
+    CASE WHEN p.nivel_id IS NULL THEN 1 ELSE 0 END ASC, -- 👈 Manda 'OTROS' al final de la matriz
+    p.nivel_id ASC, 
+    p.titulo_curso_id ASC, 
+    p.grado_id ASC, 
+    p.id ASC";
 
                     cmdProd.CommandText = QueryAdapter.FormatearConsulta(qProd);
                     using var rdrProd = await ((DbCommand)cmdProd).ExecuteReaderAsync();
                     while (await ((DbDataReader)rdrProd).ReadAsync())
                     {
-                        string abrev = Convert.ToString(rdrProd.GetValue(1)) ?? "";
+                        string abrevRaw = rdrProd.IsDBNull(1) ? "" : Convert.ToString(rdrProd.GetValue(1)) ?? "";
                         string desc = Convert.ToString(rdrProd.GetValue(2)) ?? "";
-                        string abrevUp = abrev.ToUpper();
+                        bool tieneNivel = !rdrProd.IsDBNull(3);
+                        string nivelNombreBD = rdrProd.IsDBNull(4) ? "" : Convert.ToString(rdrProd.GetValue(4)) ?? "";
 
+                        string abrevUp = abrevRaw.ToUpper();
+                        bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(abrevRaw) || !tieneNivel;
+
+                        // 🌟 SI NO TIENE PREFIJO/ABREVIATURA O NO TIENE NIVEL:
+                        // Se etiqueta bajo el nivel "OTROS", su código visible es la DESCRIPCIÓN (ej. BOLSOS) y no se filtra por Guía/Venta
+                        if (esArticuloSinCodigo)
+                        {
+                            catalogo.Add(new ProductoColumnaDTO
+                            {
+                                ProductoId = rdrProd.GetInt32(0),
+                                Codigo = desc.ToUpper().Trim(), // 👈 Muestra "BOLSOS" en vez de "18"
+                                Descripcion = desc,
+                                NivelId = 99,
+                                NivelNombre = "OTROS",          // 👈 Título superior agrupador
+                                GradoId = 99,
+                                GradoNombre = "",
+                                FamiliaNombre = "VARIOS",
+                                TipoEdicion = "G"
+                            });
+                            continue;
+                        }
+
+                        // Para libros con códigos (Guía o Venta)
                         string tipoEdicion = (abrevUp.Contains("-V-V") || abrevUp.Contains("-V") || desc.ToUpper().Contains("VENTA")) ? "V" : "G";
                         if (filtroTipoEdicion == 1 && tipoEdicion != "G") continue;
                         if (filtroTipoEdicion == 2 && tipoEdicion != "V") continue;
@@ -1564,10 +1593,10 @@ ORDER BY p.nivel_id ASC, p.titulo_curso_id ASC, p.grado_id ASC, p.id ASC";
                         catalogo.Add(new ProductoColumnaDTO
                         {
                             ProductoId = rdrProd.GetInt32(0),
-                            Codigo = abrev,
+                            Codigo = abrevRaw,
                             Descripcion = desc,
                             NivelId = rdrProd.GetInt32(3),
-                            NivelNombre = Convert.ToString(rdrProd.GetValue(4))?.ToUpper() ?? "INICIAL",
+                            NivelNombre = string.IsNullOrWhiteSpace(nivelNombreBD) ? "INICIAL" : nivelNombreBD.ToUpper(),
                             GradoId = rdrProd.GetInt32(5),
                             GradoNombre = Convert.ToString(rdrProd.GetValue(6)) ?? "",
                             FamiliaNombre = $"{familia} {(tipoEdicion == "G" ? "GUÍA" : "VENTA")}",
