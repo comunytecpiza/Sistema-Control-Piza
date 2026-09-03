@@ -270,25 +270,34 @@ namespace AplicativoDeAlmacen.Views
 
         private void BtnSeries_Click(object sender, RoutedEventArgs e)
         {
-            if (UbicacionesDataGrid.SelectedItem is Ubicacion ubicacionSeleccionada)
+            if (UbicacionesDataGrid.SelectedItem is not Ubicacion ubicacionSeleccionada)
             {
-                if (ubicacionSeleccionada.TipoUbicacion == null ||
-                   !ubicacionSeleccionada.TipoUbicacion.Nombre.ToUpper().Contains("PUNTO DE VENTA"))
-                {
-                    MessageBox.Show("Solamente manejan series las ubicaciones que son PUNTOS DE VENTA.",
-                                    "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                SeriesUbicacionWindow modalSeries = new SeriesUbicacionWindow(ubicacionSeleccionada);
-                modalSeries.Owner = Window.GetWindow(this);
-                modalSeries.ShowDialog();
-            }
-            else
-            {
-                MessageBox.Show("Por favor, seleccione una ubicación para configurar sus series.",
+                MessageBox.Show("Por favor, seleccione una ubicación de la tabla para configurar sus series.",
                                 "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
             }
+
+            string tipoNombre = ubicacionSeleccionada.TipoUbicacion?.Nombre?.ToUpper() ?? "";
+
+            // 🌟 Permitir configuración en Puntos de Venta y Almacenes
+            bool esAptoParaFacturar = tipoNombre.Contains("PUNTO DE VENTA");
+
+            if (!esAptoParaFacturar)
+            {
+                var resp = MessageBox.Show(
+                    $"La ubicación '{ubicacionSeleccionada.Descripcion}' está registrada como '{tipoNombre}'.\n\n¿Desea configurar series de facturación para esta sede de todos modos?",
+                    "Confirmación de Sede",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (resp != MessageBoxResult.Yes) return;
+            }
+
+            var modalSeries = new SeriesUbicacionWindow(ubicacionSeleccionada)
+            {
+                Owner = Window.GetWindow(this)
+            };
+            modalSeries.ShowDialog();
         }
     }
 }

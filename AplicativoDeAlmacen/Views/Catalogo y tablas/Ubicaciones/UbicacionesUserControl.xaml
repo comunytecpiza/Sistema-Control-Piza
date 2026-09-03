@@ -81,7 +81,7 @@
 
                     <Button x:Name="BtnSeries" Content="📑 Series" Click="BtnSeries_Click" Width="110" Height="38" 
                         Background="#3B82F6" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
-                        Visibility="Collapsed"/>
+                        Visibility="Visible"/>
                 </StackPanel>
             </Grid>
         </Border>

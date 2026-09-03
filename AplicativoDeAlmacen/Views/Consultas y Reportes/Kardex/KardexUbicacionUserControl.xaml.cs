@@ -298,7 +298,11 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                         ? _ubicacionSeleccionadaId
                         : (int?)null;
 
-                    var (ubicacionesData, catalogoProds) = await _kardexService.ObtenerDatosMatrizConsolidadaCompletaAsync(
+                    
+                    string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "ALMACEN PRINCIPAL TRUJILLO";
+
+                    var(ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData) =
+                    await _kardexService.ObtenerDatosMatrizConsolidadaCompletaAsync(
                         desde,
                         hasta,
                         catId,
@@ -311,6 +315,11 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                         campana,
                         catalogoProds,
                         ubicacionesData,
+                        almacenesRealesData,
+                        almacenesData,
+                        ingresosCentralData,
+                        miAlmacenId,
+                        nombreAlmacenSesion,
                         soloUna);
                 }
                 else

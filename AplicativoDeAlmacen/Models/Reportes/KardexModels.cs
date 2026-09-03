@@ -124,11 +124,13 @@ namespace AplicativoDeAlmacen.Models.Models
     public class MatrizKardexItemDTO
     {
         public int MovimientoId { get; set; }
-        public int BloqueTipo { get; set; } // 1 = Ingresos de Almacén/Compras, 2 = Salidas/Despachos, 3 = Devoluciones de Promotor
-        public string OrdenDocumento { get; set; } = string.Empty;
+        public int BloqueTipo { get; set; } // 1: Ingreso, 2: Salida, 3: Devolución
+        public string OrdenDocumento { get; set; } = string.Empty; // Nº Registro
+        public string NumeroGuia { get; set; } = string.Empty;     // Nº Guía
+        public int OrigenAlmacenId { get; set; }                   // 👈 ID numérico de la sede de origen
+        public string OrigenAlmacen { get; set; } = "Trujillo";    // Nombre visible
         public DateTime Fecha { get; set; }
         public int ProductoId { get; set; }
-        public string CodigoProducto { get; set; } = string.Empty;
         public decimal Cantidad { get; set; }
     }
 

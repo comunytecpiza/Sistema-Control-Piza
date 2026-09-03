@@ -1,7 +1,5 @@
-﻿using AplicativoDeAlmacen.Models.Facturación;
-using AplicativoDeAlmacen.Models.Models;
-using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Services.facturaciòn;
+﻿#nullable enable
+
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -9,7 +7,11 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using AplicativoDeAlmacen.Models; // Asegúrate de tener este using para ValidacionCodigoResult
+using AplicativoDeAlmacen.Models;
+using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models.Models;
+using AplicativoDeAlmacen.Services;
+using AplicativoDeAlmacen.Services.facturaciòn;
 
 namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 {
@@ -18,16 +20,14 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private readonly ProductoService _productoService;
         private readonly FacturacionService _facturacionService;
 
-        private Producto _productoSeleccionado;
+        private Producto? _productoSeleccionado;
         private ObservableCollection<CodigoLeidoDTO> _codigosAgregados;
         private bool _isTyping = true;
         private bool _usaCodigos = false;
         private bool _modoEdicion = false;
-
-        // 🌟 NUEVA VARIABLE PARA GUARDAR EL MOVIMIENTO
         private int _ultimoMovimientoId = 0;
 
-        public ItemGridDTO NuevoItem { get; private set; }
+        public ItemGridDTO? NuevoItem { get; private set; }
 
         public AgregarItemWindow()
         {
@@ -41,8 +41,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         public AgregarItemWindow(ItemGridDTO itemExistente) : this()
         {
             _modoEdicion = true;
-            Title = "Modificar Item";
-
+            Title = "Modificar Ítem del Comprobante";
             Loaded += async (s, e) => await CargarItemParaEdicionAsync(itemExistente);
         }
 
@@ -71,29 +70,30 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                 TxtUMedida.Text = p.UnidadMedida?.Descripcion ?? "UNIDAD";
                 TxtAfectacion.Text = p.afectacion?.Nombre ?? "EXONERADO - OPERACION ONEROSA";
-                TxtPreUnitario.Text = p.PrecioUnitario?.ToString("N0") ?? "0";
+                TxtPreUnitario.Text = (p.PrecioUnitario ?? 0).ToString("N2");
 
-                ConfigurarSegunUnidadMedida();
+                ConfigurarSegunProducto();
             }
         }
 
-        private void ConfigurarSegunUnidadMedida()
+        private void ConfigurarSegunProducto()
         {
+            if (_productoSeleccionado == null) return;
+
             string um = TxtUMedida.Text.ToUpper();
+            bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura) || um == "UNIDAD" || um == "UND";
 
             _codigosAgregados.Clear();
-            TxtCantidad.Text = "0";
-            TxtTotal.Text = "0";
-            _ultimoMovimientoId = 0; // Reiniciamos el ID al cambiar producto
+            _ultimoMovimientoId = 0;
 
-            if (um == "UNIDAD" || um == "UND")
+            if (esArticuloSinCodigo)
             {
                 _usaCodigos = false;
                 TxtCantidad.IsReadOnly = false;
                 TxtCantidad.Background = System.Windows.Media.Brushes.White;
+                TxtCantidad.Text = "1";
 
                 BtnAgregarCod.IsEnabled = false;
-                BtnModificarCod.IsEnabled = false;
                 BtnEliminarCod.IsEnabled = false;
                 PanelCapturaCodigo.Visibility = Visibility.Collapsed;
             }
@@ -101,51 +101,25 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             {
                 _usaCodigos = true;
                 TxtCantidad.IsReadOnly = true;
-                TxtCantidad.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#F1F5F9");
+                TxtCantidad.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#F8FAFC");
+                TxtCantidad.Text = "0";
 
                 BtnAgregarCod.IsEnabled = true;
                 BtnEliminarCod.IsEnabled = true;
             }
-            ConfigurarBotonesSegunUnidad();
+
             Calculo_TextChanged(null, null);
         }
 
-        private void ConfigurarBotonesSegunUnidad()
-        {
-            string um = TxtUMedida.Text.ToUpper();
-
-            if (um == "UNIDAD" || um == "UND")
-            {
-                _usaCodigos = false;
-                TxtCantidad.IsReadOnly = false;
-                TxtCantidad.Background = System.Windows.Media.Brushes.White;
-
-                BtnAgregarCod.IsEnabled = false;
-                BtnModificarCod.IsEnabled = false;
-                BtnEliminarCod.IsEnabled = false;
-                PanelCapturaCodigo.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                _usaCodigos = true;
-                TxtCantidad.IsReadOnly = true;
-                TxtCantidad.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#F1F5F9");
-
-                BtnAgregarCod.IsEnabled = true;
-                BtnEliminarCod.IsEnabled = true;
-            }
-        }
-
-        private void Calculo_TextChanged(object sender, TextChangedEventArgs e)
+        private void Calculo_TextChanged(object? sender, TextChangedEventArgs? e)
         {
             if (!IsLoaded) return;
 
-            decimal cantidad = 0, preUnitario = 0;
-            decimal.TryParse(TxtCantidad.Text, out cantidad);
-            decimal.TryParse(TxtPreUnitario.Text, out preUnitario);
+            decimal.TryParse(TxtCantidad.Text, out decimal cantidad);
+            decimal.TryParse(TxtPreUnitario.Text, out decimal preUnitario);
 
             decimal total = cantidad * preUnitario;
-            TxtTotal.Text = total.ToString("N0");
+            TxtTotal.Text = total.ToString("N2");
 
             if (BtnGrabarItem != null)
             {
@@ -169,8 +143,9 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        private async void BtnConfirmarCodigo_Click(object sender, RoutedEventArgs e)
+        private async void BtnConfirmarCodigo_Click(object? sender, RoutedEventArgs? e)
         {
+            if (_productoSeleccionado == null) return;
             string codigoDigitado = TxtCapturaCodigo.Text.Trim();
             if (string.IsNullOrEmpty(codigoDigitado)) return;
 
@@ -180,13 +155,11 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                 int id = resultado.Id;
                 string codigoReal = resultado.CodigoCompleto;
-
-                // 🌟 GUARDAMOS EL MOVIMIENTO ID
                 _ultimoMovimientoId = resultado.MovimientoId;
 
                 if (_codigosAgregados.Any(c => c.CodigoCreadoId == id))
                 {
-                    MessageBox.Show("El código ya está en la lista.", "Aviso");
+                    MessageBox.Show("El código ya está agregado en la lista.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
@@ -204,7 +177,9 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(ex.Message, "Validación de Código", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtCapturaCodigo.SelectAll();
+                TxtCapturaCodigo.Focus();
             }
         }
 
@@ -214,12 +189,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             {
                 _codigosAgregados.Remove(item);
                 ActualizarTotalYCantidad();
-
-                // Si eliminamos el último código, reseteamos el ID
-                if (_codigosAgregados.Count == 0)
-                {
-                    _ultimoMovimientoId = 0;
-                }
+                if (_codigosAgregados.Count == 0) _ultimoMovimientoId = 0;
             }
         }
 
@@ -229,7 +199,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             {
                 TxtCantidad.Text = _codigosAgregados.Count.ToString();
             }
-
             Calculo_TextChanged(null, null);
         }
 
@@ -242,27 +211,26 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             if (_productoSeleccionado == null)
             {
-                MessageBox.Show("Debe seleccionar un producto.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Debe seleccionar un producto.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (!decimal.TryParse(TxtCantidad.Text, out decimal cantidad) || cantidad <= 0)
             {
-                MessageBox.Show("La cantidad debe ser mayor a 0 para poder agregar este ítem.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("La cantidad debe ser mayor a 0.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 TxtCantidad.Focus();
                 return;
             }
 
             if (_usaCodigos && _codigosAgregados.Count == 0)
             {
-                MessageBox.Show("Este producto requiere al menos un código escaneado/digitado antes de grabar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Este producto requiere códigos físicos antes de grabar.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (_usaCodigos && _codigosAgregados.Count != cantidad)
+            if (!decimal.TryParse(TxtPreUnitario.Text, out decimal precioUnitario))
             {
-                MessageBox.Show("La cantidad no coincide con los códigos agregados. Vuelve a revisar.", "Error de integridad", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
+                precioUnitario = 0;
             }
 
             decimal.TryParse(TxtTotal.Text, out decimal total);
@@ -270,11 +238,11 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             NuevoItem = new ItemGridDTO
             {
                 ProductoId = _productoSeleccionado.Id,
-                MovimientoId = _ultimoMovimientoId, // 🌟 AHORA SÍ TIENE EL ID DE LA SALIDA REAL
+                MovimientoId = _ultimoMovimientoId,
                 DescripcionProducto = _productoSeleccionado.Descripcion,
                 UnidadMedida = TxtUMedida.Text,
                 CanProd = cantidad,
-                PreUnit = decimal.Parse(TxtPreUnitario.Text),
+                PreUnit = precioUnitario,
                 ImpTota = total,
                 Codigos = _codigosAgregados.ToList()
             };
@@ -307,20 +275,19 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtProductoBuscador.Background = System.Windows.Media.Brushes.WhiteSmoke;
 
             _isTyping = true;
-            ConfigurarBotonesSegunUnidad();
+            ConfigurarSegunProducto();
 
             _codigosAgregados.Clear();
             foreach (var cod in item.Codigos)
+            {
                 _codigosAgregados.Add(cod);
+            }
 
-            // 🌟 Restaurar el MovimientoId
             _ultimoMovimientoId = item.MovimientoId;
-
-            TxtPreUnitario.Text = item.PreUnit.ToString("N0");
+            TxtPreUnitario.Text = item.PreUnit.ToString("N2");
             TxtCantidad.Text = _usaCodigos ? _codigosAgregados.Count.ToString() : item.CanProd.ToString("N0");
 
             Calculo_TextChanged(null, null);
-
             BtnGrabarItem.Content = "💾 Actualizar";
         }
 

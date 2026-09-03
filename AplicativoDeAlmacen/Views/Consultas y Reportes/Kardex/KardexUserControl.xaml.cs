@@ -26,39 +26,34 @@ namespace AplicativoDeAlmacen.Views
         // 🌟 Memoria RAM: Aquí guardaremos los productos para buscar a la velocidad de la luz
         private List<Producto> _todosLosProductos = new List<Producto>();
 
+        private bool _ejecutandoConsulta = false;
+
         public KardexUserControl()
         {
-            this.Language = System.Windows.Markup.XmlLanguage.GetLanguage("es-ES");  // ← PRIMERO
+            this.Language = System.Windows.Markup.XmlLanguage.GetLanguage("es-ES");
             System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("es-ES");
             InitializeComponent();
 
             _kardexService = new KardexService();
             _productoService = new ProductoService();
-            _reporteExcel =
-                   new ReporteExcelService();
+            _reporteExcel = new ReporteExcelService();
 
-            // Fechas por defecto (Primer día del mes y Hoy)
+            // Fechas por defecto
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             DpHasta.SelectedDate = DateTime.Today;
 
             Loaded += KardexUserControl_Loaded;
 
-            // ====================================================================
-            // 🌟 ACTUALIZACIÓN EN TIEMPO REAL (REACTIVIDAD)
-            // ====================================================================
-
-            // 1. Si alguien guarda un ingreso/salida, actualizamos el Kardex automáticamente
+            // Reactividad segura: solo si no se está ejecutando otra consulta
             EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
-                // Solo recargamos si hay un producto seleccionado y la pantalla se está viendo
-                if (_productoSeleccionadoId != 0 && this.IsVisible)
+                if (_productoSeleccionadoId != 0 && this.IsVisible && !_ejecutandoConsulta)
                 {
                     BtnEjecutarKardex_Click(null, null);
                 }
             });
 
-            // 2. Si regresas a esta pestaña después de estar en otra, traemos datos frescos
             this.IsVisibleChanged += (s, e) => {
-                if (this.IsVisible && (bool)e.NewValue == true && _productoSeleccionadoId != 0)
+                if (this.IsVisible && (bool)e.NewValue == true && _productoSeleccionadoId != 0 && !_ejecutandoConsulta)
                 {
                     BtnEjecutarKardex_Click(null, null);
                 }
@@ -69,15 +64,22 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // Descargamos TODOS los productos a la memoria solo 1 vez al abrir la pantalla
-                var dbProductos = await _productoService.ObtenerTodosAsync();
-                _todosLosProductos = dbProductos.ToList();
+                // 🛡️ Solo cargar de BD la primera vez
+                if (_todosLosProductos == null || !_todosLosProductos.Any())
+                {
+                    var dbProductos = await _productoService.ObtenerTodosAsync();
+                    _todosLosProductos = dbProductos.ToList();
+                }
 
-                // 🌟 MÁSCARA: Activamos la máscara en los calendarios
+                // 🌟 MÁSCARA: Se asegura de vincularse solo una vez
                 ConfigurarMascaraFecha(DpDesde);
                 ConfigurarMascaraFecha(DpHasta);
 
-                // 🌟 TECLADO: Escuchamos la tecla Enter en los filtros
+                // 🌟 TECLADO: Limpiar antes de reasignar
+                CboProductos.PreviewKeyDown -= Filtros_PreviewKeyDown;
+                DpDesde.PreviewKeyDown -= Filtros_PreviewKeyDown;
+                DpHasta.PreviewKeyDown -= Filtros_PreviewKeyDown;
+
                 CboProductos.PreviewKeyDown += Filtros_PreviewKeyDown;
                 DpDesde.PreviewKeyDown += Filtros_PreviewKeyDown;
                 DpHasta.PreviewKeyDown += Filtros_PreviewKeyDown;
@@ -222,16 +224,14 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        private async void BtnEjecutarKardex_Click(object sender, RoutedEventArgs e)
+        private async void BtnEjecutarKardex_Click(object? sender, RoutedEventArgs? e)
         {
-            if (_productoSeleccionadoId == 0)
-            {
-                MessageBox.Show("Seleccione un producto válido de la lista antes de ejecutar la consulta.", "Kardex Físico", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            if (_ejecutandoConsulta) return; // 🛡️ FRENO ABSOLUTO A RECURSIÓN
+            if (_productoSeleccionadoId == 0) return;
 
             try
             {
+                _ejecutandoConsulta = true;
                 Mouse.OverrideCursor = Cursors.Wait;
 
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
@@ -245,20 +245,17 @@ namespace AplicativoDeAlmacen.Views
 
                 var reporte = _ultimoReporte;
 
-                // Llenar grilla con los movimientos activos
                 KardexDataGrid.ItemsSource = reporte.Detalles;
 
-                // Título dinámico según la sede
                 LblTituloIngresos.Text = (miAlmacenId == ALMACEN_CENTRAL_ID)
-                ? "Ingresos / Entradas"
-                : "Ingresos (Transferencias / Entradas)";
+                    ? "Ingresos / Entradas"
+                    : "Ingresos (Transferencias / Entradas)";
 
-                // 🌟 ASIGNACIÓN DE LAS TARJETAS CONTABLES Y OPERATIVAS
                 TxtStockInicial.Text = reporte.StockInicial.ToString("N0");
-                TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N0");       // Ingresos Principales (Compra o Transferencia)
-                TxtTotalDevoluciones.Text = reporte.TotalDevoluciones.ToString("N0"); // Devoluciones / Reingresos
+                TxtTotalIngresos.Text = reporte.TotalIngresos.ToString("N0");
+                TxtTotalDevoluciones.Text = reporte.TotalDevoluciones.ToString("N0");
                 TxtTotalSalidas.Text = reporte.TotalSalidas.ToString("N0");
-                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N0");           // Salidas Netas
+                TxtSalidasFijas.Text = reporte.SalidasFijas.ToString("N0");
                 TxtStockFinal.Text = reporte.StockFinal.ToString("N0");
             }
             catch (Exception ex)
@@ -268,6 +265,7 @@ namespace AplicativoDeAlmacen.Views
             finally
             {
                 Mouse.OverrideCursor = null;
+                _ejecutandoConsulta = false; // 🛡️ Libera el seguro
             }
         }
 
@@ -278,39 +276,56 @@ namespace AplicativoDeAlmacen.Views
 
         private void ConfigurarMascaraFecha(DatePicker datePicker)
         {
+            if (datePicker == null) return;
+
             datePicker.ApplyTemplate();
 
             if (datePicker.Template.FindName("PART_TextBox", datePicker) is TextBox textBox)
             {
+                textBox.TextChanged -= TextBoxFecha_TextChanged;
+                textBox.TextChanged += TextBoxFecha_TextChanged;
                 textBox.MaxLength = 10;
-                textBox.TextChanged += (s, ev) =>
-                {
-                    if (_isFormattingDate) return;
-
-                    var tb = s as TextBox;
-                    if (tb == null) return;
-
-                    // Dejamos borrar tranquilamente
-                    if (ev.Changes.Any(c => c.RemovedLength > 0 && c.AddedLength == 0)) return;
-
-                    _isFormattingDate = true;
-
-                    string numeros = new string(tb.Text.Where(char.IsDigit).ToArray());
-
-                    if (numeros.Length >= 2 && numeros.Length < 4)
-                    {
-                        tb.Text = numeros.Insert(2, "/");
-                        tb.CaretIndex = tb.Text.Length;
-                    }
-                    else if (numeros.Length >= 4 && numeros.Length <= 8)
-                    {
-                        tb.Text = numeros.Insert(2, "/").Insert(5, "/");
-                        tb.CaretIndex = tb.Text.Length;
-                    }
-
-                    _isFormattingDate = false;
-                };
             }
+        }
+
+        private void TextBoxFecha_TextChanged(object sender, TextChangedEventArgs ev)
+        {
+            if (_isFormattingDate) return;
+
+            if (sender is not TextBox tb) return;
+
+            // Si el usuario borra caracteres, no interferir
+            if (ev.Changes.Any(c => c.RemovedLength > 0 && c.AddedLength == 0)) return;
+
+            string textoActual = tb.Text ?? string.Empty;
+
+            // Solo dígitos numéricos
+            string numeros = new string(textoActual.Where(char.IsDigit).ToArray());
+            if (string.IsNullOrEmpty(numeros)) return;
+
+            string nuevoTexto = textoActual;
+
+            if (numeros.Length >= 2 && numeros.Length < 4)
+            {
+                nuevoTexto = numeros.Insert(2, "/");
+            }
+            else if (numeros.Length >= 4)
+            {
+                int lenAnio = Math.Min(numeros.Length - 4, 4);
+                nuevoTexto = numeros.Substring(0, 2) + "/" + numeros.Substring(2, 2) + "/" + numeros.Substring(4, lenAnio);
+            }
+
+            // 🛡️ Si no hay cambios reales, salir inmediatamente
+            if (nuevoTexto == textoActual) return;
+
+            // 🛡️ Asignar de manera diferida mediante Dispatcher para romper el bucle síncrono de WPF
+            _isFormattingDate = true;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                tb.Text = nuevoTexto;
+                tb.CaretIndex = tb.Text.Length;
+                _isFormattingDate = false;
+            }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
