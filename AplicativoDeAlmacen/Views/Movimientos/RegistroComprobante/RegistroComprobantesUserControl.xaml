@@ -36,7 +36,7 @@
         </Style>
 
         <!-- Botones Modernos -->
-        <Style x:Key="ModernButton" TargetType="Button">
+        <Style TargetType="Button" x:Key="ModernButton">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -45,11 +45,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" 
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6" 
-                                Padding="{TemplateBinding Padding}">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                     </ControlTemplate>
@@ -66,7 +62,7 @@
         </Style>
 
         <!-- Sombra Suave -->
-        <DropShadowEffect x:Key="CardShadow" BlurRadius="10" ShadowDepth="2" Direction="270" Color="#0F172A" Opacity="0.06"/>
+        <DropShadowEffect BlurRadius="10" Color="#0F172A" Direction="270" Opacity="0.06" ShadowDepth="2" x:Key="CardShadow"/>
     </UserControl.Resources>
 
     <Grid Margin="16">
@@ -87,248 +83,290 @@
             </StackPanel>
         </Border>
 
-        <!-- 🌟 PANEL DE FORMULARIO -->
-        <Grid x:Name="PanelFormulario" Grid.Row="1" IsEnabled="False">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <!-- 🌟 SCROLLBAR GENERAL DEL FORMULARIO -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid x:Name="PanelFormulario" IsEnabled="False" Margin="0,0,6,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <!-- 1. CABECERA DIVIDIDA EN 2 COLUMNAS -->
-            <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12" Effect="{StaticResource CardShadow}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="24"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                <!-- 1. CABECERA DIVIDIDA EN 2 COLUMNAS -->
+                <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12" Effect="{StaticResource CardShadow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                    <!-- COLUMNA IZQUIERDA: Comprobante y Pagador -->
-                    <StackPanel Grid.Column="0">
-                        <!-- Tipo, Serie, Punto Venta -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="130"/>
-                                <ColumnDefinition Width="80"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                                <TextBlock Text="Tipo Comprobante:" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="CmbTipoDocu" SelectionChanged="CmbTipoDocu_SelectionChanged">
-                                    <ComboBoxItem Content="FACTURA" Tag="01" IsSelected="True"/>
-                                    <ComboBoxItem Content="BOLETA" Tag="02"/>
-                                    <ComboBoxItem Content="RECIBO" Tag="03"/>
-                                </ComboBox>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                                <TextBlock Text="Serie:" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="CmbSerie" SelectionChanged="CmbSerie_SelectionChanged"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="Punto Venta / Sede:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtPuntoVenta" IsReadOnly="True" Background="#F8FAFC" Foreground="#64748B" FontWeight="SemiBold"/>
-                            </StackPanel>
-                        </Grid>
+                        <!-- COLUMNA IZQUIERDA: Comprobante y Pagador -->
+                        <StackPanel Grid.Column="0">
+                            <!-- Tipo, Serie, Punto Venta -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                    <TextBlock Text="Tipo Comprobante:" Style="{StaticResource FormLabelStyle}"/>
+                                    <ComboBox x:Name="CmbTipoDocu" SelectionChanged="CmbTipoDocu_SelectionChanged">
+                                        <ComboBoxItem Content="FACTURA" Tag="01" IsSelected="True"/>
+                                        <ComboBoxItem Content="BOLETA" Tag="02"/>
+                                        <ComboBoxItem Content="RECIBO" Tag="03"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                                    <TextBlock Text="Serie:" Style="{StaticResource FormLabelStyle}"/>
+                                    <ComboBox x:Name="CmbSerie" SelectionChanged="CmbSerie_SelectionChanged"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Punto Venta / Sede:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtPuntoVenta" IsReadOnly="True" Background="#F8FAFC" Foreground="#64748B" FontWeight="SemiBold"/>
+                                </StackPanel>
+                            </Grid>
 
-                        <!-- Número, Acciones y Fecha -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="110"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="Número:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtNumero" IsReadOnly="True" KeyDown="TxtNumero_KeyDown" Background="#F8FAFC" FontWeight="Bold" TextAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,10,0">
-                                <Button Content="Saltar N°" Click="BtnSaltarNumero_Click" Width="75" Height="32" Background="White" BorderBrush="#10B981" BorderThickness="1" Foreground="#10B981" FontWeight="Bold" Cursor="Hand" Margin="0,0,4,0"/>
-                                <Button Content="Editar N°" Click="BtnModificarNumero_Click" Width="75" Height="32" Background="White" BorderBrush="#10B981" BorderThickness="1" Foreground="#10B981" FontWeight="Bold" Cursor="Hand"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="Fecha Emisión:" Style="{StaticResource FormLabelStyle}"/>
-                                <DatePicker x:Name="DpFecha" Height="32"/>
-                            </StackPanel>
-                        </Grid>
+                            <!-- Número, Acciones y Fecha -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                    <TextBlock Text="Número:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtNumero" IsReadOnly="True" KeyDown="TxtNumero_KeyDown" Background="#F8FAFC" FontWeight="Bold" TextAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,10,0">
+                                    <Button Content="Saltar N°" Click="BtnSaltarNumero_Click" Width="75" Height="32" Background="White" BorderBrush="#10B981" BorderThickness="1" Foreground="#10B981" FontWeight="Bold" Cursor="Hand" Margin="0,0,4,0"/>
+                                    <Button Content="Editar N°" Click="BtnModificarNumero_Click" Width="75" Height="32" Background="White" BorderBrush="#10B981" BorderThickness="1" Foreground="#10B981" FontWeight="Bold" Cursor="Hand"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Fecha Emisión:" Style="{StaticResource FormLabelStyle}"/>
+                                    <DatePicker x:Name="DpFecha" Height="32"/>
+                                </StackPanel>
+                            </Grid>
 
-                        <!-- Razón Social / Pagador -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="80"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="Razón Social / Pagador:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtRazonSocialBuscador" TextChanged="TxtRazonSocialBuscador_TextChanged" ToolTip="Escriba para buscar pagador..."/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Text="Código:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtRazonSocialId" IsReadOnly="True" Background="#F8FAFC" TextAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
+                            <!-- Razón Social / Pagador -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="80"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                    <TextBlock Text="Razón Social / Pagador:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtRazonSocialBuscador" TextChanged="TxtRazonSocialBuscador_TextChanged" ToolTip="Escriba para buscar pagador..."/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Código:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtRazonSocialId" IsReadOnly="True" Background="#F8FAFC" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
 
-                        <!-- Documento Identidad y Dirección Pagador -->
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="80"/>
-                                <ColumnDefinition Width="130"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="Doc. Tipo:" Style="{StaticResource FormLabelStyle}"/>
-                                <ComboBox x:Name="CmbTipoIdentidad">
-                                    <ComboBoxItem Content="DNI" IsSelected="True"/>
-                                    <ComboBoxItem Content="RUC"/>
-                                    <ComboBoxItem Content="CE"/>
-                                </ComboBox>
+                            <!-- Documento Identidad y Dirección Pagador -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                    <TextBlock Text="Doc. Tipo:" Style="{StaticResource FormLabelStyle}"/>
+                                    <ComboBox x:Name="CmbTipoIdentidad">
+                                        <ComboBoxItem Content="DNI" IsSelected="True"/>
+                                        <ComboBoxItem Content="RUC"/>
+                                        <ComboBoxItem Content="CE"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="0,0,6,0">
+                                    <TextBlock Text="N° Documento:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtDniRuc"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Dirección Fiscal Pagador:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtDireccionPagador"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- COLUMNA DERECHA: Cliente Institucional y Observaciones -->
+                        <StackPanel Grid.Column="2">
+                            <!-- Cliente / Colegio -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="80"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                    <TextBlock Text="Cliente / Institución / Colegio:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtClienteBuscador" TextChanged="TxtClienteBuscador_TextChanged" ToolTip="Escriba para buscar colegio..."/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Código:" Style="{StaticResource FormLabelStyle}"/>
+                                    <TextBox x:Name="TxtClienteId" IsReadOnly="True" Background="#F8FAFC" TextAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Dirección Colegio -->
+                            <StackPanel Margin="0,0,0,8">
+                                <TextBlock Text="Dirección Colegio:" Style="{StaticResource FormLabelStyle}"/>
+                                <TextBox x:Name="TxtDireccionColegio" IsReadOnly="True" Background="#F8FAFC"/>
                             </StackPanel>
-                            <StackPanel Grid.Column="1" Margin="0,0,6,0">
-                                <TextBlock Text="N° Documento:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtDniRuc"/>
+
+                            <!-- Localidad / Zona -->
+                            <StackPanel Margin="0,0,0,8">
+                                <TextBlock Text="Localidad / Zona:" Style="{StaticResource FormLabelStyle}"/>
+                                <TextBox x:Name="TxtLocalidad" IsReadOnly="True" Background="#F8FAFC"/>
                             </StackPanel>
-                            <StackPanel Grid.Column="2">
-                                <TextBlock Text="Dirección Fiscal Pagador:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtDireccionPagador"/>
+
+                            <!-- Observaciones -->
+                            <StackPanel>
+                                <TextBlock Text="Observaciones del Comprobante:" Style="{StaticResource FormLabelStyle}"/>
+                                <TextBox x:Name="TxtObservacion"/>
                             </StackPanel>
-                        </Grid>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- POPUPS DE BÚSQUEDA FLOTANTES CON ANCHO DEFINIDO -->
+                <Popup x:Name="PopRazonSocial" 
+                       PlacementTarget="{Binding ElementName=TxtRazonSocialBuscador}" 
+                       Placement="Bottom"
+                       StaysOpen="False" 
+                       IsOpen="False" 
+                       AllowsTransparency="True">
+                    <Border Background="White" 
+                            BorderBrush="#CBD5E1" 
+                            BorderThickness="1" 
+                            CornerRadius="4" 
+                            MinWidth="320"
+                            Width="{Binding ActualWidth, ElementName=TxtRazonSocialBuscador}" 
+                            Effect="{StaticResource CardShadow}">
+                        <ListBox x:Name="LstRazonSocial" 
+                                 MaxHeight="180" 
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" 
+                                 SelectionChanged="LstRazonSocial_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding RazonSocial}" Padding="8,6" FontSize="12.5"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Popup>
+
+                <Popup x:Name="PopCliente" 
+                       PlacementTarget="{Binding ElementName=TxtClienteBuscador}" 
+                       Placement="Bottom"
+                       StaysOpen="False" 
+                       IsOpen="False" 
+                       AllowsTransparency="True">
+                    <Border Background="White" 
+                            BorderBrush="#CBD5E1" 
+                            BorderThickness="1" 
+                            CornerRadius="4" 
+                            MinWidth="320"
+                            Width="{Binding ActualWidth, ElementName=TxtClienteBuscador}" 
+                            Effect="{StaticResource CardShadow}">
+                        <ListBox x:Name="LstCliente" 
+                                 MaxHeight="180" 
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" 
+                                 SelectionChanged="LstCliente_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding RazonSocial}" Padding="8,6" FontSize="12.5"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Popup>
+
+                <!-- 2. BARRA DE ACCIONES DE ÍTEMS Y GUARDADO -->
+                <Grid Grid.Row="1" Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                        <Button x:Name="BtnAgregarItem" Content="➕ Agregar Item" Click="BtnAgregarItem_Click" Width="120" Height="32" Background="White" Foreground="#10B981" BorderBrush="#10B981" BorderThickness="1" Style="{StaticResource ModernButton}"/>
+                        <Button x:Name="BtnModificarItem" Content="✏️ Modificar Item" Click="BtnModificarItem_Click" Width="130" Height="32" Background="White" Foreground="#F59E0B" BorderBrush="#F59E0B" BorderThickness="1" Style="{StaticResource ModernButton}"/>
+                        <Button x:Name="BtnEliminarItem" Content="❌ Eliminar Item" Click="BtnEliminarItem_Click" Width="120" Height="32" Background="White" Foreground="#EF4444" BorderBrush="#EF4444" BorderThickness="1" Style="{StaticResource ModernButton}"/>
+                        <Button x:Name="BtnLector" Content="🔦 Activar Lector" Click="BtnActivarLector_Click" Width="130" Height="32" Background="White" Foreground="#3B82F6" BorderBrush="#3B82F6" BorderThickness="1" Style="{StaticResource ModernButton}"/>
+                        <Button x:Name="BtnImprimirExcel" Content="📊 Exportar Excel" Click="BtnImprimirExcel_Click" Width="135" Height="32" IsEnabled="False" Background="White" Foreground="#8B5CF6" BorderBrush="#8B5CF6" BorderThickness="1" Style="{StaticResource ModernButton}"/>
                     </StackPanel>
 
-                    <!-- COLUMNA DERECHA: Cliente Institucional y Observaciones -->
-                    <StackPanel Grid.Column="2">
-                        <!-- Cliente / Colegio -->
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="80"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                <TextBlock Text="Cliente / Institución / Colegio:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtClienteBuscador" TextChanged="TxtClienteBuscador_TextChanged" ToolTip="Escriba para buscar colegio..."/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Text="Código:" Style="{StaticResource FormLabelStyle}"/>
-                                <TextBox x:Name="TxtClienteId" IsReadOnly="True" Background="#F8FAFC" TextAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- Dirección Colegio -->
-                        <StackPanel Margin="0,0,0,8">
-                            <TextBlock Text="Dirección Colegio:" Style="{StaticResource FormLabelStyle}"/>
-                            <TextBox x:Name="TxtDireccionColegio" IsReadOnly="True" Background="#F8FAFC"/>
-                        </StackPanel>
-
-                        <!-- Localidad / Zona -->
-                        <StackPanel Margin="0,0,0,8">
-                            <TextBlock Text="Localidad / Zona:" Style="{StaticResource FormLabelStyle}"/>
-                            <TextBox x:Name="TxtLocalidad" IsReadOnly="True" Background="#F8FAFC"/>
-                        </StackPanel>
-
-                        <!-- Observaciones -->
-                        <StackPanel>
-                            <TextBlock Text="Observaciones del Comprobante:" Style="{StaticResource FormLabelStyle}"/>
-                            <TextBox x:Name="TxtObservacion"/>
-                        </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="BtnGrabar" Content="💾 Guardar Factura" Click="BtnGrabar_Click" Width="135" Height="32" Background="#10B981" Style="{StaticResource ModernButton}"/>
+                        <Button Content="↩️ Cancelar" Click="BtnCancelar_Click" Width="100" Height="32" Background="#64748B" Style="{StaticResource ModernButton}"/>
                     </StackPanel>
                 </Grid>
-            </Border>
 
-            <!-- POPUPS DE BÚSQUEDA -->
-            <Popup x:Name="PopRazonSocial" PlacementTarget="{Binding ElementName=TxtRazonSocialBuscador}" StaysOpen="False" IsOpen="False" AllowsTransparency="True">
-                <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Effect="{StaticResource CardShadow}">
-                    <ListBox x:Name="LstRazonSocial" MaxHeight="160" Width="{Binding ActualWidth, ElementName=TxtRazonSocialBuscador}" SelectionChanged="LstRazonSocial_SelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding RazonSocial}" Padding="6,4"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                <!-- 3. GRILLA DE ÍTEMS (CON ALTURA CONTROLADA Y SCROLLBAR PROPIA) -->
+                <Border Grid.Row="2" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Background="White" ClipToBounds="True" Effect="{StaticResource CardShadow}" MinHeight="180" MaxHeight="320">
+                    <DataGrid x:Name="DgItems" 
+                              AutoGenerateColumns="False" 
+                              CanUserAddRows="False" 
+                              Background="Transparent" 
+                              RowHeight="30" 
+                              HeadersVisibility="Column" 
+                              SelectionMode="Single" 
+                              BorderThickness="0" 
+                              GridLinesVisibility="Horizontal" 
+                              HorizontalGridLinesBrush="#F1F5F9"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.CanContentScroll="True">
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Background" Value="#F8FAFC"/>
+                                <Setter Property="Foreground" Value="#334155"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                                <Setter Property="Padding" Value="12,6"/>
+                                <Setter Property="BorderBrush" Value="#E2E8F0"/>
+                                <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                            </Style>
+                        </DataGrid.ColumnHeaderStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Descripción del Producto" Binding="{Binding DescripcionProducto}" Width="*"/>
+                            <DataGridTextColumn Header="U. Medida" Binding="{Binding UnidadMedida}" Width="95"/>
+                            <DataGridTextColumn Header="Cantidad" Binding="{Binding CanProd}" Width="90"/>
+                            <DataGridTextColumn Header="P. Unitario" Binding="{Binding PreUnit, StringFormat='N2'}" Width="110"/>
+                            <DataGridTextColumn Header="Importe Total" Binding="{Binding ImpTota, StringFormat='N2'}" Width="120"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Border>
-            </Popup>
 
-            <Popup x:Name="PopCliente" PlacementTarget="{Binding ElementName=TxtClienteBuscador}" StaysOpen="False" IsOpen="False" AllowsTransparency="True">
-                <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="4" Effect="{StaticResource CardShadow}">
-                    <ListBox x:Name="LstCliente" MaxHeight="160" Width="{Binding ActualWidth, ElementName=TxtClienteBuscador}" SelectionChanged="LstCliente_SelectionChanged">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding RazonSocial}" Padding="6,4"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </Border>
-            </Popup>
+                <!-- 4. TOTALES LIQUIDADOS -->
+                <Grid Grid.Row="3" Margin="0,12,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="260"/>
+                    </Grid.ColumnDefinitions>
 
-            <!-- 2. BARRA DE ACCIONES DE ÍTEMS Y GUARDADO -->
-            <Grid Grid.Row="1" Margin="0,0,0,10">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                    <Button x:Name="BtnAgregarItem" Content="➕ Agregar Item" Click="BtnAgregarItem_Click" Width="120" Height="32" Background="White" Foreground="#10B981" BorderBrush="#10B981" BorderThickness="1" Style="{StaticResource ModernButton}"/>
-                    <Button x:Name="BtnModificarItem" Content="✏️ Modificar Item" Click="BtnModificarItem_Click" Width="130" Height="32" Background="White" Foreground="#F59E0B" BorderBrush="#F59E0B" BorderThickness="1" Style="{StaticResource ModernButton}"/>
-                    <Button x:Name="BtnEliminarItem" Content="❌ Eliminar Item" Click="BtnEliminarItem_Click" Width="120" Height="32" Background="White" Foreground="#EF4444" BorderBrush="#EF4444" BorderThickness="1" Style="{StaticResource ModernButton}"/>
-                    <Button x:Name="BtnLector" Content="🔦 Activar Lector" Click="BtnActivarLector_Click" Width="130" Height="32" Background="White" Foreground="#3B82F6" BorderBrush="#3B82F6" BorderThickness="1" Style="{StaticResource ModernButton}"/>
-                    <Button x:Name="BtnImprimirExcel" Content="📊 Exportar Excel" Click="BtnImprimirExcel_Click" Width="135" Height="32" IsEnabled="False" Background="White" Foreground="#8B5CF6" BorderBrush="#8B5CF6" BorderThickness="1" Style="{StaticResource ModernButton}"/>
-                </StackPanel>
-
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="BtnGrabar" Content="💾 Guardar Factura" Click="BtnGrabar_Click" Width="135" Height="32" Background="#10B981" Style="{StaticResource ModernButton}"/>
-                    <Button Content="↩️ Cancelar" Click="BtnCancelar_Click" Width="100" Height="32" Background="#64748B" Style="{StaticResource ModernButton}"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- 3. GRILLA DE ÍTEMS -->
-            <Border Grid.Row="2" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Background="White" ClipToBounds="True" Effect="{StaticResource CardShadow}">
-                <DataGrid x:Name="DgItems" AutoGenerateColumns="False" CanUserAddRows="False" Background="Transparent" RowHeight="30" HeadersVisibility="Column" SelectionMode="Single" BorderThickness="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9">
-                    <DataGrid.ColumnHeaderStyle>
-                        <Style TargetType="DataGridColumnHeader">
-                            <Setter Property="Background" Value="#F8FAFC"/>
-                            <Setter Property="Foreground" Value="#334155"/>
-                            <Setter Property="FontWeight" Value="Bold"/>
-                            <Setter Property="Padding" Value="12,6"/>
-                            <Setter Property="BorderBrush" Value="#E2E8F0"/>
-                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-                        </Style>
-                    </DataGrid.ColumnHeaderStyle>
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="Descripción del Producto" Binding="{Binding DescripcionProducto}" Width="3*"/>
-                        <DataGridTextColumn Header="U. Medida" Binding="{Binding UnidadMedida}" Width="90"/>
-                        <DataGridTextColumn Header="Cantidad" Binding="{Binding CanProd}" Width="90"/>
-                        <DataGridTextColumn Header="P. Unitario" Binding="{Binding PreUnit, StringFormat='N2'}" Width="100"/>
-                        <DataGridTextColumn Header="Importe Total" Binding="{Binding ImpTota, StringFormat='N2'}" Width="110"/>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </Border>
-
-            <!-- 4. TOTALES LIQUIDADOS -->
-            <Grid Grid.Row="3" Margin="0,12,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="260"/>
-                </Grid.ColumnDefinitions>
-
-                <Border Grid.Column="1" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="8" Padding="14" Background="White" Effect="{StaticResource CardShadow}">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,4">
-                            <TextBlock Text="Op. Gravadas:" Foreground="#64748B" FontWeight="SemiBold"/>
-                            <TextBox x:Name="TxtOpGravadas" Text="0.00" Width="90" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="SemiBold" Background="Transparent"/>
-                        </Grid>
-                        <Grid Margin="0,0,0,4">
-                            <TextBlock Text="Op. Exoneradas:" Foreground="#64748B" FontWeight="SemiBold"/>
-                            <TextBox x:Name="TxtOpExoneradas" Text="0.00" Width="90" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="SemiBold" Background="Transparent"/>
-                        </Grid>
-                        <Grid Margin="0,0,0,8">
-                            <TextBlock Text="I.G.V. (18%):" Foreground="#64748B" FontWeight="SemiBold"/>
-                            <TextBox x:Name="TxtIgv" Text="0.00" Width="90" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="SemiBold" Background="Transparent"/>
-                        </Grid>
-
-                        <Border BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,8,0,0">
-                            <Grid>
-                                <TextBlock Text="TOTAL VENTA" FontWeight="Bold" FontSize="14" Foreground="#0F172A" VerticalAlignment="Center"/>
-                                <TextBox x:Name="TxtTotal" Text="0.00" Width="100" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="Bold" FontSize="15" Foreground="#10B981" Background="Transparent"/>
+                    <Border Grid.Column="1" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="8" Padding="14" Background="White" Effect="{StaticResource CardShadow}">
+                        <StackPanel>
+                            <Grid Margin="0,0,0,4">
+                                <TextBlock Text="Op. Gravadas:" Foreground="#64748B" FontWeight="SemiBold"/>
+                                <TextBox x:Name="TxtOpGravadas" Text="0.00" Width="90" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="SemiBold" Background="Transparent"/>
                             </Grid>
-                        </Border>
-                    </StackPanel>
-                </Border>
+                            <Grid Margin="0,0,0,4">
+                                <TextBlock Text="Op. Exoneradas:" Foreground="#64748B" FontWeight="SemiBold"/>
+                                <TextBox x:Name="TxtOpExoneradas" Text="0.00" Width="90" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="SemiBold" Background="Transparent"/>
+                            </Grid>
+                            <Grid Margin="0,0,0,8">
+                                <TextBlock Text="I.G.V. (18%):" Foreground="#64748B" FontWeight="SemiBold"/>
+                                <TextBox x:Name="TxtIgv" Text="0.00" Width="90" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="SemiBold" Background="Transparent"/>
+                            </Grid>
+
+                            <Border BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,8,0,0">
+                                <Grid>
+                                    <TextBlock Text="TOTAL VENTA" FontWeight="Bold" FontSize="14" Foreground="#0F172A" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="TxtTotal" Text="0.00" Width="100" HorizontalAlignment="Right" HorizontalContentAlignment="Right" BorderThickness="0" FontWeight="Bold" FontSize="15" Foreground="#10B981" Background="Transparent"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Grid>
-        </Grid>
+        </ScrollViewer>
     </Grid>
 </UserControl>

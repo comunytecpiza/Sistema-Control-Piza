@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Documentos;
@@ -40,10 +41,12 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             Ninguno,
             Nuevo,
             BuscandoParaEditar,
-            BuscandoParaImprimir
+            BuscandoParaImprimir,
+            BuscandoParaAnular
         }
 
         private ModoFormulario _modoActual = ModoFormulario.Ninguno;
+        private Button? _btnAnularDefinitivo = null;
 
         public RegistroComprobantesUserControl()
         {
@@ -148,6 +151,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         // ==========================================
         private void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
+            LimpiarBotonAnularDinamico();
             _modoActual = ModoFormulario.Nuevo;
             _idComprobanteActual = 0;
 
@@ -170,6 +174,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnModificar_Click(object sender, RoutedEventArgs e)
         {
+            LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
             _modoActual = ModoFormulario.BuscandoParaEditar;
@@ -185,6 +190,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
+            LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
             _modoActual = ModoFormulario.BuscandoParaImprimir;
@@ -193,8 +199,23 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             ConfigurarModoBusqueda();
             TxtNumero.Focus();
 
-            MessageBox.Show("Seleccione la Serie, escriba el número de comprobante y presione ENTER para cargarlo en modo Vista Previa. Luego use 'Imprimir Excel'.",
+            MessageBox.Show("Seleccione la Serie, escriba el número de comprobante y presione ENTER para cargarlo en modo Vista Previa. Luego use 'Exportar Excel'.",
                 "Modo Vista Previa", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void BtnAnular_Click(object sender, RoutedEventArgs e)
+        {
+            LimpiarBotonAnularDinamico();
+            LimpiarFormulario();
+            _idComprobanteActual = 0;
+            _modoActual = ModoFormulario.BuscandoParaAnular;
+            BtnImprimirExcel.IsEnabled = false;
+
+            ConfigurarModoBusqueda();
+            TxtNumero.Focus();
+
+            MessageBox.Show("Modo Anulación activado.\n\nSeleccione la Serie, escriba el número de comprobante y presione ENTER para revisar su contenido antes de confirmar.",
+                "Preparando Anulación", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void BtnCancelar_Click(object sender, RoutedEventArgs e)
@@ -202,6 +223,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             _modoActual = ModoFormulario.Ninguno;
             _idComprobanteActual = 0;
 
+            LimpiarBotonAnularDinamico();
             BtnImprimirExcel.IsEnabled = false;
             PanelFormulario.IsEnabled = false;
             LimpiarFormulario();
@@ -214,7 +236,93 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         }
 
         // ==========================================
-        // GRABAR / ACTUALIZAR (CON AUDITORÍA REAL)
+        // BOTÓN ROJO DINÁMICO DE CONFIRMAR ANULACIÓN
+        // ==========================================
+        private void MostrarBotonAnularDinamico()
+        {
+            if (_btnAnularDefinitivo != null) return;
+
+            if (BtnGrabar?.Parent is Panel parentPanel)
+            {
+                _btnAnularDefinitivo = new Button
+                {
+                    Content = "💥 CONFIRMAR ANULACIÓN",
+                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#DC2626")),
+                    Foreground = Brushes.White,
+                    Cursor = Cursors.Hand,
+                    Margin = BtnGrabar.Margin,
+                    Padding = BtnGrabar.Padding,
+                    MinWidth = 180,
+                    Height = BtnGrabar.Height > 0 ? BtnGrabar.Height : 32,
+                    FontSize = BtnGrabar.FontSize,
+                    FontWeight = FontWeights.Bold
+                };
+
+                _btnAnularDefinitivo.Click += EjecutarAnulacionDefinitiva_Click;
+
+                BtnGrabar.Visibility = Visibility.Collapsed;
+                parentPanel.Children.Insert(parentPanel.Children.IndexOf(BtnGrabar) + 1, _btnAnularDefinitivo);
+            }
+        }
+
+        private void LimpiarBotonAnularDinamico()
+        {
+            if (_btnAnularDefinitivo != null && _btnAnularDefinitivo.Parent is Panel p)
+            {
+                p.Children.Remove(_btnAnularDefinitivo);
+                _btnAnularDefinitivo = null;
+            }
+
+            if (BtnGrabar != null)
+            {
+                BtnGrabar.Visibility = Visibility.Visible;
+                BtnGrabar.IsEnabled = true;
+            }
+        }
+
+        private async void EjecutarAnulacionDefinitiva_Click(object sender, RoutedEventArgs e)
+        {
+            if (_idComprobanteActual == 0) return;
+
+            string docIdent = $"{CmbSerie.Text}-{TxtNumero.Text}";
+            var result = MessageBox.Show(
+                $"⚠️ ¿Está absolutamente seguro de ANULAR el comprobante {docIdent}?\n\nEl registro quedará marcado formalmente como anulado.",
+                "Confirmar Reversión",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    this.Cursor = Cursors.Wait;
+                    if (_btnAnularDefinitivo != null) _btnAnularDefinitivo.IsEnabled = false;
+
+                    int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
+                    await _facturacionService.AnularComprobanteAsync(_idComprobanteActual, usuarioActivoId, "ANULACIÓN DE COMPROBANTE");
+
+                    MessageBox.Show("El comprobante ha sido anulado exitosamente.", "Operación Exitosa", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    _modoActual = ModoFormulario.Ninguno;
+                    _idComprobanteActual = 0;
+                    LimpiarBotonAnularDinamico();
+                    LimpiarFormulario();
+                    PanelFormulario.IsEnabled = false;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Error al Anular", MessageBoxButton.OK, MessageBoxImage.Error);
+                    if (_btnAnularDefinitivo != null) _btnAnularDefinitivo.IsEnabled = true;
+                }
+                finally
+                {
+                    this.Cursor = Cursors.Arrow;
+                }
+            }
+        }
+
+        // ==========================================
+        // GRABAR / ACTUALIZAR
         // ==========================================
         private async void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
@@ -319,7 +427,9 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private async Task CargarComprobantePorNumero()
         {
-            if (_modoActual != ModoFormulario.BuscandoParaEditar && _modoActual != ModoFormulario.BuscandoParaImprimir) return;
+            if (_modoActual != ModoFormulario.BuscandoParaEditar &&
+                _modoActual != ModoFormulario.BuscandoParaImprimir &&
+                _modoActual != ModoFormulario.BuscandoParaAnular) return;
 
             if (CmbSerie.SelectedItem is not SerieDocumento serieSeleccionada)
             {
@@ -359,11 +469,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         MessageBox.Show(mensajeBloqueo, "Acceso Restringido por Auditoría", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
-                }
-
-                if (!comprobante.EstadoRegistro)
-                {
-                    MessageBox.Show("¡ATENCIÓN! Este comprobante se encuentra ANULADO.", "Comprobante Anulado", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
 
                 _idComprobanteActual = comprobante.Id;
@@ -414,15 +519,45 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 TxtIgv.Text = comprobante.TotalIgv.ToString("N2");
                 TxtTotal.Text = comprobante.ImporteTotal.ToString("N2");
 
+                TxtNumero.IsReadOnly = true;
+                TxtNumero.Background = (Brush)new BrushConverter().ConvertFromString("#F8FAFC");
+
+                // Enrutamiento según el modo activo
                 if (_modoActual == ModoFormulario.BuscandoParaEditar)
                 {
+                    if (!comprobante.EstadoRegistro)
+                    {
+                        MessageBox.Show("Este comprobante se encuentra ANULADO (Modo solo lectura).", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                        ConfigurarModoBusqueda();
+                        BtnGrabar.IsEnabled = false;
+                        return;
+                    }
+
                     HabilitarTodoElFormulario();
                 }
                 else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
                 {
-                    PanelFormulario.IsEnabled = true;
+                    if (!comprobante.EstadoRegistro)
+                    {
+                        MessageBox.Show("¡ATENCIÓN! Este comprobante se encuentra ANULADO.", "Comprobante Anulado", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+
                     ConfigurarModoBusqueda();
                     BtnImprimirExcel.IsEnabled = true;
+                }
+                else if (_modoActual == ModoFormulario.BuscandoParaAnular)
+                {
+                    ConfigurarModoBusqueda();
+
+                    if (!comprobante.EstadoRegistro)
+                    {
+                        MessageBox.Show("Este comprobante ya se encuentra previamente ANULADO.", "Comprobante Anulado", MessageBoxButton.OK, MessageBoxImage.Information);
+                        LimpiarBotonAnularDinamico();
+                        BtnGrabar.IsEnabled = false;
+                        return;
+                    }
+
+                    MostrarBotonAnularDinamico();
                 }
             }
             finally
@@ -432,7 +567,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         }
 
         // ==========================================
-        // EXPORTAR EXCEL CON NOMBRE DE OPERADOR REAL
+        // EXPORTAR EXCEL
         // ==========================================
         private void BtnImprimirExcel_Click(object sender, RoutedEventArgs e)
         {
@@ -469,41 +604,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        private async void BtnAnular_Click(object sender, RoutedEventArgs e)
-        {
-            if (_idComprobanteActual == 0)
-            {
-                MessageBox.Show("Primero debe cargar un comprobante usando el botón 'Modificar'.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var result = MessageBox.Show(
-                "¿Está seguro de ANULAR este comprobante? El registro quedará marcado como anulado.",
-                "Confirmar Anulación",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Stop);
-
-            if (result == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
-                    await _facturacionService.AnularComprobanteAsync(_idComprobanteActual, usuarioActivoId, "ANULACIÓN POR USUARIO");
-                    MessageBox.Show("El comprobante ha sido anulado exitosamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
-
-                    _modoActual = ModoFormulario.Ninguno;
-                    _idComprobanteActual = 0;
-                    BtnImprimirExcel.IsEnabled = false;
-                    LimpiarFormulario();
-                    PanelFormulario.IsEnabled = false;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.Message, "Error al Anular", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-        }
-
         // ==========================================
         // HELPERS Y AUTOCOMPLETADOS
         // ==========================================
@@ -515,8 +615,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             TxtNumero.IsEnabled = true;
             TxtNumero.IsReadOnly = false;
-            TxtNumero.Text = string.Empty;
-            TxtNumero.Background = System.Windows.Media.Brushes.White;
+            TxtNumero.Background = Brushes.White;
 
             TxtRazonSocialBuscador.IsEnabled = false;
             TxtDniRuc.IsEnabled = false;
@@ -532,7 +631,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             BtnModificarItem.IsEnabled = false;
             BtnEliminarItem.IsEnabled = false;
             BtnLector.IsEnabled = false;
-            DgItems.IsEnabled = false;
+            DgItems.IsEnabled = true;
+            DgItems.IsReadOnly = true;
         }
 
         private void HabilitarTodoElFormulario()
@@ -554,10 +654,11 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             BtnEliminarItem.IsEnabled = true;
             BtnLector.IsEnabled = true;
             DgItems.IsEnabled = true;
+            DgItems.IsReadOnly = false;
 
             TxtNumero.IsEnabled = true;
             TxtNumero.IsReadOnly = true;
-            TxtNumero.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#F8FAFC");
+            TxtNumero.Background = (Brush)new BrushConverter().ConvertFromString("#F8FAFC");
         }
 
         private void LimpiarFormulario()
@@ -631,9 +732,17 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             string texto = TxtRazonSocialBuscador.Text.Trim();
             if (texto.Length < 2) { PopRazonSocial.IsOpen = false; return; }
 
-            var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
-            LstRazonSocial.ItemsSource = resultados.Take(10).ToList();
-            PopRazonSocial.IsOpen = resultados != null && resultados.Any();
+            try
+            {
+                var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
+                var lista = resultados?.Take(10).ToList();
+                LstRazonSocial.ItemsSource = lista;
+                PopRazonSocial.IsOpen = lista != null && lista.Any();
+            }
+            catch
+            {
+                PopRazonSocial.IsOpen = false;
+            }
         }
 
         private async void TxtClienteBuscador_TextChanged(object sender, TextChangedEventArgs e)
@@ -642,9 +751,17 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             string texto = TxtClienteBuscador.Text.Trim();
             if (texto.Length < 2) { PopCliente.IsOpen = false; return; }
 
-            var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
-            LstCliente.ItemsSource = resultados.Take(10).ToList();
-            PopCliente.IsOpen = resultados != null && resultados.Any();
+            try
+            {
+                var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
+                var lista = resultados?.Take(10).ToList();
+                LstCliente.ItemsSource = lista;
+                PopCliente.IsOpen = lista != null && lista.Any();
+            }
+            catch
+            {
+                PopCliente.IsOpen = false;
+            }
         }
 
         private void LstRazonSocial_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -726,7 +843,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private void BtnModificarNumero_Click(object sender, RoutedEventArgs e)
         {
             TxtNumero.IsReadOnly = !TxtNumero.IsReadOnly;
-            TxtNumero.Background = TxtNumero.IsReadOnly ? System.Windows.Media.Brushes.WhiteSmoke : System.Windows.Media.Brushes.White;
+            TxtNumero.Background = TxtNumero.IsReadOnly ? (Brush)new BrushConverter().ConvertFromString("#F8FAFC") : Brushes.White;
             if (!TxtNumero.IsReadOnly) TxtNumero.Focus();
         }
 

@@ -30,7 +30,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
         }
 
         // =========================================================================
-        // 1. GUARDAR NUEVO COMPROBANTE (CON AUDITORÍA Y MULTI-MOTOR)
+        // 1. GUARDAR NUEVO COMPROBANTE (ESTRUCTURA EXACTA DE BD)
         // =========================================================================
         public async Task<int> GuardarComprobanteAsync(FacturacionCabecera cabecera, int serieId)
         {
@@ -121,7 +121,6 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                         nuevoDetalleId = Convert.ToInt32(await cmdDetalle.ExecuteScalarAsync());
                     }
 
-                    // Inserción de códigos físicos asociados (si tiene)
                     if (detalle.Codigos != null && detalle.Codigos.Count > 0)
                     {
                         foreach (var codigo in detalle.Codigos)
@@ -162,7 +161,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
         }
 
         // =========================================================================
-        // 2. ACTUALIZAR COMPROBANTE EXISTENTE (CON AUDITORÍA DE EDICIÓN)
+        // 2. ACTUALIZAR COMPROBANTE EXISTENTE
         // =========================================================================
         public async Task ActualizarComprobanteAsync(FacturacionCabecera cabecera, int usuarioModificadorId)
         {
@@ -182,6 +181,8 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 UPDATE facturacion_cabecera SET 
                     tipo_documento = @TipoDoc, 
                     fecha_emision = @FecEmi, 
+                    punto_venta_id = @PtoVentaId,
+                    almacen_id = @AlmId,
                     comprador_id = @CompradorId, 
                     institucion_id = @InstId, 
                     observacion = @Obs, 
@@ -202,6 +203,8 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                     AgregarParametro(cmdCab, "@CabId", cabecera.Id);
                     AgregarParametro(cmdCab, "@TipoDoc", cabecera.TipoDocumento);
                     AgregarParametro(cmdCab, "@FecEmi", cabecera.FechaEmision);
+                    AgregarParametro(cmdCab, "@PtoVentaId", cabecera.PuntoVentaId);
+                    AgregarParametro(cmdCab, "@AlmId", cabecera.AlmacenId ?? 1);
                     AgregarParametro(cmdCab, "@CompradorId", cabecera.CompradorId);
                     AgregarParametro(cmdCab, "@InstId", cabecera.InstitucionId);
                     AgregarParametro(cmdCab, "@Obs", cabecera.Observacion);
@@ -443,18 +446,17 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             string top1 = QueryAdapter.EsMySQL ? "" : "TOP 1";
             string limit1 = QueryAdapter.EsMySQL ? "LIMIT 1" : "";
 
-            // 1. BUSCAR EXISTENCIA DEL CÓDIGO ASOCIADO AL PRODUCTO
             string queryExistencia = $@"
-        SELECT {top1} cc.id, cc.codigo, cc.estado_id, cc.almacen_id
-        FROM codigos_creados cc {nolock}
-        INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-        WHERE rc.producto_id = @ProductoId
-          AND (
-              cc.codigo = @CodigoExacto 
-              OR cc.codigo LIKE @CodigoSufijo
-              OR REPLACE(cc.codigo, '''', '-') = @CodigoExacto
-          )
-        {limit1}";
+            SELECT {top1} cc.id, cc.codigo, cc.estado_id, cc.almacen_id
+            FROM codigos_creados cc {nolock}
+            INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+            WHERE rc.producto_id = @ProductoId
+              AND (
+                  cc.codigo = @CodigoExacto 
+                  OR cc.codigo LIKE @CodigoSufijo
+                  OR REPLACE(cc.codigo, '''', '-') = @CodigoExacto
+              )
+            {limit1}";
 
             int codigoCreadoId = 0;
             string codigoCompleto = "";
@@ -482,15 +484,14 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 }
             }
 
-            // 2. VALIDAR QUE NO HAYA SIDO FACTURADO PREVIAMENTE EN UN COMPROBANTE ACTIVO
             string queryVendido = $@"
-        SELECT {top1} fc.serie_documento, fc.numero_documento
-        FROM facturacion_detalle_codigos fdc {nolock}
-        INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
-        INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
-        WHERE fdc.codigo_creado_id = @CodigoId 
-          AND fc.estado_registro = 1
-        {limit1}";
+            SELECT {top1} fc.serie_documento, fc.numero_documento
+            FROM facturacion_detalle_codigos fdc {nolock}
+            INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
+            INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
+            WHERE fdc.codigo_creado_id = @CodigoId 
+              AND fc.estado_registro = 1
+            {limit1}";
 
             using (var cmdVend = dbConn.CreateCommand())
             {
@@ -506,24 +507,28 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 }
             }
 
-            // 3. CONSULTAR LA LÍNEA DE TIEMPO DE KÁRDEX DEL CÓDIGO
-            string sqlFiltroAlm = almacenId.HasValue ? " AND (m.almacen_origen_id = @AlmId OR m.almacen_destino_id = @AlmId OR m.almacen_id = @AlmId)" : "";
+            // 3. CONSULTAR EL ÚLTIMO MOVIMIENTO REAL VIGENTE EN KÁRDEX
+            string sqlFiltroAlm = almacenId.HasValue
+                ? " AND (m.almacen_origen_id = @AlmId OR m.almacen_destino_id = @AlmId OR m.almacen_id = @AlmId)"
+                : "";
 
             string queryUltimoMovimiento = $@"
-        SELECT {top1} 
-            m.id AS movimiento_id, 
-            mp.tipo_movimiento_id, 
-            mp.descripcion AS motivo_desc,
-            m.serie_documento, 
-            m.numero_documento
-        FROM movimiento_codigos mc {nolock}
-        INNER JOIN movimientos m {nolock} ON mc.movimiento_id = m.id
-        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-        WHERE mc.codigo_creado_id = @CodigoId
-          AND m.estado_id = 1
-          {sqlFiltroAlm}
-        ORDER BY m.fecha_movimiento DESC, m.id DESC
-        {limit1}";
+SELECT {top1} 
+    m.id AS movimiento_id, 
+    mp.tipo_movimiento_id, 
+    m.motivo_producto_id,
+    mp.descripcion AS motivo_desc,
+    m.serie_documento, 
+    m.numero_documento,
+    m.fecha_movimiento
+FROM movimiento_codigos mc {nolock}
+INNER JOIN movimientos m {nolock} ON mc.movimiento_id = m.id
+INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+WHERE mc.codigo_creado_id = @CodigoId
+  AND m.estado_id = 1
+  {sqlFiltroAlm}
+ORDER BY m.fecha_movimiento DESC, m.id DESC
+{limit1}";
 
             int movimientoIdCapturado = 0;
 
@@ -537,25 +542,43 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 if (await readerMov.ReadAsync())
                 {
                     int tipoMov = Convert.ToInt32(readerMov["tipo_movimiento_id"]); // 1: Entrada, 2: Salida
+                    int motivoId = Convert.ToInt32(readerMov["motivo_producto_id"]);
                     string motivoDesc = readerMov["motivo_desc"].ToString() ?? "";
                     string sDoc = readerMov["serie_documento"].ToString() ?? "";
                     string nDoc = readerMov["numero_documento"].ToString() ?? "";
 
-                    // En un flujo comercial formal, para facturar un libro seríado, este debe haber salido de almacén (Tipo 2 / Estado 4)
-                    if (tipoMov != 2 && estadoInterno != 4)
+                    // 🛑 REGLA 1: Si el ÚLTIMO movimiento fue una ENTRADA (por compra, devolución o ajuste)
+                    // Significa que el libro regresó o nunca salió comercialmente
+                    if (tipoMov == 1)
                     {
-                        throw new InvalidOperationException($"El código '{codigoCompleto}' figura como '{motivoDesc.ToUpper()}' en Doc {sDoc}-{nDoc}. Debe registrar su salida antes de facturar.");
+                        throw new InvalidOperationException(
+                            $"El código '{codigoCompleto}' figura con reingreso/entrada ({motivoDesc.ToUpper()}) en Doc {sDoc}-{nDoc}. " +
+                            "No es una salida neta; debe registrar un despacho de salida vigente antes de facturar.");
+                    }
+
+                    // 🛑 REGLA 2: Si es una salida pero es de transferencia entre sedes (Motivo 10)
+                    // No se puede facturar porque es movimiento logístico, no venta
+                    if (tipoMov == 2 && motivoId == 10)
+                    {
+                        throw new InvalidOperationException(
+                            $"El código '{codigoCompleto}' se encuentra en traslado entre almacenes (Doc {sDoc}-{nDoc}). " +
+                            "No puede ser facturado hasta que complete su recepción y posterior salida comercial.");
+                    }
+
+                    // 🛑 REGLA 3: Si el estado del código fue corrompido o devuelto
+                    if (estadoInterno != 4)
+                    {
+                        throw new InvalidOperationException(
+                            $"El código '{codigoCompleto}' no figura en estado DESPACHADO (Estado actual: {estadoInterno}). " +
+                            "Verifique que la salida comercial se encuentre debidamente procesada.");
                     }
 
                     movimientoIdCapturado = Convert.ToInt32(readerMov["movimiento_id"]);
                 }
                 else
                 {
-                    // Si es una venta directa de mostrador y el libro está disponible en almacén (Estado 3 o 4)
-                    if (estadoInterno != 3 && estadoInterno != 4)
-                    {
-                        throw new InvalidOperationException($"El código '{codigoCompleto}' no cuenta con movimientos válidos en kárdex para ser vendido.");
-                    }
+                    throw new InvalidOperationException(
+                        $"El código '{codigoCompleto}' no registra ningún movimiento en kárdex. No se puede facturar.");
                 }
             }
 
@@ -580,24 +603,24 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
             string sql = $@"
-SELECT {topClause}
-    cc.id AS codigo_id,
-    cc.codigo,
-    cc.estado_id,
-    cc.almacen_id,
-    rc.producto_id,
-    rc.categoria_producto_id,
-    COALESCE(cp.nombre, 'SIN CATEGORÍA') AS categoria_producto,
-    p.descripcion,
-    COALESCE(p.precio_unitario, 0) AS precio_unitario,
-    CASE WHEN cc.estado_id = 4 THEN 1 ELSE 0 END AS tiene_salida
-FROM codigos_creados cc {nolock}
-INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-INNER JOIN productos p {nolock} ON rc.producto_id = p.id
-LEFT JOIN categoria_producto cp {nolock} ON rc.categoria_producto_id = cp.id
-WHERE cc.codigo = @codigo 
-   OR REPLACE(cc.codigo, '''', '-') = @codigo
-{limitClause};";
+            SELECT {topClause}
+                cc.id AS codigo_id,
+                cc.codigo,
+                cc.estado_id,
+                cc.almacen_id,
+                rc.producto_id,
+                rc.categoria_producto_id,
+                COALESCE(cp.nombre, 'SIN CATEGORÍA') AS categoria_producto,
+                p.descripcion,
+                COALESCE(p.precio_unitario, 0) AS precio_unitario,
+                CASE WHEN cc.estado_id = 4 THEN 1 ELSE 0 END AS tiene_salida
+            FROM codigos_creados cc {nolock}
+            INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+            INNER JOIN productos p {nolock} ON rc.producto_id = p.id
+            LEFT JOIN categoria_producto cp {nolock} ON rc.categoria_producto_id = cp.id
+            WHERE cc.codigo = @codigo 
+               OR REPLACE(cc.codigo, '''', '-') = @codigo
+            {limitClause};";
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
@@ -629,6 +652,77 @@ WHERE cc.codigo = @codigo
                 TipoMovimiento = string.Empty,
                 TieneSalida = Convert.ToInt32(reader["tiene_salida"]) == 1
             };
+        }
+
+
+        // =========================================================================
+        // 5. CONSULTA MASIVA DE CANDADO FISCAL (ANTI-ALTERACIÓN DE CÓDIGOS FACTURADOS)
+        // =========================================================================
+        public async Task<Dictionary<int, string>> ObtenerComprobantesActivosPorCodigosAsync(
+            IEnumerable<int> codigosIds,
+            DbConnection conn,
+            DbTransaction? trans = null)
+        {
+            var resultado = new Dictionary<int, string>();
+            var listaIds = codigosIds?.Distinct().ToList();
+
+            if (listaIds == null || !listaIds.Any())
+                return resultado;
+
+            const int batchSize = 1000;
+            string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+
+            for (int i = 0; i < listaIds.Count; i += batchSize)
+            {
+                var lote = listaIds.Skip(i).Take(batchSize).ToList();
+                var paramNames = new List<string>();
+
+                using var cmd = conn.CreateCommand();
+                if (trans != null) cmd.Transaction = trans;
+
+                for (int j = 0; j < lote.Count; j++)
+                {
+                    string pName = "@cId" + j;
+                    paramNames.Add(pName);
+                    AgregarParametro(cmd, pName, lote[j]);
+                }
+
+                string query = $@"
+        SELECT 
+            fdc.codigo_creado_id, 
+            fc.tipo_documento, 
+            fc.serie_documento, 
+            fc.numero_documento
+        FROM facturacion_detalle_codigos fdc {nolock}
+        INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
+        INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
+        WHERE fdc.codigo_creado_id IN ({string.Join(",", paramNames)})
+          AND fc.estado_registro = 1";
+
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    int codId = Convert.ToInt32(reader["codigo_creado_id"]);
+                    if (!resultado.ContainsKey(codId))
+                    {
+                        string tipo = reader["tipo_documento"].ToString() switch
+                        {
+                            "01" => "FACTURA",
+                            "02" => "BOLETA",
+                            "03" => "RECIBO",
+                            _ => "COMPROBANTE"
+                        };
+                        string serie = reader["serie_documento"].ToString() ?? "";
+                        string numero = reader["numero_documento"].ToString() ?? "";
+
+                        resultado[codId] = $"{tipo} {serie}-{numero}";
+                    }
+                }
+            }
+
+            return resultado;
         }
     }
 }

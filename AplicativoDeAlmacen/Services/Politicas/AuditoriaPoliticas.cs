@@ -1,9 +1,81 @@
 ﻿using System;
+using System.Data.Common;
+using AplicativoDeAlmacen.Data;
+using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Services.Politicas
 {
     public static class AuditoriaPoliticas
     {
+        /// <summary>
+        /// Valida si el rol tiene permiso ilimitado (checkbox EDITAR marcado en el panel) 
+        /// o si debe regirse por el límite de 3 días hábiles.
+        /// </summary>
+        public static bool ValidarPlazoEdicion(DateTime? fechaCreacion, int rolUsuarioId, string codigoModulo, out string mensajeError)
+        {
+            mensajeError = string.Empty;
+
+            // 👑 Administrador (Rol 1) siempre tiene permiso ilimitado
+            if (rolUsuarioId == 1) return true;
+
+            // 🔑 Si en el panel de permisos marcaron "EDITAR" para este módulo, tiene permiso para siempre
+            if (TienePermisoEditarActivo(rolUsuarioId, codigoModulo))
+            {
+                return true;
+            }
+
+            // ⏱️ Si no está marcado el permiso de edición ilimitada, se rige por los días hábiles
+            return ValidarPlazoEdicion(fechaCreacion, rolUsuarioId, out mensajeError);
+        }
+
+        private static bool TienePermisoEditarActivo(int rolUsuarioId, string codigoModulo)
+        {
+            try
+            {
+                var database = new DatabaseConnection();
+                using var conn = database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                dbConn.Open();
+
+                string query = @"
+                    SELECT COALESCE(rp.puede_editar, 0)
+                    FROM rol_permisos rp
+                    INNER JOIN modulos_sistema m ON rp.modulo_id = m.id
+                    WHERE rp.rol_usuario_id = @RolId
+                      AND (m.codigo_modulo = @ModCodigo OR m.nombre_modulo LIKE @ModNombre)";
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+                var pRol = cmd.CreateParameter();
+                pRol.ParameterName = "@RolId";
+                pRol.Value = rolUsuarioId;
+                cmd.Parameters.Add(pRol);
+
+                var pMod = cmd.CreateParameter();
+                pMod.ParameterName = "@ModCodigo";
+                pMod.Value = codigoModulo;
+                cmd.Parameters.Add(pMod);
+
+                var pNom = cmd.CreateParameter();
+                pNom.ParameterName = "@ModNombre";
+                pNom.Value = "%" + codigoModulo + "%";
+                cmd.Parameters.Add(pNom);
+
+                object? res = cmd.ExecuteScalar();
+                if (res != null && res != DBNull.Value)
+                {
+                    return Convert.ToBoolean(res);
+                }
+            }
+            catch
+            {
+                // En caso de fallo de red/conexión, sigue la validación estricta por tiempo
+            }
+
+            return false;
+        }
+
         public static bool ValidarPlazoEdicion(DateTime? fechaCreacion, int rolUsuarioId, out string mensajeError)
         {
             mensajeError = string.Empty;
@@ -37,7 +109,6 @@ namespace AplicativoDeAlmacen.Services.Politicas
 
                 if (dia >= DayOfWeek.Monday && dia <= DayOfWeek.Friday)
                 {
-                    // Lunes a Viernes: 08:00 a 17:30
                     if (hora >= new TimeSpan(8, 0, 0) && hora < new TimeSpan(17, 30, 0))
                     {
                         horasHabilesTranscurridas += (siguientePaso - cursor).TotalHours;
@@ -45,13 +116,11 @@ namespace AplicativoDeAlmacen.Services.Politicas
                 }
                 else if (dia == DayOfWeek.Saturday)
                 {
-                    // Sábados: 08:00 a 13:30
                     if (hora >= new TimeSpan(8, 0, 0) && hora < new TimeSpan(13, 30, 0))
                     {
                         horasHabilesTranscurridas += (siguientePaso - cursor).TotalHours;
                     }
                 }
-                // Domingo se omite
 
                 cursor = siguientePaso;
             }
@@ -61,7 +130,7 @@ namespace AplicativoDeAlmacen.Services.Politicas
                 mensajeError = $"⛔ PLAZO DE EDICIÓN VENCIDO:\n\n" +
                                $"Este movimiento fue registrado el {fechaCreacion.Value:dd/MM/yyyy HH:mm}.\n" +
                                $"El límite permitido para edición por almacén (3 días hábiles) ha caducado.\n\n" +
-                               $"Solo un usuario con rol de Administrador puede autorizar o modificar este registro.";
+                               $"Active el permiso de EDITAR para este rol o solicite la modificación a un Administrador.";
                 return false;
             }
 

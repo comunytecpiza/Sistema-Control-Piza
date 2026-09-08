@@ -990,7 +990,7 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaCreacionOriginal, rolUsuarioActivo, out string mensajeBloqueo))
+                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaCreacionOriginal, rolUsuarioActivo, "Ingreso de Productos", out string mensajeBloqueo))
                 {
                     throw new InvalidOperationException(mensajeBloqueo);
                 }
@@ -1152,6 +1152,7 @@ namespace AplicativoDeAlmacen.Services
                         AgregarParametro(cmdFuturo, "@movId", movimientoId);
                         AgregarParametro(cmdFuturo, "@movPadreId", idSalidaOrigenPadre.HasValue ? (object)idSalidaOrigenPadre.Value : DBNull.Value);
                         DateTime fechaConvertida = cabecera.FechaMovimiento ?? DateTime.Today;
+                        AgregarParametro(cmdFuturo, "@fechaEdicion", fechaConvertida);
 
                         for (int k = 0; k < batchDelCheck.Count; k++) AgregarParametro(cmdFuturo, $"@delCheck{k}", batchDelCheck[k]);
 
@@ -1287,7 +1288,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // 🌟 FASE D: PROCESAMIENTO E INSERCIÓN MASIVA DE NUEVOS DETALLES Y CÓDIGOS
                 progress?.Report(50);
                 int miAlmacenActualId = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
 
@@ -1295,6 +1295,7 @@ namespace AplicativoDeAlmacen.Services
                 {
                     int detalleId = await UpsertMovimientoDetalleAsync(movimientoId, item, dbConn, transaccion);
 
+                    // 1. Los rangos sí se pueden refrescar por detalle
                     if (existingMovimientoId.HasValue)
                     {
                         using var cmdDelR = dbConn.CreateCommand();
@@ -1302,18 +1303,12 @@ namespace AplicativoDeAlmacen.Services
                         cmdDelR.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM registro_rangos WHERE movimiento_detalle_id = @detId");
                         AgregarParametro(cmdDelR, "@detId", detalleId);
                         await cmdDelR.ExecuteNonQueryAsync();
-
-                        using var cmdDelC = dbConn.CreateCommand();
-                        cmdDelC.Transaction = transaccion;
-                        cmdDelC.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_detalle_id = @detId");
-                        AgregarParametro(cmdDelC, "@detId", detalleId);
-                        await cmdDelC.ExecuteNonQueryAsync();
                     }
 
                     if (!rangosPorProducto.TryGetValue(item.ProductoId, out var rangosProd))
                     {
                         string sqlInsRangoGenerico = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
-                                         VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
+                         VALUES (@pId, 2, 'SIN_CODIGO', -1, -1, @detId, {nowFunc})";
                         using var cmdRG = dbConn.CreateCommand();
                         cmdRG.Transaction = transaccion;
                         cmdRG.CommandText = QueryAdapter.FormatearConsulta(sqlInsRangoGenerico);
@@ -1323,92 +1318,84 @@ namespace AplicativoDeAlmacen.Services
                         continue;
                     }
 
-                    // ✔️ AHORA (Guarda todos los sub-rangos en 1 solo viaje a la BD):
                     await InsertarRangosMasivoAsync(rangosProd, detalleId, dbConn, transaccion);
 
-                    // 2. Extraer los IDs directamente desde el lookup masivo ya cargado en memoria RAM
+                    // 2. Obtener los IDs que vienen de la pantalla para este producto
                     var codigosTextoEsteProd = rangosProd
-                    .Where(r => r.DesdeNum == -1)
-                    .Select(r => NormalizarCodigo(r.AbreviaturaBase))
-                    .Concat(
-                        rangosProd.Where(r => r.DesdeNum != -1)
-                                  .SelectMany(r => Enumerable.Range(r.DesdeNum, r.HastaNum - r.DesdeNum + 1)
-                                                             .Select(i => NormalizarCodigo($"{r.AbreviaturaBase.TrimEnd('-')}-{i:D7}")))
-                    )
-                    .ToList();
+                        .Where(r => r.DesdeNum == -1)
+                        .Select(r => NormalizarCodigo(r.AbreviaturaBase))
+                        .Concat(
+                            rangosProd.Where(r => r.DesdeNum != -1)
+                                      .SelectMany(r => Enumerable.Range(r.DesdeNum, r.HastaNum - r.DesdeNum + 1)
+                                                                 .Select(i => NormalizarCodigo($"{r.AbreviaturaBase.TrimEnd('-')}-{i:D7}")))
+                        )
+                        .ToList();
 
-                    var codigosAInsertar = new List<int>();
+                    var codigosTotalesEsteProducto = new List<int>();
                     foreach (var cNorm in codigosTextoEsteProd)
                     {
                         if (mapaLookupCodigos.TryGetValue(cNorm, out var tup) && tup.CodigoObj != null)
                         {
-                            codigosAInsertar.Add(tup.CodigoObj.Id);
+                            codigosTotalesEsteProducto.Add(tup.CodigoObj.Id);
                         }
                     }
 
-                    // 3. Inserción masiva de relaciones y actualización de estado
-                    const int bulkSize = 1000;
-                    for (int i = 0; i < codigosAInsertar.Count; i += bulkSize)
+                    // 🛡️ OBTENER CÓDIGOS QUE YA ESTABAN ASOCIADOS A ESTE DETALLE ESPECÍFICO EN BD
+                    var codigosYaEnEsteDetalle = await ObtenerIdsCodigosPorDetalleAsync(detalleId, dbConn, transaccion);
+
+                    // 🌟 SEPARACIÓN QUIRÚRGICA:
+                    // ¿Cuáles son verdaderamente nuevos que no estaban guardados en este detalle?
+                    var codigosNuevosParaInsertar = codigosTotalesEsteProducto
+                        .Where(id => !codigosYaEnEsteDetalle.Contains(id))
+                        .Distinct()
+                        .ToList();
+
+                    // ¿Cuáles se quitaron de este detalle?
+                    var codigosQuitadosDeEsteDetalle = codigosYaEnEsteDetalle
+                        .Where(id => !codigosTotalesEsteProducto.Contains(id))
+                        .ToList();
+
+                    // A. Si se retiraron códigos de este detalle, se quita SOLO su vínculo de movimiento_codigos
+                    if (codigosQuitadosDeEsteDetalle.Any())
                     {
-                        var batch = codigosAInsertar.Skip(i).Take(bulkSize).ToList();
-
-                        await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, batch, dbConn, transaccion);
-
-                        var codigosParaActualizarEstado = new List<int>();
-
-                        if (existingMovimientoId.HasValue)
+                        const int delBatch = 500;
+                        for (int i = 0; i < codigosQuitadosDeEsteDetalle.Count; i += delBatch)
                         {
-                            var paramNamesBatch = batch.Select((_, idx) => $"@chkPost{idx}").ToList();
+                            var bDel = codigosQuitadosDeEsteDetalle.Skip(i).Take(delBatch).ToList();
+                            var pNames = bDel.Select((_, idx) => $"@dDet{idx}").ToList();
 
-                            string sqlFuturoLote = $@"
-                            SELECT DISTINCT mc.codigo_creado_id
-                            FROM movimiento_codigos mc WITH (NOLOCK)
-                            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-                            WHERE mc.codigo_creado_id IN ({string.Join(",", paramNamesBatch)})
-                              AND m.id != @movId
-                              AND m.estado_id = 1
-                              AND (m.fecha_movimiento > @fechaEdicion OR (m.fecha_movimiento = @fechaEdicion AND m.id > @movId))";
+                            using var cmdDelParcial = dbConn.CreateCommand();
+                            cmdDelParcial.Transaction = transaccion;
+                            cmdDelParcial.CommandText = QueryAdapter.FormatearConsulta(
+                                $"DELETE FROM movimiento_codigos WHERE movimiento_detalle_id = @detId AND codigo_creado_id IN ({string.Join(",", pNames)})");
 
-                            var setCodigosConFuturo = new HashSet<int>();
-                            using (var cmdFutLote = dbConn.CreateCommand())
-                            {
-                                cmdFutLote.Transaction = transaccion;
-                                cmdFutLote.CommandText = QueryAdapter.FormatearConsulta(sqlFuturoLote);
-                                AgregarParametro(cmdFutLote, "@movId", movimientoId);
-                                DateTime fechaConvertida = cabecera.FechaMovimiento ?? DateTime.Today;
-
-                                for (int k = 0; k < batch.Count; k++)
-                                {
-                                    AgregarParametro(cmdFutLote, $"@chkPost{k}", batch[k]);
-                                }
-
-                                using var rdrFutLote = await cmdFutLote.ExecuteReaderAsync();
-                                while (await rdrFutLote.ReadAsync())
-                                {
-                                    setCodigosConFuturo.Add(rdrFutLote.GetInt32(0));
-                                }
-                            }
-
-                            codigosParaActualizarEstado = batch.Where(codId => !setCodigosConFuturo.Contains(codId)).ToList();
+                            AgregarParametro(cmdDelParcial, "@detId", detalleId);
+                            for (int k = 0; k < bDel.Count; k++) AgregarParametro(cmdDelParcial, $"@dDet{k}", bDel[k]);
+                            await cmdDelParcial.ExecuteNonQueryAsync();
                         }
-                        else
-                        {
-                            codigosParaActualizarEstado = batch;
-                        }
+                    }
 
-                        // 🌟 En la Fase D de IngresoMovimientoService SIEMPRE es Estado 3 (Disponible en tu almacén)
-                        if (codigosParaActualizarEstado.Any())
+                    // B. Insertar en movimiento_codigos ÚNICAMENTE los que no existían
+                    if (codigosNuevosParaInsertar.Any())
+                    {
+                        await InsertarMovimientoCodigosMasivoAsync(movimientoId, detalleId, codigosNuevosParaInsertar, dbConn, transaccion);
+
+                        // 🌟 C. CAMBIO DE ESTADO: Se ejecuta EXCLUSIVAMENTE sobre el código nuevo agregado
+                        const int bulkSize = 1000;
+                        for (int i = 0; i < codigosNuevosParaInsertar.Count; i += bulkSize)
                         {
-                            var paramUpdate = codigosParaActualizarEstado.Select((_, idx) => $"@uId{idx}").ToList();
+                            var batchNuevos = codigosNuevosParaInsertar.Skip(i).Take(bulkSize).ToList();
+                            var paramUpdate = batchNuevos.Select((_, idx) => $"@uId{idx}").ToList();
+
                             string queryUpdateCodigos = $"UPDATE codigos_creados SET estado_id = 3, almacen_id = @almActual WHERE id IN ({string.Join(",", paramUpdate)})";
 
                             using var cmdUpd = dbConn.CreateCommand();
                             cmdUpd.Transaction = transaccion;
                             cmdUpd.CommandText = QueryAdapter.FormatearConsulta(queryUpdateCodigos);
                             AgregarParametro(cmdUpd, "@almActual", miAlmacenActualId);
-                            for (int k = 0; k < codigosParaActualizarEstado.Count; k++)
+                            for (int k = 0; k < batchNuevos.Count; k++)
                             {
-                                AgregarParametro(cmdUpd, $"@uId{k}", codigosParaActualizarEstado[k]);
+                                AgregarParametro(cmdUpd, $"@uId{k}", batchNuevos[k]);
                             }
                             await cmdUpd.ExecuteNonQueryAsync();
                         }

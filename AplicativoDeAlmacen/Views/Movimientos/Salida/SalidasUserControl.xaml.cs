@@ -617,16 +617,31 @@ namespace AplicativoDeAlmacen.Views
                 txtSerieGuia.MaxLength = 4;
                 txtNumeroGuia.MaxLength = 7;
 
-                txtSerieGuia.PreviewTextInput += (s, e) => { e.Handled = !e.Text.All(char.IsDigit); };
-
-                txtSerieGuia.LostFocus += (s, e) => {
-                    if (int.TryParse(txtSerieGuia.Text, out int val))
-                        txtSerieGuia.Text = val.ToString("D4");
-                    else if (!string.IsNullOrWhiteSpace(txtSerieGuia.Text))
-                        txtSerieGuia.Text = txtSerieGuia.Text.PadLeft(4, '0');
+                // 🔤 SERIE: Permitir Letras y Números (Alfanumérico)
+                txtSerieGuia.PreviewTextInput += (s, e) => {
+                    e.Handled = !e.Text.All(char.IsLetterOrDigit);
                 };
 
-                txtNumeroGuia.PreviewTextInput += (s, e) => { e.Handled = !e.Text.All(char.IsDigit); };
+                // Al salir del campo: pasar a mayúsculas y rellenar a 4 caracteres si es puramente numérico
+                txtSerieGuia.LostFocus += (s, e) => {
+                    if (!string.IsNullOrWhiteSpace(txtSerieGuia.Text))
+                    {
+                        string texto = txtSerieGuia.Text.Trim().ToUpper();
+                        if (int.TryParse(texto, out int val))
+                        {
+                            txtSerieGuia.Text = val.ToString("D4"); // ej: 1 -> 0001
+                        }
+                        else
+                        {
+                            txtSerieGuia.Text = texto; // ej: T001, EG01
+                        }
+                    }
+                };
+
+                // 🔢 NÚMERO: Se mantiene estrictamente numérico a 7 dígitos
+                txtNumeroGuia.PreviewTextInput += (s, e) => {
+                    e.Handled = !e.Text.All(char.IsDigit);
+                };
 
                 txtNumeroGuia.LostFocus += (s, e) => {
                     if (int.TryParse(txtNumeroGuia.Text, out int val))
@@ -1053,7 +1068,7 @@ namespace AplicativoDeAlmacen.Views
                                 DateTime? fechaMov = rdr.IsDBNull(1) ? (DateTime?)null : rdr.GetDateTime(1);
                                 DateTime? fechaEvaluacion = fechaCreatedAt ?? fechaMov;
 
-                                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaEvaluacion, rolUsuarioActivo, out string mensajeBloqueo))
+                                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaEvaluacion, rolUsuarioActivo, "Salida de Productos", out string mensajeBloqueo))
                                 {
                                     MessageBox.Show(mensajeBloqueo, "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
 

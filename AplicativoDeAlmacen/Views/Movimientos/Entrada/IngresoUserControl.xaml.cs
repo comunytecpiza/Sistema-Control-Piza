@@ -399,7 +399,7 @@ namespace AplicativoDeAlmacen.Views
                                 DateTime? fechaMov = rdr.IsDBNull(1) ? (DateTime?)null : rdr.GetDateTime(1);
                                 DateTime? fechaEvaluacion = fechaCreatedAt ?? fechaMov;
 
-                                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaEvaluacion, rolUsuarioActivo, out string mensajeBloqueo))
+                                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaEvaluacion, rolUsuarioActivo, "Ingreso de Productos", out string mensajeBloqueo))
                                 {
                                     MessageBox.Show(mensajeBloqueo, "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
 
@@ -722,7 +722,7 @@ namespace AplicativoDeAlmacen.Views
             {
                 // 🛑 VALIDACIÓN DE PLAZO AL CARGAR EN MODO EDICIÓN
                 int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
-                if (!AuditoriaPoliticas.ValidarPlazoEdicion(movimiento.CreatedAt, rolUsuarioActivo, out string mensajeBloqueo))
+                if (!AuditoriaPoliticas.ValidarPlazoEdicion(movimiento.CreatedAt, rolUsuarioActivo, "Ingreso de Productos", out string mensajeBloqueo))
                 {
                     MessageBox.Show(mensajeBloqueo, "Acceso Restringido", MessageBoxButton.OK, MessageBoxImage.Warning);
                     BloquearParaImpresion(); // Carga solo como lectura/consulta
@@ -2295,6 +2295,43 @@ namespace AplicativoDeAlmacen.Views
             var dep = e.OriginalSource as DependencyObject; bool overBlockedButton = false;
             while (dep != null) { if (dep is Button btn) { if (btn == btnImprimir || btn == btnCancelar || btn == _btnPrintNearSave) { overBlockedButton = false; break; } overBlockedButton = true; break; } dep = VisualTreeHelper.GetParent(dep); }
             Mouse.OverrideCursor = overBlockedButton ? Cursors.Arrow : null;
+        }
+
+        private void ConfigurarFormatoCamposGuia()
+        {
+            if (txtSerieGuia != null && txtNumeroGuia != null)
+            {
+                txtSerieGuia.MaxLength = 4;
+                txtNumeroGuia.MaxLength = 7;
+
+                // 🔤 SERIE: Permite Letras y Números (T001, EG01, 0001)
+                txtSerieGuia.PreviewTextInput += (s, e) => {
+                    e.Handled = !e.Text.All(char.IsLetterOrDigit);
+                };
+
+                txtSerieGuia.LostFocus += (s, e) => {
+                    if (!string.IsNullOrWhiteSpace(txtSerieGuia.Text))
+                    {
+                        string texto = txtSerieGuia.Text.Trim().ToUpper();
+                        if (int.TryParse(texto, out int val))
+                            txtSerieGuia.Text = val.ToString("D4");
+                        else
+                            txtSerieGuia.Text = texto;
+                    }
+                };
+
+                // 🔢 NÚMERO: Se mantiene numérico a 7 dígitos
+                txtNumeroGuia.PreviewTextInput += (s, e) => {
+                    e.Handled = !e.Text.All(char.IsDigit);
+                };
+
+                txtNumeroGuia.LostFocus += (s, e) => {
+                    if (int.TryParse(txtNumeroGuia.Text, out int val))
+                        txtNumeroGuia.Text = val.ToString("D7");
+                    else if (!string.IsNullOrWhiteSpace(txtNumeroGuia.Text))
+                        txtNumeroGuia.Text = txtNumeroGuia.Text.PadLeft(7, '0');
+                };
+            }
         }
 
         private void dgProductos_SelectionChanged_1(object sender, SelectionChangedEventArgs e)

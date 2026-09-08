@@ -529,7 +529,7 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaCreacionOriginal, rolUsuarioActivo, out string mensajeBloqueo))
+                if (!AuditoriaPoliticas.ValidarPlazoEdicion(fechaCreacionOriginal, rolUsuarioActivo, "Salida de Productos", out string mensajeBloqueo))
                 {
                     throw new InvalidOperationException(mensajeBloqueo);
                 }
@@ -953,14 +953,32 @@ FROM HistorialOrdenado WHERE rn = 1";
 
                     foreach (var kvp in gruposReversion)
                     {
-                        int estDestino = kvp.Key.EstadoId;
-                        int almDestino = kvp.Key.AlmacenId;
-                        var listaIds = kvp.Value;
+                        int estDestino = kvp.Key.EstadoId; 
+                        int almDestino = kvp.Key.AlmacenId; 
+                        var listaIds = kvp.Value; 
 
                         for (int i = 0; i < listaIds.Count; i += checkBatchSize)
                         {
-                            var batchUpd = listaIds.Skip(i).Take(checkBatchSize).ToList();
+                                                var batchUpd = listaIds.Skip(i).Take(checkBatchSize).ToList();
+        
+                            // 1. Regresa el código a su estado legítimo anterior (Estado 3)
                             await ActualizarEstadoYAlmacenCodigosMasivoAsync(batchUpd, estDestino, almDestino, dbConn, transaccion);
+
+                            // 2. 🛡️ DESVINCULAR DE ESTA SALIDA (Eliminar de la tabla puente)
+                            var paramDel = batchUpd.Select((_, idx) => $"@delCod{idx}").ToList();
+                                                string sqlDelPuente = $"DELETE FROM movimiento_codigos WHERE movimiento_id = @movId AND codigo_creado_id IN ({string.Join(",", paramDel)})";
+
+                                                using var cmdDelPuente = dbConn.CreateCommand();
+                                                cmdDelPuente.Transaction = transaccion;
+                                                cmdDelPuente.CommandText = QueryAdapter.FormatearConsulta(sqlDelPuente);
+                                                AgregarParametro(cmdDelPuente, "@movId", movimientoIdInserted); 
+
+                            for (int k = 0; k < batchUpd.Count; k++)
+                            {
+                                AgregarParametro(cmdDelPuente, $"@delCod{k}", batchUpd[k]);
+                            }
+
+                            await cmdDelPuente.ExecuteNonQueryAsync();
                         }
                     }
                 }
