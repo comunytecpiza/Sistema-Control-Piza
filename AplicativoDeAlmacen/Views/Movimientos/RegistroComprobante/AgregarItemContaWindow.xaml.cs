@@ -38,11 +38,29 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             DgCodigos.ItemsSource = _codigosAgregados;
         }
 
+        // 🌟 CONSTRUCTOR CORRECTO REQUERIDO POR CONTABILIDAD / FACTURACIÓN
         public AgregarItemWindow(ItemGridDTO itemExistente) : this()
         {
             _modoEdicion = true;
             Title = "Modificar Ítem del Comprobante";
             Loaded += async (s, e) => await CargarItemParaEdicionAsync(itemExistente);
+        }
+
+        public AgregarItemWindow(ItemGridDTO itemExistente, bool soloLectura) : this(itemExistente)
+        {
+            if (soloLectura)
+            {
+                Title = "Detalle de Ítem - Códigos Facturados (Solo Lectura)";
+                TxtCantidad.IsReadOnly = true;
+                TxtCantidad.Background = System.Windows.Media.Brushes.WhiteSmoke;
+                TxtPreUnitario.IsReadOnly = true;
+                TxtPreUnitario.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+                BtnAgregarCod.Visibility = Visibility.Collapsed;
+                BtnEliminarCod.Visibility = Visibility.Collapsed;
+                BtnGrabarItem.Visibility = Visibility.Collapsed;
+                PanelCapturaCodigo.Visibility = Visibility.Collapsed;
+            }
         }
 
         private async void TxtProductoBuscador_TextChanged(object sender, TextChangedEventArgs e)
@@ -80,11 +98,10 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             if (_productoSeleccionado == null) return;
 
-            string um = TxtUMedida.Text.ToUpper();
-            bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura) || um == "UNIDAD" || um == "UND";
+            bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura)
+                                       || _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase);
 
             _codigosAgregados.Clear();
-            _ultimoMovimientoId = 0;
 
             if (esArticuloSinCodigo)
             {
@@ -215,7 +232,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 return;
             }
 
-            if (!decimal.TryParse(TxtCantidad.Text, out decimal cantidad) || cantidad <= 0)
+            if (!decimal.TryParse(TxtCantidad.Text.Trim(), out decimal cantidad) || cantidad <= 0)
             {
                 MessageBox.Show("La cantidad debe ser mayor a 0.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                 TxtCantidad.Focus();
@@ -244,7 +261,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 CanProd = cantidad,
                 PreUnit = precioUnitario,
                 ImpTota = total,
-                Codigos = _codigosAgregados.ToList()
+                Codigos = _usaCodigos ? _codigosAgregados.ToList() : new System.Collections.Generic.List<CodigoLeidoDTO>()
             };
 
             this.DialogResult = true;
@@ -275,17 +292,48 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtProductoBuscador.Background = System.Windows.Media.Brushes.WhiteSmoke;
 
             _isTyping = true;
-            ConfigurarSegunProducto();
+
+            bool esSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado?.Abreviatura)
+                               || _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase);
 
             _codigosAgregados.Clear();
-            foreach (var cod in item.Codigos)
+
+            if (esSinCodigo)
             {
-                _codigosAgregados.Add(cod);
+                _usaCodigos = false;
+                TxtCantidad.IsReadOnly = false;
+                TxtCantidad.Background = System.Windows.Media.Brushes.White;
+                TxtCantidad.Text = item.CanProd > 0 ? item.CanProd.ToString("N0") : "1";
+
+                BtnAgregarCod.IsEnabled = false;
+                BtnEliminarCod.IsEnabled = false;
+                PanelCapturaCodigo.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                _usaCodigos = true;
+                TxtCantidad.IsReadOnly = true;
+                TxtCantidad.Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#F8FAFC");
+
+                if (item.Codigos != null)
+                {
+                    foreach (var cod in item.Codigos)
+                    {
+                        if (!string.IsNullOrWhiteSpace(cod.CodigoString) &&
+                            !cod.CodigoString.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _codigosAgregados.Add(cod);
+                        }
+                    }
+                }
+
+                TxtCantidad.Text = _codigosAgregados.Count.ToString();
+                BtnAgregarCod.IsEnabled = true;
+                BtnEliminarCod.IsEnabled = true;
             }
 
             _ultimoMovimientoId = item.MovimientoId;
             TxtPreUnitario.Text = item.PreUnit.ToString("N2");
-            TxtCantidad.Text = _usaCodigos ? _codigosAgregados.Count.ToString() : item.CanProd.ToString("N0");
 
             Calculo_TextChanged(null, null);
             BtnGrabarItem.Content = "💾 Actualizar";

@@ -1880,46 +1880,72 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
 
-                var detallesPlanos = snapshot.Select(p => new VistaProductoGrid
+                // 🌟 DETECCIÓN ROBUSTA DE PRODUCTOS SIN CÓDIGO:
+                // Un producto se considera sin código si su bandera EsProductoSinCodigo es true,
+                // si su código empieza con 'SIN_CODIGO', o si su categoría/naturaleza no genera series.
+                var detallesPlanos = snapshot.Select(p =>
                 {
-                    ProductoId = p.ProductoId,
-                    CodigoProducto = p.CodigoProducto,
-                    Descripcion = p.Descripcion,
-                    UnidadMedida = p.UnidadMedida,
-                    Cantidad = p.Cantidad,
-                    EsProductoSinCodigo = p.EsProductoSinCodigo || !_codigosLista.Any(c => c.ProductoId == p.ProductoId),
-                    Detalle = new MovimientoDetalle
+                    bool esSinCodigoReal = p.EsProductoSinCodigo ||
+                                           string.IsNullOrWhiteSpace(p.CodigoProducto) ||
+                                           p.CodigoProducto.StartsWith("SIN_CODIGO", StringComparison.OrdinalIgnoreCase) ||
+                                           !_codigosLista.Any(c => c.ProductoId == p.ProductoId);
+
+                    return new VistaProductoGrid
                     {
                         ProductoId = p.ProductoId,
-                        CantidadIngreso = 0,
-                        CantidadSalida = p.Cantidad > 0 ? p.Cantidad : (p.Detalle?.CantidadSalida ?? 0),
-                        CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
-                        Id = p.Detalle?.Id ?? 0
-                    }
+                        CodigoProducto = p.CodigoProducto,
+                        Descripcion = p.Descripcion,
+                        UnidadMedida = p.UnidadMedida,
+                        Cantidad = p.Cantidad,
+                        EsProductoSinCodigo = esSinCodigoReal,
+                        Detalle = new MovimientoDetalle
+                        {
+                            ProductoId = p.ProductoId,
+                            CantidadIngreso = 0,
+                            CantidadSalida = p.Cantidad > 0 ? p.Cantidad : (p.Detalle?.CantidadSalida ?? 0),
+                            CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
+                            Id = p.Detalle?.Id ?? 0
+                        }
+                    };
                 }).ToList();
 
-                foreach (var prod in detallesPlanos)
-                {
-                    bool tieneCodigos = _codigosLista.Any(c => c.ProductoId == prod.ProductoId);
-                    if (!prod.EsProductoSinCodigo && !tieneCodigos)
-                    {
-                        MessageBox.Show($"El producto '{prod.Descripcion}' requiere códigos físicos asociados.", "Validación de Códigos", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-                }
-
-                // ✅ VALIDACIÓN
                 if (!detallesPlanos.Any())
                 {
                     MessageBox.Show("❌ Error al procesar los productos para guardar.", "Error de Conversión", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
-                // ✅ VALIDACIÓN
-                bool tieneProductosConCodigo = _productosLista.Any(p => !p.EsProductoSinCodigo);
-                if (tieneProductosConCodigo && (_codigosLista == null || !_codigosLista.Any()))
+                // 🌟 VALIDACIÓN INDIVIDUAL: Solo exigir códigos a los productos que expresamente los manejen
+                foreach (var prod in detallesPlanos)
                 {
-                    MessageBox.Show("❌ Error: No hay códigos en la lista para procesar.", "Error de Códigos", MessageBoxButton.OK, MessageBoxImage.Error);
+                    if (prod.Cantidad <= 0)
+                    {
+                        MessageBox.Show($"El producto '{prod.Descripcion}' debe tener una cantidad mayor a 0.", "Validación de Cantidad", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    // Si es un producto que sí debe llevar códigos obligatorios (ej. Libros con códigos creados en kárdex)
+                    if (!prod.EsProductoSinCodigo)
+                    {
+                        int cantCodigosAsociados = _codigosLista.Count(c => c.ProductoId == prod.ProductoId);
+                        if (cantCodigosAsociados == 0)
+                        {
+                            MessageBox.Show($"El producto '{prod.Descripcion}' requiere códigos físicos asociados.", "Validación de Códigos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
+                        if (cantCodigosAsociados != (int)prod.Cantidad)
+                        {
+                            MessageBox.Show($"El producto '{prod.Descripcion}' tiene cantidad {prod.Cantidad}, pero se han escaneado {cantCodigosAsociados} códigos.", "Validación de Códigos", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            return;
+                        }
+                    }
+                }
+
+                // 🌟 VALIDACIÓN GLOBAL: Solo exige que _codigosLista tenga elementos si EXISTE al menos un producto que NO sea libre/sin código
+                bool hayItemsQueRequierenCodigo = detallesPlanos.Any(p => !p.EsProductoSinCodigo);
+                if (hayItemsQueRequierenCodigo && (_codigosLista == null || !_codigosLista.Any()))
+                {
+                    MessageBox.Show("❌ Error: Hay productos que requieren series físicas pero no se ha escaneado ningún código.", "Error de Códigos", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 

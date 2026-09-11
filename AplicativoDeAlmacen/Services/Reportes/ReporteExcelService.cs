@@ -706,110 +706,212 @@ namespace AplicativoDeAlmacen.Services.Reportes
     decimal opGravadas, decimal opExoneradas, decimal igv, decimal totalVenta)
         {
             using var wb = new XLWorkbook();
-            var ws = wb.Worksheets.Add("Comprobante");
+            var ws = wb.Worksheets.Add("Voucher");
 
-            // ==========================================
-            // 1. CABECERA GENERAL (Igual a tu imagen)
-            // ==========================================
-            ws.Cell("A1").Value = "REGISTRO DE DOCUMENTOS";
-            ws.Range("A1:E1").Merge().Style.Font.SetBold().Font.SetFontSize(14).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            ws.ShowGridLines = false;
 
-            string[] labels = { "Documento", "Fecha", "Cliente", "D. Identidad", "Institución", "Localidad / Zona", "Observación", "Usuario" };
-            string[] values = { $"{tipoDoc} N° {serieNumero}", fecha, cliente, dIdentidad, institucion, localidadZona, observacion, usuario };
+            // --- ANCHOS DE COLUMNA (FORMATO TICKET 80mm) ---
+            ws.Column(1).Width = 24; // PRODUCTO
+            ws.Column(2).Width = 6;  // CANT.
+            ws.Column(3).Width = 9;  // PRECIO
+            ws.Column(4).Width = 10; // IMPORTE
 
-            for (int i = 0; i < labels.Length; i++)
+            // --- 1. RESERVAR ESPACIO PARA EL LOGO (FILAS 1 Y 2) ---
+            ws.Row(1).Height = 35;
+            ws.Row(2).Height = 35;
+
+            string rutaLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images", "logo.png");
+            if (!File.Exists(rutaLogo))
             {
-                ws.Cell(i + 2, 1).Value = labels[i];
-                ws.Cell(i + 2, 2).Value = values[i];
-                ws.Range(i + 2, 2, i + 2, 5).Merge(); // Combinamos para que el texto largo quepa
-
-                // Bordes a la cabecera
-                ws.Range(i + 2, 1, i + 2, 5).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                rutaLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "images", "logo.png");
             }
 
-            // Negrita a los labels
-            ws.Range("A2:A9").Style.Font.Bold = true;
+            if (File.Exists(rutaLogo))
+            {
+                // Posicionar en A1 con dimensiones fijas (210 px de ancho x 80 px de alto aprox.)
+                ws.AddPicture(rutaLogo)
+                  .MoveTo(ws.Cell(1, 1), 35, 5)
+                  .WithSize(210, 80);
+            }
 
-            // ==========================================
-            // 2. CABECERA DE LA GRILLA (Fila 11)
-            // ==========================================
-            int fila = 11;
-            ws.Cell(fila, 1).Value = "Producto";
-            ws.Cell(fila, 2).Value = "U. Medida";
-            ws.Cell(fila, 3).Value = "Cantidad";
-            ws.Cell(fila, 4).Value = "P. Unitario";
-            ws.Cell(fila, 5).Value = "Importe";
+            // --- 2. TEXTOS DE LA EMPRESA (ARRANCA EN FILA 3) ---
+            int r = 3;
 
-            var rngHeaders = ws.Range(fila, 1, fila, 5);
-            rngHeaders.Style.Fill.BackgroundColor = XLColor.FromHtml("#FFE699"); // Amarillo
-            rngHeaders.Style.Font.Bold = true;
-            rngHeaders.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            rngHeaders.Style.Border.TopBorder = XLBorderStyleValues.Medium;
-            rngHeaders.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
-            fila++;
+            ws.Range(r, 1, r, 4).Merge().Value = "EDICIONES PIZA SAC";
+            ws.Range(r, 1, r, 4).Style.Font.SetBold().Font.SetFontSize(11).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
 
-            // ==========================================
-            // 3. VACIADO DE ITEMS Y CÓDIGOS AGRUPADOS
-            // ==========================================
+            ws.Range(r, 1, r, 4).Merge().Value = "RUC: 20477342826";
+            ws.Range(r, 1, r, 4).Style.Font.SetBold().Font.SetFontSize(9.5).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = "CAL. ANDRES AVELINO CACERES NRO. 324 DPTO. 301 INT. 2\nP.J. VISTA ALEGRE - TRUJILLO - LA LIBERTAD";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7.5).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center).Alignment.SetWrapText(true);
+            ws.Row(r).Height = 24;
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = "--------------------------------------------------";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            // --- 3. TIPO DE COMPROBANTE Y NUMERACIÓN ---
+            string tituloDoc = tipoDoc.ToUpper().Contains("BOLETA") ? "BOLETA DE VENTA ELECTRÓNICA" :
+                               tipoDoc.ToUpper().Contains("FACTURA") ? "FACTURA ELECTRÓNICA" :
+                               $"{tipoDoc.ToUpper()} ELECTRÓNICA";
+
+            ws.Range(r, 1, r, 4).Merge().Value = tituloDoc;
+            ws.Range(r, 1, r, 4).Style.Font.SetBold().Font.SetFontSize(10.5).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = serieNumero;
+            ws.Range(r, 1, r, 4).Style.Font.SetBold().Font.SetFontSize(10.5).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = "--------------------------------------------------";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            // --- 4. DATOS DEL CLIENTE / EMISIÓN ---
+            void AddFilaDatos(string etiqueta, string valor)
+            {
+                if (string.IsNullOrWhiteSpace(valor)) return;
+                ws.Cell(r, 1).Value = etiqueta;
+                ws.Cell(r, 1).Style.Font.SetBold().Font.SetFontSize(8);
+                ws.Range(r, 2, r, 4).Merge().Value = valor;
+                ws.Range(r, 2, r, 4).Style.Font.SetFontSize(8).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+                r++;
+            }
+
+            AddFilaDatos("FECHA:", $"{fecha} {DateTime.Now:hh:mm tt}");
+            AddFilaDatos("CLIENTE:", string.IsNullOrWhiteSpace(cliente) ? "CLIENTES VARIOS" : cliente.ToUpper());
+            AddFilaDatos("R.U.C. / DNI:", string.IsNullOrWhiteSpace(dIdentidad) ? "00000000" : dIdentidad);
+            AddFilaDatos("DIRECCION:", string.IsNullOrWhiteSpace(localidadZona) ? "-" : localidadZona.ToUpper());
+            if (!string.IsNullOrWhiteSpace(institucion)) AddFilaDatos("INSTITUCIÓN:", institucion.ToUpper());
+            if (!string.IsNullOrWhiteSpace(observacion)) AddFilaDatos("OBSERVACIÓN:", observacion.ToUpper());
+
+            ws.Range(r, 1, r, 4).Merge().Value = "==================================================";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            // --- 5. CABECERA DE TABLA ---
+            ws.Cell(r, 1).Value = "PRODUCTO";
+            ws.Cell(r, 2).Value = "CANT.";
+            ws.Cell(r, 3).Value = "PRECIO";
+            ws.Cell(r, 4).Value = "IMPORTE";
+
+            var cabeceraRango = ws.Range(r, 1, r, 4);
+            cabeceraRango.Style.Font.SetBold().Font.SetFontSize(8);
+            ws.Cell(r, 1).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left);
+            ws.Cell(r, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            ws.Cell(r, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
+            ws.Cell(r, 4).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = "--------------------------------------------------";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            // --- 6. DETALLE DE ÍTEMS Y CÓDIGOS ---
             foreach (var item in items)
             {
-                // Fila principal del producto
-                ws.Cell(fila, 1).Value = item.DescripcionProducto;
-                ws.Cell(fila, 2).Value = item.UnidadMedida;
-                ws.Cell(fila, 3).Value = item.CanProd;
-                ws.Cell(fila, 4).Value = item.PreUnit;
-                ws.Cell(fila, 5).Value = item.ImpTota;
+                ws.Cell(r, 1).Value = item.DescripcionProducto;
+                ws.Cell(r, 1).Style.Font.SetBold().Font.SetFontSize(8);
 
-                ws.Range(fila, 3, fila, 5).Style.NumberFormat.Format = "#,##0";
-                fila++;
+                ws.Cell(r, 2).Value = item.CanProd;
+                ws.Cell(r, 2).Style.Font.SetFontSize(8).NumberFormat.Format = "#,##0";
+                ws.Cell(r, 2).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
 
-                // Fila agrupada de códigos ( { COD1 } ; { COD2 } )
+                ws.Cell(r, 3).Value = item.PreUnit;
+                ws.Cell(r, 3).Style.Font.SetFontSize(8).NumberFormat.Format = "#,##0.00";
+                ws.Cell(r, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
+
+                ws.Cell(r, 4).Value = item.ImpTota;
+                ws.Cell(r, 4).Style.Font.SetBold().Font.SetFontSize(8).NumberFormat.Format = "#,##0.00";
+                ws.Cell(r, 4).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
+                r++;
+
                 if (item.Codigos != null && item.Codigos.Any())
                 {
-                    // Unimos todos los códigos con formato { CODIGO } separados por ;
-                    string textoCodigos = string.Join(" ; ", item.Codigos.Select(c => $"{{ {c.CodigoString} }}"));
-
-                    ws.Cell(fila, 1).Value = textoCodigos;
-                    var rngCodigos = ws.Range(fila, 1, fila, 5).Merge();
-                    rngCodigos.Style.Alignment.WrapText = true; // Permite salto de línea si son muchos códigos
-                    rngCodigos.Style.Font.Italic = true;
-                    rngCodigos.Style.Font.FontSize = 9;
-                    rngCodigos.Style.Border.BottomBorder = XLBorderStyleValues.Thin; // Separador sutil
-                    fila++;
-                }
-                else
-                {
-                    // Si no tiene códigos, solo ponemos la línea divisoria
-                    ws.Range(fila - 1, 1, fila - 1, 5).Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+                    string codigosFormateados = string.Join("  ", item.Codigos.Select(c => $"[{c.CodigoString}]"));
+                    var celdaCodigos = ws.Range(r, 1, r, 4);
+                    celdaCodigos.Merge().Value = $"S/N: {codigosFormateados}";
+                    celdaCodigos.Style.Font.SetItalic().Font.SetFontSize(7).Font.SetFontColor(XLColor.FromHtml("#475569"));
+                    celdaCodigos.Style.Alignment.SetWrapText(true);
+                    r++;
                 }
             }
 
-            // ==========================================
-            // 4. TOTALES FINALES
-            // ==========================================
-            fila++;
-            ws.Cell(fila, 4).Value = "Op. Gravadas"; ws.Cell(fila, 5).Value = opGravadas; fila++;
-            ws.Cell(fila, 4).Value = "Op. Exoneradas"; ws.Cell(fila, 5).Value = opExoneradas; fila++;
-            ws.Cell(fila, 4).Value = "I.G.V."; ws.Cell(fila, 5).Value = igv; fila++;
+            ws.Range(r, 1, r, 4).Merge().Value = "--------------------------------------------------";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
 
-            ws.Cell(fila, 4).Value = "Total Venta";
-            ws.Cell(fila, 5).Value = totalVenta;
-            ws.Range(fila, 4, fila, 5).Style.Font.Bold = true;
+            // --- 7. TOTALES NUMÉRICOS ---
+            void AddFilaTotal(string etiqueta, decimal monto, bool resaltar = false)
+            {
+                ws.Range(r, 1, r, 3).Merge().Value = etiqueta;
+                ws.Range(r, 1, r, 3).Style.Font.SetFontSize(8).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
 
-            ws.Range(fila - 3, 5, fila, 5).Style.NumberFormat.Format = "#,##0";
+                ws.Cell(r, 4).Value = monto;
+                ws.Cell(r, 4).Style.Font.SetFontSize(8).NumberFormat.Format = "#,##0.00";
+                ws.Cell(r, 4).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Right);
 
-            // ==========================================
-            // 5. AUTOAJUSTE Y EXPORTACIÓN
-            // ==========================================
-            ws.Column(1).Width = 50; // Columna Producto ancha
-            ws.Column(2).Width = 15;
-            ws.Column(3).Width = 12;
-            ws.Column(4).Width = 12;
-            ws.Column(5).Width = 12;
+                if (resaltar)
+                {
+                    ws.Range(r, 1, r, 3).Style.Font.SetBold().Font.SetFontSize(9.5);
+                    ws.Cell(r, 4).Style.Font.SetBold().Font.SetFontSize(9.5);
+                }
+                r++;
+            }
 
-            string ruta = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"Comprobante_{serieNumero}_{DateTime.Now:HHmmss}.xlsx");
-            wb.SaveAs(ruta);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(ruta) { UseShellExecute = true });
+            if (opGravadas > 0) AddFilaTotal("OP. GRAVADA: S/", opGravadas);
+            if (opExoneradas > 0) AddFilaTotal("OP. EXONERADA: S/", opExoneradas);
+            if (igv > 0) AddFilaTotal("I.G.V. (18%): S/", igv);
+
+            AddFilaTotal("TOTAL A PAGAR: S/", totalVenta, resaltar: true);
+
+            // --- 8. TOTAL EN LETRAS (CON CENTAVOS /100) ---
+            r++;
+            string totalEnLetras = ConvertirNumeroALetras(totalVenta);
+            var celdaLetras = ws.Range(r, 1, r, 4);
+            celdaLetras.Merge().Value = $"SON: {totalEnLetras}";
+            celdaLetras.Style.Font.SetBold().Font.SetFontSize(8).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Left).Alignment.SetWrapText(true);
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = "==================================================";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            // --- 9. PIE DE TICKET ---
+            ws.Range(r, 1, r, 4).Merge().Value = "¡GRACIAS POR SU COMPRA!";
+            ws.Range(r, 1, r, 4).Style.Font.SetBold().Font.SetFontSize(9).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            ws.Range(r, 1, r, 4).Merge().Value = "Representación impresa de la Boleta de Venta Electrónica";
+            ws.Range(r, 1, r, 4).Style.Font.SetFontSize(7).Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
+            r++;
+
+            // --- AJUSTES DE IMPRESIÓN COMPATIBLES CON CLOSEDXML ---
+            ws.PageSetup.PageOrientation = XLPageOrientation.Portrait;
+            ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
+            ws.PageSetup.PagesWide = 1;
+            ws.PageSetup.PagesTall = 0;
+            ws.PageSetup.Margins.SetTop(0.2);
+            ws.PageSetup.Margins.SetBottom(0.2);
+            ws.PageSetup.Margins.SetLeft(0.2);
+            ws.PageSetup.Margins.SetRight(0.2);
+            ws.PageSetup.CenterHorizontally = true;
+
+            // --- GUARDADO TEMPORAL Y APERTURA ---
+            string nombreLimpio = $"{tipoDoc}_{serieNumero}".Replace("-", "_").Replace(" ", "_");
+            string tempFilePath = Path.Combine(Path.GetTempPath(), $"Voucher_{nombreLimpio}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx");
+
+            wb.SaveAs(tempFilePath);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = tempFilePath,
+                UseShellExecute = true
+            });
         }
 
 
@@ -2519,6 +2621,83 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.PageSetup.Margins.Header = 0.50;    // 1.27 cm
             ws.PageSetup.Margins.Footer = 0.75;    // 1.91 cm
             ws.PageSetup.CenterHorizontally = true;
+        }
+
+        private string ConvertirNumeroALetras(decimal numero)
+        {
+            long entero = (long)Math.Truncate(numero);
+            int centavos = (int)Math.Round((numero - entero) * 100);
+
+            string textoEntero = EnteroALetras(entero);
+            return $"{textoEntero} CON {centavos:D2}/100 SOLES";
+        }
+
+        private string EnteroALetras(long value)
+        {
+            if (value == 0) return "CERO";
+            if (value < 0) return "MENOS " + EnteroALetras(Math.Abs(value));
+
+            string palabras = "";
+
+            if ((value / 1000000) > 0)
+            {
+                palabras += (value / 1000000 == 1) ? "UN MILLON " : EnteroALetras(value / 1000000) + " MILLONES ";
+                value %= 1000000;
+            }
+
+            if ((value / 1000) > 0)
+            {
+                palabras += (value / 1000 == 1) ? "MIL " : EnteroALetras(value / 1000) + " MIL ";
+                value %= 1000;
+            }
+
+            if ((value / 100) > 0)
+            {
+                if (value == 100) palabras += "CIEN ";
+                else if (value / 100 == 1) palabras += "CIENTO ";
+                else if (value / 100 == 5) palabras += "QUINIENTOS ";
+                else if (value / 100 == 7) palabras += "SETECIENTOS ";
+                else if (value / 100 == 9) palabras += "NOVECIENTOS ";
+                else palabras += UnidadesALetras((int)(value / 100)) + "CIENTOS ";
+
+                value %= 100;
+            }
+
+            if (value > 0)
+            {
+                string[] unidades = { "CERO", "UN", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE", "DIEZ",
+                              "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISEIS", "DIECISIETE", "DIECIOCHO", "DIECINUEVE" };
+                string[] decenas = { "CERO", "DIEZ", "VEINTE", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA" };
+
+                if (value < 20)
+                    palabras += unidades[value];
+                else
+                {
+                    palabras += decenas[value / 10];
+                    if ((value % 10) > 0)
+                    {
+                        if (value / 10 == 2)
+                            palabras = "VEINTI" + unidades[value % 10];
+                        else
+                            palabras += " Y " + unidades[value % 10];
+                    }
+                }
+            }
+
+            return palabras.Trim();
+        }
+
+        private string UnidadesALetras(int u)
+        {
+            return u switch
+            {
+                2 => "DOS",
+                3 => "TRES",
+                4 => "CUATRO",
+                6 => "SEIS",
+                8 => "OCHO",
+                _ => ""
+            };
         }
     }
 }

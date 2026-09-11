@@ -55,7 +55,7 @@ INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
 WHERE md.producto_id = @ProductoId
   AND m.fecha_movimiento < @FechaDesde
-  AND m.estado_id != 2";
+  AND m.estado_id != 4";
 
                     cmdInit.CommandText = QueryAdapter.FormatearConsulta(qInit);
                     AgregarParametro(cmdInit, "@ProductoId", productoId);
@@ -405,7 +405,7 @@ WHERE md.producto_id = @ProductoId
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
                             int estadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"));
-                            bool anulado = (estadoId == 2);
+                            bool anulado = (estadoId == 4);
                             int almRelId = reader.IsDBNull(reader.GetOrdinal("alm_relacionado_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("alm_relacionado_id"));
 
                             DateTime? fechaMovRaw = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"));
@@ -801,12 +801,12 @@ WHERE md.producto_id = @ProductoId
 SELECT DISTINCT
     m.fecha_movimiento,
     m.created_at,
-    CASE WHEN m.estado_id = 2 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
+    CASE WHEN m.estado_id = 4 THEN CONCAT('❌ ANULADO - ', mp.descripcion) ELSE mp.descripcion END AS tipo_mov,
     CONCAT(COALESCE(m.serie_documento, ''), '-', COALESCE(m.numero_documento, '')) AS doc,
     COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
     CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
-    CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
-    CASE WHEN m.estado_id = 2 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
+    CASE WHEN m.estado_id = 4 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
+    CASE WHEN m.estado_id =  THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
     m.estado_id,
     CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre,
     COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
@@ -1009,7 +1009,7 @@ WHERE md.producto_id = @ProductoId
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
                             int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
-                            bool anulado = (estadoId == 2);
+                            bool anulado = (estadoId == 4);
 
                             DateTime? fechaMovRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
                             DateTime? createdAtRaw = reader.IsDBNull(10) ? (DateTime?)null : reader.GetDateTime(10);
@@ -1212,7 +1212,7 @@ WHERE m.fecha_movimiento >= @FechaDesde
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
                             int estadoId = reader.IsDBNull(reader.GetOrdinal("estado_id")) ? 1 : reader.GetInt32(reader.GetOrdinal("estado_id"));
-                            bool anulado = (estadoId == 2);
+                            bool anulado = (estadoId == 4);
                             int almRelId = reader.IsDBNull(reader.GetOrdinal("alm_relacionado_id")) ? 0 : reader.GetInt32(reader.GetOrdinal("alm_relacionado_id"));
 
                             DateTime? fechaMovRaw = reader.IsDBNull(reader.GetOrdinal("fecha_movimiento")) ? (DateTime?)null : reader.GetDateTime(reader.GetOrdinal("fecha_movimiento"));
@@ -1402,7 +1402,7 @@ WHERE m.fecha_movimiento >= @FechaDesde
                         while (await ((DbDataReader)reader).ReadAsync())
                         {
                             int estadoId = reader.IsDBNull(7) ? 1 : reader.GetInt32(7);
-                            bool anulado = (estadoId == 2);
+                            bool anulado = (estadoId == 4);
 
                             DateTime? fechaMovRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);
                             DateTime? createdAtRaw = reader.IsDBNull(11) ? (DateTime?)null : reader.GetDateTime(11);

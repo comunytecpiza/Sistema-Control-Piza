@@ -34,6 +34,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private ObservableCollection<ItemGridDTO> _itemsGrid = new ObservableCollection<ItemGridDTO>();
         private List<SerieDocumento> _todasLasSeries = new List<SerieDocumento>();
         private bool _isUpdatingFicha = false;
+        private bool _isInitializing = false;
         private int _idComprobanteActual = 0;
 
         private enum ModoFormulario
@@ -79,6 +80,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             try
             {
+                _isInitializing = true;
                 await CargarTodasLasSeries();
                 FiltrarSeriesPorTipoDocumento();
 
@@ -89,6 +91,10 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             catch (Exception ex)
             {
                 MessageBox.Show($"Error al inicializar módulo de facturación: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _isInitializing = false;
             }
         }
 
@@ -122,6 +128,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private async void CmbSerie_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_isInitializing) return;
             if (TxtNumero == null || TxtPuntoVenta == null) return;
 
             if (CmbSerie.SelectedItem is SerieDocumento s)
@@ -143,6 +150,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void CmbTipoDocu_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_isInitializing) return;
             FiltrarSeriesPorTipoDocumento();
         }
 
@@ -151,6 +159,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         // ==========================================
         private void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
+            if (_isInitializing) return;
+
             LimpiarBotonAnularDinamico();
             _modoActual = ModoFormulario.Nuevo;
             _idComprobanteActual = 0;
@@ -174,6 +184,8 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnModificar_Click(object sender, RoutedEventArgs e)
         {
+            if (_isInitializing) return;
+
             LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
@@ -190,13 +202,18 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
+            if (_isInitializing) return;
+
             LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
             _modoActual = ModoFormulario.BuscandoParaImprimir;
-            BtnImprimirExcel.IsEnabled = false;
 
+            BtnImprimirExcel.IsEnabled = false;
+            PanelFormulario.IsEnabled = true;
             ConfigurarModoBusqueda();
+
+            BtnGrabar.IsEnabled = false; // 👈 Asegurado en falso desde el inicio
             TxtNumero.Focus();
 
             MessageBox.Show("Seleccione la Serie, escriba el número de comprobante y presione ENTER para cargarlo en modo Vista Previa. Luego use 'Exportar Excel'.",
@@ -205,13 +222,18 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnAnular_Click(object sender, RoutedEventArgs e)
         {
+            if (_isInitializing) return;
+
             LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
             _modoActual = ModoFormulario.BuscandoParaAnular;
-            BtnImprimirExcel.IsEnabled = false;
 
+            BtnImprimirExcel.IsEnabled = false;
+            PanelFormulario.IsEnabled = true;
             ConfigurarModoBusqueda();
+
+            BtnGrabar.IsEnabled = false; // 👈 Asegurado en falso desde el inicio
             TxtNumero.Focus();
 
             MessageBox.Show("Modo Anulación activado.\n\nSeleccione la Serie, escriba el número de comprobante y presione ENTER para revisar su contenido antes de confirmar.",
@@ -227,12 +249,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             BtnImprimirExcel.IsEnabled = false;
             PanelFormulario.IsEnabled = false;
             LimpiarFormulario();
-        }
-
-        private void BtnSalir_Click(object sender, RoutedEventArgs e)
-        {
-            var parentWindow = Window.GetWindow(this);
-            if (parentWindow != null) parentWindow.Close();
         }
 
         // ==========================================
@@ -460,7 +476,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                     return;
                 }
 
-                // 🛑 VALIDACIÓN DE PLAZO DE AUDITORÍA AL EDITAR
                 if (_modoActual == ModoFormulario.BuscandoParaEditar)
                 {
                     int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
@@ -522,7 +537,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 TxtNumero.IsReadOnly = true;
                 TxtNumero.Background = (Brush)new BrushConverter().ConvertFromString("#F8FAFC");
 
-                // Enrutamiento según el modo activo
                 if (_modoActual == ModoFormulario.BuscandoParaEditar)
                 {
                     if (!comprobante.EstadoRegistro)
@@ -533,7 +547,10 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         return;
                     }
 
+                    // En edición: se habilitan campos, ítems y el botón guardar
                     HabilitarTodoElFormulario();
+                    BtnGrabar.IsEnabled = true;
+                    BtnImprimirExcel.IsEnabled = false;
                 }
                 else if (_modoActual == ModoFormulario.BuscandoParaImprimir)
                 {
@@ -542,8 +559,10 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         MessageBox.Show("¡ATENCIÓN! Este comprobante se encuentra ANULADO.", "Comprobante Anulado", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
 
+                    // En impresión: bloqueo estricto de edición e inserción
                     ConfigurarModoBusqueda();
-                    BtnImprimirExcel.IsEnabled = true;
+                    BtnGrabar.IsEnabled = false;            // 👈 Bloqueado: No permite sobreguardar al imprimir
+                    BtnImprimirExcel.IsEnabled = true;     // 👈 Habilita únicamente la exportación
                 }
                 else if (_modoActual == ModoFormulario.BuscandoParaAnular)
                 {
@@ -557,8 +576,11 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         return;
                     }
 
+                    // En anulación: el botón verde desaparece y se muestra el rojo
+                    BtnGrabar.IsEnabled = false;
                     MostrarBotonAnularDinamico();
                 }
+
             }
             finally
             {
@@ -617,6 +639,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtNumero.IsReadOnly = false;
             TxtNumero.Background = Brushes.White;
 
+            // Campos de cabecera bloqueados
             TxtRazonSocialBuscador.IsEnabled = false;
             TxtDniRuc.IsEnabled = false;
             CmbTipoIdentidad.IsEnabled = false;
@@ -627,12 +650,21 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtObservacion.IsEnabled = false;
             DpFecha.IsEnabled = false;
 
+            // Botones de acciones de ítems bloqueados
             BtnAgregarItem.IsEnabled = false;
             BtnModificarItem.IsEnabled = false;
             BtnEliminarItem.IsEnabled = false;
             BtnLector.IsEnabled = false;
+
+            // Grilla en modo solo lectura para inspección con doble clic
             DgItems.IsEnabled = true;
             DgItems.IsReadOnly = true;
+
+            // 🛑 CANDADO DE MODO: Si NO es "Nuevo" ni "BuscandoParaEditar", apagar botón de Guardar
+            if (BtnGrabar != null)
+            {
+                BtnGrabar.IsEnabled = (_modoActual == ModoFormulario.Nuevo || _modoActual == ModoFormulario.BuscandoParaEditar);
+            }
         }
 
         private void HabilitarTodoElFormulario()
@@ -848,5 +880,34 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         }
 
         private void DgItems_SelectionChanged(object sender, SelectionChangedEventArgs e) { }
+
+        private void DgItems_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DgItems.SelectedItem is not ItemGridDTO itemSeleccionado) return;
+
+            bool esSoloLectura = _modoActual == ModoFormulario.BuscandoParaImprimir ||
+                                 _modoActual == ModoFormulario.BuscandoParaAnular ||
+                                 _modoActual == ModoFormulario.Ninguno;
+
+            var modal = new AgregarItemWindow(itemSeleccionado, esSoloLectura)
+            {
+                Owner = Window.GetWindow(this)
+            };
+
+            if (!esSoloLectura && modal.ShowDialog() == true && modal.NuevoItem != null)
+            {
+                int index = _itemsGrid.IndexOf(itemSeleccionado);
+                if (index >= 0)
+                {
+                    modal.NuevoItem.NumLine = itemSeleccionado.NumLine;
+                    _itemsGrid[index] = modal.NuevoItem;
+                    RecalcularTotales();
+                }
+            }
+            else if (esSoloLectura)
+            {
+                modal.ShowDialog();
+            }
+        }
     }
 }

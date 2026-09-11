@@ -1,4 +1,6 @@
-﻿using AplicativoDeAlmacen.Core;
+﻿#nullable enable
+
+using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
@@ -37,9 +39,9 @@ namespace AplicativoDeAlmacen.Views
 
         private readonly ProductoService _productoService;
         private readonly DatabaseConnection _database;
-        public Producto _productoSeleccionado = null;
+        public Producto? _productoSeleccionado = null;
         public ObservableCollection<RangoCodigoItem> ListaRangosAgregados { get; private set; }
-        public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; }
+        public List<VistaProductoGrid> ListaProductosExistentesEnPadre { get; set; } = new List<VistaProductoGrid>();
 
         private List<RangoCodigoItem> _rangosOriginalesEdicion = new List<RangoCodigoItem>();
 
@@ -89,25 +91,22 @@ namespace AplicativoDeAlmacen.Views
 
             if (esSalida)
             {
-                // 🚫 EN SALIDAS: OCULTAR CAMPO DE COSTO Y SU ETIQUETA
                 txtCUnitario.Visibility = Visibility.Collapsed;
                 if (FindName("lblCUnitario") is TextBlock lbl) lbl.Visibility = Visibility.Collapsed;
             }
             else if (!esCompraOOtros)
             {
-                // 🔒 EN REINGRESOS / DEVOLUCIONES / TRANSFERENCIAS: MOSTRAR, PERO BLOQUEADO
                 txtCUnitario.Visibility = Visibility.Visible;
                 if (FindName("lblCUnitario") is TextBlock lbl) lbl.Visibility = Visibility.Visible;
 
                 txtCUnitario.IsReadOnly = true;
                 txtCUnitario.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F1F5F9"));
-                txtCUnitario.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E293B")); // Gris oscuro nítido (legible)
+                txtCUnitario.Foreground = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E293B"));
                 txtCUnitario.FontWeight = FontWeights.SemiBold;
                 txtCUnitario.Focusable = false;
             }
             else
             {
-                // ✏️ EN COMPRAS Y OTROS: MOSTRAR Y EDITABLE
                 txtCUnitario.Visibility = Visibility.Visible;
                 if (FindName("lblCUnitario") is TextBlock lbl) lbl.Visibility = Visibility.Visible;
 
@@ -151,7 +150,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void RecalcularCantidadTotalEnVivo()
         {
-            if (int.TryParse(txtCantidad.Text, out int actual) && actual > 0)
+            if (int.TryParse(txtCantidad.Text, out int actual) && actual > 0 && _productoSeleccionado != null && !string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura) && !_productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
@@ -159,7 +158,10 @@ namespace AplicativoDeAlmacen.Views
             if (ListaRangosAgregados != null && ListaRangosAgregados.Any())
             {
                 int sumaTotal = ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int c) ? c : 0);
-                txtCantidad.Text = sumaTotal.ToString();
+                if (sumaTotal > 0)
+                {
+                    txtCantidad.Text = sumaTotal.ToString();
+                }
             }
         }
 
@@ -186,7 +188,7 @@ namespace AplicativoDeAlmacen.Views
             if (rangos != null && rangos.Any())
             {
                 var primera = rangos.FirstOrDefault();
-                if (primera != null && !string.IsNullOrWhiteSpace(primera.AbreviaturaBase))
+                if (primera != null && !string.IsNullOrWhiteSpace(primera.AbreviaturaBase) && !primera.AbreviaturaBase.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
                 {
                     _productoSeleccionado.Abreviatura = primera.AbreviaturaBase;
                 }
@@ -204,26 +206,27 @@ namespace AplicativoDeAlmacen.Views
             ListaRangosAgregados.Clear();
             _rangosOriginalesEdicion.Clear();
 
-            if (rangos != null)
+            // 🛑 DETERMINAR SI ES ARTÍCULO SIN CÓDIGO SERIALIZADO
+            bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura) ||
+                                       _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase);
+
+            if (!esArticuloSinCodigo && rangos != null)
             {
                 foreach (var r in rangos)
                 {
-                    string txtDesde, txtHasta;
+                    // 🛑 DESECHAR COMPLETAMENTE EL REGISTRO FANTASMA SIN_CODIGO
+                    if (r.DesdeNum == -1 || r.AbreviaturaBase.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     int desdeN = r.DesdeNum;
                     int hastaN = r.HastaNum;
                     string abrev = string.IsNullOrEmpty(r.AbreviaturaBase) ? (_productoSeleccionado?.Abreviatura ?? "COD") : r.AbreviaturaBase;
-                    int cantCalcular = (desdeN == -1) ? 1 : (hastaN - desdeN + 1);
+                    int cantCalcular = (hastaN - desdeN + 1);
 
-                    if (desdeN == -1)
-                    {
-                        txtDesde = abrev;
-                        txtHasta = abrev;
-                    }
-                    else
-                    {
-                        txtDesde = string.IsNullOrEmpty(r.Desde) ? $"{abrev}-{desdeN:D7}" : r.Desde;
-                        txtHasta = string.IsNullOrEmpty(r.Hasta) ? $"{abrev}-{hastaN:D7}" : r.Hasta;
-                    }
+                    string txtDesde = string.IsNullOrEmpty(r.Desde) ? $"{abrev}-{desdeN:D7}" : r.Desde;
+                    string txtHasta = string.IsNullOrEmpty(r.Hasta) ? $"{abrev}-{hastaN:D7}" : r.Hasta;
 
                     int categoriaId = r.CategoriaProductoId == 0 ? (EstadoPermitido == 1 ? 1 : 2) : r.CategoriaProductoId;
                     string tipoTexto = (categoriaId == 1) ? "LIBRO GUÍA" : "LIBRO VENTA";
@@ -265,13 +268,24 @@ namespace AplicativoDeAlmacen.Views
 
             dgDetalleCodigos.ItemsSource = ListaRangosAgregados;
 
+            // 🌟 OBTENER CANTIDAD EXACTA DESDE EL DETALLE DEL DOCUMENTO
             decimal cantidadOriginal = item.Detalle != null ? (item.Detalle.CantidadIngreso > 0 ? item.Detalle.CantidadIngreso : item.Detalle.CantidadSalida) : item.Cantidad;
             txtCantidad.Text = cantidadOriginal > 0 ? Convert.ToInt32(cantidadOriginal).ToString() : ListaRangosAgregados.Sum(r => int.TryParse(r.Cantidad, out int cant) ? cant : 0).ToString();
 
+            // Configurar controles si no usa códigos
+            if (esArticuloSinCodigo)
+            {
+                dgDetalleCodigos.IsEnabled = false;
+                txtBuscarRangoInterno.IsEnabled = false;
+                if (FindName("btnAgregarRangoCodigo") is Button b1) b1.IsEnabled = false;
+                if (FindName("btnModificarRango") is Button b2) b2.IsEnabled = false;
+                if (FindName("btnEliminarRango") is Button b3) b3.IsEnabled = false;
+            }
+
             txtCantidad.IsReadOnly = false;
             txtProducto.IsReadOnly = true;
-            txtProducto.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F1F5F9")); // Gris tenue
-            txtProducto.Foreground = System.Windows.Media.Brushes.Black; // Texto completamente negro y legible
+            txtProducto.Background = new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#F1F5F9"));
+            txtProducto.Foreground = System.Windows.Media.Brushes.Black;
             txtProducto.FontWeight = FontWeights.SemiBold;
             txtProducto.Focusable = false;
         }
@@ -294,7 +308,6 @@ namespace AplicativoDeAlmacen.Views
                 {
                     List<Producto> listaFiltrada;
 
-                    // 🔍 Si escribe un número, busca coincidencia exacta por ID de producto
                     if (int.TryParse(textoBusqueda, out int idProducto))
                     {
                         var productoPorId = await _productoService.ObtenerPorIdAsync(idProducto);
@@ -355,16 +368,23 @@ namespace AplicativoDeAlmacen.Views
 
                 await CargarStockActualProductoAsync(producto.Id);
 
-                if (string.IsNullOrWhiteSpace(producto.Abreviatura))
+                // 🛑 SI NO TIENE ABREVIATURA O ES SIN_CODIGO, BLOQUEA RANGOS
+                if (string.IsNullOrWhiteSpace(producto.Abreviatura) || producto.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
                 {
                     ListaRangosAgregados.Clear();
                     dgDetalleCodigos.IsEnabled = false;
                     txtBuscarRangoInterno.IsEnabled = false;
+                    if (FindName("btnAgregarRangoCodigo") is Button b1) b1.IsEnabled = false;
+                    if (FindName("btnModificarRango") is Button b2) b2.IsEnabled = false;
+                    if (FindName("btnEliminarRango") is Button b3) b3.IsEnabled = false;
                 }
                 else
                 {
                     dgDetalleCodigos.IsEnabled = true;
                     txtBuscarRangoInterno.IsEnabled = true;
+                    if (FindName("btnAgregarRangoCodigo") is Button b1) b1.IsEnabled = true;
+                    if (FindName("btnModificarRango") is Button b2) b2.IsEnabled = true;
+                    if (FindName("btnEliminarRango") is Button b3) b3.IsEnabled = true;
                 }
 
                 popupProductos.IsOpen = false;
@@ -384,7 +404,7 @@ namespace AplicativoDeAlmacen.Views
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura))
+            if (string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura) || _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
             {
                 MessageBox.Show("Este producto es genérico (sin series de códigos).", "Producto Genérico", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -447,8 +467,7 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // 🚀 CONSULTA DE TRAZABILIDAD OPTIMIZADA EN BLOQUES DE 1,000 (ASÍNCRONA)
-        private async Task<List<string>> ObtenerCodigosConMovimientosPosterioresAsync(int productoId, List<string> codigosQuitados)
+        private async Task<List<string>> ObtenerCodigosWithMovimientosPosterioresAsync(int productoId, List<string> codigosQuitados)
         {
             var conflictos = new List<string>();
             if (codigosQuitados == null || !codigosQuitados.Any()) return conflictos;
@@ -459,7 +478,6 @@ namespace AplicativoDeAlmacen.Views
                 var dbConn = (DbConnection)conn;
                 if (dbConn.State != System.Data.ConnectionState.Open) await dbConn.OpenAsync();
 
-                // Si es Devolución no bloquea la reducción
                 if (this.EstadoPermitido == 4) return conflictos;
 
                 const int batchSize = 1000;
@@ -470,7 +488,6 @@ namespace AplicativoDeAlmacen.Views
 
                     using var cmd = dbConn.CreateCommand();
 
-                    // 🌟 CORRECCIÓN CLAVE: Excluye el documento actual (@movIdActual) y solo busca salidas FUTURAS
                     string query = QueryAdapter.EsMySQL
                         ? $@"SELECT DISTINCT cc.codigo
                      FROM codigos_creados cc
@@ -479,7 +496,7 @@ namespace AplicativoDeAlmacen.Views
                      INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
                      WHERE cc.codigo IN ({string.Join(",", paramNames)})
                        AND m.estado_id = 1
-                       AND (@movIdActual IS NULL OR m.id > @movIdActual) -- 👈 Solo considera movimientos ESTRICTAMENTE POSTERIORES (ID > Actual)
+                       AND (@movIdActual IS NULL OR m.id > @movIdActual)
                        AND (cc.estado_id IN (4, 5) OR mp.tipo_movimiento_id = 2)"
                         : $@"SELECT DISTINCT cc.codigo
                      FROM codigos_creados cc WITH (NOLOCK)
@@ -521,7 +538,6 @@ namespace AplicativoDeAlmacen.Views
             return conflictos;
         }
 
-        // 🌟 VALIDACIÓN ESTRICTA DE ALMACÉN Y ESTADO POR BLOQUES MASIVOS
         private async Task<List<string>> ValidarPertenenciaYCondicionAlmacenAsync(List<RangoCodigoItem> rangosAgregados)
         {
             var codigosIncompatibles = new List<string>();
@@ -545,6 +561,8 @@ namespace AplicativoDeAlmacen.Views
             var todosLosCodigosAValidar = new List<string>();
             foreach (var rango in rangosAgregados)
             {
+                if (rango.AbreviaturaBase.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase)) continue;
+
                 var listaCodigosRango = new List<string>();
                 if (rango.DesdeNum == -1) listaCodigosRango.Add(rango.AbreviaturaBase);
                 else
@@ -668,7 +686,9 @@ namespace AplicativoDeAlmacen.Views
                 costoValido = _productoSeleccionado.PrecioUnitario ?? 0m;
             }
 
-            bool esProductoSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura);
+            // 🛑 DETERMINAR SI ES ARTÍCULO SIN CÓDIGO SERIALIZADO
+            bool esProductoSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura) ||
+                                       _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase);
 
             if (!esProductoSinCodigo)
             {
@@ -704,7 +724,6 @@ namespace AplicativoDeAlmacen.Views
 
                 try
                 {
-                    // 🌟 1. VALIDACIÓN ASÍNCRONA DE ALMACÉN
                     var incompatibles = await ValidarPertenenciaYCondicionAlmacenAsync(ListaRangosAgregados.ToList());
                     if (incompatibles.Any())
                     {
@@ -728,7 +747,6 @@ namespace AplicativoDeAlmacen.Views
                         return;
                     }
 
-                    // 🌟 2. VALIDACIÓN ASÍNCRONA DE CÓDIGOS QUITADOS CON SALIDAS FUTURAS
                     if (IsEdit && _rangosOriginalesEdicion.Any())
                     {
                         var codigosOriginales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -751,7 +769,7 @@ namespace AplicativoDeAlmacen.Views
 
                         if (codigosQuitados.Any())
                         {
-                            var conflictos = await ObtenerCodigosConMovimientosPosterioresAsync(this._productoSeleccionado.Id, codigosQuitados);
+                            var conflictos = await ObtenerCodigosWithMovimientosPosterioresAsync(this._productoSeleccionado.Id, codigosQuitados);
 
                             if (conflictos.Any())
                             {
@@ -775,6 +793,11 @@ namespace AplicativoDeAlmacen.Views
                     this.Cursor = Cursors.Arrow;
                     btnGrabar.IsEnabled = true;
                 }
+            }
+            else
+            {
+                // 🛑 SI ES PRODUCTO SIN CÓDIGO (BOLSOS, MOCHILAS, MANDILES)
+                ListaRangosAgregados.Clear();
             }
 
             CantidadProductoIngresada = cantidadDeclarada;

@@ -5,6 +5,7 @@ using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Motivo_y_Movimientos;
+using AplicativoDeAlmacen.Services.facturaciòn;
 using AplicativoDeAlmacen.Services.Politicas;
 using System;
 using System.Collections.Generic;
@@ -749,6 +750,36 @@ namespace AplicativoDeAlmacen.Services
 
                 if (sonCodigosExactamenteIguales)
                 {
+
+                    // 🌟 NUEVO: Si quitaste productos de la lista en la pantalla, eliminarlos de la BD
+                    var idsProductosEnPantalla = listaProductos.Select(p => p.ProductoId).Distinct().ToList();
+
+                    using (var cmdBorrarDet = dbConn.CreateCommand())
+                    {
+                        cmdBorrarDet.Transaction = transaccion;
+
+                        // Parámetros dinámicos para la cláusula NOT IN
+                        var paramP = idsProductosEnPantalla.Select((_, idx) => $"@pIdKeep{idx}").ToList();
+                        string condicionNotIn = paramP.Any() ? $"AND producto_id NOT IN ({string.Join(",", paramP)})" : "";
+
+                        cmdBorrarDet.CommandText = QueryAdapter.FormatearConsulta($@"
+                        DELETE FROM registro_rangos 
+                        WHERE movimiento_detalle_id IN (
+                            SELECT id FROM movimiento_detalles 
+                            WHERE movimiento_id = @movId {condicionNotIn}
+                        );
+
+                        DELETE FROM movimiento_detalles 
+                        WHERE movimiento_id = @movId {condicionNotIn};");
+
+                        AgregarParametro(cmdBorrarDet, "@movId", movimientoIdInserted);
+                        for (int k = 0; k < idsProductosEnPantalla.Count; k++)
+                        {
+                            AgregarParametro(cmdBorrarDet, $"@pIdKeep{k}", idsProductosEnPantalla[k]);
+                        }
+
+                        await cmdBorrarDet.ExecuteNonQueryAsync();
+                    }
                     foreach (var item in listaProductos)
                     {
                         int idDetalle = 0;
@@ -833,6 +864,36 @@ namespace AplicativoDeAlmacen.Services
                 if (codigosAEliminar.Any())
                 {
                     const int checkBatchSize = 1000;
+
+                    // 🛑 CANDADO FISCAL: NO PERMITIR QUITAR CÓDIGOS FACTURADOS ACTIVAMENTE
+                    var facturacionService = new FacturacionService();
+                    var mapaFacturasActivas = await facturacionService.ObtenerComprobantesActivosPorCodigosAsync(codigosAEliminar, dbConn, transaccion);
+
+                    if (mapaFacturasActivas.Any())
+                    {
+                        var conflictosFiscales = new List<string>();
+                        using var cmdNomCod = dbConn.CreateCommand();
+                        cmdNomCod.Transaction = transaccion;
+
+                        foreach (var kvp in mapaFacturasActivas)
+                        {
+                            cmdNomCod.CommandText = QueryAdapter.FormatearConsulta("SELECT codigo FROM codigos_creados WHERE id = @cId");
+                            cmdNomCod.Parameters.Clear();
+                            AgregarParametro(cmdNomCod, "@cId", kvp.Key);
+                            string codTexto = (await cmdNomCod.ExecuteScalarAsync())?.ToString() ?? $"ID {kvp.Key}";
+
+                            conflictosFiscales.Add($"• Código '{codTexto}': Facturado en [{kvp.Value}]");
+                        }
+
+                        var muestraFiscal = conflictosFiscales.Take(10).ToList();
+                        string mas = conflictosFiscales.Count > 10 ? $"\n... y {conflictosFiscales.Count - 10} más." : "";
+
+                        throw new InvalidOperationException(
+                            $"⚠️ Operación Rechazada por Bloqueo Contable:\n\n" +
+                            $"No es posible retirar los siguientes códigos de este despacho porque ya cuentan con comprobantes de pago activos:\n\n" +
+                            $"{string.Join("\n", muestraFiscal)}{mas}\n\n" +
+                            $"Para retirarlos o anular este despacho, primero debe anular el comprobante de pago emitido.");
+                    }
 
                     for (int i = 0; i < codigosAEliminar.Count; i += checkBatchSize)
                     {
@@ -1251,7 +1312,7 @@ FROM HistorialOrdenado WHERE rn = 1";
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
                     if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento no existe.");
-                    if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento de salida ya está anulado.");
+                    if (rdrMov.GetInt32(1) == 4) throw new Exception("Este movimiento de salida ya está anulado (Cancelado).");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
                     almacenEmisor = rdrMov.GetInt32(2);
@@ -1274,7 +1335,39 @@ FROM HistorialOrdenado WHERE rn = 1";
 
                 // 2. 🛡️ VALIDACIÓN DE SEGURIDAD SEGÚN MOTIVO
                 if (codigosAnular.Any())
+
+
                 {
+
+                    // 🛑 CANDADO FISCAL: NO PERMITIR ANULAR LA SALIDA SI SUS CÓDIGOS ESTÁN FACTURADOS
+                    var facturacionService = new FacturacionService();
+                    var mapaFacturasActivas = await facturacionService.ObtenerComprobantesActivosPorCodigosAsync(codigosAnular, dbConn, transaccion);
+
+                    if (mapaFacturasActivas.Any())
+                    {
+                        var conflictosFiscales = new List<string>();
+                        using var cmdNomCod = dbConn.CreateCommand();
+                        cmdNomCod.Transaction = transaccion;
+
+                        foreach (var kvp in mapaFacturasActivas)
+                        {
+                            cmdNomCod.CommandText = QueryAdapter.FormatearConsulta("SELECT codigo FROM codigos_creados WHERE id = @cId");
+                            cmdNomCod.Parameters.Clear();
+                            AgregarParametro(cmdNomCod, "@cId", kvp.Key);
+                            string codTexto = (await cmdNomCod.ExecuteScalarAsync())?.ToString() ?? $"ID {kvp.Key}";
+
+                            conflictosFiscales.Add($"• Código '{codTexto}': Facturado en [{kvp.Value}]");
+                        }
+
+                        var muestraFiscal = conflictosFiscales.Take(10).ToList();
+                        string mas = conflictosFiscales.Count > 10 ? $"\n... y {conflictosFiscales.Count - 10} más." : "";
+
+                        throw new InvalidOperationException(
+                            $"⚠️ Operación Rechazada por Bloqueo Contable:\n\n" +
+                            $"No se puede anular esta salida porque contiene códigos que ya fueron facturados formalmente:\n\n" +
+                            $"{string.Join("\n", muestraFiscal)}{mas}\n\n" +
+                            $"Debe anular primero la factura o boleta antes de revertir el despacho a almacén.");
+                    }
                     // 🚚 CASO A: SALIDA POR TRANSFERENCIA (Motivo 10) -> Todos deben seguir en Estado 5 (Tránsito) hacia el destino
                     if (motivoProductoId == 10)
                     {
@@ -1372,16 +1465,7 @@ FROM HistorialOrdenado WHERE rn = 1";
                 }
 
                 progress?.Report(40);
-
-                // 3. Eliminar rangos registrados en esta salida
-                string sqlEliminarRangosAnulados = "DELETE FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
-                using (var cmdDelRangos = dbConn.CreateCommand())
-                {
-                    cmdDelRangos.Transaction = transaccion;
-                    cmdDelRangos.CommandText = QueryAdapter.FormatearConsulta(sqlEliminarRangosAnulados);
-                    AgregarParametro(cmdDelRangos, "@movId", movimientoId);
-                    await cmdDelRangos.ExecuteNonQueryAsync();
-                }
+                
 
                 progress?.Report(60);
 
@@ -1493,20 +1577,13 @@ FROM HistorialOrdenado WHERE rn = 1";
 
                 progress?.Report(80);
 
-                // 5. Desvincular de movimiento_codigos
-                using (var cmdDelMC = dbConn.CreateCommand())
-                {
-                    cmdDelMC.Transaction = transaccion;
-                    cmdDelMC.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_id = @movId");
-                    AgregarParametro(cmdDelMC, "@movId", movimientoId);
-                    await cmdDelMC.ExecuteNonQueryAsync();
-                }
+
 
                 // 6. Marcar movimiento como Anulado (2)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
-                    cmdStatus.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimientos SET estado_id = 2 WHERE id = @movId");
+                    cmdStatus.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimientos SET estado_id = 4 WHERE id = @movId");
                     AgregarParametro(cmdStatus, "@movId", movimientoId);
                     await cmdStatus.ExecuteNonQueryAsync();
                 }

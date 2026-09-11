@@ -149,7 +149,9 @@ namespace AplicativoDeAlmacen.Views.Importaciones
         {
             if (DgDetalles.SelectedItem is ImportacionDetalleDTO detalleSeleccionado)
             {
+                DgCodigos.ItemsSource = null;
                 DgCodigos.ItemsSource = detalleSeleccionado.Codigos;
+                DgCodigos.Items.Refresh();
             }
         }
 

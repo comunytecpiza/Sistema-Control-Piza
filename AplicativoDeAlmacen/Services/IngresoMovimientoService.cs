@@ -12,6 +12,7 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Linq;
+using AplicativoDeAlmacen.Services.facturaciòn;
 using System.Threading.Tasks;
 using System.Windows;
 using static AplicativoDeAlmacen.Data.DataConnection;
@@ -51,17 +52,17 @@ namespace AplicativoDeAlmacen.Services
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");
 
             string query = @"
-    SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
-           m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
-           m.almacen_origen_id, m.almacen_destino_id, m.almacen_id, 
-           m.usuario_id, m.usuario_update_id, m.created_at, m.updated_at
-    FROM movimientos m WITH (NOLOCK)
-    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-    WHERE m.serie_documento = @serie 
-      AND m.numero_documento = @numero
-      AND mp.tipo_movimiento_id = 1
-      AND m.estado_id = 1
-      AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @miAlmacen";
+            SELECT m.id, m.fecha_movimiento, m.serie_documento, m.numero_documento, m.motivo_producto_id, m.ubicacion_id,
+                   m.persona_comercial_id, m.serie_guia, m.numero_guia, m.observacion, m.estado_id,
+                   m.almacen_origen_id, m.almacen_destino_id, m.almacen_id, 
+                   m.usuario_id, m.usuario_update_id, m.created_at, m.updated_at
+            FROM movimientos m WITH (NOLOCK)
+            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+            WHERE m.serie_documento = @serie 
+              AND m.numero_documento = @numero
+              AND mp.tipo_movimiento_id = 1
+              -- Se quitó 'AND m.estado_id = 1' para permitir consultar e imprimir anulados
+              AND ISNULL(m.almacen_id, ISNULL(m.almacen_destino_id, 1)) = @miAlmacen";
 
             using (var cmd = dbConn.CreateCommand())
             {
@@ -814,7 +815,8 @@ namespace AplicativoDeAlmacen.Services
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
                     if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento no existe.");
-                    if (rdrMov.GetInt32(1) == 2) throw new Exception("Este movimiento de ingreso ya está anulado.");
+                    // Reemplaza: if (rdrMov.GetInt32(1) == 2) ...
+                    if (rdrMov.GetInt32(1) == 4) throw new Exception("Este movimiento de ingreso ya está anulado (Cancelado).");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
                     almacenDestino = rdrMov.GetInt32(2);
@@ -840,15 +842,7 @@ namespace AplicativoDeAlmacen.Services
 
                 progress?.Report(30);
 
-                // 3. Eliminar rangos asignados en este movimiento
-                string sqlEliminarRangos = "DELETE FROM registro_rangos WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId)";
-                using (var cmdDelR = dbConn.CreateCommand())
-                {
-                    cmdDelR.Transaction = transaccion;
-                    cmdDelR.CommandText = QueryAdapter.FormatearConsulta(sqlEliminarRangos);
-                    AgregarParametro(cmdDelR, "@movId", movimientoId);
-                    await cmdDelR.ExecuteNonQueryAsync();
-                }
+                
 
                 progress?.Report(60);
 
@@ -866,20 +860,13 @@ namespace AplicativoDeAlmacen.Services
                     await cmdRevert.ExecuteNonQueryAsync();
                 }
 
-                // 5. Desvincular de movimiento_codigos
-                using (var cmdDelMC = dbConn.CreateCommand())
-                {
-                    cmdDelMC.Transaction = transaccion;
-                    cmdDelMC.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM movimiento_codigos WHERE movimiento_id = @movId");
-                    AgregarParametro(cmdDelMC, "@movId", movimientoId);
-                    await cmdDelMC.ExecuteNonQueryAsync();
-                }
 
-                // 6. Marcar la cabecera como anulada (estado_id = 2)
+                
+                // 6. Marcar la cabecera como Cancelada / Anulada (estado_id = 4)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
-                    cmdStatus.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimientos SET estado_id = 2 WHERE id = @movId");
+                    cmdStatus.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimientos SET estado_id = 4 WHERE id = @movId");
                     AgregarParametro(cmdStatus, "@movId", movimientoId);
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
@@ -1073,6 +1060,59 @@ namespace AplicativoDeAlmacen.Services
                                      .Select(t => t.CodigoObj.Id)
                 );
 
+                // 🛑 CANDADO FISCAL: VALIDAR QUE NINGÚN CÓDIGO A INGRESAR TENGA COMPROBANTE ACTIVO (ANTI-DEVOLUCIÓN DE LIBROS FACTURADOS)
+                // 🛑 CANDADO FISCAL MASIVO: VALIDAR TODOS LOS CÓDIGOS A INGRESAR
+                if (nuevosIdsEnviados.Any())
+                {
+                    var facturacionService = new FacturacionService();
+                    var mapaFacturasActivas = await facturacionService.ObtenerComprobantesActivosPorCodigosAsync(nuevosIdsEnviados, dbConn, transaccion);
+
+                    if (mapaFacturasActivas.Any())
+                    {
+                        var listaIdsConflictivos = mapaFacturasActivas.Keys.ToList();
+                        var paramNamesCod = new List<string>();
+
+                        using var cmdNomCod = dbConn.CreateCommand();
+                        cmdNomCod.Transaction = transaccion;
+
+                        for (int i = 0; i < listaIdsConflictivos.Count; i++)
+                        {
+                            string pName = "@cIdConf" + i;
+                            paramNamesCod.Add(pName);
+                            AgregarParametro(cmdNomCod, pName, listaIdsConflictivos[i]);
+                        }
+
+                        // Consulta en un solo viaje para traer TODOS los nombres de códigos bloqueados
+                        cmdNomCod.CommandText = QueryAdapter.FormatearConsulta(
+                            $"SELECT id, codigo FROM codigos_creados WHERE id IN ({string.Join(",", paramNamesCod)})");
+
+                        var mapaNombres = new Dictionary<int, string>();
+                        using (var rdrNom = await cmdNomCod.ExecuteReaderAsync())
+                        {
+                            while (await rdrNom.ReadAsync())
+                            {
+                                mapaNombres[rdrNom.GetInt32(0)] = rdrNom.GetString(1);
+                            }
+                        }
+
+                        var conflictosFiscales = new List<string>();
+                        foreach (var kvp in mapaFacturasActivas)
+                        {
+                            string nombreCodigo = mapaNombres.TryGetValue(kvp.Key, out var nom) ? nom : $"ID {kvp.Key}";
+                            conflictosFiscales.Add($"• Código '{nombreCodigo}': Facturado en [{kvp.Value}]");
+                        }
+
+                        var muestraFiscal = conflictosFiscales.Take(25).ToList();
+                        string mas = conflictosFiscales.Count > 25 ? $"\n... y {conflictosFiscales.Count - 25} más." : "";
+
+                        throw new InvalidOperationException(
+                            $"⚠️ Operación Rechazada por Bloqueo Contable:\n\n" +
+                            $"No se puede procesar el ingreso/devolución porque se detectaron {conflictosFiscales.Count} código(s) con comprobantes de pago ACTIVOS:\n\n" +
+                            $"{string.Join("\n", muestraFiscal)}{mas}\n\n" +
+                            $"Para reingresar estos libros a almacén, primero debe anular la factura/boleta correspondiente.");
+                    }
+                }
+
                 // 🌟 FASE B: OPTIMIZACIÓN SI NO CAMBIARON CÓDIGOS
                 bool sonCodigosExactamenteIguales = existingMovimientoId.HasValue &&
                                                     codigosPreviosEnBD.Count == nuevosIdsEnviados.Count &&
@@ -1100,7 +1140,38 @@ namespace AplicativoDeAlmacen.Services
                     var conflictosDetectados = new List<string>();
 
                     for (int i = 0; i < codigosAEliminar.Count; i += checkBatchSize)
+
                     {
+                        // 🛑 CANDADO FISCAL: NO PERMITIR QUITAR CÓDIGOS QUE YA TIENEN FACTURA/BOLETA ACTIVA
+                        var facturacionService = new FacturacionService();
+                        var mapaFacturasActivas = await facturacionService.ObtenerComprobantesActivosPorCodigosAsync(codigosAEliminar, dbConn, transaccion);
+
+                        if (mapaFacturasActivas.Any())
+                        {
+                            var conflictosFiscales = new List<string>();
+                            using var cmdNomCod = dbConn.CreateCommand();
+                            cmdNomCod.Transaction = transaccion;
+
+                            foreach (var kvp in mapaFacturasActivas)
+                            {
+                                cmdNomCod.CommandText = QueryAdapter.FormatearConsulta("SELECT codigo FROM codigos_creados WHERE id = @cId");
+                                cmdNomCod.Parameters.Clear();
+                                AgregarParametro(cmdNomCod, "@cId", kvp.Key);
+                                string codTexto = (await cmdNomCod.ExecuteScalarAsync())?.ToString() ?? $"ID {kvp.Key}";
+
+                                conflictosFiscales.Add($"• Código '{codTexto}': Facturado en [{kvp.Value}]");
+                            }
+
+                            var muestraFiscal = conflictosFiscales.Take(10).ToList();
+                            string mas = conflictosFiscales.Count > 10 ? $"\n... y {conflictosFiscales.Count - 10} más." : "";
+
+                            throw new InvalidOperationException(
+                                $"⚠️ Operación Rechazada por Bloqueo Contable:\n\n" +
+                                $"No es posible retirar los siguientes códigos de este documento de ingreso porque ya fueron facturados formalmente:\n\n" +
+                                $"{string.Join("\n", muestraFiscal)}{mas}\n\n" +
+                                $"Debe anular primero los comprobantes de pago emitidos antes de retirar estos libros de la entrada original.");
+                        }
+
                         var batchDelCheck = codigosAEliminar.Skip(i).Take(checkBatchSize).ToList();
                         var paramNamesCheck = batchDelCheck.Select((id, idx) => $"@delCheck{idx}").ToList();
 
@@ -2089,6 +2160,13 @@ namespace AplicativoDeAlmacen.Services
 
                 foreach (var alfa in alfanumericosPuros)
                 {
+                    // Si viene marcado como SIN_CODIGO o vacío, se ignora por completo
+                    if (string.IsNullOrWhiteSpace(alfa.CodigoUnique) ||
+                        alfa.CodigoUnique.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     int categoriaDeducida = (alfa.ColeccionTipo != null && alfa.ColeccionTipo.ToUpperInvariant().Contains("GUÍA")) ? 1 : 2;
                     string tipoTexto = (categoriaDeducida == 1) ? "LIBRO GUÍA" : "LIBRO VENTA";
                     string coleccionFinal = string.IsNullOrEmpty(alfa.ColeccionTipo) ? $"C26 / {tipoTexto}" : alfa.ColeccionTipo;
@@ -2313,36 +2391,37 @@ namespace AplicativoDeAlmacen.Services
         {
             string query;
 
+            // 🌟 Buscamos el movimiento INMEDIATAMENTE ANTERIOR ignorando expresamente el movimiento actual
             if (QueryAdapter.EsMySQL)
             {
                 query = @"
-            SELECT m.motivo_producto_id, 
-                   mp.tipo_movimiento_id,
-                   COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
-                   COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
-            FROM movimiento_codigos mc
-            INNER JOIN movimientos m ON mc.movimiento_id = m.id
-            INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-            WHERE mc.codigo_creado_id = @codId 
-              AND m.id < @movId
-              AND m.estado_id = 1
-            ORDER BY m.fecha_movimiento DESC, m.id DESC
-            LIMIT 1;";
+    SELECT m.motivo_producto_id, 
+           mp.tipo_movimiento_id,
+           COALESCE(m.almacen_destino_id, m.almacen_id, 1) AS alm_destino,
+           COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_origen
+    FROM movimiento_codigos mc
+    INNER JOIN movimientos m ON mc.movimiento_id = m.id
+    INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+    WHERE mc.codigo_creado_id = @codId 
+      AND m.id != @movId
+      AND m.estado_id = 1
+    ORDER BY m.fecha_movimiento DESC, m.id DESC
+    LIMIT 1;";
             }
             else
             {
                 query = @"
-            SELECT TOP 1 m.motivo_producto_id, 
-                         mp.tipo_movimiento_id,
-                         ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
-                         ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen
-            FROM movimiento_codigos mc WITH (NOLOCK)
-            INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
-            INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-            WHERE mc.codigo_creado_id = @codId 
-              AND m.id < @movId
-              AND m.estado_id = 1
-            ORDER BY m.fecha_movimiento DESC, m.id DESC;";
+    SELECT TOP 1 m.motivo_producto_id, 
+                 mp.tipo_movimiento_id,
+                 ISNULL(m.almacen_destino_id, ISNULL(m.almacen_id, 1)) AS alm_destino,
+                 ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 1)) AS alm_origen
+    FROM movimiento_codigos mc WITH (NOLOCK)
+    INNER JOIN movimientos m WITH (NOLOCK) ON mc.movimiento_id = m.id
+    INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+    WHERE mc.codigo_creado_id = @codId 
+      AND m.id != @movId
+      AND m.estado_id = 1
+    ORDER BY m.fecha_movimiento DESC, m.id DESC;";
             }
 
             try
@@ -2362,25 +2441,23 @@ namespace AplicativoDeAlmacen.Services
                     int almDestino = rdr.GetInt32(2);
                     int almOrigen = rdr.GetInt32(3);
 
-                    // 🌟 MATRIZ DE MOTIVOS EXACTA:
-
-                    // Si el movimiento anterior fue Motivo 10 (Salida por Transferencia) -> Vuelve a Estado 5 (En Tránsito)
-                    if (motivoId == 10)
+                    // 🚚 1. Si el movimiento anterior fue Salida por Transferencia (Motivo 10) -> Vuelve a Tránsito (Estado 5)
+                    if (motivoId == 10 && tipoMovimiento == 2)
                     {
                         return (5, almDestino);
                     }
 
-                    // Si fue una ENTRADA (Tipo 1) o Motivo 4 (Entrada por Transferencia) -> Vuelve a Estado 3 (Disponible)
-                    if (tipoMovimiento == 1 || motivoId == 4)
+                    // 🛒 2. Si el movimiento anterior fue cualquier SALIDA COMERCIAL (Tipo 2: Venta, Devolución a Proveedor, etc.) -> Vuelve a DESPACHADO (Estado 4)
+                    if (tipoMovimiento == 2)
                     {
-                        return (3, almDestino);
+                        return (4, almOrigen);
                     }
 
-                    // Si fue otra Salida Comercial (Venta, Promotoría, etc.) -> Vuelve a Estado 4 (Fuera de Almacén)
-                    return (4, almOrigen);
+                    // 📦 3. Si el movimiento anterior fue una ENTRADA (Tipo 1: Compra, Recepción 4, etc.) -> Vuelve a DISPONIBLE (Estado 3)
+                    return (3, almDestino);
                 }
 
-                // Sin historial previo registrado -> Estado inicial de creación
+                // Si no registra movimientos anteriores en la tabla movimientos:
                 return (1, 1);
             }
             catch (Exception ex)

@@ -56,9 +56,14 @@ namespace AplicativoDeAlmacen.Models.Facturación
             public List<ImportacionCodigoDTO> Codigos { get; set; } = new();
         }
 
+        
         public class ImportacionCodigoDTO
         {
             public string CodigoExcel { get; set; } = string.Empty;
+            public string CodigoSistema { get; set; } = string.Empty;
+            public string CodigoMostrar => !string.IsNullOrWhiteSpace(CodigoSistema) ? CodigoSistema : CodigoExcel;
+            public string MensajeValidacion { get; set; } = "PENDIENTE";
+            public int Cantidad { get; set; } = 1;
 
             public int? CodigoCreadoId { get; set; }
             public int? MovimientoKardexId { get; set; }

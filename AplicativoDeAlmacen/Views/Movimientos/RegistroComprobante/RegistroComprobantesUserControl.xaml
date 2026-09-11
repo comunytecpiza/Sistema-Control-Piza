@@ -71,15 +71,13 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 🌟 BARRA SUPERIOR DE ACCIONES -->
+        <!-- 🌟 BARRA SUPERIOR DE ACCIONES (Sin botón Salir) -->
         <Border Grid.Row="0" Background="White" CornerRadius="8" Padding="12,8" Margin="0,0,0,14" Effect="{StaticResource CardShadow}">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <Button Content="📄 Nuevo" Click="BtnNuevo_Click" Width="115" Height="34" Background="#10B981" Style="{StaticResource ModernButton}"/>
-                <Button Content="✏️ Modificar" Click="BtnModificar_Click" Width="115" Height="34" Background="#F59E0B" Style="{StaticResource ModernButton}"/>
-                <Button Content="🖨️ Imprimir" Click="BtnImprimir_Click" Width="115" Height="34" Background="#3B82F6" Style="{StaticResource ModernButton}"/>
-                <Button Content="❌ Anular" Click="BtnAnular_Click" Width="115" Height="34" Background="#EF4444" Style="{StaticResource ModernButton}"/>
-                <Border Width="1" Background="#E2E8F0" Margin="8,4,16,4"/>
-                <Button Content="🚪 Salir" Click="BtnSalir_Click" Width="95" Height="34" Background="#64748B" Style="{StaticResource ModernButton}"/>
+                <Button Content="📄 Nuevo" Click="BtnNuevo_Click" Width="120" Height="34" Background="#10B981" Style="{StaticResource ModernButton}"/>
+                <Button Content="✏️ Modificar" Click="BtnModificar_Click" Width="120" Height="34" Background="#F59E0B" Style="{StaticResource ModernButton}"/>
+                <Button Content="🖨️ Imprimir" Click="BtnImprimir_Click" Width="120" Height="34" Background="#3B82F6" Style="{StaticResource ModernButton}"/>
+                <Button Content="❌ Anular" Click="BtnAnular_Click" Width="120" Height="34" Background="#EF4444" Style="{StaticResource ModernButton}"/>
             </StackPanel>
         </Border>
 
@@ -300,9 +298,10 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- 3. GRILLA DE ÍTEMS (CON ALTURA CONTROLADA Y SCROLLBAR PROPIA) -->
+                <!-- 3. GRILLA DE ÍTEMS -->
                 <Border Grid.Row="2" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Background="White" ClipToBounds="True" Effect="{StaticResource CardShadow}" MinHeight="180" MaxHeight="320">
                     <DataGrid x:Name="DgItems" 
+                              MouseDoubleClick="DgItems_MouseDoubleClick"
                               AutoGenerateColumns="False" 
                               CanUserAddRows="False" 
                               Background="Transparent" 

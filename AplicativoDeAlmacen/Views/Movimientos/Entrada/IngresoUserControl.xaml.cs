@@ -27,6 +27,7 @@ using Color = System.Windows.Media.Color;
 using ColorConverter = System.Windows.Media.ColorConverter;
 using LiveChartsCore.SkiaSharpView.WPF;
 using AplicativoDeAlmacen.Services.Politicas;
+using AplicativoDeAlmacen.Services.facturaciòn;
 
 namespace AplicativoDeAlmacen.Views
 {
@@ -664,27 +665,21 @@ namespace AplicativoDeAlmacen.Views
                 foreach (var r in rangosForDet)
                 {
                     _rangosProcesadosGlobal.Add(r);
-                    for (int i = r.DesdeNum; i <= r.HastaNum; i++)
-                    {
-                        if (r.DesdeNum == -1) continue;
-                        _codigosGridList.Add(new VistaCodigoGrid
-                        {
-                            MovCodigo = new MovimientoCodigo { MovimientoDetalleId = det.Id },
-                            CodigoUnique = $"{r.AbreviaturaBase}-{i:D7}",
-                            ColeccionTipo = r.ColeccionTipo ?? string.Empty,
-                            ProductoId = r.productoId
-                        });
-                    }
 
-                    if (r.DesdeNum == -1)
+                    // 🛑 SOLO si tiene números secuenciales reales se agregan a la lista de códigos.
+                    // Si es -1 o "SIN_CODIGO", NO se agrega a _codigosGridList para que la cantidad no se aplaste a 1.
+                    if (r.DesdeNum != -1 && !r.AbreviaturaBase.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
                     {
-                        _codigosGridList.Add(new VistaCodigoGrid
+                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
                         {
-                            MovCodigo = new MovimientoCodigo { MovimientoDetalleId = det.Id },
-                            CodigoUnique = r.AbreviaturaBase,
-                            ColeccionTipo = r.ColeccionTipo ?? string.Empty,
-                            ProductoId = r.productoId
-                        });
+                            _codigosGridList.Add(new VistaCodigoGrid
+                            {
+                                MovCodigo = new MovimientoCodigo { MovimientoDetalleId = det.Id },
+                                CodigoUnique = $"{r.AbreviaturaBase}-{i:D7}",
+                                ColeccionTipo = r.ColeccionTipo ?? string.Empty,
+                                ProductoId = r.productoId
+                            });
+                        }
                     }
                 }
                 _productosGridList.Add(vp);
@@ -1295,24 +1290,31 @@ namespace AplicativoDeAlmacen.Views
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Aviso en descarte de edición del DataGrid: {ex.Message}");
+                Debug.WriteLine($"Aviso: {ex.Message}");
             }
 
-            // 🌟 BLINDAJE DE CANTIDADES PARA PRODUCTOS CON Y SIN CÓDIGO:
             foreach (var prod in _productosGridList)
             {
-                int cantidadCodigosEnGrilla = _codigosGridList.Count(x => x.ProductoId == prod.ProductoId);
+                // 🛑 Solo contamos códigos reales (excluyendo vacíos y SIN_CODIGO)
+                int cantidadCodigosEnGrilla = _codigosGridList.Count(x =>
+                    x.ProductoId == prod.ProductoId &&
+                    !string.IsNullOrWhiteSpace(x.CodigoUnique) &&
+                    !x.CodigoUnique.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase));
 
                 if (cantidadCodigosEnGrilla > 0)
                 {
-                    // Si tiene códigos unitarios (libros), manda el conteo de los códigos
+                    // Producto serializado con códigos reales (Libros)
                     prod.Cantidad = cantidadCodigosEnGrilla;
                     if (prod.Detalle != null) prod.Detalle.CantidadIngreso = cantidadCodigosEnGrilla;
                 }
-                else if (prod.Detalle != null && prod.Detalle.CantidadIngreso > 0)
+                else
                 {
-                    // 🎒 Si es un producto SIN CÓDIGO (mochilas), respeta estrictamente lo que trajo la BD (ej. 60)
-                    prod.Cantidad = (int)prod.Detalle.CantidadIngreso;
+                    // 🌟 PRODUCTO SIN CÓDIGO (Mandil, Mochila, Bolsos, Agendas):
+                    // Mantiene intacta la cantidad que vino de la base de datos (ej. 50, 100)
+                    if (prod.Detalle != null && prod.Detalle.CantidadIngreso > 0)
+                    {
+                        prod.Cantidad = (int)prod.Detalle.CantidadIngreso;
+                    }
                 }
             }
 
@@ -1737,6 +1739,21 @@ namespace AplicativoDeAlmacen.Views
                 if (resultado.EstadoId != 4 && !resultado.TieneSalida)
                 {
                     return (false, $"'{resultado.CodigoCompleto}' no puede devolverse (nunca ha salido del almacén).");
+                }
+
+                // 🛑 VALIDACIÓN FISCAL EN VIVO PARA DEVOLUCIONES
+                using (var conn = _dbConnHelper.GetConnection())
+                {
+                    var dbConn = (System.Data.Common.DbConnection)conn;
+                    await dbConn.OpenAsync();
+                    var factService = new FacturacionService();
+                    var facturas = await factService.ObtenerComprobantesActivosPorCodigosAsync(new List<int> { resultado.CodigoCreadoId }, dbConn);
+
+                    if (facturas.Any())
+                    {
+                        string comprobanteInfo = facturas[resultado.CodigoCreadoId];
+                        return (false, $"El código '{resultado.CodigoCompleto}' está facturado activamente en [{comprobanteInfo}]. Anule la venta antes de recibirlo.");
+                    }
                 }
             }
             else
