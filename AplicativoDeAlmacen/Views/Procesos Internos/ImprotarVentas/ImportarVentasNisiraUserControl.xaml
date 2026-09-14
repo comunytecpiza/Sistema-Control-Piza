@@ -139,13 +139,6 @@
                             <TextBlock Text="Transferir al Sistema"/>
                         </StackPanel>
                     </Button>
-
-                    <Button x:Name="BtnSalir" Click="BtnSalir_Click" Style="{StaticResource SecondaryActionBtn}" BorderBrush="#FECACA" Foreground="#B91C1C">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🚪" Margin="0,0,6,0"/>
-                            <TextBlock Text="Cerrar"/>
-                        </StackPanel>
-                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -195,8 +188,8 @@
                           RowStyle="{StaticResource RowValidationStyle}"
                           SelectionChanged="DgDetalles_SelectionChanged">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Descripción (Excel)" Binding="{Binding DescripcionExcel}" Width="2*"/>
-                        <DataGridTextColumn Header="Descripción (Sistema)" Binding="{Binding DescripcionSistema}" Width="2*" FontWeight="Medium" Foreground="#1E40AF"/>
+                        <DataGridTextColumn Header="Producto (Excel)" Binding="{Binding DescripcionExcel}" Width="2*"/>
+                        <DataGridTextColumn Header="Producto (Sistema)" Binding="{Binding DescripcionSistema}" Width="2*" FontWeight="Medium" Foreground="#1E40AF"/>
                         <DataGridTextColumn Header="U.M." Binding="{Binding UnidadMedida}" Width="65" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}"/>
                         <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="80" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}" FontWeight="SemiBold"/>
                         <DataGridTextColumn Header="P. Unitario" Binding="{Binding PrecioUnitario, StringFormat=N2}" Width="90"/>

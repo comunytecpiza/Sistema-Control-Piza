@@ -37,6 +37,7 @@
     <Folder Include="Images\NewFolder\" />
     <Folder Include="Videos\NewFolder\" />
     <Folder Include="ViewModels\NewFolder\" />
+    <Folder Include="Views\Consultas y Reportes\Reporte\contabilidad\" />
     <Folder Include="Views\Elementos Visuales\" />
   </ItemGroup>
 

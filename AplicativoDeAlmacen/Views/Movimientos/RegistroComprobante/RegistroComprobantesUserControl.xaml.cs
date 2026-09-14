@@ -30,7 +30,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private readonly UbicacionService _ubicacionService;
         private readonly PersonaComercialService _personaService;
         private readonly ReporteExcelService _reporteService;
-
+        private bool _moduloIniciado = false;
         private ObservableCollection<ItemGridDTO> _itemsGrid = new ObservableCollection<ItemGridDTO>();
         private List<SerieDocumento> _todasLasSeries = new List<SerieDocumento>();
         private bool _isUpdatingFicha = false;
@@ -78,15 +78,26 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private async Task InicializarModulo()
         {
+            // 🛡️ Si ya fue inicializado o ya cargó un comprobante para vista previa, NO LIMPIAR
+            if (_moduloIniciado || _modoActual == ModoFormulario.BuscandoParaImprimir || _idComprobanteActual > 0)
+            {
+                return;
+            }
+
             try
             {
                 _isInitializing = true;
+                _moduloIniciado = true;
+
                 await CargarTodasLasSeries();
                 FiltrarSeriesPorTipoDocumento();
 
-                _modoActual = ModoFormulario.Ninguno;
-                PanelFormulario.IsEnabled = false;
-                LimpiarFormulario();
+                // Solo limpia si el formulario no está en ninguna operación activa
+                if (_modoActual == ModoFormulario.Ninguno && _idComprobanteActual == 0)
+                {
+                    PanelFormulario.IsEnabled = false;
+                    LimpiarFormulario();
+                }
             }
             catch (Exception ex)
             {
@@ -907,6 +918,217 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             else if (esSoloLectura)
             {
                 modal.ShowDialog();
+            }
+        }
+
+        public async Task CargarComprobanteParaConsultaAsync(string serie, string numero)
+        {
+            try
+            {
+                this.Cursor = Cursors.Wait;
+                _moduloIniciado = true; // 👈 Evita que el evento Loaded posterior ejecute LimpiarFormulario()
+                _modoActual = ModoFormulario.BuscandoParaImprimir;
+
+                // 1. Asegurar catálogo de series en memoria sin alertas
+                if (_todasLasSeries == null || !_todasLasSeries.Any())
+                {
+                    await CargarTodasLasSeries();
+                }
+
+                // 2. Normalizar número a 7 dígitos (ej: 1 -> 0000001)
+                string numeroNormalizado = int.TryParse(numero, out int nVal) ? nVal.ToString("D7") : numero.Trim();
+                string seriePura = serie.Trim().ToUpper();
+
+                // 3. Obtener el comprobante directo usando el servicio de facturación
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                var comprobante = await _facturacionService.ObtenerComprobantePorNumeroAsync(seriePura, numeroNormalizado, miAlmacenId);
+
+                if (comprobante == null)
+                {
+                    MessageBox.Show($"No se encontró el comprobante {seriePura}-{numeroNormalizado} en esta sede.", "No encontrado", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // 4. Limpiar e inicializar formulario
+                LimpiarFormulario();
+                _idComprobanteActual = comprobante.Id;
+
+                // Tipo de Comprobante
+                foreach (ComboBoxItem item in CmbTipoDocu.Items)
+                {
+                    if (item.Tag?.ToString() == comprobante.TipoDocumento)
+                    {
+                        CmbTipoDocu.SelectedItem = item;
+                        break;
+                    }
+                }
+
+                FiltrarSeriesPorTipoDocumento();
+
+                // Serie
+                var serieObj = _todasLasSeries.FirstOrDefault(s => string.Equals(s.NumeroSerie?.Trim(), seriePura, StringComparison.OrdinalIgnoreCase));
+                if (serieObj != null)
+                {
+                    CmbSerie.SelectedItem = serieObj;
+                }
+                else
+                {
+                    var serieAux = new SerieDocumento { NumeroSerie = seriePura };
+                    var listSeries = CmbSerie.ItemsSource as List<SerieDocumento> ?? new List<SerieDocumento>();
+                    listSeries.Add(serieAux);
+                    CmbSerie.ItemsSource = null;
+                    CmbSerie.ItemsSource = listSeries;
+                    CmbSerie.SelectedItem = serieAux;
+                }
+
+                TxtNumero.Text = comprobante.NumeroDocumento;
+                DpFecha.SelectedDate = comprobante.FechaEmision;
+                TxtObservacion.Text = comprobante.Observacion;
+
+                // Cargar Personas Comerciales
+                if (comprobante.CompradorId.HasValue)
+                {
+                    var cliente = await _personaService.ObtenerPorIdAsync(comprobante.CompradorId.Value);
+                    LlenarFichaCliente(cliente, esRazonSocial: true);
+                }
+
+                if (comprobante.InstitucionId.HasValue)
+                {
+                    var colegio = await _personaService.ObtenerPorIdAsync(comprobante.InstitucionId.Value);
+                    LlenarFichaCliente(colegio, esRazonSocial: false);
+                }
+
+                
+                // Cargar Ítems y Códigos asegurando la coherencia aritmética
+                _itemsGrid.Clear();
+                var prodService = new ProductoService();
+
+                foreach (var det in comprobante.Detalles)
+                {
+                    var producto = await prodService.ObtenerPorIdAsync(det.ProductoId);
+
+                    // 1. Determinar la cantidad real: si tiene códigos asignados, manda el conteo de códigos
+                    int cantidadReal = (det.Codigos != null && det.Codigos.Any())
+                        ? det.Codigos.Count
+                        : (int)det.Cantidad;
+
+                    decimal precioUnit = det.PrecioUnitario;
+
+                    // 2. Corregir el importe total de la línea (Cantidad * Precio)
+                    decimal importeCalculado = Math.Round(cantidadReal * precioUnit, 2);
+
+                    _itemsGrid.Add(new ItemGridDTO
+                    {
+                        NumLine = det.NumeroLinea,
+                        ProductoId = det.ProductoId,
+                        MovimientoId = det.MovimientoId,
+                        DescripcionProducto = producto?.Descripcion ?? "PRODUCTO",
+                        UnidadMedida = producto?.UnidadMedida?.Descripcion ?? "UND",
+                        CanProd = cantidadReal,
+                        PreUnit = precioUnit,
+                        ImpTota = importeCalculado, // 👈 3 * 180.00 = 540.00 asegurado
+                        Codigos = det.Codigos.Select(c => new CodigoLeidoDTO
+                        {
+                            CodigoCreadoId = c.CodigoCreadoId,
+                            CodigoString = c.CodigoTexto,
+                            Cantidad = 1,
+                            Coleccion = "Kardex"
+                        }).ToList()
+                    });
+                }
+
+                // 3. Recalcular la cabecera con los valores consistentes de la grilla
+                RecalcularTotales();
+
+                // Cargar Totales
+                TxtOpGravadas.Text = comprobante.TotalGravado.ToString("N2");
+                TxtOpExoneradas.Text = comprobante.TotalExonerado.ToString("N2");
+                TxtIgv.Text = comprobante.TotalIgv.ToString("N2");
+                TxtTotal.Text = comprobante.ImporteTotal.ToString("N2");
+
+                // 5. Aplicar bloqueo visual para lectura
+                BloquearParaImpresionContable();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al consultar comprobante: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                this.Cursor = Cursors.Arrow;
+            }
+
+        }
+
+        private void BloquearParaImpresionContable()
+        {
+            // 🛡️ 1. Deshabilitar los 4 botones de la barra superior (Nuevo, Modificar, Imprimir, Anular)
+            if (PanelFormulario?.Parent is FrameworkElement root)
+            {
+                // Si PanelFormulario está dentro del Grid general, buscamos los botones superiores
+                if (VisualTreeHelper.GetParent(PanelFormulario) is FrameworkElement parentGrid)
+                {
+                    DeshabilitarBotonesSuperiores(this);
+                }
+            }
+
+            // 🛡️ 2. Configurar el formulario y campos en solo lectura
+            PanelFormulario.IsEnabled = true;
+
+            CmbTipoDocu.IsEnabled = false;
+            CmbSerie.IsEnabled = false;
+            TxtNumero.IsReadOnly = true;
+            TxtNumero.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+            TxtRazonSocialBuscador.IsEnabled = false;
+            TxtDniRuc.IsEnabled = false;
+            CmbTipoIdentidad.IsEnabled = false;
+            TxtDireccionPagador.IsEnabled = false;
+            TxtClienteBuscador.IsEnabled = false;
+            TxtDireccionColegio.IsEnabled = false;
+            TxtLocalidad.IsEnabled = false;
+            TxtObservacion.IsEnabled = false;
+            DpFecha.IsEnabled = false;
+
+            // 🛡️ 3. Grilla de ítems en modo inspección (seleccionable pero no editable)
+            DgItems.IsEnabled = true;
+            DgItems.IsReadOnly = true;
+
+            // 🛡️ 4. Bloquear botones de edición de detalle
+            if (BtnGrabar != null) BtnGrabar.IsEnabled = false;
+            if (BtnAgregarItem != null) BtnAgregarItem.IsEnabled = false;
+            if (BtnModificarItem != null) BtnModificarItem.IsEnabled = false;
+            if (BtnEliminarItem != null) BtnEliminarItem.IsEnabled = false;
+            if (BtnLector != null) BtnLector.IsEnabled = false;
+
+            // 🌟 5. Habilitar únicamente la exportación a Excel
+            if (BtnImprimirExcel != null) BtnImprimirExcel.IsEnabled = true;
+        }
+
+        // Helper para deshabilitar automáticamente los botones sin x:Name (Nuevo, Modificar, Imprimir, Anular, Saltar N°, Editar N°)
+        private void DeshabilitarBotonesSuperiores(DependencyObject parent)
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is Button btn)
+                {
+                    string texto = btn.Content?.ToString() ?? string.Empty;
+                    if (texto.Contains("Nuevo") ||
+                        texto.Contains("Modificar") ||
+                        texto.Contains("Imprimir") ||
+                        texto.Contains("Anular") ||
+                        texto.Contains("Saltar N°") ||
+                        texto.Contains("Editar N°"))
+                    {
+                        btn.IsEnabled = false;
+                    }
+                }
+                else
+                {
+                    DeshabilitarBotonesSuperiores(child);
+                }
             }
         }
     }
