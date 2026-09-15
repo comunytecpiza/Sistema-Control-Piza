@@ -8,9 +8,9 @@
     <UseWPF>true</UseWPF>
     <ApplicationIcon>icon-almacen.ico</ApplicationIcon>
 	  <!-- 🌟 AQUÍ SE ASIGNA LA VERSIÓN REAL DEL ARCHIVO COMPILADO -->
-	  <Version>1.0.0.9</Version>
-	  <AssemblyVersion>1.0.0.9</AssemblyVersion>
-	  <FileVersion>1.0.0.9</FileVersion>
+	  <Version>1.0.0.10</Version>
+	  <AssemblyVersion>1.0.0.10</AssemblyVersion>
+	  <FileVersion>1.0.0.10</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -82,6 +82,12 @@
 
   <ItemGroup>
     <None Update="Audio\UI\bienvenida.mp3">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Audio\UI\transferencias.mp3">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="Audio\UI\transferencias2.mp3">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Update="Properties\Settings.settings">

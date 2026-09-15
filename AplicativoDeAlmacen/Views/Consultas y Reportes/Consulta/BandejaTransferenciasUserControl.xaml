@@ -150,8 +150,33 @@
                     <DataGridTextColumn Header="N° REGISTRO" Binding="{Binding SerieNumero}" Width="120" Foreground="#4B5563"/>
 
                     <!-- FECHA DE ENVÍO -->
-                    <DataGridTextColumn Header="FECHA ENVÍO" Binding="{Binding FechaMovimiento, StringFormat='{}{0:dd/MM/yyyy}'}" Width="100"/>
-
+                    <DataGridTextColumn Header="FECHA ENVÍO" 
+                                        Binding="{Binding FechaEnvio, StringFormat='{}{0:dd/MM/yyyy}'}" 
+                                        Width="105"/>
+                    <!-- FECHA DE RECEPCIÓN (Muestra fecha o indicador de espera) -->
+                    <DataGridTemplateColumn Header="FECHA RECEPCIÓN" Width="125">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock VerticalAlignment="Center" Margin="12,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="{Binding FechaRecepcion, StringFormat='{}{0:dd/MM/yyyy}'}"/>
+                                            <Setter Property="Foreground" Value="#111827"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding FechaRecepcion}" Value="{x:Null}">
+                                                    <Setter Property="Text" Value="⏳ Por recibir"/>
+                                                    <Setter Property="Foreground" Value="#9CA3AF"/>
+                                                    <Setter Property="FontStyle" Value="Italic"/>
+                                                    <Setter Property="FontWeight" Value="Normal"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <!-- RUTA: ORIGEN -> DESTINO -->
                     <DataGridTemplateColumn Header="RUTA LOGÍSTICA (ORIGEN ➔ DESTINO)" Width="*">
                         <DataGridTemplateColumn.CellTemplate>

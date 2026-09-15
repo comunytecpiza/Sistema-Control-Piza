@@ -147,6 +147,7 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
+                            <!-- Fila 0: N° Operación y Fecha de Despacho / Recepción -->
                             <TextBlock Text="N° Operación" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
                             <Grid Grid.Column="1" Margin="0,0,20,14">
                                 <Grid.ColumnDefinitions>
@@ -158,8 +159,32 @@
                                 <TextBox x:Name="txtNumeroSalida" Grid.Column="2" Height="36" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F9FAFB" HorizontalContentAlignment="Center"/>
                             </Grid>
 
-                            <TextBlock Text="Fecha de Despacho" Grid.Column="2" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
-                            <DatePicker x:Name="dtpFechaDespacho" Grid.Column="3" Height="36" Margin="0,0,0,14" FontSize="13" VerticalContentAlignment="Center"/>
+                            <!-- 🌟 BLOQUE DE FECHAS ADAPTATIVO (OCUPA LAS COLUMNAS 2 Y 3 COMPLETAS) -->
+                            <Grid Grid.Column="2" Grid.ColumnSpan="2" Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <!-- Etiqueta Fecha Despacho -->
+                                    <ColumnDefinition Width="*"/>
+                                    <!-- DatePicker -->
+                                    <ColumnDefinition Width="Auto"/>
+                                    <!-- Etiqueta Fecha Recepción -->
+                                    <ColumnDefinition Width="*"/>
+                                    <!-- TextBox Bloqueado -->
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock x:Name="lblTituloFechaDespacho" Grid.Column="0" Text="Fecha Despacho" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" FontSize="13"/>
+                                <DatePicker x:Name="dtpFechaDespacho" Grid.Column="1" Height="36" FontSize="13" VerticalContentAlignment="Center" Margin="8,0,12,0"/>
+
+                                <!-- Elementos dinámicos de Recepción (Solo visibles en transferencias) -->
+                                <TextBlock x:Name="lblTituloFechaRecepcion" Grid.Column="2" Text="F. Recepción" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold" FontSize="13" Margin="0,0,8,0" Visibility="Collapsed"/>
+                                <TextBox x:Name="txtFechaRecepcionCruzada" Grid.Column="3" Height="36" IsReadOnly="True" 
+                                 Background="#F3F4F6" Foreground="#15803D" FontWeight="SemiBold" FontSize="12"
+                                 VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Padding="4,0" 
+                                 ToolTip="Fecha en que la sede destino recepcionó la mercadería" Visibility="Collapsed"/>
+                            </Grid>
+
+                            <TextBlock x:Name="lblTituloFechaCruzada" Text="F. Recepción" Grid.Column="2" VerticalAlignment="Center" Foreground="#6B7280" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13" Visibility="Collapsed"/>
+                            <TextBox x:Name="txtFechaRecepcionCruzadaPlaceholder" Grid.Column="3" Height="36" Margin="0,0,0,14" Visibility="Collapsed"/>
 
                             <TextBlock Text="Motivo Salida" Grid.Row="1" VerticalAlignment="Center" Foreground="#374151" FontWeight="SemiBold" Margin="0,0,0,14" FontSize="13"/>
                             <ComboBox x:Name="cboMotivoSalida" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="36" Margin="0,0,0,14" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id" SelectionChanged="CboMotivoSalida_SelectionChanged" />

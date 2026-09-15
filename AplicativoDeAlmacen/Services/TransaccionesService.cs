@@ -39,69 +39,34 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
+                // 🌟 LECTURA DIRECTA DE LA TABLA PUENTE
                 string query;
                 if (QueryAdapter.EsMySQL)
                 {
                     query = @"
-                        SELECT COUNT(DISTINCT m.id)
-                        FROM movimientos m
-                        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
-                        WHERE m.estado_id = 1
-                          AND mp.tipo_movimiento_id = 2 -- Solo Salidas de Transferencia
-                          AND m.motivo_producto_id IN (4, 10)
-                          AND m.almacen_destino_id = @miAlmacen
-                          AND COALESCE(m.almacen_id, m.almacen_origen_id, 1) != @miAlmacen
-                          AND NOT EXISTS (
-                              SELECT 1 
-                              FROM movimientos m_ing
-                              INNER JOIN motivo_productos mp_ing ON m_ing.motivo_producto_id = mp_ing.id
-                              INNER JOIN movimiento_detalles md_ing ON md_ing.movimiento_id = m_ing.id
-                              INNER JOIN movimiento_codigos mc_ing ON mc_ing.movimiento_detalle_id = md_ing.id
-                              WHERE mp_ing.tipo_movimiento_id = 1 -- Entrada
-                                AND m_ing.motivo_producto_id IN (4, 10)
-                                AND COALESCE(m_ing.almacen_id, m_ing.almacen_destino_id, 1) = @miAlmacen
-                                AND mc_ing.codigo_creado_id IN (
-                                    SELECT mc_sub.codigo_creado_id 
-                                    FROM movimiento_detalles md_sub
-                                    INNER JOIN movimiento_codigos mc_sub ON mc_sub.movimiento_detalle_id = md_sub.id
-                                    WHERE md_sub.movimiento_id = m.id
-                                )
-                          )";
+                        SELECT COUNT(tc.id)
+                        FROM transferencias_control tc
+                        INNER JOIN movimientos m ON tc.movimiento_salida_id = m.id
+                        WHERE tc.almacen_destino_id = @miAlmacen
+                          AND tc.estado = 'PENDIENTE'
+                          AND m.estado_id = 1;";
                 }
                 else
                 {
                     query = @"
-                        SELECT COUNT(DISTINCT m.id)
-                        FROM movimientos m WITH (NOLOCK)
-                        INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
-                        WHERE m.estado_id = 1
-                          AND mp.tipo_movimiento_id = 2
-                          AND m.motivo_producto_id IN (4, 10)
-                          AND m.almacen_destino_id = @miAlmacen
-                          AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) != @miAlmacen
-                          AND NOT EXISTS (
-                              SELECT 1 
-                              FROM movimientos m_ing WITH (NOLOCK)
-                              INNER JOIN motivo_productos mp_ing WITH (NOLOCK) ON m_ing.motivo_producto_id = mp_ing.id
-                              INNER JOIN movimiento_detalles md_ing WITH (NOLOCK) ON md_ing.movimiento_id = m_ing.id
-                              INNER JOIN movimiento_codigos mc_ing WITH (NOLOCK) ON mc_ing.movimiento_detalle_id = md_ing.id
-                              WHERE mp_ing.tipo_movimiento_id = 1
-                                AND m_ing.motivo_producto_id IN (4, 10)
-                                AND ISNULL(m_ing.almacen_id, ISNULL(m_ing.almacen_destino_id, 1)) = @miAlmacen
-                                AND mc_ing.codigo_creado_id IN (
-                                    SELECT mc_sub.codigo_creado_id 
-                                    FROM movimiento_detalles md_sub WITH (NOLOCK)
-                                    INNER JOIN movimiento_codigos mc_sub WITH (NOLOCK) ON mc_sub.movimiento_detalle_id = md_sub.id
-                                    WHERE md_sub.movimiento_id = m.id
-                                )
-                          )";
+                        SELECT COUNT(tc.id)
+                        FROM transferencias_control tc WITH (NOLOCK)
+                        INNER JOIN movimientos m WITH (NOLOCK) ON tc.movimiento_salida_id = m.id
+                        WHERE tc.almacen_destino_id = @miAlmacen
+                          AND tc.estado = 'PENDIENTE'
+                          AND m.estado_id = 1;";
                 }
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
                 AgregarParametro(cmd, "@miAlmacen", miAlmacenId);
 
-                object result = await cmd.ExecuteScalarAsync();
+                object? result = await cmd.ExecuteScalarAsync();
                 return result != null && result != DBNull.Value ? Convert.ToInt32(result) : 0;
             }
             catch (Exception ex)
@@ -137,6 +102,8 @@ namespace AplicativoDeAlmacen.Services
                             CONCAT(m.serie_documento, '-', m.numero_documento) AS SerieNumeroSalida,
                             COALESCE(CONCAT(m.serie_guia, '-', m.numero_guia), 'SIN GUÍA') AS GuiaRemision,
                             m.fecha_movimiento,
+                            COALESCE(tc.fecha_envio, m.fecha_movimiento) AS FechaEnvio,
+                            tc.fecha_recepcion AS FechaRecepcion,
                             COALESCE(m.almacen_origen_id, m.almacen_id) AS AlmacenOrigenId,
                             COALESCE(ao.nombre, 'ALMACÉN CENTRAL') AS OrigenNombre,
                             COALESCE(m.almacen_destino_id, 1) AS AlmacenDestinoId,
@@ -145,73 +112,22 @@ namespace AplicativoDeAlmacen.Services
                             COALESCE(mp.descripcion, 'TRANSFERENCIA') AS MotivoDesc,
                             COALESCE(m.observacion, '') AS Observacion,
                             COUNT(DISTINCT md.producto_id) AS TotalProductos,
-                            COUNT(mc.id) AS TotalCodigos,
+                            COALESCE(NULLIF(COUNT(mc.id), 0), CAST(SUM(COALESCE(md.cantidad_salida, md.cantidad_ingreso, 0)) AS SIGNED), 0) AS TotalCodigos,
                             
-                            CASE 
-                                WHEN EXISTS (
-                                    SELECT 1 
-                                    FROM movimientos m_ing
-                                    INNER JOIN motivo_productos mp_ing ON m_ing.motivo_producto_id = mp_ing.id
-                                    INNER JOIN movimiento_detalles md_ing ON md_ing.movimiento_id = m_ing.id
-                                    INNER JOIN movimiento_codigos mc_ing ON mc_ing.movimiento_detalle_id = md_ing.id
-                                    WHERE mp_ing.tipo_movimiento_id = 1
-                                      AND m_ing.motivo_producto_id IN (4, 10)
-                                      AND COALESCE(m_ing.almacen_id, m_ing.almacen_destino_id, 1) = m.almacen_destino_id
-                                      AND mc_ing.codigo_creado_id IN (
-                                          SELECT mc_sub.codigo_creado_id 
-                                          FROM movimiento_detalles md_sub
-                                          INNER JOIN movimiento_codigos mc_sub ON mc_sub.movimiento_detalle_id = md_sub.id
-                                          WHERE md_sub.movimiento_id = m.id
-                                      )
-                                ) THEN 0 
-                                ELSE 1   
-                            END AS EsPendiente,
-
-                            (
-                                SELECT m_ing.id 
-                                FROM movimientos m_ing
-                                INNER JOIN motivo_productos mp_ing ON m_ing.motivo_producto_id = mp_ing.id
-                                INNER JOIN movimiento_detalles md_ing ON md_ing.movimiento_id = m_ing.id
-                                INNER JOIN movimiento_codigos mc_ing ON mc_ing.movimiento_detalle_id = md_ing.id
-                                WHERE mp_ing.tipo_movimiento_id = 1
-                                  AND m_ing.motivo_producto_id IN (4, 10)
-                                  AND COALESCE(m_ing.almacen_id, m_ing.almacen_destino_id, 1) = m.almacen_destino_id
-                                  AND mc_ing.codigo_creado_id IN (
-                                      SELECT mc_sub.codigo_creado_id 
-                                      FROM movimiento_detalles md_sub
-                                      INNER JOIN movimiento_codigos mc_sub ON mc_sub.movimiento_detalle_id = md_sub.id
-                                      WHERE md_sub.movimiento_id = m.id
-                                  )
-                                ORDER BY m_ing.id DESC
-                                LIMIT 1
-                            ) AS MovimientoEntradaId,
-
-                            (
-                                SELECT CONCAT(m_ing2.serie_documento, '-', m_ing2.numero_documento)
-                                FROM movimientos m_ing2
-                                INNER JOIN motivo_productos mp_ing2 ON m_ing2.motivo_producto_id = mp_ing2.id
-                                INNER JOIN movimiento_detalles md_ing2 ON md_ing2.movimiento_id = m_ing2.id
-                                INNER JOIN movimiento_codigos mc_ing2 ON mc_ing2.movimiento_detalle_id = md_ing2.id
-                                WHERE mp_ing2.tipo_movimiento_id = 1
-                                  AND m_ing2.motivo_producto_id IN (4, 10)
-                                  AND COALESCE(m_ing2.almacen_id, m_ing2.almacen_destino_id, 1) = m.almacen_destino_id
-                                  AND mc_ing2.codigo_creado_id IN (
-                                      SELECT mc_sub.codigo_creado_id 
-                                      FROM movimiento_detalles md_sub
-                                      INNER JOIN movimiento_codigos mc_sub ON mc_sub.movimiento_detalle_id = md_sub.id
-                                      WHERE md_sub.movimiento_id = m.id
-                                  )
-                                ORDER BY m_ing2.id DESC
-                                LIMIT 1
-                            ) AS SerieNumeroEntrada
+                            -- 🌟 ESTADO Y DATOS DE ENTRADA DESDE LA TABLA PUENTE
+                            CASE WHEN COALESCE(tc.estado, 'PENDIENTE') = 'PENDIENTE' THEN 1 ELSE 0 END AS EsPendiente,
+                            tc.movimiento_ingreso_id AS MovimientoEntradaId,
+                            CONCAT(m_ing.serie_documento, '-', m_ing.numero_documento) AS SerieNumeroEntrada
 
                         FROM movimientos m
                         INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        LEFT JOIN transferencias_control tc ON tc.movimiento_salida_id = m.id
+                        LEFT JOIN movimientos m_ing ON tc.movimiento_ingreso_id = m_ing.id
                         LEFT JOIN almacenes ao ON COALESCE(m.almacen_origen_id, m.almacen_id) = ao.id
                         LEFT JOIN almacenes ad ON m.almacen_destino_id = ad.id
                         LEFT JOIN usuarios u ON m.usuario_id = u.id
                         INNER JOIN movimiento_detalles md ON md.movimiento_id = m.id
-                        INNER JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
+                        LEFT JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
                         WHERE m.estado_id = 1
                           AND mp.tipo_movimiento_id = 2
                           AND (m.motivo_producto_id IN (4, 10))
@@ -225,6 +141,8 @@ namespace AplicativoDeAlmacen.Services
                             CONCAT(m.serie_documento, '-', m.numero_documento) AS SerieNumeroSalida,
                             ISNULL(CONCAT(m.serie_guia, '-', m.numero_guia), 'SIN GUÍA') AS GuiaRemision,
                             m.fecha_movimiento,
+                            ISNULL(tc.fecha_envio, m.fecha_movimiento) AS FechaEnvio,
+                            tc.fecha_recepcion AS FechaRecepcion,
                             ISNULL(m.almacen_origen_id, m.almacen_id) AS AlmacenOrigenId,
                             ISNULL(ao.nombre, 'ALMACÉN CENTRAL') AS OrigenNombre,
                             ISNULL(m.almacen_destino_id, 1) AS AlmacenDestinoId,
@@ -233,71 +151,21 @@ namespace AplicativoDeAlmacen.Services
                             ISNULL(mp.descripcion, 'TRANSFERENCIA') AS MotivoDesc,
                             ISNULL(m.observacion, '') AS Observacion,
                             COUNT(DISTINCT md.producto_id) AS TotalProductos,
-                            COUNT(mc.id) AS TotalCodigos,
+                            COALESCE(NULLIF(COUNT(mc.id), 0), CAST(SUM(COALESCE(md.cantidad_salida, md.cantidad_ingreso, 0)) AS INT), 0) AS TotalCodigos,
                             
-                            CASE 
-                                WHEN EXISTS (
-                                    SELECT 1 
-                                    FROM movimientos m_ing WITH (NOLOCK)
-                                    INNER JOIN motivo_productos mp_ing WITH (NOLOCK) ON m_ing.motivo_producto_id = mp_ing.id
-                                    INNER JOIN movimiento_detalles md_ing WITH (NOLOCK) ON md_ing.movimiento_id = m_ing.id
-                                    INNER JOIN movimiento_codigos mc_ing WITH (NOLOCK) ON mc_ing.movimiento_detalle_id = md_ing.id
-                                    WHERE mp_ing.tipo_movimiento_id = 1
-                                      AND m_ing.motivo_producto_id IN (4, 10)
-                                      AND ISNULL(m_ing.almacen_id, ISNULL(m_ing.almacen_destino_id, 1)) = m.almacen_destino_id
-                                      AND mc_ing.codigo_creado_id IN (
-                                          SELECT mc_sub.codigo_creado_id 
-                                          FROM movimiento_detalles md_sub WITH (NOLOCK)
-                                          INNER JOIN movimiento_codigos mc_sub WITH (NOLOCK) ON mc_sub.movimiento_detalle_id = md_sub.id
-                                          WHERE md_sub.movimiento_id = m.id
-                                      )
-                                ) THEN 0
-                                ELSE 1
-                            END AS EsPendiente,
-
-                            (
-                                SELECT TOP 1 m_ing.id 
-                                FROM movimientos m_ing WITH (NOLOCK)
-                                INNER JOIN motivo_productos mp_ing WITH (NOLOCK) ON m_ing.motivo_producto_id = mp_ing.id
-                                INNER JOIN movimiento_detalles md_ing WITH (NOLOCK) ON md_ing.movimiento_id = m_ing.id
-                                INNER JOIN movimiento_codigos mc_ing WITH (NOLOCK) ON mc_ing.movimiento_detalle_id = md_ing.id
-                                WHERE mp_ing.tipo_movimiento_id = 1
-                                  AND m_ing.motivo_producto_id IN (4, 10)
-                                  AND ISNULL(m_ing.almacen_id, ISNULL(m_ing.almacen_destino_id, 1)) = m.almacen_destino_id
-                                  AND mc_ing.codigo_creado_id IN (
-                                      SELECT mc_sub.codigo_creado_id 
-                                      FROM movimiento_detalles md_sub WITH (NOLOCK)
-                                      INNER JOIN movimiento_codigos mc_sub WITH (NOLOCK) ON mc_sub.movimiento_detalle_id = md_sub.id
-                                      WHERE md_sub.movimiento_id = m.id
-                                  )
-                                ORDER BY m_ing.id DESC
-                            ) AS MovimientoEntradaId,
-
-                            (
-                                SELECT TOP 1 CONCAT(m_ing2.serie_documento, '-', m_ing2.numero_documento)
-                                FROM movimientos m_ing2 WITH (NOLOCK)
-                                INNER JOIN motivo_productos mp_ing2 WITH (NOLOCK) ON m_ing2.motivo_producto_id = mp_ing2.id
-                                INNER JOIN movimiento_detalles md_ing2 WITH (NOLOCK) ON md_ing2.movimiento_id = m_ing2.id
-                                INNER JOIN movimiento_codigos mc_ing2 WITH (NOLOCK) ON mc_ing2.movimiento_detalle_id = md_ing2.id
-                                WHERE mp_ing2.tipo_movimiento_id = 1
-                                  AND m_ing2.motivo_producto_id IN (4, 10)
-                                  AND ISNULL(m_ing2.almacen_id, ISNULL(m_ing2.almacen_destino_id, 1)) = m.almacen_destino_id
-                                  AND mc_ing2.codigo_creado_id IN (
-                                      SELECT mc_sub.codigo_creado_id 
-                                      FROM movimiento_detalles md_sub WITH (NOLOCK)
-                                      INNER JOIN movimiento_codigos mc_sub WITH (NOLOCK) ON mc_sub.movimiento_detalle_id = md_sub.id
-                                      WHERE md_sub.movimiento_id = m.id
-                                  )
-                                ORDER BY m_ing2.id DESC
-                            ) AS SerieNumeroEntrada
+                            CASE WHEN ISNULL(tc.estado, 'PENDIENTE') = 'PENDIENTE' THEN 1 ELSE 0 END AS EsPendiente,
+                            tc.movimiento_ingreso_id AS MovimientoEntradaId,
+                            CONCAT(m_ing.serie_documento, '-', m_ing.numero_documento) AS SerieNumeroEntrada
 
                         FROM movimientos m WITH (NOLOCK)
                         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                        LEFT JOIN transferencias_control tc WITH (NOLOCK) ON tc.movimiento_salida_id = m.id
+                        LEFT JOIN movimientos m_ing WITH (NOLOCK) ON tc.movimiento_ingreso_id = m_ing.id
                         LEFT JOIN almacenes ao WITH (NOLOCK) ON ISNULL(m.almacen_origen_id, m.almacen_id) = ao.id
                         LEFT JOIN almacenes ad WITH (NOLOCK) ON m.almacen_destino_id = ad.id
                         LEFT JOIN usuarios u WITH (NOLOCK) ON m.usuario_id = u.id
                         INNER JOIN movimiento_detalles md WITH (NOLOCK) ON md.movimiento_id = m.id
-                        INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
+                        LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
                         WHERE m.estado_id = 1
                           AND mp.tipo_movimiento_id = 2
                           AND (m.motivo_producto_id IN (4, 10))
@@ -309,7 +177,9 @@ namespace AplicativoDeAlmacen.Services
 
                 query += @"
                         GROUP BY m.id, m.serie_documento, m.numero_documento, m.serie_guia, m.numero_guia, 
-                                 m.fecha_movimiento, m.almacen_origen_id, m.almacen_id, ao.nombre, m.almacen_destino_id, 
+                                 m.fecha_movimiento, tc.fecha_envio, tc.fecha_recepcion, tc.estado, tc.movimiento_ingreso_id,
+                                 m_ing.serie_documento, m_ing.numero_documento,
+                                 m.almacen_origen_id, m.almacen_id, ao.nombre, m.almacen_destino_id, 
                                  ad.nombre, u.nombres, mp.descripcion, m.observacion, m.created_at
                         ORDER BY m.created_at DESC";
 
@@ -327,19 +197,22 @@ namespace AplicativoDeAlmacen.Services
                     string serieNumSalida = rdr.GetString(1);
                     string guia = rdr.GetString(2);
                     DateTime fecha = rdr.IsDBNull(3) ? DateTime.Today : rdr.GetDateTime(3);
-                    int origId = rdr.GetInt32(4);
-                    string origNom = rdr.GetString(5);
-                    int destId = rdr.GetInt32(6);
-                    string destNom = rdr.GetString(7);
-                    string emisorNom = rdr.GetString(8);
-                    string motivoDesc = rdr.GetString(9);
-                    string obs = rdr.GetString(10);
-                    int totProds = Convert.ToInt32(rdr.GetValue(11));
-                    int totCods = Convert.ToInt32(rdr.GetValue(12));
-                    bool esPendiente = Convert.ToInt32(rdr.GetValue(13)) == 1;
+                    DateTime fEnvio = rdr.IsDBNull(4) ? fecha : rdr.GetDateTime(4);
+                    DateTime? fRecep = rdr.IsDBNull(5) ? (DateTime?)null : rdr.GetDateTime(5);
 
-                    int? movEntradaId = rdr.IsDBNull(14) ? (int?)null : rdr.GetInt32(14);
-                    string serieNumEntrada = rdr.IsDBNull(15) ? string.Empty : rdr.GetString(15);
+                    int origId = rdr.GetInt32(6);
+                    string origNom = rdr.GetString(7);
+                    int destId = rdr.GetInt32(8);
+                    string destNom = rdr.GetString(9);
+                    string emisorNom = rdr.GetString(10);
+                    string motivoDesc = rdr.GetString(11);
+                    string obs = rdr.GetString(12);
+                    int totProds = Convert.ToInt32(rdr.GetValue(13));
+                    int totCods = Convert.ToInt32(rdr.GetValue(14));
+                    bool esPendiente = Convert.ToInt32(rdr.GetValue(15)) == 1;
+
+                    int? movEntradaId = rdr.IsDBNull(16) ? (int?)null : rdr.GetInt32(16);
+                    string serieNumEntrada = rdr.IsDBNull(17) ? string.Empty : rdr.GetString(17);
 
                     bool soyElEmisor = (origId == miAlmacenId);
 
@@ -374,6 +247,8 @@ namespace AplicativoDeAlmacen.Services
                         SerieNumero = serieNumMostrar,
                         GuiaRemision = guia,
                         FechaMovimiento = fecha,
+                        FechaEnvio = fEnvio,
+                        FechaRecepcion = fRecep,
                         AlmacenOrigenId = origId,
                         AlmacenOrigenNombre = origNom,
                         AlmacenDestinoId = destId,
@@ -421,6 +296,8 @@ namespace AplicativoDeAlmacen.Services
                             CONCAT(m.serie_documento, '-', m.numero_documento) AS SerieNumero,
                             COALESCE(CONCAT(m.serie_guia, '-', m.numero_guia), '0000-0000000') AS GuiaRemision,
                             m.fecha_movimiento,
+                            COALESCE(tc.fecha_envio, m.fecha_movimiento) AS FechaEnvio,
+                            tc.fecha_recepcion AS FechaRecepcion,
                             COALESCE(m.almacen_origen_id, m.almacen_id) AS AlmacenOrigenId,
                             COALESCE(ao.nombre, 'ALMACÉN CENTRAL') AS OrigenNombre,
                             COALESCE(m.almacen_destino_id, 1) AS AlmacenDestinoId,
@@ -429,42 +306,30 @@ namespace AplicativoDeAlmacen.Services
                             COALESCE(mp.descripcion, 'TRANSFERENCIA') AS MotivoDesc,
                             COALESCE(m.observacion, '') AS Observacion,
                             COUNT(DISTINCT md.producto_id) AS TotalProductos,
-                            COUNT(mc.id) AS TotalCodigos,
+                            COALESCE(NULLIF(COUNT(mc.id), 0), CAST(SUM(COALESCE(md.cantidad_salida, md.cantidad_ingreso, 0)) AS SIGNED), 0) AS TotalCodigos,
                             
-                            CASE 
-                                WHEN EXISTS (
-                                    SELECT 1 
-                                    FROM movimientos m_ing
-                                    INNER JOIN motivo_productos mp_ing ON m_ing.motivo_producto_id = mp_ing.id
-                                    INNER JOIN movimiento_detalles md_ing ON md_ing.movimiento_id = m_ing.id
-                                    INNER JOIN movimiento_codigos mc_ing ON mc_ing.movimiento_detalle_id = md_ing.id
-                                    WHERE mp_ing.tipo_movimiento_id = 1
-                                      AND m_ing.motivo_producto_id IN (4, 10)
-                                      AND COALESCE(m_ing.almacen_id, m_ing.almacen_destino_id, 1) = @miAlmacen
-                                      AND mc_ing.codigo_creado_id IN (
-                                          SELECT mc_sub.codigo_creado_id 
-                                          FROM movimiento_detalles md_sub
-                                          INNER JOIN movimiento_codigos mc_sub ON mc_sub.movimiento_detalle_id = md_sub.id
-                                          WHERE md_sub.movimiento_id = m.id
-                                      )
-                                ) THEN 0
-                                ELSE 1
-                            END AS EsPendiente
+                            CASE WHEN COALESCE(tc.estado, 'PENDIENTE') = 'PENDIENTE' THEN 1 ELSE 0 END AS EsPendiente,
+                            tc.movimiento_ingreso_id AS MovimientoEntradaId,
+                            CONCAT(m_ing.serie_documento, '-', m_ing.numero_documento) AS SerieNumeroEntrada
 
                         FROM movimientos m
                         INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+                        LEFT JOIN transferencias_control tc ON tc.movimiento_salida_id = m.id
+                        LEFT JOIN movimientos m_ing ON tc.movimiento_ingreso_id = m_ing.id
                         LEFT JOIN almacenes ao ON COALESCE(m.almacen_origen_id, m.almacen_id) = ao.id
                         LEFT JOIN almacenes ad ON m.almacen_destino_id = ad.id
                         LEFT JOIN usuarios u ON m.usuario_id = u.id
                         INNER JOIN movimiento_detalles md ON md.movimiento_id = m.id
-                        INNER JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
+                        LEFT JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
                         WHERE m.almacen_destino_id = @miAlmacen
                           AND m.estado_id = 1
                           AND mp.tipo_movimiento_id = 2
                           AND (m.motivo_producto_id IN (4, 10))
                           AND COALESCE(m.almacen_id, m.almacen_origen_id, 1) != @miAlmacen
                         GROUP BY m.id, m.serie_documento, m.numero_documento, m.serie_guia, m.numero_guia, 
-                                 m.fecha_movimiento, m.almacen_origen_id, m.almacen_id, ao.nombre, m.almacen_destino_id, 
+                                 m.fecha_movimiento, tc.fecha_envio, tc.fecha_recepcion, tc.estado, tc.movimiento_ingreso_id,
+                                 m_ing.serie_documento, m_ing.numero_documento,
+                                 m.almacen_origen_id, m.almacen_id, ao.nombre, m.almacen_destino_id, 
                                  ad.nombre, u.nombres, mp.descripcion, m.observacion, m.created_at
                         ORDER BY EsPendiente DESC, m.created_at DESC
                         {limitClause}";
@@ -477,6 +342,8 @@ namespace AplicativoDeAlmacen.Services
                             CONCAT(m.serie_documento, '-', m.numero_documento) AS SerieNumero,
                             ISNULL(CONCAT(m.serie_guia, '-', m.numero_guia), '0000-0000000') AS GuiaRemision,
                             m.fecha_movimiento,
+                            ISNULL(tc.fecha_envio, m.fecha_movimiento) AS FechaEnvio,
+                            tc.fecha_recepcion AS FechaRecepcion,
                             ISNULL(m.almacen_origen_id, m.almacen_id) AS AlmacenOrigenId,
                             ISNULL(ao.nombre, 'ALMACÉN CENTRAL') AS OrigenNombre,
                             ISNULL(m.almacen_destino_id, 1) AS AlmacenDestinoId,
@@ -485,42 +352,30 @@ namespace AplicativoDeAlmacen.Services
                             ISNULL(mp.descripcion, 'TRANSFERENCIA') AS MotivoDesc,
                             ISNULL(m.observacion, '') AS Observacion,
                             COUNT(DISTINCT md.producto_id) AS TotalProductos,
-                            COUNT(mc.id) AS TotalCodigos,
+                            COALESCE(NULLIF(COUNT(mc.id), 0), CAST(SUM(COALESCE(md.cantidad_salida, md.cantidad_ingreso, 0)) AS INT), 0) AS TotalCodigos,
                             
-                            CASE 
-                                WHEN EXISTS (
-                                    SELECT 1 
-                                    FROM movimientos m_ing WITH (NOLOCK)
-                                    INNER JOIN motivo_productos mp_ing WITH (NOLOCK) ON m_ing.motivo_producto_id = mp_ing.id
-                                    INNER JOIN movimiento_detalles md_ing WITH (NOLOCK) ON md_ing.movimiento_id = m_ing.id
-                                    INNER JOIN movimiento_codigos mc_ing WITH (NOLOCK) ON mc_ing.movimiento_detalle_id = md_ing.id
-                                    WHERE mp_ing.tipo_movimiento_id = 1
-                                      AND m_ing.motivo_producto_id IN (4, 10)
-                                      AND ISNULL(m_ing.almacen_id, ISNULL(m_ing.almacen_destino_id, 1)) = @miAlmacen
-                                      AND mc_ing.codigo_creado_id IN (
-                                          SELECT mc_sub.codigo_creado_id 
-                                          FROM movimiento_detalles md_sub WITH (NOLOCK)
-                                          INNER JOIN movimiento_codigos mc_sub WITH (NOLOCK) ON mc_sub.movimiento_detalle_id = md_sub.id
-                                          WHERE md_sub.movimiento_id = m.id
-                                      )
-                                ) THEN 0
-                                ELSE 1
-                            END AS EsPendiente
+                            CASE WHEN ISNULL(tc.estado, 'PENDIENTE') = 'PENDIENTE' THEN 1 ELSE 0 END AS EsPendiente,
+                            tc.movimiento_ingreso_id AS MovimientoEntradaId,
+                            CONCAT(m_ing.serie_documento, '-', m_ing.numero_documento) AS SerieNumeroEntrada
 
                         FROM movimientos m WITH (NOLOCK)
                         INNER JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id
+                        LEFT JOIN transferencias_control tc WITH (NOLOCK) ON tc.movimiento_salida_id = m.id
+                        LEFT JOIN movimientos m_ing WITH (NOLOCK) ON tc.movimiento_ingreso_id = m_ing.id
                         LEFT JOIN almacenes ao WITH (NOLOCK) ON ISNULL(m.almacen_origen_id, m.almacen_id) = ao.id
                         LEFT JOIN almacenes ad WITH (NOLOCK) ON m.almacen_destino_id = ad.id
                         LEFT JOIN usuarios u WITH (NOLOCK) ON m.usuario_id = u.id
                         INNER JOIN movimiento_detalles md WITH (NOLOCK) ON md.movimiento_id = m.id
-                        INNER JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
+                        LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
                         WHERE m.almacen_destino_id = @miAlmacen
                           AND m.estado_id = 1
                           AND mp.tipo_movimiento_id = 2
                           AND (m.motivo_producto_id IN (4, 10))
                           AND ISNULL(m.almacen_id, ISNULL(m.almacen_origen_id, 1)) != @miAlmacen
                         GROUP BY m.id, m.serie_documento, m.numero_documento, m.serie_guia, m.numero_guia, 
-                                 m.fecha_movimiento, m.almacen_origen_id, m.almacen_id, ao.nombre, m.almacen_destino_id, 
+                                 m.fecha_movimiento, tc.fecha_envio, tc.fecha_recepcion, tc.estado, tc.movimiento_ingreso_id,
+                                 m_ing.serie_documento, m_ing.numero_documento,
+                                 m.almacen_origen_id, m.almacen_id, ao.nombre, m.almacen_destino_id, 
                                  ad.nombre, u.nombres, mp.descripcion, m.observacion, m.created_at
                         ORDER BY EsPendiente DESC, m.created_at DESC";
                 }
@@ -532,22 +387,49 @@ namespace AplicativoDeAlmacen.Services
                 using var rdr = await cmd.ExecuteReaderAsync();
                 while (await rdr.ReadAsync())
                 {
+                    int movSalidaId = rdr.GetInt32(0);
+                    string serieNumSalida = rdr.GetString(1);
+                    string guia = rdr.GetString(2);
+                    DateTime fecha = rdr.IsDBNull(3) ? DateTime.Today : rdr.GetDateTime(3);
+                    DateTime fEnvio = rdr.IsDBNull(4) ? fecha : rdr.GetDateTime(4);
+                    DateTime? fRecep = rdr.IsDBNull(5) ? (DateTime?)null : rdr.GetDateTime(5);
+
+                    int origId = rdr.GetInt32(6);
+                    string origNom = rdr.GetString(7);
+                    int destId = rdr.GetInt32(8);
+                    string destNom = rdr.GetString(9);
+                    string emisorNom = rdr.GetString(10);
+                    string motivoDesc = rdr.GetString(11);
+                    string obs = rdr.GetString(12);
+                    int totProds = Convert.ToInt32(rdr.GetValue(13));
+                    int totCods = Convert.ToInt32(rdr.GetValue(14));
+                    bool esPendiente = Convert.ToInt32(rdr.GetValue(15)) == 1;
+
+                    int? movEntradaId = rdr.IsDBNull(16) ? (int?)null : rdr.GetInt32(16);
+                    string serieNumEntrada = rdr.IsDBNull(17) ? string.Empty : rdr.GetString(17);
+
+                    string serieNumFinal = (!esPendiente && !string.IsNullOrEmpty(serieNumEntrada)) 
+                        ? serieNumEntrada 
+                        : serieNumSalida;
+
                     lista.Add(new TransaccionHeaderDTO
                     {
-                        MovimientoId = rdr.GetInt32(0),
-                        SerieNumero = rdr.GetString(1),
-                        GuiaRemision = rdr.GetString(2),
-                        FechaMovimiento = rdr.IsDBNull(3) ? DateTime.Today : rdr.GetDateTime(3),
-                        AlmacenOrigenId = rdr.GetInt32(4),
-                        AlmacenOrigenNombre = rdr.GetString(5),
-                        AlmacenDestinoId = rdr.GetInt32(6),
-                        AlmacenDestinoNombre = rdr.GetString(7),
-                        UsuarioEmisorNombre = rdr.GetString(8),
-                        MotivoDescripcion = rdr.GetString(9),
-                        Observacion = rdr.GetString(10),
-                        TotalProductos = Convert.ToInt32(rdr.GetValue(11)),
-                        TotalCodigos = Convert.ToInt32(rdr.GetValue(12)),
-                        EsPendiente = Convert.ToInt32(rdr.GetValue(13)) == 1,
+                        MovimientoId = (!esPendiente && movEntradaId.HasValue) ? movEntradaId.Value : movSalidaId,
+                        SerieNumero = serieNumFinal,
+                        GuiaRemision = guia,
+                        FechaMovimiento = fecha,
+                        FechaEnvio = fEnvio,
+                        FechaRecepcion = fRecep,
+                        AlmacenOrigenId = origId,
+                        AlmacenOrigenNombre = origNom,
+                        AlmacenDestinoId = destId,
+                        AlmacenDestinoNombre = destNom,
+                        UsuarioEmisorNombre = emisorNom,
+                        MotivoDescripcion = motivoDesc,
+                        Observacion = obs,
+                        TotalProductos = totProds,
+                        TotalCodigos = totCods,
+                        EsPendiente = esPendiente,
                         SoyElEmisor = false
                     });
                 }
@@ -573,7 +455,6 @@ namespace AplicativoDeAlmacen.Services
                 var dbConn = (DbConnection)conn;
                 await dbConn.OpenAsync();
 
-                // A. Cargar los detalles del producto
                 string qDetalles;
                 if (QueryAdapter.EsMySQL)
                 {
@@ -616,7 +497,6 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // B. Cargar los códigos únicos asociados a cada detalle
                 foreach (var det in detalles)
                 {
                     string qCodigos;
@@ -654,6 +534,49 @@ namespace AplicativoDeAlmacen.Services
             }
 
             return detalles;
+        }
+
+        public async Task<(DateTime? FechaEnvio, DateTime? FechaRecepcion)> ObtenerFechasTransferenciaAsync(int movimientoId, bool esSalida)
+        {
+            try
+            {
+                using var conn = _database.GetConnection();
+                var dbConn = (DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                string columnaFiltro = esSalida ? "movimiento_salida_id" : "movimiento_ingreso_id";
+                string query = $@"
+            SELECT fecha_envio, fecha_recepcion 
+            FROM transferencias_control 
+            WHERE {columnaFiltro} = @movId
+            LIMIT 1";
+
+                if (!QueryAdapter.EsMySQL)
+                {
+                    query = $@"
+                SELECT TOP 1 fecha_envio, fecha_recepcion 
+                FROM transferencias_control WITH (NOLOCK)
+                WHERE {columnaFiltro} = @movId";
+                }
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+                AgregarParametro(cmd, "@movId", movimientoId);
+
+                using var rdr = await cmd.ExecuteReaderAsync();
+                if (await rdr.ReadAsync())
+                {
+                    DateTime? fEnvio = rdr.IsDBNull(0) ? (DateTime?)null : rdr.GetDateTime(0);
+                    DateTime? fRecep = rdr.IsDBNull(1) ? (DateTime?)null : rdr.GetDateTime(1);
+                    return (fEnvio, fRecep);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error obteniendo fechas de transferencia: {ex.Message}");
+            }
+
+            return (null, null);
         }
     }
 }

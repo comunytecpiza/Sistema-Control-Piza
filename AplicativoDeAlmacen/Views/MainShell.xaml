@@ -172,131 +172,238 @@
                         </Button>
 
                         <!-- POPUP FLOTANTE DE NOTIFICACIONES (TIPO TRAY) -->
+                        <!-- POPUP FLOTANTE REDISEÑADO CON PESTAÑAS Y PAGINACIÓN -->
                         <Popup x:Name="PopupBandeja" 
-           PlacementTarget="{Binding ElementName=BtnBandejaTransacciones}" 
-           Placement="Bottom" 
-           StaysOpen="False" 
-           AllowsTransparency="True" 
-           PopupAnimation="Fade">
-                            <Border Background="White" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="12" Width="380" MaxHeight="480" Margin="0,5,10,10">
+       PlacementTarget="{Binding ElementName=BtnBandejaTransacciones}" 
+       Placement="Bottom" 
+       StaysOpen="False" 
+       AllowsTransparency="True" 
+       PopupAnimation="Fade">
+                            <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Width="400" Margin="0,6,10,10">
                                 <Border.Effect>
-                                    <DropShadowEffect BlurRadius="15" ShadowDepth="4" Color="Black" Opacity="0.12"/>
+                                    <DropShadowEffect BlurRadius="22" ShadowDepth="6" Color="#0F172A" Opacity="0.14"/>
                                 </Border.Effect>
 
-                                <Grid Margin="12">
+                                <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
+                                        <!-- Cabecera y Tabs -->
                                         <RowDefinition Height="Auto"/>
+                                        <!-- Contenido de Items -->
+                                        <RowDefinition Height="Auto"/>
+                                        <!-- Footer con Paginación -->
                                     </Grid.RowDefinitions>
 
-                                    <!-- Cabecera -->
-                                    <Border Grid.Row="0" Margin="4,4,4,12" Padding="12,10">
-                                        <DockPanel LastChildFill="False">
-                                            <TextBlock Text="📦 Transferencias Entrantes" FontWeight="Bold" FontSize="14" Foreground="#111827" VerticalAlignment="Center"/>
-                                            <Button Content="🔄" Click="BtnRefrescarBandeja_Click" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand" ToolTip="Actualizar"/>
-                                        </DockPanel>
+                                    <!-- 1. HEADER + SELECTOR DE PESTAÑAS -->
+                                    <Border Grid.Row="0" Background="#F8FAFC" CornerRadius="14,14,0,0" Padding="14,12,14,10" BorderBrush="#F1F5F9" BorderThickness="0,0,0,1">
+                                        <StackPanel>
+                                            <DockPanel Margin="0,0,0,10">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="🔔 Notificaciones" FontWeight="Bold" FontSize="14" Foreground="#0F172A"/>
+                                                </StackPanel>
+                                                <Button Content="🔄" Click="BtnRefrescarBandeja_Click" 
+                                HorizontalAlignment="Right" Background="Transparent" 
+                                BorderThickness="0" Cursor="Hand" ToolTip="Actualizar" FontSize="14" Foreground="#64748B"/>
+                                            </DockPanel>
+
+                                            <!-- Segmented Control (Pestañas Pendientes / Recepcionados) -->
+                                            <Border Background="#E2E8F0" CornerRadius="8" Padding="3">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <Button x:Name="BtnTabPendientes" Grid.Column="0" Click="BtnTabPendientes_Click"
+                                    Height="28" Background="#FFFFFF" BorderThickness="0" Cursor="Hand">
+                                                        <Button.Template>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="bdrTab" Background="{TemplateBinding Background}" CornerRadius="6">
+                                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                        <TextBlock Text="⏳ Pendientes" FontSize="12" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                                                        <Border x:Name="bdrBadge" Background="#EF4444" CornerRadius="8" Padding="5,0" Margin="6,0,0,0" VerticalAlignment="Center">
+                                                                            <TextBlock x:Name="TxtBadgePendientes" Text="0" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                                                        </Border>
+                                                                    </StackPanel>
+                                                                </Border>
+                                                            </ControlTemplate>
+                                                        </Button.Template>
+                                                    </Button>
+
+                                                    <Button x:Name="BtnTabRecepcionados" Grid.Column="1" Click="BtnTabRecepcionados_Click"
+                                    Height="28" Background="Transparent" BorderThickness="0" Cursor="Hand">
+                                                        <Button.Template>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="bdrTab" Background="{TemplateBinding Background}" CornerRadius="6">
+                                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                        <TextBlock Text="✅ Recibidos" FontSize="12" FontWeight="SemiBold" Foreground="#64748B"/>
+                                                                    </StackPanel>
+                                                                </Border>
+                                                            </ControlTemplate>
+                                                        </Button.Template>
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+                                        </StackPanel>
                                     </Border>
 
-                                    <!-- Lista de Items -->
-                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="350">
-                                        <ItemsControl x:Name="LstTransaccionesBandeja">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border CornerRadius="8" Padding="12" Margin="0,0,0,8" BorderThickness="1">
-                                                        <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Background" Value="#FFFFFF"/>
-                                                                <Setter Property="BorderBrush" Value="#3B82F6"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding EsPendiente}" Value="False">
-                                                                        <Setter Property="Background" Value="#F3F4F6"/>
-                                                                        <Setter Property="BorderBrush" Value="#E5E7EB"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Border.Style>
+                                    <!-- 2. CONTENEDOR DE TARJETAS -->
+                                    <Grid Grid.Row="1" MinHeight="260" MaxHeight="360">
+                                        <!-- Estado Vacío -->
+                                        <StackPanel x:Name="PanelVacioPopup" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed" Margin="20">
+                                            <TextBlock Text="✨" FontSize="28" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                                            <TextBlock Text="No hay transferencias en esta sección" FontSize="12" FontWeight="SemiBold" Foreground="#94A3B8" HorizontalAlignment="Center"/>
+                                        </StackPanel>
 
-                                                        <Grid>
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="Auto"/>
-                                                            </Grid.RowDefinitions>
+                                        <!-- Lista de Transferencias -->
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,10">
+                                            <ItemsControl x:Name="LstTransaccionesBandeja">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="#FFFFFF" CornerRadius="10" Padding="12" Margin="0,0,0,8" 
+                                        BorderBrush="#E2E8F0" BorderThickness="1">
+                                                            <Border.Effect>
+                                                                <DropShadowEffect BlurRadius="6" ShadowDepth="1" Direction="270" Color="Black" Opacity="0.04"/>
+                                                            </Border.Effect>
 
-                                                            <!-- Fila 1: Guía y Estado -->
-                                                            <DockPanel Grid.Row="0">
-                                                                <TextBlock Text="{Binding GuiaRemision}" FontWeight="Bold" FontSize="13" Foreground="#1F2937"/>
-                                                                <Border HorizontalAlignment="Right" CornerRadius="4" Padding="6,2">
-                                                                    <Border.Style>
-                                                                        <Style TargetType="Border">
-                                                                            <Setter Property="Background" Value="#FEF3C7"/>
-                                                                            <Style.Triggers>
-                                                                                <DataTrigger Binding="{Binding EsPendiente}" Value="False">
-                                                                                    <Setter Property="Background" Value="#E5E7EB"/>
-                                                                                </DataTrigger>
-                                                                            </Style.Triggers>
-                                                                        </Style>
-                                                                    </Border.Style>
-                                                                    <TextBlock FontSize="11" FontWeight="SemiBold">
-                                                                        <TextBlock.Style>
-                                                                            <Style TargetType="TextBlock">
-                                                                                <Setter Property="Text" Value="⏳ Por Recepcionar"/>
-                                                                                <Setter Property="Foreground" Value="#D97706"/>
+                                                            <Grid>
+                                                                <Grid.RowDefinitions>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                    <RowDefinition Height="Auto"/>
+                                                                </Grid.RowDefinitions>
+
+                                                                <!-- Fila 1: Guía y Badge de Estado -->
+                                                                <DockPanel Grid.Row="0">
+                                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                                        <TextBlock Text="📄 " FontSize="11"/>
+                                                                        <TextBlock Text="{Binding GuiaRemision}" FontWeight="Bold" FontSize="13" Foreground="#0F172A"/>
+                                                                    </StackPanel>
+
+                                                                    <!-- Chip Estado Logístico -->
+                                                                    <Border HorizontalAlignment="Right" CornerRadius="12" Padding="8,2">
+                                                                        <Border.Style>
+                                                                            <Style TargetType="Border">
+                                                                                <Setter Property="Background" Value="#DCFCE7"/>
                                                                                 <Style.Triggers>
-                                                                                    <DataTrigger Binding="{Binding EsPendiente}" Value="False">
-                                                                                        <Setter Property="Text" Value="✅ Recibido"/>
-                                                                                        <Setter Property="Foreground" Value="#4B5563"/>
+                                                                                    <DataTrigger Binding="{Binding EsPendiente}" Value="True">
+                                                                                        <Setter Property="Background" Value="#FEF3C7"/>
                                                                                     </DataTrigger>
                                                                                 </Style.Triggers>
                                                                             </Style>
-                                                                        </TextBlock.Style>
+                                                                        </Border.Style>
+                                                                        <TextBlock FontSize="10" FontWeight="Bold">
+                                                                            <TextBlock.Style>
+                                                                                <Style TargetType="TextBlock">
+                                                                                    <Setter Property="Text" Value="RECIBIDO"/>
+                                                                                    <Setter Property="Foreground" Value="#15803D"/>
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding EsPendiente}" Value="True">
+                                                                                            <Setter Property="Text" Value="EN TRÁNSITO"/>
+                                                                                            <Setter Property="Foreground" Value="#B45309"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </TextBlock.Style>
+                                                                        </TextBlock>
+                                                                    </Border>
+                                                                </DockPanel>
+
+                                                                <!-- Fila 2: Ruta y Fechas -->
+                                                                <StackPanel Grid.Row="1" Margin="0,7,0,8">
+                                                                    <TextBlock FontSize="12" Foreground="#334155">
+                                                <Run Text="{Binding AlmacenOrigenNombre}" FontWeight="SemiBold"/>
+                                                <Run Text=" ➔ " Foreground="#94A3B8" FontWeight="Bold"/>
+                                                <Run Text="{Binding AlmacenDestinoNombre}" FontWeight="SemiBold" Foreground="#2563EB"/>
                                                                     </TextBlock>
-                                                                </Border>
-                                                            </DockPanel>
 
-                                                            <!-- Fila 2: Origen y Fecha -->
-                                                            <StackPanel Grid.Row="1" Margin="0,6,0,6">
-                                                                <TextBlock FontSize="12" Foreground="#4B5563">
-                                                <Run Text="Origen: " FontWeight="SemiBold"/>
-                                                <Run Text="{Binding AlmacenOrigenNombre}"/>
-                                                                </TextBlock>
-                                                                <TextBlock FontSize="11" Foreground="#9CA3AF" Margin="0,2,0,0">
-                                                <Run Text="📦 "/>
-                                                <Run Text="{Binding TotalProductos}"/>
-                                                <Run Text=" Prod. ("/>
-                                                <Run Text="{Binding TotalCodigos}"/>
-                                                <Run Text=" cód) · "/>
-                                                <Run Text="{Binding FechaMovimiento, StringFormat='{}{0:dd/MM/yyyy}'}"/>
-                                                                </TextBlock>
-                                                            </StackPanel>
+                                                                    <DockPanel Margin="0,4,0,0">
+                                                                        <TextBlock FontSize="11" Foreground="#64748B">
+                                                    <Run Text="📦 "/>
+                                                    <Run Text="{Binding TotalProductos}"/>
+                                                    <Run Text=" prod ("/>
+                                                    <Run Text="{Binding TotalCodigos}"/>
+                                                    <Run Text=" und)"/>
+                                                                        </TextBlock>
 
-                                                            <!-- Fila 3: Acciones -->
-                                                            <Button Grid.Row="2" 
-                                                Content="📥 Ver / Recepcionar" 
+                                                                        <!-- Fecha Envío / Recepción -->
+                                                                        <TextBlock HorizontalAlignment="Right" FontSize="11" Foreground="#64748B">
+                                                                            <TextBlock.Style>
+                                                                                <Style TargetType="TextBlock">
+                                                                                    <Setter Property="Text" Value="{Binding FechaRecepcion, StringFormat='Recibido: {0:dd/MM/yyyy}'}"/>
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding EsPendiente}" Value="True">
+                                                                                            <Setter Property="Text" Value="{Binding FechaEnvio, StringFormat='Enviado: {0:dd/MM/yyyy}'}"/>
+                                                                                            <Setter Property="Foreground" Value="#D97706"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </TextBlock.Style>
+                                                                        </TextBlock>
+                                                                    </DockPanel>
+                                                                </StackPanel>
+
+                                                                <!-- Fila 3: Botón de Acción -->
+                                                                <Button Grid.Row="2" 
+                                                Content="{Binding TextoBotonAccion}" 
+                                                Background="{Binding ColorBotonAccion}" 
                                                 Tag="{Binding}" 
                                                 Click="BtnAtenderTransferencia_Click" 
-                                                Height="28" FontSize="11" FontWeight="SemiBold" 
-                                                Background="#2563EB" Foreground="White" 
-                                                BorderThickness="0" Cursor="Hand" Margin="0,4,0,0">
-                                                                <Button.Template>
-                                                                    <ControlTemplate TargetType="Button">
-                                                                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
-                                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                                        </Border>
-                                                                    </ControlTemplate>
-                                                                </Button.Template>
-                                                            </Button>
-                                                        </Grid>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
+                                                Height="28" FontSize="11" FontWeight="Bold" 
+                                                Foreground="White" BorderThickness="0" Cursor="Hand">
+                                                                    <Button.Template>
+                                                                        <ControlTemplate TargetType="Button">
+                                                                            <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                            </Border>
+                                                                        </ControlTemplate>
+                                                                    </Button.Template>
+                                                                </Button>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Grid>
 
-                                    <!-- Pie del Popup -->
-                                    <Border Grid.Row="2" BorderBrush="#F3F4F6" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,8,0,0">
-                                        <TextBlock Text="Bandeja de Entradas en Tiempo Real" FontSize="11" Foreground="#9CA3AF" HorizontalAlignment="Center"/>
+                                    <!-- 3. FOOTER CON CONTROLES DE PAGINACIÓN -->
+                                    <Border Grid.Row="2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" 
+                    CornerRadius="0,0,14,14" Padding="12,8">
+                                        <DockPanel LastChildFill="False">
+                                            <!-- Contador de página -->
+                                            <TextBlock x:Name="TxtInfoPaginacionPopup" Text="Página 1 de 1 (0 items)" 
+                               FontSize="11" Foreground="#64748B" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+
+                                            <!-- Flechas Anterior / Siguiente -->
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                                                <Button x:Name="BtnPaginaAnteriorPopup" Content="◀" Click="BtnPaginaAnteriorPopup_Click"
+                                Width="26" Height="26" Background="White" BorderBrush="#CBD5E1" BorderThickness="1"
+                                Foreground="#334155" FontSize="10" FontWeight="Bold" Cursor="Hand" Margin="0,0,4,0">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" 
+                                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+
+                                                <Button x:Name="BtnPaginaSiguientePopup" Content="▶" Click="BtnPaginaSiguientePopup_Click"
+                                Width="26" Height="26" Background="White" BorderBrush="#CBD5E1" BorderThickness="1"
+                                Foreground="#334155" FontSize="10" FontWeight="Bold" Cursor="Hand">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" 
+                                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+                                            </StackPanel>
+                                        </DockPanel>
                                     </Border>
                                 </Grid>
                             </Border>

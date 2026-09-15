@@ -735,6 +735,57 @@ namespace AplicativoDeAlmacen.Services
                     await cmdAudit.ExecuteNonQueryAsync();
                 }
 
+                int motivoIdSalida = cabecera.MotivoProductoId;
+                if (motivoIdSalida == 10 || motivoIdSalida == 4)
+                {
+                    int almOrigenTrans = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
+                    int almDestinoTrans = cabecera.AlmacenDestinoId ?? 1;
+
+                    string sqlTransControl;
+                    if (QueryAdapter.EsMySQL)
+                    {
+                        sqlTransControl = @"
+                            INSERT INTO transferencias_control 
+                            (movimiento_salida_id, almacen_origen_id, almacen_destino_id, fecha_envio, estado, created_at)
+                            VALUES 
+                            (@movSalidaId, @almOrig, @almDest, @fEnvio, 'PENDIENTE', NOW())
+                            ON DUPLICATE KEY UPDATE 
+                                almacen_origen_id = @almOrig,
+                                almacen_destino_id = @almDest,
+                                fecha_envio = @fEnvio;";
+                    }
+                    else
+                    {
+                        sqlTransControl = @"
+                            IF EXISTS (SELECT 1 FROM transferencias_control WHERE movimiento_salida_id = @movSalidaId)
+                            BEGIN
+                                UPDATE transferencias_control
+                                SET almacen_origen_id = @almOrig,
+                                    almacen_destino_id = @almDest,
+                                    fecha_envio = @fEnvio
+                                WHERE movimiento_salida_id = @movSalidaId;
+                            END
+                            ELSE
+                            BEGIN
+                                INSERT INTO transferencias_control 
+                                (movimiento_salida_id, almacen_origen_id, almacen_destino_id, fecha_envio, estado, created_at)
+                                VALUES 
+                                (@movSalidaId, @almOrig, @almDest, @fEnvio, 'PENDIENTE', GETDATE());
+                            END";
+                    }
+
+                    using var cmdTransCtrl = dbConn.CreateCommand();
+                    cmdTransCtrl.Transaction = transaccion;
+                    cmdTransCtrl.CommandText = QueryAdapter.FormatearConsulta(sqlTransControl);
+                    AgregarParametro(cmdTransCtrl, "@movSalidaId", movimientoIdInserted);
+                    AgregarParametro(cmdTransCtrl, "@almOrig", almOrigenTrans);
+                    AgregarParametro(cmdTransCtrl, "@almDest", almDestinoTrans);
+                    AgregarParametro(cmdTransCtrl, "@fEnvio", fechaMovimientoFinal);
+
+                    await cmdTransCtrl.ExecuteNonQueryAsync();
+                }
+
+
                 // --- El resto del método continúa con su lógica masiva idéntica ---
                 progress?.Report(20);
 
@@ -1586,6 +1637,15 @@ FROM HistorialOrdenado WHERE rn = 1";
                     cmdStatus.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimientos SET estado_id = 4 WHERE id = @movId");
                     AgregarParametro(cmdStatus, "@movId", movimientoId);
                     await cmdStatus.ExecuteNonQueryAsync();
+                }
+                // 🌟 Si era una transferencia, limpiar su control para no dejar pendientes huérfanos
+                if (motivoProductoId == 10 || motivoProductoId == 4)
+                {
+                    using var cmdDelControl = dbConn.CreateCommand();
+                    cmdDelControl.Transaction = transaccion;
+                    cmdDelControl.CommandText = QueryAdapter.FormatearConsulta("DELETE FROM transferencias_control WHERE movimiento_salida_id = @movId");
+                    AgregarParametro(cmdDelControl, "@movId", movimientoId);
+                    await cmdDelControl.ExecuteNonQueryAsync();
                 }
 
                 // 7. Recalcular Kárdex/Stock físico del almacén emisor

@@ -870,6 +870,21 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdStatus, "@movId", movimientoId);
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
+                // 🌟 Si era una entrada por transferencia, desvincularla para que vuelva a ser PENDIENTE
+                string sqlRevertTransControl = @"
+                    UPDATE transferencias_control 
+                    SET movimiento_ingreso_id = NULL,
+                        fecha_recepcion = NULL,
+                        estado = 'PENDIENTE'
+                    WHERE movimiento_ingreso_id = @movId";
+
+                using (var cmdRevTrans = dbConn.CreateCommand())
+                {
+                    cmdRevTrans.Transaction = transaccion;
+                    cmdRevTrans.CommandText = QueryAdapter.FormatearConsulta(sqlRevertTransControl);
+                    AgregarParametro(cmdRevTrans, "@movId", movimientoId);
+                    await cmdRevTrans.ExecuteNonQueryAsync();
+                }
 
                 // 7. Recalcular el stock físico del almacén
                 using (var cmdProds = dbConn.CreateCommand())
@@ -908,25 +923,53 @@ namespace AplicativoDeAlmacen.Services
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            string query = @"
-        SELECT 
-            m.id AS MovimientoSalidaId,
-            CONCAT(m.serie_documento, '-', m.numero_documento) AS GuiaRemision,
-            ISNULL(ao.nombre, 'Almacén Central') AS AlmacenOrigen,
-            p.id AS ProductoId,
-            p.descripcion AS Producto,
-            COUNT(cc.id) AS CantidadEnTransito,
-            m.created_at
-        FROM movimientos m
-        INNER JOIN almacenes ao ON m.almacen_origen_id = ao.id
-        INNER JOIN movimiento_detalles md ON md.movimiento_id = m.id
-        INNER JOIN productos p ON md.producto_id = p.id
-        INNER JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
-        INNER JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id
-        WHERE m.almacen_destino_id = @miAlmacen
-          AND cc.estado_id = 5 -- 5 = EN TRÁNSITO POR TRANSFERENCIA
-        GROUP BY m.id, m.serie_documento, m.numero_documento, ao.nombre, p.id, p.descripcion, m.created_at
-        ORDER BY m.created_at DESC";
+            string query;
+            if (QueryAdapter.EsMySQL)
+            {
+                query = @"
+            SELECT 
+                m.id AS MovimientoSalidaId,
+                CONCAT(m.serie_documento, '-', m.numero_documento) AS GuiaRemision,
+                COALESCE(ao.nombre, 'Almacén Central') AS AlmacenOrigen,
+                p.id AS ProductoId,
+                p.descripcion AS Producto,
+                COALESCE(NULLIF(COUNT(cc.id), 0), CAST(md.cantidad_salida AS SIGNED), 0) AS CantidadEnTransito,
+                m.created_at
+            FROM movimientos m
+            INNER JOIN almacenes ao ON COALESCE(m.almacen_origen_id, m.almacen_id) = ao.id
+            INNER JOIN movimiento_detalles md ON md.movimiento_id = m.id
+            INNER JOIN productos p ON md.producto_id = p.id
+            LEFT JOIN movimiento_codigos mc ON mc.movimiento_detalle_id = md.id
+            LEFT JOIN codigos_creados cc ON mc.codigo_creado_id = cc.id AND cc.estado_id = 5
+            WHERE m.almacen_destino_id = @miAlmacen
+              AND m.estado_id = 1
+              AND (cc.id IS NOT NULL OR mc.id IS NULL) -- Incluye serializados en tránsito o ítems no serializados
+            GROUP BY m.id, m.serie_documento, m.numero_documento, ao.nombre, p.id, p.descripcion, md.cantidad_salida, m.created_at
+            ORDER BY m.created_at DESC";
+            }
+            else
+            {
+                query = @"
+            SELECT 
+                m.id AS MovimientoSalidaId,
+                CONCAT(m.serie_documento, '-', m.numero_documento) AS GuiaRemision,
+                ISNULL(ao.nombre, 'Almacén Central') AS AlmacenOrigen,
+                p.id AS ProductoId,
+                p.descripcion AS Producto,
+                COALESCE(NULLIF(COUNT(cc.id), 0), CAST(md.cantidad_salida AS INT), 0) AS CantidadEnTransito,
+                m.created_at
+            FROM movimientos m WITH (NOLOCK)
+            INNER JOIN almacenes ao WITH (NOLOCK) ON ISNULL(m.almacen_origen_id, m.almacen_id) = ao.id
+            INNER JOIN movimiento_detalles md WITH (NOLOCK) ON md.movimiento_id = m.id
+            INNER JOIN productos p WITH (NOLOCK) ON md.producto_id = p.id
+            LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
+            LEFT JOIN codigos_creados cc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id AND cc.estado_id = 5
+            WHERE m.almacen_destino_id = @miAlmacen
+              AND m.estado_id = 1
+              AND (cc.id IS NOT NULL OR mc.id IS NULL)
+            GROUP BY m.id, m.serie_documento, m.numero_documento, ao.nombre, p.id, p.descripcion, md.cantidad_salida, m.created_at
+            ORDER BY m.created_at DESC";
+            }
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
@@ -942,8 +985,8 @@ namespace AplicativoDeAlmacen.Services
                     AlmacenOrigenNombre = reader.GetString(2),
                     ProductoId = reader.GetInt32(3),
                     ProductoNombre = reader.GetString(4),
-                    CantidadEnTransito = reader.GetInt32(5),
-                    FechaEnvio = reader.GetDateTime(6),
+                    CantidadEnTransito = Convert.ToInt32(reader.GetValue(5)),
+                    FechaEnvio = reader.IsDBNull(6) ? DateTime.Today : reader.GetDateTime(6),
                     Seleccionado = false
                 });
             }
@@ -952,7 +995,7 @@ namespace AplicativoDeAlmacen.Services
         }
         public async Task<bool> RegistrarMovimientoCompletoAsync(
         Movimiento cabecera, List<VistaProductoGrid> productos, List<RangoCodigoItem> rangos,int ubicacionId,int? existingMovimientoId = null,
-        IProgress<int>? progress = null)
+        IProgress<int>? progress= null, int? movimientoSalidaOrigenId = null)
 
         {
             using var conn = _database.GetConnection();
@@ -1019,7 +1062,79 @@ namespace AplicativoDeAlmacen.Services
                 progress?.Report(5);
                 // Línea donde se guarda la cabecera:
                 movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, usuarioActivoId, productos.Count, dbConn, transaccion);
+                
+                // 🌟 CONTROL DE TRANSFERENCIA: Si es Entrada por Transferencia (Motivo 4), enlazar la recepción
+                if (cabecera.MotivoProductoId == 4)
+                {
+                    // 👈 Declaración de la variable para resolver el error CS0103
+                    DateTime fechaRecepcionFinal = cabecera.FechaMovimiento ?? DateTime.Now;
 
+                    int almReceptor = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
+                    int almEmisor = cabecera.AlmacenOrigenId ?? 1;
+
+                    string sqlUpdateControl;
+                    if (movimientoSalidaOrigenId.HasValue && movimientoSalidaOrigenId.Value > 0)
+                    {
+                        // Enlace directo y exacto por ID de salida original
+                        sqlUpdateControl = @"
+            UPDATE transferencias_control 
+            SET movimiento_ingreso_id = @movIngresoId,
+                fecha_recepcion = @fRecep,
+                estado = 'RECEPCIONADO'
+            WHERE movimiento_salida_id = @movSalidaId;";
+                    }
+                    else
+                    {
+                        // Respaldo por última salida pendiente entre esas dos sedes
+                        if (QueryAdapter.EsMySQL)
+                        {
+                            sqlUpdateControl = @"
+                UPDATE transferencias_control 
+                SET movimiento_ingreso_id = @movIngresoId,
+                    fecha_recepcion = @fRecep,
+                    estado = 'RECEPCIONADO'
+                WHERE almacen_origen_id = @almOrig 
+                  AND almacen_destino_id = @almDest 
+                  AND estado = 'PENDIENTE'
+                ORDER BY id ASC 
+                LIMIT 1;";
+                        }
+                        else
+                        {
+                            sqlUpdateControl = @"
+                WITH CTE AS (
+                    SELECT TOP 1 movimiento_ingreso_id, fecha_recepcion, estado
+                    FROM transferencias_control WITH (ROWLOCK, UPDLOCK)
+                    WHERE almacen_origen_id = @almOrig 
+                      AND almacen_destino_id = @almDest 
+                      AND estado = 'PENDIENTE'
+                    ORDER BY id ASC
+                )
+                UPDATE CTE 
+                SET movimiento_ingreso_id = @movIngresoId,
+                    fecha_recepcion = @fRecep,
+                    estado = 'RECEPCIONADO';";
+                        }
+                    }
+
+                    using var cmdControl = dbConn.CreateCommand();
+                    cmdControl.Transaction = transaccion;
+                    cmdControl.CommandText = QueryAdapter.FormatearConsulta(sqlUpdateControl);
+                    AgregarParametro(cmdControl, "@movIngresoId", movimientoId);
+                    AgregarParametro(cmdControl, "@fRecep", fechaRecepcionFinal); // 👈 Asignado aquí
+
+                    if (movimientoSalidaOrigenId.HasValue && movimientoSalidaOrigenId.Value > 0)
+                    {
+                        AgregarParametro(cmdControl, "@movSalidaId", movimientoSalidaOrigenId.Value);
+                    }
+                    else
+                    {
+                        AgregarParametro(cmdControl, "@almOrig", almEmisor);
+                        AgregarParametro(cmdControl, "@almDest", almReceptor);
+                    }
+
+                    await cmdControl.ExecuteNonQueryAsync();
+                }
 
                 var codigosPreviosEnBD = new HashSet<int>();
                 if (existingMovimientoId.HasValue)

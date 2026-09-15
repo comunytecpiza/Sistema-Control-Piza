@@ -45,7 +45,7 @@ namespace AplicativoDeAlmacen.Views
         private List<VistaProductoGrid> _productosGridList;
         private List<VistaCodigoGrid> _codigosGridList;
         private List<RangoCodigoItem> _rangosProcesadosGlobal;
-
+        private bool _isCargaTransferenciaActiva = false;
         private bool _anularMode = false;
         private Button _btnAnularNearSave = null;
         private bool _isUpdatingFromSelection = false;
@@ -140,6 +140,10 @@ namespace AplicativoDeAlmacen.Views
         private async void MovimientosUserControl_Loaded(object sender, RoutedEventArgs e)
         {
             ConfigurarDataGridsParaVirtualizacion();
+
+            // Si venimos de la campana o historial, no recargar catálogos para no borrar la selección
+            if (_isCargaTransferenciaActiva) return;
+
             await CargarMotivosAsync();
             await CargarComboAlmacenesOrigenAsync();
         }
@@ -173,6 +177,7 @@ namespace AplicativoDeAlmacen.Views
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
                 const int ALMACEN_CENTRAL_ID = 1;
 
+                // Regla: Si soy Central (1) veo a todos; si soy sucursal (Trujillo 2, Lima), solo veo a Central (1)
                 string query = (miAlmacenId == ALMACEN_CENTRAL_ID)
                     ? "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC"
                     : "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
@@ -190,12 +195,10 @@ namespace AplicativoDeAlmacen.Views
                     listaAlmacenes.Add(new { Id = rdr.GetInt32(0), Nombre = rdr.GetString(1) });
                 }
 
+                cboAlmacenDestino.ItemsSource = null;
                 cboAlmacenDestino.ItemsSource = listaAlmacenes;
                 cboAlmacenDestino.DisplayMemberPath = "Nombre";
                 cboAlmacenDestino.SelectedValuePath = "Id";
-
-                cboAlmacenDestino.SelectedIndex = -1;
-                cboAlmacenDestino.SelectedValue = null;
             }
             catch (Exception ex)
             {
@@ -209,8 +212,9 @@ namespace AplicativoDeAlmacen.Views
             try
             {
                 this.Cursor = Cursors.Wait;
+                _isCargaTransferenciaActiva = true; // Candado contra el evento Loaded
 
-                // 🌟 1. ASEGURAMOS CARGAR LOS COMBOS ANTES DE ASIGNARLOS
+                // 1. Asegurar catálogo de motivos y almacenes antes de asignar
                 await CargarMotivosAsync();
                 await CargarComboAlmacenesOrigenAsync();
 
@@ -218,34 +222,76 @@ namespace AplicativoDeAlmacen.Views
                 if (movCompleto == null || movCompleto.Movimiento == null)
                 {
                     MessageBox.Show("No se encontró el registro de transferencia especificado.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    _isCargaTransferenciaActiva = false;
                     return;
                 }
 
                 LimpiarFormulario();
+                _isCargaTransferenciaActiva = true; // Se mantiene activo tras la limpieza
+                _currentMovimientoId = movimientoSalidaId;
 
+                // 2. Habilitar controles del formulario
+                HabilitarCamposFormulario(true);
+                GestionarBotonesPrincipales(enEdicion: true);
+                if (btnCancelar != null) btnCancelar.IsEnabled = true;
+
+                // 3. Fijar Motivo: TRANSFERENCIA ENTRE ALMACENES (ID = 4)
+                cboMotivo.SelectionChanged -= CboMotivo_SelectionChanged;
                 cboMotivo.SelectedValue = 4;
+                cboMotivo.IsEnabled = true;
+                cboMotivo.SelectionChanged += CboMotivo_SelectionChanged;
+
                 dtpFechaRecepcion.SelectedDate = DateTime.Today;
 
-                if (movCompleto.Movimiento.AlmacenOrigenId.HasValue)
-                {
-                    cboAlmacenDestino.SelectedValue = movCompleto.Movimiento.AlmacenOrigenId.Value;
-                    cboAlmacenDestino.IsEnabled = false;
-                }
+                // 4. Fijar Almacén de Procedencia (Sede 1 quien envió)
+                int origenId = movCompleto.Movimiento.AlmacenOrigenId
+                            ?? movCompleto.Movimiento.AlmacenId
+                            ?? 1; // Por regla de negocio, siempre viene de Central (ID = 1)
 
+                cboAlmacenDestino.SelectionChanged -= CboAlmacenDestino_SelectionChanged;
+                cboAlmacenDestino.IsEnabled = true; // Debe ser true para que no salga el rectángulo gris vacío
+                cboAlmacenDestino.SelectedValue = origenId;
+                cboAlmacenDestino.SelectionChanged += CboAlmacenDestino_SelectionChanged;
+
+                // 5. La sede receptora registra su propia guía física; se dejan los campos limpios
                 txtSerieGuia.Clear();
                 txtNumeroGuia.Clear();
-                txtObservacion.Clear();
+                txtObservacion.Text = movCompleto.Movimiento.Observacion ?? string.Empty;
+                txtObservacion.Text = movCompleto.Movimiento.Observacion ?? string.Empty;
+                // 🌟 Control de visibilidad de la fecha de envío cruzada
+                bool esTransferenciaSalida = (movCompleto.Movimiento.MotivoProductoId == 4 || movCompleto.Movimiento.MotivoProductoId == 10);
+                if (esTransferenciaSalida && movCompleto.Movimiento.FechaMovimiento.HasValue)
+                {
+                    lblTituloFechaEnvio.Visibility = Visibility.Visible;
+                    txtFechaEnvioCruzada.Visibility = Visibility.Visible;
+                    txtFechaEnvioCruzada.Text = movCompleto.Movimiento.FechaMovimiento.Value.ToString("dd/MM/yyyy HH:mm");
+                }
+                else
+                {
+                    lblTituloFechaEnvio.Visibility = Visibility.Collapsed;
+                    txtFechaEnvioCruzada.Visibility = Visibility.Collapsed;
+                }
+                txtNumSerie.Text = "0001";
+                txtNumDocumento.Text = "[ AUTOMÁTICO ]";
+                txtNumSerie.IsEnabled = false;
+                txtNumDocumento.IsEnabled = false;
 
+                // 6. Limpieza de estructuras en memoria
                 _productosGridList.Clear();
                 _codigosGridList.Clear();
                 _rangosProcesadosGlobal.Clear();
 
                 var prodService = new ProductoService();
 
+                // 7. Carga de productos
                 foreach (var det in movCompleto.Detalles)
                 {
                     string descripcionProducto = await _serviceMovimiento.ObtenerDescripcionProductoAsync(det.ProductoId);
                     var prodData = await prodService.ObtenerPorIdAsync(det.ProductoId);
+
+                    decimal cantIngreso = Convert.ToDecimal(det.CantidadIngreso);
+                    decimal cantSalida = Convert.ToDecimal(det.CantidadSalida);
+                    int cantidadReal = cantIngreso > 0 ? (int)cantIngreso : (cantSalida > 0 ? (int)cantSalida : 1);
 
                     var vp = new VistaProductoGrid
                     {
@@ -253,38 +299,45 @@ namespace AplicativoDeAlmacen.Views
                         CodigoProducto = det.ProductoId.ToString(),
                         Descripcion = descripcionProducto,
                         UnidadMedida = prodData?.UnidadMedida?.Descripcion ?? "UNIDAD",
-                        Cantidad = det.CantidadIngreso,
+                        Cantidad = cantidadReal,
                         Detalle = new MovimientoDetalle
                         {
                             ProductoId = det.ProductoId,
-                            CantidadIngreso = det.CantidadIngreso,
+                            CantidadIngreso = cantidadReal,
                             CostoUnitario = det.CostoUnitario ?? 0
                         }
                     };
                     _productosGridList.Add(vp);
                 }
 
-                foreach (var r in movCompleto.Rangos)
+                // 8. Carga estricta de códigos (excluye SIN_CODIGO)
+                if (movCompleto.Rangos != null)
                 {
-                    _rangosProcesadosGlobal.Add(r);
-                    var codigosReconstruidos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(new List<RangoCodigoItem> { r });
-                    foreach (var c in codigosReconstruidos)
+                    foreach (var r in movCompleto.Rangos)
                     {
-                        _codigosGridList.Add(c);
+                        if (r.DesdeNum == -1 ||
+                            string.IsNullOrWhiteSpace(r.AbreviaturaBase) ||
+                            r.AbreviaturaBase.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        _rangosProcesadosGlobal.Add(r);
+                        var codigosReconstruidos = _serviceMovimiento.ReconstruirCodigosDesdeRangos(new List<RangoCodigoItem> { r });
+                        foreach (var c in codigosReconstruidos)
+                        {
+                            _codigosGridList.Add(c);
+                        }
                     }
                 }
 
                 RefrescarGrillas();
+                if (_productosGridList.Count > 0) dgProductos.SelectedItem = _productosGridList.First();
 
-                HabilitarCamposFormulario(true);
-                txtNumSerie.Text = "0001";
-                txtNumDocumento.Text = "[ AUTOMÁTICO ]";
-                txtNumSerie.IsEnabled = false;
-                txtNumDocumento.IsEnabled = false;
-
+                btnGrabar.IsEnabled = true;
                 txtSerieGuia.Focus();
 
-                MessageBox.Show("Transferencia cargada. Ingrese el N° de Guía de Remisión que trae el transportista y presione 'Guardar Entrada'.", "Recepción Lista", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Transferencia cargada exitosamente.", "Recepción Lista", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
@@ -594,6 +647,30 @@ namespace AplicativoDeAlmacen.Views
             if (movimiento.FechaMovimiento.HasValue)
             {
                 dtpFechaRecepcion.SelectedDate = movimiento.FechaMovimiento.Value;
+            }
+
+            bool esTransferenciaIngreso = (movimiento.MotivoProductoId == 4);
+            if (esTransferenciaIngreso)
+            {
+                lblTituloFechaEnvio.Visibility = Visibility.Visible;
+                txtFechaEnvioCruzada.Visibility = Visibility.Visible;
+
+                var transService = new TransaccionesService();
+                var (fEnvio, _) = await transService.ObtenerFechasTransferenciaAsync(movimiento.Id, esSalida: false);
+
+                if (fEnvio.HasValue)
+                {
+                    txtFechaEnvioCruzada.Text = fEnvio.Value.ToString("dd/MM/yyyy HH:mm");
+                }
+                else
+                {
+                    txtFechaEnvioCruzada.Text = "S/D";
+                }
+            }
+            else
+            {
+                lblTituloFechaEnvio.Visibility = Visibility.Collapsed;
+                txtFechaEnvioCruzada.Visibility = Visibility.Collapsed;
             }
 
             txtNumSerie.Text = movimiento.SerieDocumento;
@@ -1009,15 +1086,29 @@ namespace AplicativoDeAlmacen.Views
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
+                // 🛑 CANDADO: Si es Transferencia (4), JAMÁS enviar el ID de la salida.
+                // Debe ser null para que la BD cree un movimiento_id nuevo para este almacén
+                // y cree nuevas filas en movimiento_detalles (solo ingreso).
+                int? idParaGuardar = (idMotivo == 4) ? null : _currentMovimientoId;
+                int? salidaOrigenId = (idMotivo == 4) ? _currentMovimientoId : null;
+
+                // Limpiar también el objeto interno por seguridad
+                if (idMotivo == 4)
+                {
+                    solicitud.MovimientoId = null;
+                    solicitud.Movimiento.Id = 0;
+                }
+
                 bool resultado = await Task.Run(async () =>
-                    await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
-                        solicitud.Movimiento,
-                        solicitud.Productos.ToList(),
-                        _rangosProcesadosGlobal.ToList(),
-                        solicitud.Movimiento.UbicacionId ?? 0,
-                        solicitud.MovimientoId,
-                        progress)
-                );
+            await _serviceMovimiento.RegistrarMovimientoCompletoAsync(
+                solicitud.Movimiento,
+                solicitud.Productos.ToList(),
+                _rangosProcesadosGlobal.ToList(),
+                solicitud.Movimiento.UbicacionId ?? 0,
+                idParaGuardar,
+                progress,
+                salidaOrigenId) // 👈 Aquí viaja el ID de salida para hacer el UPDATE
+                  );
 
                 if (resultado)
                 {
@@ -1055,9 +1146,19 @@ namespace AplicativoDeAlmacen.Views
 
         private SolicitudMovimiento CrearSolicitudMovimiento()
         {
+            int idMotivoIngreso = Convert.ToInt32(cboMotivo.SelectedValue);
+
             foreach (var p in _productosGridList)
             {
                 p.Detalle ??= new MovimientoDetalle { ProductoId = p.ProductoId };
+
+                // 🌟 Si es transferencia, el detalle debe ser NUEVO (Id = 0)
+                // para que se inserte una fila nueva de ingreso en movimiento_detalles
+                if (idMotivoIngreso == 4)
+                {
+                    p.Detalle.Id = 0;
+                    p.Detalle.CantidadSalida = 0; // Entrada pura
+                }
 
                 int codigosReales = _codigosGridList.Count(c => c.ProductoId == p.ProductoId);
 
@@ -1073,7 +1174,7 @@ namespace AplicativoDeAlmacen.Views
             }
 
             int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
-            int idMotivoIngreso = Convert.ToInt32(cboMotivo.SelectedValue);
+            // 👈 Se eliminó la segunda declaración duplicada de idMotivoIngreso
             int? almacenOrigenReal = null;
             int? almacenDestinoReal = miAlmacenActual;
 
@@ -2015,6 +2116,12 @@ namespace AplicativoDeAlmacen.Views
             _productosGridList.Clear(); _codigosGridList.Clear(); _rangosProcesadosGlobal.Clear();
             txtNumSerie.Clear(); txtNumDocumento.Clear(); dtpFechaRecepcion.SelectedDate = null; cboMotivo.SelectedIndex = -1;
             txtRazonSocial.Clear(); txtCodigoRazonSocial.Clear(); txtDireccion.Clear(); txtUbicacion.Clear(); txtCodigoUbicacion.Clear(); txtDireccionUbicacion.Clear(); txtObservacion.Clear(); txtSerieGuia.Clear(); txtNumeroGuia.Clear();
+            if (lblTituloFechaEnvio != null) lblTituloFechaEnvio.Visibility = Visibility.Collapsed;
+            if (txtFechaEnvioCruzada != null)
+            {
+                txtFechaEnvioCruzada.Visibility = Visibility.Collapsed;
+                txtFechaEnvioCruzada.Clear();
+            }
             dgProductos.ItemsSource = null; dgCodigos.ItemsSource = null;
             _personaComercialIdSeleccionada = null; _isUpdatingFromSelection = false;
         }

@@ -10,6 +10,7 @@ using AplicativoDeAlmacen.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -32,7 +33,7 @@ namespace AplicativoDeAlmacen.Views
 
     public partial class MainShell : Window, IMainWindow
     {
-
+        private MediaPlayer? _mediaPlayer;
         private ObservableCollection<NotaItem> _notasPendientes = new ObservableCollection<NotaItem>();
         private ObservableCollection<NotaItem> _notasCompletadas = new ObservableCollection<NotaItem>();
         private string _rutaArchivoNotas;
@@ -47,14 +48,16 @@ namespace AplicativoDeAlmacen.Views
         {
             _timerPollingTransacciones = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(12) // Revisa la BD cada 12 segundos
+                Interval = TimeSpan.FromMinutes(20) // 🌟 Cambiado a cada 30 segundos para recordatorios frecuentes
             };
             _timerPollingTransacciones.Tick += async (s, e) => await VerificarNuevasTransaccionesAsync();
             _timerPollingTransacciones.Start();
 
-            // Primera verificación al abrir
+            // 🌟 Primera verificación inmediata al abrir la ventana principal
             _ = VerificarNuevasTransaccionesAsync();
         }
+
+
         public MainShell(string userNames, bool isAdmin)
         {
             InitializeComponent();
@@ -108,7 +111,6 @@ namespace AplicativoDeAlmacen.Views
 
                 if (pendientes >= 1)
                 {
-                    // 🌟 MÁS DE 1: Crear e iniciar parpadeo verde en C#
                     if (_blinkGreenStoryboard == null)
                     {
                         var animColor = new System.Windows.Media.Animation.ColorAnimation
@@ -145,7 +147,6 @@ namespace AplicativoDeAlmacen.Views
                 }
                 else
                 {
-                    // ⚪ CERO: Detener animación y volver a Gris
                     if (_blinkGreenStoryboard != null)
                     {
                         _blinkGreenStoryboard.Stop(bordeContador);
@@ -156,21 +157,20 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            // 🔔 2. ALERTA Y SONIDO SI LLEGÓ UNA NUEVA TRANSFERENCIA
-            if (_ultimoConteoPendientes != -1 && pendientes > _ultimoConteoPendientes)
+            if (pendientes > 0)
             {
+                // Opcional: Si quieres que al arrancar o si entra uno NUEVO diga "¡Atención!", 
+                // y si ya estaba allí actúe como recordatorio, puedes usar este operador ternario:
+                string mensajeAlerta = (_ultimoConteoPendientes != -1 && pendientes > _ultimoConteoPendientes)
+                    ? "📦 ¡Atención! Se ha registrado una nueva Transferencia Entrante enviada a esta sede."
+                    : $"📦 Tienes {pendientes} transferencia(s) pendiente(s) de recepción en esta sede.";
+
                 ReproducirSonidoNotificacion();
 
                 Growl.Info(new HandyControl.Data.GrowlInfo
                 {
-                    Message = $"📦 ¡Atención! Se ha registrado una nueva Transferencia Entrante enviada a esta sede.",
-                    WaitTime = 5,
-                    ActionBeforeClose = (isConfirm) =>
-                    {
-                        PopupBandeja.IsOpen = true;
-                        _ = CargarListaBandejaAsync();
-                        return true;
-                    }
+                    Message = mensajeAlerta,
+                    WaitTime = 6
                 });
             }
 
@@ -181,10 +181,38 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // Utiliza el sonido Asterisk/Notification nativo de Windows (sin archivos .wav externos)
+                // 🌟 Apunta a la subcarpeta Audio/UI donde ya te funciona el otro audio
+                string rutaAudio = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio", "UI", "transferencias2.mp3");
+
+                Debug.WriteLine($"Buscando archivo de audio en: {rutaAudio}");
+
+                if (System.IO.File.Exists(rutaAudio))
+                {
+                    if (_mediaPlayer == null)
+                    {
+                        _mediaPlayer = new MediaPlayer();
+                    }
+
+                    // Para asegurar que reproduzca correctamente en WPF, a veces es ideal usar Dispatcher o asegurar el hilo principal
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        _mediaPlayer.Open(new Uri(rutaAudio, UriKind.Absolute));
+                        _mediaPlayer.Play();
+                    });
+
+                    Debug.WriteLine("¡Audio MP3 de transferencias reproducido con éxito!");
+                }
+                else
+                {
+                    Debug.WriteLine("⚠️ El archivo transferencias.mp3 no existe en la ruta de salida. Usando Asterisk como respaldo.");
+                    System.Media.SystemSounds.Asterisk.Play();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"❌ Error al reproducir audio MP3: {ex.Message}");
                 System.Media.SystemSounds.Asterisk.Play();
             }
-            catch { }
         }
 
         private async void BtnBandejaTransacciones_Click(object sender, RoutedEventArgs e)
@@ -203,9 +231,18 @@ namespace AplicativoDeAlmacen.Views
 
         private async Task CargarListaBandejaAsync()
         {
-            int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-            var lista = await _transaccionesService.ObtenerBandejaTransaccionesAsync(miAlmacenId);
-            LstTransaccionesBandeja.ItemsSource = lista;
+            try
+            {
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                _notificacionesTotales = await _transaccionesService.ObtenerBandejaTransaccionesAsync(miAlmacenId, 100);
+
+                ActualizarBadgePendientes();
+                AplicarFiltroYPaginacionPopup();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error al refrescar popup: {ex.Message}");
+            }
         }
 
         private void BtnAtenderTransferencia_Click(object sender, RoutedEventArgs e)
@@ -215,10 +252,29 @@ namespace AplicativoDeAlmacen.Views
                 PopupBandeja.IsOpen = false;
 
                 var vistaIngreso = new IngresoUserControl();
-                vistaIngreso.CargarDocumentoParaConsulta(transferencia.MovimientoId);
-
                 string nombreAlmacen = SesionSistema.AlmacenActual?.Nombre ?? "Almacén General";
-                AbrirPestaña($"📥 Recepción: {transferencia.GuiaRemision} - {nombreAlmacen}", vistaIngreso);
+
+                if (transferencia.EsPendiente)
+                {
+                    // 🚚 PENDIENTE: Carga el movimiento para registrar recepción
+                    vistaIngreso.CargarDocumentoParaConsulta(transferencia.MovimientoId);
+                    AbrirPestaña($"📥 Recepción: {transferencia.GuiaRemision} - {nombreAlmacen}", vistaIngreso);
+                }
+                else
+                {
+                    // 👁️ YA RECIBIDO: Carga en modo solo lectura / impresión
+                    var partes = transferencia.SerieNumero.Split('-');
+                    if (partes.Length >= 2)
+                    {
+                        vistaIngreso.CargarDocumentoParaConsulta(partes[0].Trim(), partes[1].Trim());
+                    }
+                    else
+                    {
+                        vistaIngreso.CargarDocumentoParaConsulta("0001", transferencia.SerieNumero.Trim());
+                    }
+
+                    AbrirPestaña($"📥 Entrada Registrada: {transferencia.SerieNumero} - {nombreAlmacen}", vistaIngreso);
+                }
             }
         }
         private void SetupWelcomeMessage(string userNames)
@@ -743,5 +799,92 @@ namespace AplicativoDeAlmacen.Views
                 GuardarNotasLocales();
             }
         }
+        // 🌟 ESTADO INTERNO DEL POPUP NOTIFICADOR
+        private List<TransaccionHeaderDTO> _notificacionesTotales = new List<TransaccionHeaderDTO>();
+        private bool _verPendientesEnPopup = true;
+        private int _paginaActualPopup = 1;
+        private const int TAMANO_PAGINA_POPUP = 2; // Cantidad de tarjetas visibles por página
+        private void ActualizarBadgePendientes()
+        {
+            int pendientesCount = _notificacionesTotales.Count(x => x.EsPendiente);
+
+            // Actualiza el badge dentro del botón de pestaña
+            if (BtnTabPendientes.Template?.FindName("TxtBadgePendientes", BtnTabPendientes) is TextBlock txtBadge)
+            {
+                txtBadge.Text = pendientesCount.ToString();
+            }
+        }
+
+        private void AplicarFiltroYPaginacionPopup()
+        {
+            // 1. Filtrar según la pestaña activa
+            var filtrados = _notificacionesTotales
+                .Where(x => _verPendientesEnPopup ? x.EsPendiente : !x.EsPendiente)
+                .ToList();
+
+            int totalItems = filtrados.Count;
+            int totalPaginas = (int)Math.Ceiling((double)totalItems / TAMANO_PAGINA_POPUP);
+            if (totalPaginas == 0) totalPaginas = 1;
+
+            if (_paginaActualPopup > totalPaginas) _paginaActualPopup = totalPaginas;
+            if (_paginaActualPopup < 1) _paginaActualPopup = 1;
+
+            // 2. Paginación
+            var paginaItems = filtrados
+                .Skip((_paginaActualPopup - 1) * TAMANO_PAGINA_POPUP)
+                .Take(TAMANO_PAGINA_POPUP)
+                .ToList();
+
+            LstTransaccionesBandeja.ItemsSource = paginaItems;
+
+            // 3. UI: Visibilidad del panel vacío
+            PanelVacioPopup.Visibility = totalItems == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            // 4. Indicador y botones
+            TxtInfoPaginacionPopup.Text = $"Pág. {_paginaActualPopup} de {totalPaginas} ({totalItems} total)";
+            BtnPaginaAnteriorPopup.IsEnabled = _paginaActualPopup > 1;
+            BtnPaginaSiguientePopup.IsEnabled = _paginaActualPopup < totalPaginas;
+        }
+
+        private void BtnTabPendientes_Click(object sender, RoutedEventArgs e)
+        {
+            _verPendientesEnPopup = true;
+            _paginaActualPopup = 1;
+
+            // Estilos activos/inactivos
+            BtnTabPendientes.Background = Brushes.White;
+            BtnTabRecepcionados.Background = Brushes.Transparent;
+
+            AplicarFiltroYPaginacionPopup();
+        }
+
+        private void BtnTabRecepcionados_Click(object sender, RoutedEventArgs e)
+        {
+            _verPendientesEnPopup = false;
+            _paginaActualPopup = 1;
+
+            // Estilos activos/inactivos
+            BtnTabRecepcionados.Background = Brushes.White;
+            BtnTabPendientes.Background = Brushes.Transparent;
+
+            AplicarFiltroYPaginacionPopup();
+        }
+
+        private void BtnPaginaAnteriorPopup_Click(object sender, RoutedEventArgs e)
+        {
+            if (_paginaActualPopup > 1)
+            {
+                _paginaActualPopup--;
+                AplicarFiltroYPaginacionPopup();
+            }
+        }
+
+        private void BtnPaginaSiguientePopup_Click(object sender, RoutedEventArgs e)
+        {
+            _paginaActualPopup++;
+            AplicarFiltroYPaginacionPopup();
+        }
+
+        
     }
 }

@@ -174,9 +174,26 @@
                                 <TextBox x:Name="txtNumSerie" Grid.Column="0" Height="32" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                                 <TextBox x:Name="txtNumDocumento" Grid.Column="2" Height="32" IsReadOnly="True" FontSize="13" FontWeight="Bold" Background="#F8FAFC" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                             </Grid>
-                            <TextBlock Text="Fecha de Recepción" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
-                            <DatePicker x:Name="dtpFechaRecepcion" Grid.Column="3" Height="32" Margin="0,0,0,12" FontSize="13" VerticalContentAlignment="Center"/>
 
+                            <!-- Fila 0 (Derecha): Bloque Adaptativo de Fechas (Columnas 2 y 3) -->
+                            <TextBlock Text="Fecha Recepción" Grid.Column="2" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
+                            <Grid Grid.Column="3" Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Fecha de Recepción editable por la sede receptora -->
+                                <DatePicker x:Name="dtpFechaRecepcion" Grid.Column="0" Height="32" FontSize="13" VerticalContentAlignment="Center" Margin="0,0,4,0"/>
+
+                                <!-- Etiqueta y Caja de Fecha de Envío de Origen (Trujillo) -->
+                                <TextBlock x:Name="lblTituloFechaEnvio" Grid.Column="1" Text="F. Envío:" VerticalAlignment="Center" Foreground="#64748B" FontWeight="SemiBold" FontSize="11" Margin="6,0,6,0" Visibility="Collapsed"/>
+                                <TextBox x:Name="txtFechaEnvioCruzada" Grid.Column="2" Height="32" IsReadOnly="True" 
+                                 Background="#F3F4F6" Foreground="#1E40AF" FontWeight="SemiBold" FontSize="11"
+                                 VerticalContentAlignment="Center" HorizontalContentAlignment="Center" Padding="2,0" 
+                                 ToolTip="Fecha en que la sede origen realizó el despacho" Visibility="Collapsed"/>
+                            </Grid>
                             <!-- Fila 1: Motivo -->
                             <TextBlock Text="Motivo" Grid.Row="1" VerticalAlignment="Center" Foreground="#475569" FontWeight="Medium" Margin="0,0,0,12" FontSize="13"/>
                             <ComboBox x:Name="cboMotivo" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Height="32" Margin="0,0,0,12" FontSize="13" DisplayMemberPath="Descripcion" SelectedValuePath="Id"/>

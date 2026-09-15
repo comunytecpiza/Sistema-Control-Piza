@@ -105,8 +105,13 @@ namespace AplicativoDeAlmacen.Views
 
         public async void CargarDocumentoParaConsulta(string serie, string numero)
         {
+
+
             try
+
+
             {
+
                 _modoActual = ModoFormulario.BuscandoParaImprimir;
                 this.Cursor = Cursors.Wait;
 
@@ -364,7 +369,12 @@ namespace AplicativoDeAlmacen.Views
 
                 txtNumeroSalida.IsReadOnly = true;
                 txtNumeroSalida.Background = System.Windows.Media.Brushes.WhiteSmoke;
+
+
+
             }
+
+
             catch (Exception ex)
             {
                 MessageBox.Show($"Error crítico al cargar registros de salida: {ex.Message}", "Error de Carga", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -606,6 +616,13 @@ namespace AplicativoDeAlmacen.Views
                 cboAlmacenDestino.SelectedIndex = -1;
                 cboAlmacenDestino.IsEnabled = false;
             }
+
+            if (lblTituloFechaRecepcion != null) lblTituloFechaRecepcion.Visibility = Visibility.Collapsed;
+            if (txtFechaRecepcionCruzada != null)
+            {
+                txtFechaRecepcionCruzada.Visibility = Visibility.Collapsed;
+                txtFechaRecepcionCruzada.Clear();
+            }
             dgProductosSalida.ItemsSource = null; dgCodigosSalida.ItemsSource = null;
             _modoActual = ModoFormulario.Ninguno;
         }
@@ -692,9 +709,13 @@ namespace AplicativoDeAlmacen.Views
             ActualizarVisibilidadCampos();
 
             txtSerieSalida.Text = "0001";
+            if (txtFechaRecepcionCruzada != null)
+            {
+                txtFechaRecepcionCruzada.Visibility = Visibility.Collapsed;
+                txtFechaRecepcionCruzada.Clear();
+            }
 
 
-            
 
             int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
             string siguienteCorrelativo = "0000001";
@@ -1104,9 +1125,38 @@ namespace AplicativoDeAlmacen.Views
                     // CARGA DE CABECERA
                     dtpFechaDespacho.SelectedDate = movimiento.FechaMovimiento;
                     cboMotivoSalida.SelectedValue = movimiento.MotivoProductoId;
+
+                   
                     txtSerieGuia.Text = movimiento.SerieGuia ?? string.Empty;
                     txtNumeroGuia.Text = movimiento.NumeroGuia ?? string.Empty;
                     txtObservacionSalida.Text = movimiento.Observacion ?? string.Empty;
+
+                    // 🌟 Pega este bloque aquí mismito:
+                    bool esTransf = (movimiento.MotivoProductoId == 4 || movimiento.MotivoProductoId == 10);
+                    if (esTransf)
+                    {
+                        lblTituloFechaRecepcion.Visibility = Visibility.Visible;
+                        txtFechaRecepcionCruzada.Visibility = Visibility.Visible;
+
+                        var transService = new TransaccionesService();
+                        var (_, fRecep) = await transService.ObtenerFechasTransferenciaAsync(movimiento.Id, esSalida: true);
+
+                        if (fRecep.HasValue)
+                        {
+                            txtFechaRecepcionCruzada.Text = fRecep.Value.ToString("dd/MM/yyyy HH:mm");
+                            txtFechaRecepcionCruzada.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#15803D"));
+                        }
+                        else
+                        {
+                            txtFechaRecepcionCruzada.Text = "⏳ Pendiente";
+                            txtFechaRecepcionCruzada.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D97706"));
+                        }
+                    }
+                    else
+                    {
+                        lblTituloFechaRecepcion.Visibility = Visibility.Collapsed;
+                        txtFechaRecepcionCruzada.Visibility = Visibility.Collapsed;
+                    }
 
                     if (movimiento.AlmacenDestinoId.HasValue)
                     {

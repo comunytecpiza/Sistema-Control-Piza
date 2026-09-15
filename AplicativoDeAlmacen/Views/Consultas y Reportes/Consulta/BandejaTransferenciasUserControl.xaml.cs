@@ -90,8 +90,8 @@ namespace AplicativoDeAlmacen.Views
                 {
                     int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                    // 1. SI SOY EL EMISOR (Origen) -> Abrir la pantalla de SALIDAS en modo lectura
-                    if (trans.AlmacenOrigenId == miAlmacenId)
+                    // 1. SI SOY EL EMISOR (Origen) -> Abrir SALIDAS en modo consulta
+                    if (trans.SoyElEmisor)
                     {
                         var vistaSalida = new SalidasUserControl();
 
@@ -110,13 +110,13 @@ namespace AplicativoDeAlmacen.Views
 
                         if (trans.EsPendiente)
                         {
-                            // 📥 AÚN NO SE HA RECIBIDO: Cargar datos desde el ID de la Salida de origen para procesar la Entrada
+                            // 🚚 PENDIENTE: Abre el formulario listo para registrar la recepción
                             vistaIngreso.CargarDocumentoParaConsulta(trans.MovimientoId);
-                            mainShell.AbrirPestaña($"📥 Procesar Recepción: {trans.GuiaRemision}", vistaIngreso);
+                            mainShell.AbrirPestaña($"Recepción: {trans.SerieNumero}", vistaIngreso);
                         }
                         else
                         {
-                            // 👁️ YA FUE RECIBIDO: Cargar el registro de Entrada por Serie y Número de documento registrado
+                            // 👁️ YA RECIBIDO: Cargar en modo lectura/impresión
                             var partes = trans.SerieNumero.Split('-');
                             if (partes.Length >= 2)
                             {
