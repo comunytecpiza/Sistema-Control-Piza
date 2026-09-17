@@ -9,23 +9,29 @@ using System.Threading.Tasks;
 using System.Windows.Media;
 using System.Data;
 using System.IO;
+using System.Collections.Generic;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Services;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Almacen;
+using AplicativoDeAlmacen.Models.Sistemas;
+using AplicativoDeAlmacen.Services.Sistemas;
 
 namespace AplicativoDeAlmacen
 {
     public partial class MainWindow : Window
     {
         private readonly MediaPlayer _mediaPlayer = new MediaPlayer();
+        private readonly AuditoriaService _auditoriaService = new AuditoriaService();
         private bool _isMuted = false;
+
+        // Bloqueo atómico contra doble Enter o clics rápidos concurrentes
+        private bool _isAuthenticating = false;
 
         public MainWindow()
         {
             InitializeComponent();
-
             LoadingOverlay.Visibility = Visibility.Collapsed;
         }
 
@@ -41,25 +47,22 @@ namespace AplicativoDeAlmacen
         {
             try
             {
-                // 1. Cargar el estado guardado del usuario (Si no existe, por defecto NO está muteado)
                 _isMuted = Properties.Settings.Default.AudioMuted;
                 ActualizarBotonAudioUI();
 
-                if (_isMuted) return; // Si el usuario eligió mutearlo antes, no reproducimos nada
+                if (_isMuted) return;
 
-                // 2. Ruta dinámica hacia la carpeta Audio/UI/bienvenida.mp3
                 string audioPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Audio", "UI", "bienvenida.mp3");
 
                 if (File.Exists(audioPath))
                 {
                     _mediaPlayer.Open(new Uri(audioPath, UriKind.Absolute));
-                    _mediaPlayer.Volume = 0.8; // Volumen al 80%
+                    _mediaPlayer.Volume = 0.8;
                     _mediaPlayer.Play();
                 }
             }
             catch (Exception ex)
             {
-                // Falla silenciosa: si no hay tarjeta de sonido o falla el driver, la app abre normalmente
                 Console.WriteLine("Error al reproducir audio de bienvenida: " + ex.Message);
             }
         }
@@ -68,7 +71,6 @@ namespace AplicativoDeAlmacen
         {
             _isMuted = !_isMuted;
 
-            // 🌟 Guardamos la preferencia de forma permanente en el equipo
             Properties.Settings.Default.AudioMuted = _isMuted;
             Properties.Settings.Default.Save();
 
@@ -94,7 +96,7 @@ namespace AplicativoDeAlmacen
         }
 
         // ==============================================================
-        // EL ATAJO SECRETO DE INGENIERÍA (Ctrl + Shift + Click Derecho)
+        // ATAJO SECRETO (Ctrl + Shift + Click Derecho)
         // ==============================================================
         private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -108,7 +110,7 @@ namespace AplicativoDeAlmacen
         }
 
         // ==============================================================
-        // LÓGICA DE LOGIN (Conectada al RBAC y Matriz de Permisos)
+        // LÓGICA DE LOGIN AUDITADA & ANTI-DOBLE SUBMIT
         // ==============================================================
         private async void IngresarButton_Click(object sender, RoutedEventArgs e)
         {
@@ -117,6 +119,8 @@ namespace AplicativoDeAlmacen
 
         private async Task ValidateUserAndRedirectAsync()
         {
+            if (_isAuthenticating) return;
+
             string username = UsernameTextBox.Text.Trim();
             string password = PasswordBox.Password;
 
@@ -132,13 +136,22 @@ namespace AplicativoDeAlmacen
                 return;
             }
 
-            LoadingOverlay.Visibility = Visibility.Visible;
-            LoadingText.Text = "Validando credenciales y permisos...";
-            LoadingSubText.Visibility = Visibility.Collapsed;
-            BtnReintentar.Visibility = Visibility.Collapsed;
+            _isAuthenticating = true;
+            IngresarButton.IsEnabled = false;
 
             try
             {
+                // 1. Capturar Telemetría del equipo
+                TelemetriaEquipo telemetria = await NetworkHelper.CapturarTelemetriaAsync();
+
+                // 2. Verificar bloqueo previo de la cuenta en esta PC
+                var estadoBloqueo = await _auditoriaService.VerificarBloqueoAsync(username, telemetria.NombrePc);
+                if (estadoBloqueo.EstaBloqueado)
+                {
+                    MessageBox.Show(estadoBloqueo.Mensaje, "Acceso Bloqueado por TI", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    return;
+                }
+
                 Usuario? usuarioLogueado = null;
 
                 await Task.Run(() =>
@@ -149,7 +162,6 @@ namespace AplicativoDeAlmacen
 
                         using (IDbCommand cmd = conn.CreateCommand())
                         {
-                            // 🌟 Aseguramos traer id, username, nombres, password, rol_usuario_id, estado
                             cmd.CommandText = "SELECT id, username, nombres, password, rol_usuario_id, estado FROM usuarios WHERE username = @username";
 
                             var pUsername = cmd.CreateParameter();
@@ -176,7 +188,7 @@ namespace AplicativoDeAlmacen
                                     }
                                     else
                                     {
-                                        usuarioLogueado = new Usuario { Id = -1 };
+                                        usuarioLogueado = new Usuario { Id = -1 }; // Contraseña incorrecta
                                     }
                                 }
                             }
@@ -184,103 +196,121 @@ namespace AplicativoDeAlmacen
                     }
                 });
 
-                if (usuarioLogueado == null)
+                // 3. Manejo unificado de intentos fallidos (usuario inexistente o clave errónea)
+                if (usuarioLogueado == null || usuarioLogueado.Id == -1)
                 {
-                    MessageBox.Show("El usuario ingresado no existe en la base de datos.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    var resFallo = await _auditoriaService.RegistrarIntentoFallidoAsync(username, telemetria);
+
+                    MessageBox.Show(resFallo.Mensaje, "Error de Autenticación", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                    PasswordBox.Clear();
+                    PasswordBox.Focus();
+                    return;
                 }
-                else if (usuarioLogueado.Id == -1)
-                {
-                    MessageBox.Show("La contraseña es incorrecta. Verifique sus credenciales.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-                else if (!usuarioLogueado.Estado)
+
+                if (!usuarioLogueado.Estado)
                 {
                     MessageBox.Show("Su cuenta se encuentra INACTIVA. Comuníquese con el Administrador.", "Acceso Denegado", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    return;
                 }
-                else
+
+                // ==============================================================
+                // CREDENCIALES CORRECTAS: ACTIVAR OVERLAY DE CARGA
+                // ==============================================================
+                LoadingOverlay.Visibility = Visibility.Visible;
+                LoadingText.Text = "Iniciando sesión en el sistema...";
+                LoadingSubText.Text = "Cargando almacenes y permisos";
+                LoadingSubText.Visibility = Visibility.Visible;
+
+                _mediaPlayer.Stop();
+
+                // 4. Registro de sesión activa y auditoría
+                string rolNombre = usuarioLogueado.RolUsuarioId == 1 ? "Administrador" : "Operador";
+                string tokenSesion = await _auditoriaService.RegistrarLoginExitosoAsync(usuarioLogueado.Id, usuarioLogueado.Username, rolNombre, telemetria);
+
+                SesionSistema.UsuarioActual = usuarioLogueado;
+                SesionSistema.TokenSesionActual = tokenSesion;
+                // Cargar permisos
+                var service = new UsuarioService();
+                SesionSistema.PermisosActuales = await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
+
+                // Cargar almacenes asignados
+                var almacenesPermitidos = new List<Almacen>();
+                await Task.Run(() =>
                 {
-                    // Al ingresar con éxito detendremos el audio si seguía sonando
-                    _mediaPlayer.Stop();
-
-                    // 🌟 1. CARGAR PERMISOS DESDE LA BASE DE DATOS SEGÚN SU ROL
-                    var service = new UsuarioService();
-                    SesionSistema.UsuarioActual = usuarioLogueado;
-                    SesionSistema.PermisosActuales = await service.ObtenerPermisosPorRolAsync(usuarioLogueado.RolUsuarioId);
-
-                    // 🌟 2. CONSULTAR ESTRICTAMENTE LOS ALMACENES ASIGNADOS A ESTE USUARIO EN BD
-                    var almacenesPermitidos = new List<Almacen>();
-                    await Task.Run(() =>
+                    using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
                     {
-                        using (IDbConnection conn = new DataConnection.DatabaseConnection().GetConnection())
+                        conn.Open();
+                        using (IDbCommand cmd = conn.CreateCommand())
                         {
-                            conn.Open();
-                            using (IDbCommand cmd = conn.CreateCommand())
+                            cmd.CommandText = @"
+                                SELECT a.id, a.nombre, a.codigo, a.direccion, ua.es_predeterminado, a.estado_id 
+                                FROM usuario_almacenes ua
+                                INNER JOIN almacenes a ON ua.almacen_id = a.id
+                                WHERE ua.usuario_id = @uId AND a.estado_id = 1";
+
+                            var pUId = cmd.CreateParameter();
+                            pUId.ParameterName = "@uId";
+                            pUId.Value = usuarioLogueado.Id;
+                            cmd.Parameters.Add(pUId);
+
+                            using (IDataReader reader = cmd.ExecuteReader())
                             {
-                                cmd.CommandText = @"
-                    SELECT a.id, a.nombre, a.codigo, a.direccion, ua.es_predeterminado, a.estado_id 
-                    FROM usuario_almacenes ua
-                    INNER JOIN almacenes a ON ua.almacen_id = a.id
-                    WHERE ua.usuario_id = @uId AND a.estado_id = 1";
-
-                                var pUId = cmd.CreateParameter();
-                                pUId.ParameterName = "@uId";
-                                pUId.Value = usuarioLogueado.Id;
-                                cmd.Parameters.Add(pUId);
-
-                                using (IDataReader reader = cmd.ExecuteReader())
+                                while (reader.Read())
                                 {
-                                    while (reader.Read())
+                                    almacenesPermitidos.Add(new Almacen
                                     {
-                                        almacenesPermitidos.Add(new Almacen
-                                        {
-                                            Id = Convert.ToInt32(reader["id"]),
-                                            Nombre = reader["nombre"]?.ToString() ?? "",
-                                            Codigo = reader["codigo"]?.ToString() ?? "",
-                                            Direccion = reader["direccion"]?.ToString() ?? "",
-                                            EstadoId = Convert.ToInt32(reader["estado_id"]),
-                                            EsPredeterminado = Convert.ToBoolean(reader["es_predeterminado"])
-                                        });
-                                    }
+                                        Id = Convert.ToInt32(reader["id"]),
+                                        Nombre = reader["nombre"]?.ToString() ?? "",
+                                        Codigo = reader["codigo"]?.ToString() ?? "",
+                                        Direccion = reader["direccion"]?.ToString() ?? "",
+                                        EstadoId = Convert.ToInt32(reader["estado_id"]),
+                                        EsPredeterminado = Convert.ToBoolean(reader["es_predeterminado"])
+                                    });
                                 }
                             }
                         }
-                    });
-
-                    // 🛡️ VALIDACIÓN ESTRICTA: Si no tiene almacenes en la BD, no se le inventa nada y se bloquea el acceso.
-                    if (!almacenesPermitidos.Any())
-                    {
-                        MessageBox.Show("Acceso Denegado: Su usuario no tiene ningún almacén activo asignado en el sistema. Contacte al administrador.",
-                                        "Sin Sede Asignada", MessageBoxButton.OK, MessageBoxImage.Stop);
-                        LoadingOverlay.Visibility = Visibility.Collapsed;
-                        return;
                     }
+                });
 
-                    // 🌟 3. SELECCIÓN DINÁMICA DEL ALMACÉN (Busca el marcado como predeterminado en BD, sino toma el primero disponible)
-                    SesionSistema.AlmacenesPermitidos = almacenesPermitidos;
-                    SesionSistema.AlmacenActual = almacenesPermitidos.FirstOrDefault(a => a.EsPredeterminado) ?? almacenesPermitidos.First();
-
-                    string nombre = usuarioLogueado.Nombres;
-                    bool esAdmin = usuarioLogueado.RolUsuarioId == 1; // O la validación de rol que maneje tu sistema
-
-                    // 🌟 4. ABRIR EL MAINSHELL CON SUS PERMISOS Y ALMACENES REALES
-                    new Views.MainShell(nombre, esAdmin).Show();
-
-                    this.Close();
+                if (!almacenesPermitidos.Any())
+                {
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    MessageBox.Show("Acceso Denegado: Su usuario no tiene ningún almacén activo asignado en el sistema. Contacte al administrador.",
+                                    "Sin Sede Asignada", MessageBoxButton.OK, MessageBoxImage.Stop);
+                    return;
                 }
+
+                SesionSistema.AlmacenesPermitidos = almacenesPermitidos;
+                SesionSistema.AlmacenActual = almacenesPermitidos.FirstOrDefault(a => a.EsPredeterminado) ?? almacenesPermitidos.First();
+
+                string nombre = usuarioLogueado.Nombres;
+                bool esAdmin = usuarioLogueado.RolUsuarioId == 1;
+
+                // 5. Iniciar MainShell y pasar el token generado para el latido/expulsión remota
+                var mainShell = new Views.MainShell(nombre, esAdmin);
+
+                // Si MainShell tiene la función o propiedad para el token, asígnala aquí:
+                // mainShell.ConfigurarSesionToken(tokenSesion);
+
+                mainShell.Show();
+                this.Close();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                MessageBox.Show("No se pudo conectar al servidor. Verifique su red o contacte a soporte TI.", "Error de Conexión", MessageBoxButton.OK, MessageBoxImage.Error);
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                MessageBox.Show($"No se pudo conectar al servidor: {ex.Message}", "Error de Conexión", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
-                LoadingOverlay.Visibility = Visibility.Collapsed;
+                _isAuthenticating = false;
+                IngresarButton.IsEnabled = true;
             }
         }
 
         // ==============================================================
-        // EFECTOS VISUALES Y EVENTOS SECUNDARIOS
+        // EVENTOS DE ENTRADA Y CONTROLES
         // ==============================================================
-
         private async void UsernameTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (ConfigManager.ExisteConfiguracion() && !string.IsNullOrWhiteSpace(UsernameTextBox.Text))
@@ -297,7 +327,7 @@ namespace AplicativoDeAlmacen
 
                             using (IDbCommand cmd = conn.CreateCommand())
                             {
-                                cmd.CommandText = "SELECT nombres FROM usuarios WHERE username = @username";
+                                cmd.CommandText = "SELECT nombres FROM usuarios WHERE username = @username LIMIT 1";
 
                                 var pUsername = cmd.CreateParameter();
                                 pUsername.ParameterName = "@username";
@@ -316,7 +346,7 @@ namespace AplicativoDeAlmacen
                 }
                 catch
                 {
-                    // Falla silenciosa
+                    // Falla silenciosa si no responde
                 }
             }
             else
@@ -327,12 +357,20 @@ namespace AplicativoDeAlmacen
 
         private void UsernameTextBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter) PasswordBox.Focus();
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                PasswordBox.Focus();
+            }
         }
 
         private async void PasswordBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Enter) await ValidateUserAndRedirectAsync();
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                await ValidateUserAndRedirectAsync();
+            }
         }
 
         private void ShowPassword_Click(object sender, RoutedEventArgs e)

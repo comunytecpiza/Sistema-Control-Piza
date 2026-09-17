@@ -22,6 +22,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Threading;
+using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Services.Sistemas;
 // Alias explícito: usamos Growl directo desde HandyControl.Controls sin
 // importar todo el namespace, porque HandyControl también tiene su propia
 // clase "Window" que choca (CS0104) con System.Windows.Window de WPF,
@@ -33,6 +36,7 @@ namespace AplicativoDeAlmacen.Views
 
     public partial class MainShell : Window, IMainWindow
     {
+        private DispatcherTimer? _heartbeatTimer;
         private MediaPlayer? _mediaPlayer;
         private ObservableCollection<NotaItem> _notasPendientes = new ObservableCollection<NotaItem>();
         private ObservableCollection<NotaItem> _notasCompletadas = new ObservableCollection<NotaItem>();
@@ -46,6 +50,7 @@ namespace AplicativoDeAlmacen.Views
 
         private void IniciarPollingTransacciones()
         {
+            IniciarHeartbeatPresencia();
             _timerPollingTransacciones = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMinutes(20) // 🌟 Cambiado a cada 30 segundos para recordatorios frecuentes
@@ -885,6 +890,43 @@ namespace AplicativoDeAlmacen.Views
             AplicarFiltroYPaginacionPopup();
         }
 
-        
+        private void IniciarHeartbeatPresencia()
+        {
+            // Verifica cada 10 segundos el latido y si TI forzó la expulsión
+            _heartbeatTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(10)
+            };
+
+            _heartbeatTimer.Tick += async (s, e) =>
+            {
+                if (string.IsNullOrWhiteSpace(SesionSistema.TokenSesionActual)) return;
+
+                var auditoria = new AuditoriaService();
+
+                // 1. Enviar latido para que la sesión figure activa en la tabla
+                await auditoria.ActualizarLatidoAsync(SesionSistema.TokenSesionActual);
+
+                // 2. Comprobar si desde el panel de TI cambiaron el estado a 'FORZADO_TI'
+                string estado = await auditoria.VerificarEstadoSesionAsync(SesionSistema.TokenSesionActual);
+
+                if (estado == "FORZADO_TI")
+                {
+                    _heartbeatTimer.Stop();
+
+                    MessageBox.Show(
+                        "Su sesión ha sido finalizada remotamente por el Administrador de TI por motivos de seguridad.",
+                        "Sesión Finalizada",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Stop);
+
+                    new MainWindow().Show();
+                    this.Close();
+                }
+            };
+
+            _heartbeatTimer.Start();
+        }
+
     }
 }

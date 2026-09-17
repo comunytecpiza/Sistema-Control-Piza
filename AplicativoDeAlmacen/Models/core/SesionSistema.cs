@@ -9,7 +9,7 @@ namespace AplicativoDeAlmacen.Core
     {
         public static Usuario? UsuarioActual { get; set; }
         public static List<RolPermiso>? PermisosActuales { get; set; }
-
+        public static string TokenSesionActual { get; set; } = string.Empty; // <-- Agregar esta línea
         // 🌟 PROPIEDADES GLOBALES MULTI-ALMACÉN (ESTAS FALTABAN)
         public static Almacen? AlmacenActual { get; set; }
         public static List<Almacen> AlmacenesPermitidos { get; set; } = new List<Almacen>();
