@@ -57,6 +57,7 @@ namespace AplicativoDeAlmacen.Views
         private bool _printMode = false;
         private Button _btnPrintNearSave = null;
         private readonly DatabaseConnection _dbConnHelper = new DatabaseConnection();
+        private bool _catalogosCargadosInicialmente = false;
 
         // ⏱️ TEMPORIZADORES PARA DEBOUNCE (PARTE A)
         private System.Windows.Threading.DispatcherTimer _timerRazonSocial;
@@ -141,11 +142,16 @@ namespace AplicativoDeAlmacen.Views
         {
             ConfigurarDataGridsParaVirtualizacion();
 
+            // 🛡️ Si los catálogos ya se cargaron una vez, NO volver a consultar la BD al cambiar de pestaña
+            if (_catalogosCargadosInicialmente) return;
+
             // Si venimos de la campana o historial, no recargar catálogos para no borrar la selección
             if (_isCargaTransferenciaActiva) return;
 
             await CargarMotivosAsync();
             await CargarComboAlmacenesOrigenAsync();
+
+            _catalogosCargadosInicialmente = true;
         }
 
         private void EstablecerEstadoInicial()
@@ -170,6 +176,9 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
+                // 💾 1. Guardamos la selección previa
+                object? valorPrevio = cboAlmacenDestino.SelectedValue;
+
                 using var conn = _dbConnHelper.GetConnection();
                 var dbConn = (System.Data.Common.DbConnection)conn;
                 await dbConn.OpenAsync();
@@ -177,7 +186,6 @@ namespace AplicativoDeAlmacen.Views
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
                 const int ALMACEN_CENTRAL_ID = 1;
 
-                // Regla: Si soy Central (1) veo a todos; si soy sucursal (Trujillo 2, Lima), solo veo a Central (1)
                 string query = (miAlmacenId == ALMACEN_CENTRAL_ID)
                     ? "SELECT id, nombre FROM almacenes WHERE id != @miAlmacen AND estado_id = 1 ORDER BY nombre ASC"
                     : "SELECT id, nombre FROM almacenes WHERE id = @centralId AND estado_id = 1";
@@ -195,10 +203,18 @@ namespace AplicativoDeAlmacen.Views
                     listaAlmacenes.Add(new { Id = rdr.GetInt32(0), Nombre = rdr.GetString(1) });
                 }
 
+                cboAlmacenDestino.SelectionChanged -= CboAlmacenDestino_SelectionChanged;
                 cboAlmacenDestino.ItemsSource = null;
                 cboAlmacenDestino.ItemsSource = listaAlmacenes;
                 cboAlmacenDestino.DisplayMemberPath = "Nombre";
                 cboAlmacenDestino.SelectedValuePath = "Id";
+
+                // 🔄 2. Restauramos la selección previa
+                if (valorPrevio != null)
+                {
+                    cboAlmacenDestino.SelectedValue = valorPrevio;
+                }
+                cboAlmacenDestino.SelectionChanged += CboAlmacenDestino_SelectionChanged;
             }
             catch (Exception ex)
             {
@@ -377,6 +393,10 @@ namespace AplicativoDeAlmacen.Views
             try
             {
                 this.Cursor = Cursors.Wait;
+
+                // 💾 1. Guardamos la selección previa si ya existía una
+                object? valorPrevio = cboMotivo.SelectedValue;
+
                 var todosLosMotivos = await _serviceMovimiento.ObtenerMotivosProductosAsync();
 
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
@@ -387,9 +407,17 @@ namespace AplicativoDeAlmacen.Views
                     todosLosMotivos = todosLosMotivos.Where(m => m.Id != 1).ToList();
                 }
 
+                cboMotivo.SelectionChanged -= CboMotivo_SelectionChanged; // Desenganchar para no limpiar campos
                 cboMotivo.ItemsSource = todosLosMotivos;
                 cboMotivo.DisplayMemberPath = "Descripcion";
                 cboMotivo.SelectedValuePath = "Id";
+
+                // 🔄 2. Restauramos la selección previa
+                if (valorPrevio != null)
+                {
+                    cboMotivo.SelectedValue = valorPrevio;
+                }
+                cboMotivo.SelectionChanged += CboMotivo_SelectionChanged;
             }
             catch (Exception ex)
             {
@@ -643,6 +671,7 @@ namespace AplicativoDeAlmacen.Views
 
             var movimiento = movimientoComp.Movimiento;
             _currentMovimientoId = movimiento.Id;
+            _isCargaTransferenciaActiva = false;
 
             if (movimiento.FechaMovimiento.HasValue)
             {
@@ -1086,17 +1115,25 @@ namespace AplicativoDeAlmacen.Views
                     }), System.Windows.Threading.DispatcherPriority.Background);
                 });
 
-                // 🛑 CANDADO: Si es Transferencia (4), JAMÁS enviar el ID de la salida.
-                // Debe ser null para que la BD cree un movimiento_id nuevo para este almacén
-                // y cree nuevas filas en movimiento_detalles (solo ingreso).
-                int? idParaGuardar = (idMotivo == 4) ? null : _currentMovimientoId;
-                int? salidaOrigenId = (idMotivo == 4) ? _currentMovimientoId : null;
+                // 🛑 CONTROL DE INGRESO / EDICIÓN EN TRANSFERENCIAS:
+                // Si es una recepción nueva proveniente de la campana/bandeja (_isCargaTransferenciaActiva == true),
+                // idParaGuardar debe ser null para crear el movimiento de entrada en esta sede y enlazarlo con la salida.
+                // Si venimos de "BtnEditar" o búsqueda manual (_isCargaTransferenciaActiva == false),
+                // idParaGuardar DEBE conservar _currentMovimientoId para hacer UPDATE y NO duplicar registros.
+                int? idParaGuardar;
+                int? salidaOrigenId;
 
-                // Limpiar también el objeto interno por seguridad
-                if (idMotivo == 4)
+                if (idMotivo == 4 && _isCargaTransferenciaActiva)
                 {
+                    idParaGuardar = null;
+                    salidaOrigenId = _currentMovimientoId;
                     solicitud.MovimientoId = null;
                     solicitud.Movimiento.Id = 0;
+                }
+                else
+                {
+                    idParaGuardar = _currentMovimientoId;
+                    salidaOrigenId = null;
                 }
 
                 bool resultado = await Task.Run(async () =>
