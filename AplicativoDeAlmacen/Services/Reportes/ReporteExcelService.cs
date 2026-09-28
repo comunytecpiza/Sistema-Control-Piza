@@ -23,6 +23,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
     public class ReporteExcelService
     {
 
+        
         public async Task ExportarSaldosProductosAsync(
         List<SaldoProductoItem> datos)
         {
@@ -2698,6 +2699,525 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 8 => "OCHO",
                 _ => ""
             };
+        }
+
+        public void ExportarReporteVentasPorCliente(
+    string cliente,
+    string codigoCliente,
+    string localidadZona,
+    string sedeNombre,
+    string fechaDesde,
+    string fechaHasta,
+    List<Models.Reportes.ReporteVentaProductoResumenDTO> productos,
+    List<Models.Reportes.ReporteVentaCodigoDetalleDTO> codigos)
+        {
+            using var wb = new ClosedXML.Excel.XLWorkbook();
+            var ws = wb.Worksheets.Add("Ventas x Cliente");
+
+            // Desactivar líneas de cuadrícula grises por defecto para aspecto de reporte limpio
+            ws.ShowGridLines = true;
+
+            // Colores de la paleta moderna
+            var colorCabeceraFondo = ClosedXML.Excel.XLColor.FromHtml("#1E293B"); // Slate 800
+            var colorCabeceraTexto = ClosedXML.Excel.XLColor.FromHtml("#FFFFFF");
+            var colorFilaHeader = ClosedXML.Excel.XLColor.FromHtml("#F1F5F9");    // Slate 100
+            var colorProdFondo = ClosedXML.Excel.XLColor.FromHtml("#F8FAFC");     // Slate 50
+            var colorBorde = ClosedXML.Excel.XLColor.FromHtml("#CBD5E1");         // Slate 300
+            var colorSubtexto = ClosedXML.Excel.XLColor.FromHtml("#475569");      // Slate 600
+
+            // ==========================================
+            // 1. TÍTULO PRINCIPAL DEL REPORTE
+            // ==========================================
+            ws.Range("A1:E1").Merge();
+            ws.Cell("A1").Value = $"REPORTE DE VENTAS X CLIENTE DEL {fechaDesde} AL {fechaHasta}";
+            ws.Cell("A1").Style.Font.Bold = true;
+            ws.Cell("A1").Style.Font.FontSize = 13;
+            ws.Cell("A1").Style.Font.FontName = "Segoe UI";
+            ws.Cell("A1").Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell("A1").Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+            ws.Row(1).Height = 28;
+
+            // ==========================================
+            // 2. FICHA DEL CLIENTE Y PARÁMETROS
+            // ==========================================
+            ws.Cell("A3").Value = "Cliente:";
+            ws.Cell("A3").Style.Font.Bold = true;
+            ws.Cell("A3").Style.Fill.BackgroundColor = colorFilaHeader;
+            ws.Cell("A3").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("A3").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Range("B3:E3").Merge();
+            ws.Cell("B3").Value = $"{codigoCliente} - {cliente}".Trim();
+            ws.Cell("B3").Style.Font.Bold = true;
+            ws.Cell("B3").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("B3").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Cell("A4").Value = "Localidad / Zona:";
+            ws.Cell("A4").Style.Font.Bold = true;
+            ws.Cell("A4").Style.Fill.BackgroundColor = colorFilaHeader;
+            ws.Cell("A4").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("A4").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Range("B4:E4").Merge();
+            ws.Cell("B4").Value = string.IsNullOrWhiteSpace(localidadZona) ? "/" : localidadZona;
+            ws.Cell("B4").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("B4").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Cell("A5").Value = "Sede / Almacén:";
+            ws.Cell("A5").Style.Font.Bold = true;
+            ws.Cell("A5").Style.Fill.BackgroundColor = colorFilaHeader;
+            ws.Cell("A5").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("A5").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Range("B5:E5").Merge();
+            ws.Cell("B5").Value = sedeNombre;
+            ws.Cell("B5").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("B5").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Row(3).Height = 20;
+            ws.Row(4).Height = 20;
+            ws.Row(5).Height = 20;
+
+            // ==========================================
+            // 3. CABECERA DE TABLA
+            // ==========================================
+            int row = 7;
+            ws.Range(row, 1, row, 2).Merge();
+            ws.Cell(row, 1).Value = "Producto";
+            ws.Cell(row, 3).Value = "U. Medida";
+            ws.Cell(row, 4).Value = "Cantidad";
+            ws.Cell(row, 5).Value = "Importe";
+
+            var headerRange = ws.Range(row, 1, row, 5);
+            headerRange.Style.Font.Bold = true;
+            headerRange.Style.Font.FontSize = 11;
+            headerRange.Style.Fill.BackgroundColor = colorFilaHeader;
+            headerRange.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
+            headerRange.Style.Border.TopBorderColor = ClosedXML.Excel.XLColor.FromHtml("#475569");
+            headerRange.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
+            headerRange.Style.Border.BottomBorderColor = ClosedXML.Excel.XLColor.FromHtml("#475569");
+
+            ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 3).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Row(row).Height = 24;
+
+            // ==========================================
+            // 4. MAESTRO / SUBDETALLE POR PRODUCTO
+            // ==========================================
+            var lookupCodigos = codigos.ToLookup(c => c.ProductoId);
+
+            foreach (var prod in productos)
+            {
+                row++;
+                int rowMaestro = row;
+
+                // Fila Principal del Producto
+                ws.Range(row, 1, row, 2).Merge();
+                ws.Cell(row, 1).Value = $"{prod.Codigo} - {prod.Descripcion}";
+                ws.Cell(row, 3).Value = prod.UnidadMedida;
+                ws.Cell(row, 4).SetValue(prod.Cantidad);
+                ws.Cell(row, 5).SetValue(prod.Importe);
+
+                // Estilos fila maestro
+                var rangoMaestro = ws.Range(row, 1, row, 5);
+                rangoMaestro.Style.Font.Bold = true;
+                rangoMaestro.Style.Fill.BackgroundColor = colorProdFondo;
+                rangoMaestro.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                rangoMaestro.Style.Border.TopBorderColor = colorBorde;
+
+                ws.Cell(row, 3).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2; // 0.00
+                ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2; // 0.00
+                ws.Row(row).Height = 22;
+
+                // Subdetalle: Códigos físicos pertenecientes a este producto
+                var codigosDeEsteProd = lookupCodigos[prod.ProductoId].ToList();
+
+                if (codigosDeEsteProd.Any())
+                {
+                    foreach (var c in codigosDeEsteProd)
+                    {
+                        row++;
+                        ws.Range(row, 2, row, 5).Merge();
+
+                        // Formato exacto requerido:
+                        // 1 = CP1-C24-V-0003506 - C2026 / LIBROS VENTA - FECHA 30/04/2026 - REC-R104-0000004 - PRECIO 180.00
+                        string lineaSubdetalle = $"{c.Cantidad} = {c.Codigo} - {c.ColeccionTipo} - FECHA {c.Fecha:dd/MM/yyyy} - {c.Documento} - PRECIO {c.Importe:N2}";
+
+                        ws.Cell(row, 2).Value = lineaSubdetalle;
+                        ws.Cell(row, 2).Style.Font.FontSize = 9.5;
+                        ws.Cell(row, 2).Style.Font.FontColor = colorSubtexto;
+                        ws.Cell(row, 2).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Left;
+                        ws.Cell(row, 2).Style.Alignment.Indent = 2; // Sangría visual elegante
+
+                        ws.Row(row).Height = 18;
+                    }
+                }
+                else
+                {
+                    // En caso de productos sin código unitario (bolsos, cartucheras)
+                    row++;
+                    ws.Range(row, 2, row, 5).Merge();
+                    ws.Cell(row, 2).Value = $"{prod.Cantidad:N0} = VENTA DIRECTA SIN CÓDIGO FÍSICO";
+                    ws.Cell(row, 2).Style.Font.FontSize = 9.5;
+                    ws.Cell(row, 2).Style.Font.FontColor = colorSubtexto;
+                    ws.Cell(row, 2).Style.Font.Italic = true;
+                    ws.Cell(row, 2).Style.Alignment.Indent = 2;
+                    ws.Row(row).Height = 18;
+                }
+
+                // Borde inferior al terminar el bloque del producto
+                ws.Range(row, 1, row, 5).Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                ws.Range(row, 1, row, 5).Style.Border.BottomBorderColor = colorBorde;
+            }
+
+            // ==========================================
+            // 5. FILA TOTAL GENERAL
+            // ==========================================
+            row += 2;
+            ws.Range(row, 1, row, 3).Merge();
+            ws.Cell(row, 1).Value = "TOTAL GENERAL:";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+
+            ws.Cell(row, 4).SetValue(productos.Sum(x => x.Cantidad));
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2;
+
+            ws.Cell(row, 5).SetValue(productos.Sum(x => x.Importe));
+            ws.Cell(row, 5).Style.Font.Bold = true;
+            ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2;
+
+            var filaTotal = ws.Range(row, 1, row, 5);
+            filaTotal.Style.Fill.BackgroundColor = colorFilaHeader;
+            filaTotal.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            filaTotal.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Double;
+            ws.Row(row).Height = 24;
+
+            // ==========================================
+            // 6. AJUSTE DE COLUMNAS Y GUARDADO
+            // ==========================================
+            ws.Column(1).Width = 12;  // Sangría izquierda / código
+            ws.Column(2).Width = 65;  // Descripción amplia y cadena de detalle
+            ws.Column(3).Width = 14;  // U. Medida
+            ws.Column(4).Width = 14;  // Cantidad
+            ws.Column(5).Width = 16;  // Importe
+
+            // Guardar en archivo temporal con nombre único y abrir
+            string rutaTemp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ReporteVentas_{Guid.NewGuid():N}.xlsx");
+            wb.SaveAs(rutaTemp);
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = rutaTemp,
+                UseShellExecute = true
+            });
+        }
+
+        public void ExportarReporteVentasPorUbicacion(
+    string ubicacionNombre,
+    string codigoUbicacion,
+    string localidadZona,
+    string sedeNombre,
+    string fechaDesde,
+    string fechaHasta,
+    List<Models.Reportes.ReporteVentaProductoResumenDTO> productos,
+    List<Models.Reportes.ReporteVentaCodigoDetalleDTO> codigos)
+        {
+            using var wb = new ClosedXML.Excel.XLWorkbook();
+            var ws = wb.Worksheets.Add("Ventas x Ubicación");
+
+            ws.ShowGridLines = true;
+
+            var colorFilaHeader = ClosedXML.Excel.XLColor.FromHtml("#F1F5F9");
+            var colorProdFondo = ClosedXML.Excel.XLColor.FromHtml("#F8FAFC");
+            var colorBorde = ClosedXML.Excel.XLColor.FromHtml("#CBD5E1");
+            var colorSubtexto = ClosedXML.Excel.XLColor.FromHtml("#475569");
+
+            // 1. TÍTULO
+            ws.Range("A1:E1").Merge();
+            ws.Cell("A1").Value = $"REPORTE DE VENTAS X UBICACIÓN DEL {fechaDesde} AL {fechaHasta}";
+            ws.Cell("A1").Style.Font.Bold = true;
+            ws.Cell("A1").Style.Font.FontSize = 13;
+            ws.Cell("A1").Style.Font.FontName = "Segoe UI";
+            ws.Cell("A1").Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell("A1").Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+            ws.Row(1).Height = 28;
+
+            // 2. PARÁMETROS
+            ws.Cell("A3").Value = "Ubicación:";
+            ws.Cell("A3").Style.Font.Bold = true;
+            ws.Cell("A3").Style.Fill.BackgroundColor = colorFilaHeader;
+            ws.Cell("A3").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("A3").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Range("B3:E3").Merge();
+            ws.Cell("B3").Value = $"{codigoUbicacion} - {ubicacionNombre}".Trim();
+            ws.Cell("B3").Style.Font.Bold = true;
+            ws.Cell("B3").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("B3").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Cell("A4").Value = "Localidad / Zona:";
+            ws.Cell("A4").Style.Font.Bold = true;
+            ws.Cell("A4").Style.Fill.BackgroundColor = colorFilaHeader;
+            ws.Cell("A4").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("A4").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Range("B4:E4").Merge();
+            ws.Cell("B4").Value = string.IsNullOrWhiteSpace(localidadZona) ? "/" : localidadZona;
+            ws.Cell("B4").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("B4").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Cell("A5").Value = "Sede / Almacén:";
+            ws.Cell("A5").Style.Font.Bold = true;
+            ws.Cell("A5").Style.Fill.BackgroundColor = colorFilaHeader;
+            ws.Cell("A5").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("A5").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Range("B5:E5").Merge();
+            ws.Cell("B5").Value = sedeNombre;
+            ws.Cell("B5").Style.Border.OutsideBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            ws.Cell("B5").Style.Border.OutsideBorderColor = colorBorde;
+
+            ws.Row(3).Height = 20;
+            ws.Row(4).Height = 20;
+            ws.Row(5).Height = 20;
+
+            // 3. ENCABEZADOS DE COLUMNA
+            int row = 7;
+            ws.Range(row, 1, row, 2).Merge();
+            ws.Cell(row, 1).Value = "Producto";
+            ws.Cell(row, 3).Value = "U. Medida";
+            ws.Cell(row, 4).Value = "Cantidad";
+            ws.Cell(row, 5).Value = "Importe";
+
+            var headerRange = ws.Range(row, 1, row, 5);
+            headerRange.Style.Font.Bold = true;
+            headerRange.Style.Font.FontSize = 11;
+            headerRange.Style.Fill.BackgroundColor = colorFilaHeader;
+            headerRange.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
+            headerRange.Style.Border.TopBorderColor = ClosedXML.Excel.XLColor.FromHtml("#475569");
+            headerRange.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
+            headerRange.Style.Border.BottomBorderColor = ClosedXML.Excel.XLColor.FromHtml("#475569");
+
+            ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 3).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Row(row).Height = 24;
+
+            // 4. MAESTRO / SUBDETALLE JERÁRQUICO
+            var lookupCodigos = codigos.ToLookup(c => c.ProductoId);
+
+            foreach (var prod in productos)
+            {
+                row++;
+                ws.Range(row, 1, row, 2).Merge();
+                ws.Cell(row, 1).Value = $"{prod.Codigo} - {prod.Descripcion}";
+                ws.Cell(row, 3).Value = prod.UnidadMedida;
+                ws.Cell(row, 4).SetValue(prod.Cantidad);
+                ws.Cell(row, 5).SetValue(prod.Importe);
+
+                var rangoMaestro = ws.Range(row, 1, row, 5);
+                rangoMaestro.Style.Font.Bold = true;
+                rangoMaestro.Style.Fill.BackgroundColor = colorProdFondo;
+                rangoMaestro.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                rangoMaestro.Style.Border.TopBorderColor = colorBorde;
+
+                ws.Cell(row, 3).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2; // 0.00
+                ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2; // 0.00
+                ws.Row(row).Height = 22;
+
+                var codigosDeEsteProd = lookupCodigos[prod.ProductoId].ToList();
+
+                if (codigosDeEsteProd.Any())
+                {
+                    foreach (var c in codigosDeEsteProd)
+                    {
+                        row++;
+                        ws.Range(row, 2, row, 5).Merge();
+
+                        string lineaSubdetalle = $"{c.Cantidad} = {c.Codigo} - {c.ColeccionTipo} - FECHA {c.Fecha:dd/MM/yyyy} - {c.Documento} - PRECIO {c.Importe:N2}";
+
+                        ws.Cell(row, 2).Value = lineaSubdetalle;
+                        ws.Cell(row, 2).Style.Font.FontSize = 9.5;
+                        ws.Cell(row, 2).Style.Font.FontColor = colorSubtexto;
+                        ws.Cell(row, 2).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Left;
+                        ws.Cell(row, 2).Style.Alignment.Indent = 2;
+
+                        ws.Row(row).Height = 18;
+                    }
+                }
+                else
+                {
+                    row++;
+                    ws.Range(row, 2, row, 5).Merge();
+                    ws.Cell(row, 2).Value = $"{prod.Cantidad:N0} = VENTA DIRECTA SIN CÓDIGO FÍSICO";
+                    ws.Cell(row, 2).Style.Font.FontSize = 9.5;
+                    ws.Cell(row, 2).Style.Font.FontColor = colorSubtexto;
+                    ws.Cell(row, 2).Style.Font.Italic = true;
+                    ws.Cell(row, 2).Style.Alignment.Indent = 2;
+                    ws.Row(row).Height = 18;
+                }
+
+                ws.Range(row, 1, row, 5).Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                ws.Range(row, 1, row, 5).Style.Border.BottomBorderColor = colorBorde;
+            }
+
+            // 5. TOTAL GENERAL
+            row += 2;
+            ws.Range(row, 1, row, 3).Merge();
+            ws.Cell(row, 1).Value = "TOTAL GENERAL:";
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+
+            ws.Cell(row, 4).SetValue(productos.Sum(x => x.Cantidad));
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2;
+
+            ws.Cell(row, 5).SetValue(productos.Sum(x => x.Importe));
+            ws.Cell(row, 5).Style.Font.Bold = true;
+            ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2;
+
+            var filaTotal = ws.Range(row, 1, row, 5);
+            filaTotal.Style.Fill.BackgroundColor = colorFilaHeader;
+            filaTotal.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            filaTotal.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Double;
+            ws.Row(row).Height = 24;
+
+            ws.Column(1).Width = 12;
+            ws.Column(2).Width = 65;
+            ws.Column(3).Width = 14;
+            ws.Column(4).Width = 14;
+            ws.Column(5).Width = 16;
+
+            string rutaTemp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ReporteVentasUbicacion_{Guid.NewGuid():N}.xlsx");
+            wb.SaveAs(rutaTemp);
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = rutaTemp,
+                UseShellExecute = true
+            });
+        }
+
+        public void ExportarRegistroVentas(
+    string periodoTexto,
+    string sedeNombre,
+    List<Models.Reportes.RegistroVentaItemDTO> ventas)
+        {
+            using var wb = new ClosedXML.Excel.XLWorkbook();
+            var ws = wb.Worksheets.Add("Registro Ventas");
+
+            ws.ShowGridLines = true;
+
+            var colorHeader = ClosedXML.Excel.XLColor.FromHtml("#F1F5F9");
+            var colorBorde = ClosedXML.Excel.XLColor.FromHtml("#CBD5E1");
+
+            // 1. TÍTULO Y DATOS GENERALES
+            ws.Range("A1:G1").Merge();
+            ws.Cell("A1").Value = "REGISTRO DE VENTAS";
+            ws.Cell("A1").Style.Font.Bold = true;
+            ws.Cell("A1").Style.Font.FontSize = 14;
+            ws.Cell("A1").Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Row(1).Height = 26;
+
+            ws.Cell("A3").Value = "Período:";
+            ws.Cell("B3").Value = periodoTexto;
+            ws.Cell("A4").Value = "Sede:";
+            ws.Cell("B4").Value = sedeNombre;
+            ws.Range("A3:A4").Style.Font.Bold = true;
+
+            // 2. ENCABEZADOS DE COLUMNA
+            int row = 6;
+            ws.Cell(row, 1).Value = "Fecha";
+            ws.Cell(row, 2).Value = "Documento";
+            ws.Cell(row, 3).Value = "Cliente / Razón Social";
+            ws.Cell(row, 4).Value = "Gravado";
+            ws.Cell(row, 5).Value = "Exonerado";
+            ws.Cell(row, 6).Value = "IGV";
+            ws.Cell(row, 7).Value = "Total";
+
+            var headRange = ws.Range(row, 1, row, 7);
+            headRange.Style.Font.Bold = true;
+            headRange.Style.Fill.BackgroundColor = colorHeader;
+            headRange.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
+            headRange.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
+            ws.Row(row).Height = 24;
+
+            ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 6).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 7).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+
+            // 3. CUERPO DE DATOS
+            foreach (var v in ventas)
+            {
+                row++;
+                ws.Cell(row, 1).SetValue(v.FechaEmision.ToString("dd/MM/yyyy"));
+                ws.Cell(row, 2).SetValue(v.Documento);
+                ws.Cell(row, 3).SetValue(v.Cliente);
+                ws.Cell(row, 4).SetValue(v.TotalGravado);
+                ws.Cell(row, 5).SetValue(v.TotalExonerado);
+                ws.Cell(row, 6).SetValue(v.TotalIgv);
+                ws.Cell(row, 7).SetValue(v.ImporteTotal);
+
+                ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+                ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2; // 0.00
+                ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2;
+                ws.Cell(row, 6).Style.NumberFormat.NumberFormatId = 2;
+                ws.Cell(row, 7).Style.NumberFormat.NumberFormatId = 2;
+                ws.Row(row).Height = 20;
+            }
+
+            // 4. TOTALES GENERALES
+            row++;
+            ws.Cell(row, 3).Value = "TOTALES:";
+            ws.Cell(row, 3).Style.Font.Bold = true;
+            ws.Cell(row, 3).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+
+            ws.Cell(row, 4).SetValue(ventas.Sum(x => x.TotalGravado));
+            ws.Cell(row, 4).Style.Font.Bold = true;
+            ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2;
+
+            ws.Cell(row, 5).SetValue(ventas.Sum(x => x.TotalExonerado));
+            ws.Cell(row, 5).Style.Font.Bold = true;
+            ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2;
+
+            ws.Cell(row, 6).SetValue(ventas.Sum(x => x.TotalIgv));
+            ws.Cell(row, 6).Style.Font.Bold = true;
+            ws.Cell(row, 6).Style.NumberFormat.NumberFormatId = 2;
+
+            ws.Cell(row, 7).SetValue(ventas.Sum(x => x.ImporteTotal));
+            ws.Cell(row, 7).Style.Font.Bold = true;
+            ws.Cell(row, 7).Style.NumberFormat.NumberFormatId = 2;
+
+            var filaTot = ws.Range(row, 1, row, 7);
+            filaTot.Style.Fill.BackgroundColor = colorHeader;
+            filaTot.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+            filaTot.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Double;
+            ws.Row(row).Height = 24;
+
+            ws.Column(1).Width = 14;
+            ws.Column(2).Width = 22;
+            ws.Column(3).Width = 46;
+            ws.Column(4).Width = 14;
+            ws.Column(5).Width = 14;
+            ws.Column(6).Width = 14;
+            ws.Column(7).Width = 16;
+
+            string rutaTemp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"RegistroVentas_{Guid.NewGuid():N}.xlsx");
+            wb.SaveAs(rutaTemp);
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = rutaTemp,
+                UseShellExecute = true
+            });
         }
     }
 }

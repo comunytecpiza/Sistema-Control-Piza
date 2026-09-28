@@ -47,15 +47,17 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
 
                 // 1. INSERTAR CABECERA
                 string queryCabecera = $@"
-                INSERT INTO facturacion_cabecera 
-                (tipo_documento, serie_documento, numero_documento, fecha_emision, punto_venta_id, almacen_id,
-                 comprador_id, institucion_id, observacion, total_gravado, total_inafecto, 
-                 total_exonerado, total_igv, importe_total, porcentaje_igv, fecha_registro, usuario_id, estado_registro)
-                VALUES 
-                (@TipoDoc, @SerieDoc, @NumDoc, @FecEmi, @PtoVentaId, @AlmId,
-                 @CompradorId, @InstId, @Obs, @TotGrav, @TotIna, 
-                 @TotExo, @TotIgv, @ImpTot, @PorcIgv, {nowFunc}, @UsuId, 1);
-                {selectId}";
+        INSERT INTO facturacion_cabecera 
+        (empresa_id, tipo_documento, serie_documento, numero_documento, fecha_emision, punto_venta_id, almacen_id,
+         comprador_id, institucion_id, observacion, total_gravado, total_inafecto, 
+         total_exonerado, total_igv, importe_total, monto_delivery, moneda_id, condicion_pago_id, 
+         porcentaje_igv, fecha_registro, usuario_id, estado_registro)
+        VALUES 
+        (@EmpresaId, @TipoDoc, @SerieDoc, @NumDoc, @FecEmi, @PtoVentaId, @AlmId,
+         @CompradorId, @InstId, @Obs, @TotGrav, @TotIna, 
+         @TotExo, @TotIgv, @ImpTot, @MontoDelivery, @MonedaId, @CondPagoId, 
+         @PorcIgv, {nowFunc}, @UsuId, 1);
+        {selectId}";
 
                 int nuevaCabeceraId;
                 using (var cmdCabecera = dbConn.CreateCommand())
@@ -63,6 +65,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                     cmdCabecera.Transaction = transaction;
                     cmdCabecera.CommandText = QueryAdapter.FormatearConsulta(queryCabecera);
 
+                    AgregarParametro(cmdCabecera, "@EmpresaId", cabecera.EmpresaId);
                     AgregarParametro(cmdCabecera, "@TipoDoc", cabecera.TipoDocumento);
                     AgregarParametro(cmdCabecera, "@SerieDoc", cabecera.SerieDocumento);
                     AgregarParametro(cmdCabecera, "@NumDoc", cabecera.NumeroDocumento);
@@ -77,25 +80,56 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                     AgregarParametro(cmdCabecera, "@TotExo", cabecera.TotalExonerado);
                     AgregarParametro(cmdCabecera, "@TotIgv", cabecera.TotalIgv);
                     AgregarParametro(cmdCabecera, "@ImpTot", cabecera.ImporteTotal);
+                    AgregarParametro(cmdCabecera, "@MontoDelivery", cabecera.MontoDelivery);
+                    AgregarParametro(cmdCabecera, "@MonedaId", cabecera.MonedaId > 0 ? cabecera.MonedaId : 1);
+                    AgregarParametro(cmdCabecera, "@CondPagoId", cabecera.CondicionPagoId ?? 1);
                     AgregarParametro(cmdCabecera, "@PorcIgv", cabecera.PorcentajeIgv);
                     AgregarParametro(cmdCabecera, "@UsuId", cabecera.UsuarioId);
 
                     nuevaCabeceraId = Convert.ToInt32(await cmdCabecera.ExecuteScalarAsync());
                 }
 
-                // 2. INSERTAR DETALLES Y CÓDIGOS
+                cabecera.Id = nuevaCabeceraId; // 🌟 Se asigna de inmediato el ID real generado
+
+                // 🌟 2. INSERTAR DESGLOSE MULTI-PAGO EN LA MISMA TRANSACCIÓN
+                if (cabecera.Pagos != null && cabecera.Pagos.Count > 0)
+                {
+                    string queryPago = @"
+            INSERT INTO facturacion_pagos_detalle 
+            (facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion, created_at)
+            VALUES 
+            (@CabId, @MedioId, @Monto, @NumOp, @Obs, NOW());";
+
+                    foreach (var pago in cabecera.Pagos)
+                    {
+                        using var cmdPago = dbConn.CreateCommand();
+                        cmdPago.Transaction = transaction;
+                        cmdPago.CommandText = QueryAdapter.FormatearConsulta(queryPago);
+                        AgregarParametro(cmdPago, "@CabId", nuevaCabeceraId);
+                        AgregarParametro(cmdPago, "@MedioId", pago.MedioPagoId > 0 ? pago.MedioPagoId : 1);
+                        AgregarParametro(cmdPago, "@Monto", pago.Monto);
+                        AgregarParametro(cmdPago, "@NumOp", string.IsNullOrWhiteSpace(pago.NumeroOperacion) ? DBNull.Value : pago.NumeroOperacion);
+                        AgregarParametro(cmdPago, "@Obs", "VENTA MANUAL");
+                        await cmdPago.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // 3. INSERTAR DETALLES Y CÓDIGOS
                 string queryDetalle = $@"
-                INSERT INTO facturacion_detalle 
-                (facturacion_cabecera_id, movimiento_id, producto_id, numero_linea, cantidad, precio_unitario, 
-                 valor_gravado, valor_inafecto, valor_exonerado, valor_igv, importe_total, created_at)
-                VALUES 
-                (@CabId, @MovId, @ProdId, @NumLinea, @Cant, @PreUnit, 
-                 @ValGrav, @ValIna, @ValExo, @ValIgv, @ImpTot, {nowFunc});
-                {selectId}";
+        INSERT INTO facturacion_detalle 
+        (facturacion_cabecera_id, movimiento_id, producto_id, numero_linea, cantidad, precio_unitario, 
+         valor_gravado, valor_inafecto, valor_exonerado, valor_igv, importe_total)
+        VALUES 
+        (@CabId, @MovId, @ProdId, @NumLinea, @Cant, @PreUnit, 
+         @ValGrav, @ValIna, @ValExo, @ValIgv, @ImpTot);
+        {selectId}";
 
                 string queryCodigo = @"
-                INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id)
-                VALUES (@DetId, @CodCreadoId)";
+        INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id)
+        VALUES (@DetId, @CodCreadoId)";
+
+                string queryUpdKardex = @"
+        UPDATE codigos_creados SET estado_id = 4 WHERE id = @CodCreadoId";
 
                 int linea = 1;
                 foreach (var detalle in cabecera.Detalles)
@@ -131,11 +165,17 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                             AgregarParametro(cmdCod, "@DetId", nuevoDetalleId);
                             AgregarParametro(cmdCod, "@CodCreadoId", codigo.CodigoCreadoId);
                             await cmdCod.ExecuteNonQueryAsync();
+
+                            using var cmdKardex = dbConn.CreateCommand();
+                            cmdKardex.Transaction = transaction;
+                            cmdKardex.CommandText = QueryAdapter.FormatearConsulta(queryUpdKardex);
+                            AgregarParametro(cmdKardex, "@CodCreadoId", codigo.CodigoCreadoId);
+                            await cmdKardex.ExecuteNonQueryAsync();
                         }
                     }
                 }
 
-                // 3. ACTUALIZAR CORRELATIVO EN TABLA SERIES
+                // 4. ACTUALIZAR CORRELATIVO EN TABLA SERIES
                 string campoUpdate = cabecera.TipoDocumento == "01" ? "num_fact = num_fact + 1" :
                                      cabecera.TipoDocumento == "02" ? "num_bole = num_bole + 1" :
                                      cabecera.TipoDocumento == "03" ? "num_reci = num_reci + 1" : "";
@@ -723,6 +763,30 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
             }
 
             return resultado;
+        }
+
+        public async Task RegistrarPagoDetalleAsync(int cabeceraId, int medioPagoId, decimal monto, string? numeroOperacion)
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (System.Data.Common.DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            string sql = @"
+        INSERT INTO facturacion_pagos_detalle (
+            facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion, created_at
+        ) VALUES (
+            @cabId, @medioId, @monto, @numOp, 'VENTA MANUAL', NOW()
+        );";
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = Data.QueryAdapter.FormatearConsulta(sql);
+
+            var p1 = cmd.CreateParameter(); p1.ParameterName = "@cabId"; p1.Value = cabeceraId; cmd.Parameters.Add(p1);
+            var p2 = cmd.CreateParameter(); p2.ParameterName = "@medioId"; p2.Value = medioPagoId; cmd.Parameters.Add(p2);
+            var p3 = cmd.CreateParameter(); p3.ParameterName = "@monto"; p3.Value = monto; cmd.Parameters.Add(p3);
+            var p4 = cmd.CreateParameter(); p4.ParameterName = "@numOp"; p4.Value = (object?)numeroOperacion ?? DBNull.Value; cmd.Parameters.Add(p4);
+
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 }

@@ -19,8 +19,10 @@
             <Setter Property="Foreground" Value="#374151"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
+                <!-- En MenuItems es preferible IsHighlighted frente a IsMouseOver -->
+                <Trigger Property="IsHighlighted" Value="True">
                     <Setter Property="Background" Value="#E5E7EB"/>
                     <Setter Property="Foreground" Value="#DC2626"/>
                 </Trigger>

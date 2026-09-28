@@ -1,240 +1,414 @@
 ﻿<UserControl x:Class="AplicativoDeAlmacen.Views.Importaciones.ImportarVentasNisiraUserControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-             Background="#F8FAFC" FontFamily="Segoe UI" FontSize="13">
+             Background="#F8FAFC" FontFamily="Segoe UI" FontSize="12.5">
 
     <UserControl.Resources>
-        <!-- Cabecera de DataGrid Ejecutiva / Profesional -->
-        <Style x:Key="CorporateHeaderStyle" TargetType="DataGridColumnHeader">
+        <!-- Estilo Base para ToolTips Contables Modernos -->
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="#0F172A"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+        </Style>
+
+        <!-- Cabecera de DataGrid con Ayuda Contable Integrada -->
+        <Style x:Key="AuditoriaHeaderStyle" TargetType="DataGridColumnHeader">
             <Setter Property="Background" Value="#F1F5F9"/>
-            <Setter Property="Foreground" Value="#334155"/>
+            <Setter Property="Foreground" Value="#1E293B"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Padding" Value="8,6"/>
             <Setter Property="BorderBrush" Value="#E2E8F0"/>
             <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="Cursor" Value="Help"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
         </Style>
 
-        <!-- Cabecera Centrada para Números / Cantidades -->
-        <Style x:Key="CorporateHeaderCenterStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource CorporateHeaderStyle}">
+        <Style x:Key="AuditoriaHeaderCenterStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource AuditoriaHeaderStyle}">
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
 
-        <!-- Estilo Visual para Filas Validadas / Con Inconsistencias -->
-        <Style x:Key="RowValidationStyle" TargetType="DataGridRow">
+        <Style x:Key="AuditoriaHeaderRightStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource AuditoriaHeaderStyle}">
+            <Setter Property="HorizontalContentAlignment" Value="Right"/>
+        </Style>
+
+        <!-- Filas con Semáforo y ToolTip Global de Fila -->
+        <Style x:Key="RowAuditoriaStyle" TargetType="DataGridRow">
             <Setter Property="Background" Value="White"/>
             <Setter Property="Foreground" Value="#1E293B"/>
             <Setter Property="MinHeight" Value="28"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="ToolTip">
+                <Setter.Value>
+                    <StackPanel MaxWidth="320">
+                        <TextBlock Text="📋 Ficha de Control Contable" FontWeight="Bold" Foreground="#38BDF8" Margin="0,0,0,3"/>
+                        <TextBlock Text="{Binding DocumentoExcel, StringFormat='Tipo: {0}'}"/>
+                        <TextBlock Text="{Binding Serie, StringFormat='Comprobante: {0}'}"/>
+                        <TextBlock Text="{Binding RazonSocialSistema, StringFormat='Cliente Sistema: {0}'}"/>
+                        <TextBlock Text="{Binding Total, StringFormat='Total Venta: S/ {0:N2}'}" FontWeight="Bold" Foreground="#4ADE80"/>
+                    </StackPanel>
+                </Setter.Value>
+            </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#F8FAFC"/>
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#E2E8F0"/>
+                    <Setter Property="Background" Value="#DBEAFE"/>
                     <Setter Property="Foreground" Value="#0F172A"/>
                 </Trigger>
                 <DataTrigger Binding="{Binding EsValido}" Value="False">
                     <Setter Property="Background" Value="#FEF2F2"/>
                     <Setter Property="Foreground" Value="#991B1B"/>
-                    <Setter Property="ToolTip" Value="{Binding MensajeError}"/>
+                    <Setter Property="ToolTip">
+                        <Setter.Value>
+                            <StackPanel MaxWidth="360">
+                                <TextBlock Text="⛔ INCONSISTENCIA EN COMPROBANTE" FontWeight="Bold" Foreground="#F87171" Margin="0,0,0,3"/>
+                                <TextBlock Text="{Binding MensajeError}" TextWrapping="Wrap" Foreground="#FCA5A5"/>
+                            </StackPanel>
+                        </Setter.Value>
+                    </Setter>
                 </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <!-- Botones de la Barra Superior -->
-        <Style x:Key="PrimaryActionBtn" TargetType="Button">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Margin" Value="0,0,8,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#1D4ED8"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#94A3B8"/>
-                    <Setter Property="Opacity" Value="0.6"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="SecondaryActionBtn" TargetType="Button">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="#334155"/>
-            <Setter Property="FontWeight" Value="Medium"/>
-            <Setter Property="BorderBrush" Value="#CBD5E1"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="12,5"/>
-            <Setter Property="Margin" Value="0,0,8,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#F1F5F9"/>
-                </Trigger>
             </Style.Triggers>
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="16">
+    <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="2.2*"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="3*"/>
+            <RowDefinition Height="2.7*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="2.5*"/>
         </Grid.RowDefinitions>
 
-        <!-- Barra Superior: Selección y Acciones -->
-        <Border Grid.Row="0" Background="White" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,0,0,12">
+        <!-- 1. BARRA SUPERIOR: EXPLORADOR DE ARCHIVO Y ACCIONES -->
+        <Border Grid.Row="0" Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,8">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Archivo de Importación:" FontWeight="SemiBold" Foreground="#475569" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <Border CornerRadius="6" BorderBrush="#CBD5E1" BorderThickness="1" Background="#F8FAFC">
-                        <TextBox x:Name="TxtRutaArchivo" Width="400" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="8,4" VerticalContentAlignment="Center" Foreground="#1E293B"/>
-                    </Border>
-                    <Button x:Name="BtnBuscarArchivo" Content="Examinar..." Click="BtnBuscarArchivo_Click" Style="{StaticResource SecondaryActionBtn}" Margin="6,0,0,0"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="📁 Archivo Nisira:" FontWeight="Bold" Foreground="#334155" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TxtRutaArchivo" Width="410" Height="32" IsReadOnly="True" Margin="0,0,6,0" 
+                             ToolTip="Ruta completa del archivo .xlsx generado por el sistema Nisira"/>
+                    <Button x:Name="BtnBuscarArchivo" Content="Examinar..." Height="32" Padding="12,0" Background="#F1F5F9" Foreground="#334155" 
+                            FontWeight="SemiBold" BorderBrush="#94A3B8" BorderThickness="1" Cursor="Hand" Click="BtnBuscarArchivo_Click"
+                            ToolTip="Buscar archivo Excel en el equipo"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnEjecutar" Click="BtnEjecutar_Click" Style="{StaticResource SecondaryActionBtn}">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnEjecutar" Click="BtnEjecutar_Click" Height="32" Padding="14,0" Background="#FFFFFF" Foreground="#0284C7"
+                            FontWeight="Bold" BorderBrush="#0284C7" BorderThickness="1.2" Cursor="Hand" Margin="0,0,8,0"
+                            ToolTip="Lee el archivo, agrupa por serie/número, desglosa pagos y valida existencias en Kárdex">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚙️" Margin="0,0,6,0"/>
-                            <TextBlock Text="Cargar y Validar"/>
+                            <TextBlock Text="Procesar y Validar"/>
                         </StackPanel>
                     </Button>
 
-                    <Button x:Name="BtnTransferir" Click="BtnTransferir_Click" IsEnabled="False" Style="{StaticResource PrimaryActionBtn}">
+                    <Button x:Name="BtnTransferir" Click="BtnTransferir_Click" IsEnabled="False" Height="32" Padding="16,0" Background="#16A34A" 
+                            Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"
+                            ToolTip="Guarda los comprobantes válidos en facturación y rebaja el Kárdex a estado VENDIDO">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🔄" Margin="0,0,6,0"/>
-                            <TextBlock Text="Transferir al Sistema"/>
+                            <TextBlock Text="🚀" Margin="0,0,6,0"/>
+                            <TextBlock Text="Transferir a Facturación"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Grilla 1: Cabeceras de Facturación -->
-        <Border Grid.Row="1" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Background="White" ClipToBounds="True">
+        <!-- 2. RESUMEN CONTABLE Y SEMÁFORO DE AUDITORÍA -->
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="#EFF6FF" CornerRadius="6" Padding="10,6" Margin="0,0,6,0" BorderBrush="#BFDBFE" BorderThickness="1"
+                    ToolTip="Total de comprobantes (Boletas y Facturas) agrupados por Serie y Correlativo">
+                <StackPanel>
+                    <TextBlock Text="Total Documentos" FontSize="11" Foreground="#1E40AF" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtResumenDocs" Text="0 comprobantes" FontSize="14" FontWeight="Bold" Foreground="#1E3A8A"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Background="#ECFDF5" CornerRadius="6" Padding="10,6" Margin="0,0,6,0" BorderBrush="#A7F3D0" BorderThickness="1"
+                    ToolTip="Suma global del importe facturado a ingresar al sistema">
+                <StackPanel>
+                    <TextBlock Text="Importe Total Venta" FontSize="11" Foreground="#047857" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtResumenImporte" Text="S/ 0.00" FontSize="14" FontWeight="Bold" Foreground="#065F46"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2" Background="#FEF2F2" CornerRadius="6" Padding="10,6" Margin="0,0,6,0" BorderBrush="#FECACA" BorderThickness="1"
+                    ToolTip="Comprobantes con fallas (series no registradas, productos inexistentes o libros sin salida en Kárdex)">
+                <StackPanel>
+                    <TextBlock Text="Inconsistencias (Bloquean inserción)" FontSize="11" Foreground="#B91C1C" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtResumenErrores" Text="0 con error" FontSize="14" FontWeight="Bold" Foreground="#991B1B"/>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="3" Background="#F8FAFC" CornerRadius="6" Padding="10,6" BorderBrush="#CBD5E1" BorderThickness="1"
+                    ToolTip="Sede actual donde se impactará el registro y se descargará el stock">
+                <StackPanel>
+                    <TextBlock Text="Sede / Almacén Operativo" FontSize="11" Foreground="#475569" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtResumenSede" Text="Sede Principal Trujillo" FontSize="14" FontWeight="Bold" Foreground="#0F172A"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- 3. GRILLA 1: CABECERAS DE COMPROBANTES (CON TOOLTIPS EN COLUMNAS Y CELDAS) -->
+        <Border Grid.Row="2" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Background="White" ClipToBounds="True">
             <DataGrid x:Name="DgCabeceras" AutoGenerateColumns="False" CanUserAddRows="False" 
-                      HeadersVisibility="Column" SelectionMode="Single" GridLinesVisibility="Horizontal"
-                      HorizontalGridLinesBrush="#F1F5F9" Background="White" BorderThickness="0"
-                      ColumnHeaderStyle="{StaticResource CorporateHeaderStyle}"
-                      RowStyle="{StaticResource RowValidationStyle}"
+                      HeadersVisibility="Column" SelectionMode="Single" GridLinesVisibility="All"
+                      ColumnHeaderStyle="{StaticResource AuditoriaHeaderStyle}"
+                      RowStyle="{StaticResource RowAuditoriaStyle}"
                       SelectionChanged="DgCabeceras_SelectionChanged">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Documento" Binding="{Binding DocumentoExcel}" Width="95"/>
-                    <DataGridTextColumn Header="Serie" Binding="{Binding Serie}" Width="65" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}"/>
-                    <DataGridTextColumn Header="Número" Binding="{Binding Numero}" Width="85" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}"/>
-                    <DataGridTextColumn Header="Fecha" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="95" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}"/>
-                    <DataGridTextColumn Header="Razón Social (Excel)" Binding="{Binding RazonSocialExcel}" Width="2*"/>
-                    <DataGridTextColumn Header="Razón Social (Sistema)" Binding="{Binding RazonSocialSistema}" Width="2*" FontWeight="Medium" Foreground="#1E40AF"/>
-                    <DataGridTextColumn Header="Cliente (Excel)" Binding="{Binding ClienteExcel}" Width="1.5*"/>
-                    <DataGridTextColumn Header="Cliente (Sistema)" Binding="{Binding ClienteSistema}" Width="1.5*"/>
-                    <DataGridTextColumn Header="Moneda" Binding="{Binding Moneda}" Width="75" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}"/>
-                    <DataGridTextColumn Header="Afecto" Binding="{Binding Afecto, StringFormat=N2}" Width="85"/>
-                    <DataGridTextColumn Header="Exonerado" Binding="{Binding Exonerado, StringFormat=N2}" Width="90"/>
-                    <DataGridTextColumn Header="IGV" Binding="{Binding IGV, StringFormat=N2}" Width="75"/>
-                    <DataGridTextColumn Header="Total" Binding="{Binding Total, StringFormat=N2}" Width="95" FontWeight="SemiBold"/>
+
+                    <!-- 1. EMPRESA TITULAR -->
+                    <DataGridTemplateColumn Width="160">
+                        <DataGridTemplateColumn.Header>
+                            <TextBlock Text="Empresa Titular" ToolTip="Empresa legal emisora asignada a través del catálogo de Series Electrónicas"/>
+                        </DataGridTemplateColumn.Header>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="4" Padding="6,2" Background="#F1F5F9" HorizontalAlignment="Left"
+                                        ToolTip="{Binding EmpresaNombre, StringFormat='Empresa emisora asignada: {0}'}">
+                                    <TextBlock Text="{Binding EmpresaNombre}" FontWeight="Bold" Foreground="#1E3A8A" FontSize="11"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- 2. DOCUMENTO -->
+                    <DataGridTextColumn Header="Doc." Binding="{Binding DocumentoExcel}" Width="65" 
+                                        HeaderStyle="{StaticResource AuditoriaHeaderCenterStyle}" FontWeight="SemiBold">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding DocumentoExcel, StringFormat='Tipo de comprobante oficial: {0}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 3. SERIE -->
+                    <DataGridTextColumn Header="Serie" Binding="{Binding Serie}" Width="55" 
+                                        HeaderStyle="{StaticResource AuditoriaHeaderCenterStyle}" FontWeight="Bold">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding Serie, StringFormat='Serie electrónica: {0}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 4. NÚMERO -->
+                    <DataGridTextColumn Header="Número" Binding="{Binding Numero}" Width="70" 
+                                        HeaderStyle="{StaticResource AuditoriaHeaderCenterStyle}">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding Numero, StringFormat='Correlativo formateado: {0}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 5. FECHA -->
+                    <DataGridTextColumn Header="Fecha" Binding="{Binding Fecha, StringFormat=dd/MM/yyyy}" Width="80" 
+                                        HeaderStyle="{StaticResource AuditoriaHeaderCenterStyle}">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding Fecha, StringFormat='Fecha de emisión original: {0:dd/MM/yyyy}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 6. RAZÓN SOCIAL (EXCEL) -->
+                    <DataGridTextColumn Header="Razón Social (Excel)" Binding="{Binding RazonSocialExcel}" Width="1.2*">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding RazonSocialExcel, StringFormat='Nombre del cliente registrado en Nisira: {0}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 7. CLIENTE COMODÍN (SISTEMA) -->
+                    <DataGridTemplateColumn Width="1.3*">
+                        <DataGridTemplateColumn.Header>
+                            <TextBlock Text="Cliente Asignado (Sistema)" ToolTip="Cliente comodín institucional asignado por normativa fiscal interna"/>
+                        </DataGridTemplateColumn.Header>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding RazonSocialSistema}" FontWeight="SemiBold" Foreground="#0369A1"
+                                           ToolTip="{Binding ClienteNumeroDoc, StringFormat='Asignado con Documento Comodín: {0}'}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- 8. INSTITUCIÓN (EXCEL) -->
+                    <DataGridTextColumn Header="Institución (Excel)" Binding="{Binding ClienteExcel}" Width="1*">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding ClienteExcel, StringFormat='Colegio / Institución de procedencia: {0}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 9. CONDICIÓN Y DESGLOSE MULTICANAL -->
+                    <DataGridTemplateColumn Width="1.3*">
+                        <DataGridTemplateColumn.Header>
+                            <TextBlock Text="Condición / Canales" ToolTip="Medios de pago detectados (Efectivo, Yape, Bancos, Delivery)"/>
+                        </DataGridTemplateColumn.Header>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="4" Padding="6,2" HorizontalAlignment="Left"
+                                        Background="{Binding CondicionPagoNombre, Converter={x:Null}, FallbackValue=#F8FAFC}"
+                                        ToolTip="{Binding CondicionPagoNombre, StringFormat='Canales desglosados en pagos: {0}'}">
+                                    <TextBlock Text="{Binding CondicionPagoNombre}" FontSize="11" FontWeight="Medium" Foreground="#1E293B"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- 10. EXONERADO -->
+                    <DataGridTextColumn Header="Exonerado" Binding="{Binding Exonerado, StringFormat=N2}" Width="75" 
+                                        HeaderStyle="{StaticResource AuditoriaHeaderRightStyle}">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding Exonerado, StringFormat='Base Exonerada (Libros): S/ {0:N2}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 11. DELIVERY -->
+                    <DataGridTextColumn Header="Delivery" Binding="{Binding MontoDelivery, StringFormat=N2}" Width="65" 
+                                        HeaderStyle="{StaticResource AuditoriaHeaderRightStyle}">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding MontoDelivery, StringFormat='Gasto de envío / Delivery: S/ {0:N2}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 12. TOTAL VENTA -->
+                    <DataGridTextColumn Header="Total" Binding="{Binding Total, StringFormat=N2}" Width="80" 
+                                        FontWeight="Bold" Foreground="#15803D" HeaderStyle="{StaticResource AuditoriaHeaderRightStyle}">
+                        <DataGridTextColumn.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="ToolTip" Value="{Binding Total, StringFormat='Total a facturar: S/ {0:N2}'}"/>
+                            </Style>
+                        </DataGridTextColumn.CellStyle>
+                    </DataGridTextColumn>
+
+                    <!-- 13. ESTADO DE AUDITORÍA -->
+                    <DataGridTemplateColumn Width="1.3*">
+                        <DataGridTemplateColumn.Header>
+                            <TextBlock Text="Estado Auditoría" ToolTip="Resultado del motor de validación (Kárdex, Series y Catálogos)"/>
+                        </DataGridTemplateColumn.Header>
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding MensajeError, TargetNullValue='🟢 APROBADO'}" FontWeight="SemiBold"
+                                               ToolTip="{Binding MensajeError, TargetNullValue='Documento listo para ser registrado'}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
 
-        <GridSplitter Grid.Row="2" Height="6" HorizontalAlignment="Stretch" Background="Transparent" Margin="0,4"/>
+        <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" Background="Transparent" Margin="0,2"/>
 
-        <!-- Región Inferior: Artículos y Series -->
-        <Grid Grid.Row="3">
+        <!-- 4. REGIÓN INFERIOR: ARTÍCULOS Y CÓDIGOS DE KÁRDEX -->
+        <Grid Grid.Row="4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="3*"/>
+                <ColumnDefinition Width="1.5*"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="2.2*"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Grilla 2: Detalles (Ítems del comprobante) -->
-            <Border Grid.Column="0" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Background="White" ClipToBounds="True">
+            <!-- GRILLA 2: COMPARACIÓN DE PRODUCTOS (EXCEL vs SISTEMA) -->
+            <Border Grid.Column="0" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Background="White" ClipToBounds="True">
                 <DataGrid x:Name="DgDetalles" AutoGenerateColumns="False" CanUserAddRows="False"
-                          HeadersVisibility="Column" SelectionMode="Single" GridLinesVisibility="Horizontal"
-                          HorizontalGridLinesBrush="#F1F5F9" Background="White" BorderThickness="0"
-                          ColumnHeaderStyle="{StaticResource CorporateHeaderStyle}"
-                          RowStyle="{StaticResource RowValidationStyle}"
+                          HeadersVisibility="Column" SelectionMode="Single" GridLinesVisibility="All"
+                          ColumnHeaderStyle="{StaticResource AuditoriaHeaderStyle}"
+                          RowStyle="{StaticResource RowAuditoriaStyle}"
                           SelectionChanged="DgDetalles_SelectionChanged">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Producto (Excel)" Binding="{Binding DescripcionExcel}" Width="2*"/>
-                        <DataGridTextColumn Header="Producto (Sistema)" Binding="{Binding DescripcionSistema}" Width="2*" FontWeight="Medium" Foreground="#1E40AF"/>
-                        <DataGridTextColumn Header="U.M." Binding="{Binding UnidadMedida}" Width="65" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}"/>
-                        <DataGridTextColumn Header="Cantidad" Binding="{Binding Cantidad}" Width="80" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}" FontWeight="SemiBold"/>
-                        <DataGridTextColumn Header="P. Unitario" Binding="{Binding PrecioUnitario, StringFormat=N2}" Width="90"/>
-                        <DataGridTextColumn Header="Importe" Binding="{Binding Importe, StringFormat=N2}" Width="100" FontWeight="SemiBold"/>
+                        <DataGridTextColumn Header="Producto (Excel Nisira)" Binding="{Binding DescripcionExcel}" Width="1.3*">
+                            <DataGridTextColumn.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="ToolTip" Value="Denominación del libro según exportación de Nisira"/>
+                                </Style>
+                            </DataGridTextColumn.CellStyle>
+                        </DataGridTextColumn>
+
+                        <DataGridTextColumn Header="Producto (Sistema Oficial)" Binding="{Binding DescripcionSistema}" Width="1.3*" 
+                                            FontWeight="SemiBold" Foreground="#1E40AF">
+                            <DataGridTextColumn.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="ToolTip" Value="Producto catalogado en la base de datos central"/>
+                                </Style>
+                            </DataGridTextColumn.CellStyle>
+                        </DataGridTextColumn>
+
+                        <DataGridTextColumn Header="Cant." Binding="{Binding Cantidad}" Width="50" 
+                                            HeaderStyle="{StaticResource AuditoriaHeaderCenterStyle}" FontWeight="Bold"/>
+
+                        <DataGridTextColumn Header="P. Unit." Binding="{Binding PrecioUnitario, StringFormat=N2}" Width="70" 
+                                            HeaderStyle="{StaticResource AuditoriaHeaderRightStyle}"/>
+
+                        <DataGridTextColumn Header="Importe" Binding="{Binding Importe, StringFormat=N2}" Width="75" 
+                                            FontWeight="Bold" HeaderStyle="{StaticResource AuditoriaHeaderRightStyle}"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>
 
-            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent" Margin="2,0"/>
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent" Margin="2,0"/>
 
-            <!-- Grilla 3: Códigos Físicos de Kárdex -->
-            <Border Grid.Column="2" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="8" Background="White" ClipToBounds="True">
+            <!-- GRILLA 3: CÓDIGOS DE KÁRDEX CON VALIDACIÓN DETALLADA -->
+            <Border Grid.Column="2" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Background="White" ClipToBounds="True">
                 <DataGrid x:Name="DgCodigos" AutoGenerateColumns="False" CanUserAddRows="False"
-                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                          HorizontalGridLinesBrush="#F1F5F9" Background="White" BorderThickness="0"
-                          ColumnHeaderStyle="{StaticResource CorporateHeaderStyle}">
-                    <DataGrid.RowStyle>
-                        <Style TargetType="DataGridRow">
-                            <Setter Property="MinHeight" Value="26"/>
-                            <Setter Property="VerticalContentAlignment" Value="Center"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding EsValido}" Value="False">
-                                    <Setter Property="Background" Value="#FEF2F2"/>
-                                    <Setter Property="Foreground" Value="#991B1B"/>
-                                    <Setter Property="ToolTip" Value="{Binding MensajeValidacion}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding EsValido}" Value="True">
-                                    <Setter Property="Foreground" Value="#166534"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </DataGrid.RowStyle>
+                          HeadersVisibility="Column" GridLinesVisibility="All"
+                          ColumnHeaderStyle="{StaticResource AuditoriaHeaderStyle}">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Cant." Binding="{Binding Cantidad}" Width="55" IsReadOnly="True" HeaderStyle="{StaticResource CorporateHeaderCenterStyle}">
-                            <DataGridTextColumn.ElementStyle>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="HorizontalAlignment" Value="Center"/>
-                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                        <DataGridTextColumn Header="Cant" Binding="{Binding Cantidad}" Width="45" 
+                                            HeaderStyle="{StaticResource AuditoriaHeaderCenterStyle}"/>
+
+                        <DataGridTextColumn Header="Cód. Nisira" Binding="{Binding CodigoExcel}" Width="95">
+                            <DataGridTextColumn.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="ToolTip" Value="Código plano extraído de la columna del archivo Nisira"/>
                                 </Style>
-                            </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn.CellStyle>
                         </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="Código (Sistema)" Binding="{Binding CodigoMostrar}" Width="1.4*" FontWeight="SemiBold"/>
+                        <DataGridTextColumn Header="Código Real Sistema" Binding="{Binding CodigoMostrar}" Width="1.2*" 
+                                            FontWeight="Bold" Foreground="#1E3A8A">
+                            <DataGridTextColumn.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="ToolTip" Value="Código trazable en la tabla codigos_creados del sistema"/>
+                                </Style>
+                            </DataGridTextColumn.CellStyle>
+                        </DataGridTextColumn>
 
-                        <DataGridTextColumn Header="Validación Kárdex" Binding="{Binding MensajeValidacion}" Width="2*"/>
+                        <DataGridTextColumn Header="Estado Kárdex" Binding="{Binding MensajeValidacion}" Width="1.3*">
+                            <DataGridTextColumn.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="ToolTip" Value="Estado actual del inventario: Requiere Estado 4 (Salida) para facturar"/>
+                                </Style>
+                            </DataGridTextColumn.CellStyle>
+                        </DataGridTextColumn>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>

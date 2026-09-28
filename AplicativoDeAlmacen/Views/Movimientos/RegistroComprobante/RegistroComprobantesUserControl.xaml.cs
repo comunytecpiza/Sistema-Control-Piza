@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models;
 using AplicativoDeAlmacen.Models.Documentos;
 using AplicativoDeAlmacen.Models.Facturación;
@@ -31,7 +32,10 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private readonly PersonaComercialService _personaService;
         private readonly ReporteExcelService _reporteService;
         private bool _moduloIniciado = false;
+        private readonly ObservableCollection<PagoManualDTO> _pagosManuales = new ObservableCollection<PagoManualDTO>();
+        private readonly AplicativoDeAlmacen.Services.Facturación.MedioPagoService _medioPagoService = new();
         private ObservableCollection<ItemGridDTO> _itemsGrid = new ObservableCollection<ItemGridDTO>();
+        private readonly Dictionary<int, string> _mapaEmpresas = new Dictionary<int, string>();
         private List<SerieDocumento> _todasLasSeries = new List<SerieDocumento>();
         private bool _isUpdatingFicha = false;
         private bool _isInitializing = false;
@@ -59,6 +63,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             _reporteService = new ReporteExcelService();
 
             DgItems.ItemsSource = _itemsGrid;
+            DgPagosManuales.ItemsSource = _pagosManuales;
             Loaded += async (s, e) => await InicializarModulo();
         }
 
@@ -78,7 +83,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private async Task InicializarModulo()
         {
-            // 🛡️ Si ya fue inicializado o ya cargó un comprobante para vista previa, NO LIMPIAR
             if (_moduloIniciado || _modoActual == ModoFormulario.BuscandoParaImprimir || _idComprobanteActual > 0)
             {
                 return;
@@ -89,10 +93,18 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 _isInitializing = true;
                 _moduloIniciado = true;
 
+                // 🌟 1. Cargar Catálogo de Empresas en memoria
+                await CargarCatalogoEmpresas();
+
+                // 2. Cargar Series de la BD
                 await CargarTodasLasSeries();
                 FiltrarSeriesPorTipoDocumento();
 
-                // Solo limpia si el formulario no está en ninguna operación activa
+                // 3. Cargar Medios de Pago
+                var medios = await _medioPagoService.ObtenerMediosPagoAsync(soloActivos: true);
+                CmbMedioPagoManual.ItemsSource = medios;
+                if (medios.Any()) CmbMedioPagoManual.SelectedIndex = 0;
+
                 if (_modoActual == ModoFormulario.Ninguno && _idComprobanteActual == 0)
                 {
                     PanelFormulario.IsEnabled = false;
@@ -108,6 +120,28 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 _isInitializing = false;
             }
         }
+
+        // 🌟 Método auxiliar para tener en memoria ID -> Razón Social de Empresa
+        private async Task CargarCatalogoEmpresas()
+        {
+            _mapaEmpresas.Clear();
+            var db = new DataConnection.DatabaseConnection();
+            using var conn = db.GetConnection();
+            var dbConn = (System.Data.Common.DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = Data.QueryAdapter.FormatearConsulta("SELECT id, razon_social FROM empresas;");
+
+            using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                int id = rdr.GetInt32(0);
+                string rz = rdr.GetString(1).Trim();
+                _mapaEmpresas[id] = rz;
+            }
+        }
+    
 
         private async Task CargarTodasLasSeries()
         {
@@ -140,22 +174,80 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private async void CmbSerie_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
-            if (TxtNumero == null || TxtPuntoVenta == null) return;
+            if (TxtNumero == null || TxtPuntoVenta == null || TxtEmpresaTitular == null) return;
 
             if (CmbSerie.SelectedItem is SerieDocumento s)
             {
+                // 1. Obtener Sede
                 var todasSedes = await _ubicacionService.ObtenerTodasAsync();
                 var sede = todasSedes.FirstOrDefault(u => u.Id == s.UbicacionId);
 
                 TxtPuntoVenta.Text = sede?.Descripcion ?? "Ubicación Desconocida";
                 TxtPuntoVenta.Tag = sede?.Id;
 
+                // 🌟 2. Resolver Empresa Titular por Serie
+                int empresaIdDetectada = s.EmpresaId ?? s.Empresa?.Id ?? 0;
+
+                // Si el objeto en memoria no traía el EmpresaId, consultarlo directamente a la BD
+                if (empresaIdDetectada == 0 && !string.IsNullOrWhiteSpace(s.NumeroSerie))
+                {
+                    empresaIdDetectada = await ObtenerEmpresaIdPorSerieAsync(s.NumeroSerie);
+                }
+
+                if (empresaIdDetectada > 0 && _mapaEmpresas.TryGetValue(empresaIdDetectada, out string? razonSocialEmpresa))
+                {
+                    TxtEmpresaTitular.Text = razonSocialEmpresa;
+                    TxtEmpresaTitular.Tag = empresaIdDetectada;
+                }
+                else if (s.Empresa != null && !string.IsNullOrWhiteSpace(s.Empresa.RazonSocial))
+                {
+                    TxtEmpresaTitular.Text = s.Empresa.RazonSocial;
+                    TxtEmpresaTitular.Tag = s.Empresa.Id;
+                }
+                else
+                {
+                    TxtEmpresaTitular.Text = "[ SIN EMPRESA ASIGNADA ]";
+                    TxtEmpresaTitular.Tag = null;
+                }
+
                 ActualizarNumeroCorrelativo();
             }
             else
             {
                 TxtPuntoVenta.Text = string.Empty;
+                TxtEmpresaTitular.Text = "[ SELECCIONE SERIE ]";
+                TxtEmpresaTitular.Tag = null;
                 if (_modoActual == ModoFormulario.Nuevo) TxtNumero.Text = string.Empty;
+            }
+        }
+
+        // 🌟 Consulta de respaldo rápida por si el modelo SerieDocumento no traía el ID mapeado
+        private async Task<int> ObtenerEmpresaIdPorSerieAsync(string numSeri)
+        {
+            try
+            {
+                var db = new DataConnection.DatabaseConnection();
+                using var conn = db.GetConnection();
+                var dbConn = (System.Data.Common.DbConnection)conn;
+                await dbConn.OpenAsync();
+
+                using var cmd = dbConn.CreateCommand();
+                cmd.CommandText = Data.QueryAdapter.FormatearConsulta(@"
+            SELECT COALESCE(empresa_id, 0) 
+            FROM series_documentos 
+            WHERE num_seri = @serie LIMIT 1;");
+
+                var p = cmd.CreateParameter();
+                p.ParameterName = "@serie";
+                p.Value = numSeri.Trim();
+                cmd.Parameters.Add(p);
+
+                object? res = await cmd.ExecuteScalarAsync();
+                return res != null && res != DBNull.Value ? Convert.ToInt32(res) : 0;
+            }
+            catch
+            {
+                return 0;
             }
         }
 
@@ -365,11 +457,26 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 return;
             }
 
+            decimal.TryParse(TxtTotal.Text, out decimal totalVenta);
+            decimal.TryParse(TxtMontoDelivery.Text.Trim(), out decimal delivery);
+
+            // Si no agregó pagos a la grilla inferior, asignar Efectivo por defecto
+            if (!_pagosManuales.Any())
+            {
+                _pagosManuales.Add(new PagoManualDTO
+                {
+                    MedioPagoId = 1,
+                    MedioPagoNombre = "EFECTIVO",
+                    Monto = totalVenta
+                });
+            }
+
             int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
             int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
             var cabecera = new FacturacionCabecera
             {
+                EmpresaId = TxtEmpresaTitular.Tag != null ? Convert.ToInt32(TxtEmpresaTitular.Tag) : (int?)null,
                 TipoDocumento = (CmbTipoDocu.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "01",
                 SerieDocumento = (CmbSerie.SelectedItem as SerieDocumento)?.NumeroSerie ?? "",
                 NumeroDocumento = TxtNumero.Text.Trim(),
@@ -382,11 +489,24 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 TotalGravado = decimal.Parse(TxtOpGravadas.Text),
                 TotalExonerado = decimal.Parse(TxtOpExoneradas.Text),
                 TotalIgv = decimal.Parse(TxtIgv.Text),
-                ImporteTotal = decimal.Parse(TxtTotal.Text),
+                ImporteTotal = totalVenta,
+                MontoDelivery = delivery,
                 PorcentajeIgv = 18.00m,
                 EstadoRegistro = true,
-                UsuarioId = usuarioActivoId
+                UsuarioId = usuarioActivoId,
+                CondicionPagoId = _pagosManuales.First().MedioPagoId
             };
+
+            // 🌟 Pasar los pagos a la cabecera para que se guarden dentro de la misma transacción
+            foreach (var p in _pagosManuales)
+            {
+                cabecera.Pagos.Add(new FacturacionPagoDetalle
+                {
+                    MedioPagoId = p.MedioPagoId,
+                    Monto = p.Monto,
+                    NumeroOperacion = p.NumeroOperacion
+                });
+            }
 
             foreach (var item in _itemsGrid)
             {
@@ -418,13 +538,13 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 else
                 {
                     int serieId = ((SerieDocumento)CmbSerie.SelectedItem).Id;
-                    await _facturacionService.GuardarComprobanteAsync(cabecera, serieId);
+                    int nuevoId = await _facturacionService.GuardarComprobanteAsync(cabecera, serieId);
 
                     await CargarTodasLasSeries();
                     FiltrarSeriesPorTipoDocumento();
                     ActualizarNumeroCorrelativo();
 
-                    MessageBox.Show("Comprobante guardado correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"¡Comprobante N° {cabecera.SerieDocumento}-{cabecera.NumeroDocumento} guardado exitosamente con sus pagos!", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
 
                 LimpiarFormulario();
@@ -433,7 +553,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error al procesar comprobante: {ex.Message}", "Error de Facturación", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error al guardar comprobante: {ex.Message}", "Error de Facturación", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -722,6 +842,18 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             DpFecha.SelectedDate = null;
             TxtNumero.Text = string.Empty;
 
+            _pagosManuales.Clear();
+            if (ChkTieneDelivery != null) ChkTieneDelivery.IsChecked = false;
+            if (TxtMontoDelivery != null)
+            {
+                TxtMontoDelivery.IsEnabled = false;
+                TxtMontoDelivery.Background = (Brush)new BrushConverter().ConvertFromString("#F1F5F9");
+                TxtMontoDelivery.Foreground = (Brush)new BrushConverter().ConvertFromString("#64748B");
+                TxtMontoDelivery.Text = "0.00";
+            }
+            if (ChkTieneDelivery != null) ChkTieneDelivery.IsChecked = false;
+            RecalcularBalanceCobro();
+
             _itemsGrid.Clear();
             ActualizarTotales();
             _isUpdatingFicha = false;
@@ -732,18 +864,32 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtOpGravadas.Text = "0.00";
             TxtOpExoneradas.Text = "0.00";
             TxtIgv.Text = "0.00";
+            TxtTotalDelivery.Text = "0.00";
             TxtTotal.Text = "0.00";
         }
 
         private void RecalcularTotales()
         {
+            // 🛡️ Candado de nulidad: Si la interfaz aún se está dibujando, no ejecutar
+            if (TxtOpExoneradas == null || TxtOpGravadas == null || TxtIgv == null ||
+                TxtTotal == null || TxtTotalDelivery == null || TxtMontoDelivery == null || _itemsGrid == null)
+            {
+                return;
+            }
+
             decimal subTotal = _itemsGrid.Sum(x => x.ImpTota);
+            decimal.TryParse(TxtMontoDelivery.Text.Trim(), out decimal delivery);
+
             TxtOpExoneradas.Text = subTotal.ToString("N2");
             TxtOpGravadas.Text = "0.00";
             TxtIgv.Text = "0.00";
-            TxtTotal.Text = subTotal.ToString("N2");
-        }
+            TxtTotalDelivery.Text = delivery.ToString("N2");
 
+            decimal totalFinal = subTotal + delivery;
+            TxtTotal.Text = totalFinal.ToString("N2");
+
+            RecalcularBalanceCobro();
+        }
         private void LlenarFichaCliente(PersonaComercial? cliente, bool esRazonSocial)
         {
             if (cliente == null) return;
@@ -772,15 +918,29 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private async void TxtRazonSocialBuscador_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (_isUpdatingFicha) return;
+
             string texto = TxtRazonSocialBuscador.Text.Trim();
-            if (texto.Length < 2) { PopRazonSocial.IsOpen = false; return; }
+            if (texto.Length < 2)
+            {
+                PopRazonSocial.IsOpen = false;
+                return;
+            }
 
             try
             {
                 var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
-                var lista = resultados?.Take(10).ToList();
-                LstRazonSocial.ItemsSource = lista;
-                PopRazonSocial.IsOpen = lista != null && lista.Any();
+                var lista = resultados?.Take(12).ToList();
+
+                if (lista != null && lista.Any())
+                {
+                    LstRazonSocial.ItemsSource = lista;
+                    PopRazonSocial.IsOpen = false; // Reset para refrescar posición si hubo scroll
+                    PopRazonSocial.IsOpen = true;
+                }
+                else
+                {
+                    PopRazonSocial.IsOpen = false;
+                }
             }
             catch
             {
@@ -791,15 +951,29 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private async void TxtClienteBuscador_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (_isUpdatingFicha) return;
+
             string texto = TxtClienteBuscador.Text.Trim();
-            if (texto.Length < 2) { PopCliente.IsOpen = false; return; }
+            if (texto.Length < 2)
+            {
+                PopCliente.IsOpen = false;
+                return;
+            }
 
             try
             {
                 var resultados = await _personaService.BuscarPorRazonSocialAsync(texto);
-                var lista = resultados?.Take(10).ToList();
-                LstCliente.ItemsSource = lista;
-                PopCliente.IsOpen = lista != null && lista.Any();
+                var lista = resultados?.Take(12).ToList();
+
+                if (lista != null && lista.Any())
+                {
+                    LstCliente.ItemsSource = lista;
+                    PopCliente.IsOpen = false;
+                    PopCliente.IsOpen = true;
+                }
+                else
+                {
+                    PopCliente.IsOpen = false;
+                }
             }
             catch
             {
@@ -1060,6 +1234,128 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         }
 
+        private void TxtMontoDelivery_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            RecalcularTotales();
+        }
+
+        private void ChkTieneDelivery_Changed(object sender, RoutedEventArgs e)
+        {
+            if (TxtMontoDelivery == null) return;
+
+            if (ChkTieneDelivery.IsChecked == true)
+            {
+                TxtMontoDelivery.IsEnabled = true;
+                TxtMontoDelivery.Background = Brushes.White;
+                TxtMontoDelivery.Foreground = (Brush)new BrushConverter().ConvertFromString("#1E293B");
+                if (TxtMontoDelivery.Text.Trim() == "0.00" || string.IsNullOrWhiteSpace(TxtMontoDelivery.Text))
+                {
+                    TxtMontoDelivery.Text = "0.00";
+                    TxtMontoDelivery.SelectAll();
+                }
+                TxtMontoDelivery.Focus();
+            }
+            else
+            {
+                TxtMontoDelivery.IsEnabled = false;
+                TxtMontoDelivery.Background = (Brush)new BrushConverter().ConvertFromString("#F1F5F9");
+                TxtMontoDelivery.Foreground = (Brush)new BrushConverter().ConvertFromString("#64748B");
+                TxtMontoDelivery.Text = "0.00";
+            }
+
+            RecalcularTotales();
+        }
+
+        private void TxtSoloNumerosDecimales_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            // Solo permite dígitos y un único punto decimal
+            var tb = sender as TextBox;
+            string textoCompleto = (tb?.Text ?? "") + e.Text;
+            bool esValido = System.Text.RegularExpressions.Regex.IsMatch(e.Text, @"^[0-9.]+$");
+
+            if (!esValido || (e.Text == "." && (tb?.Text.Contains(".") ?? false)))
+            {
+                e.Handled = true; // Bloquea caracteres no numéricos
+            }
+        }
+
+        private void BtnAgregarPago_Click(object sender, RoutedEventArgs e)
+        {
+            if (CmbMedioPagoManual.SelectedItem is not AplicativoDeAlmacen.Models.Facturación.MedioPago mp)
+            {
+                MessageBox.Show("Seleccione un medio de pago.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!decimal.TryParse(TxtMontoPagoManual.Text.Trim(), out decimal monto) || monto <= 0)
+            {
+                MessageBox.Show("Ingrese un monto válido mayor a 0.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                TxtMontoPagoManual.Focus();
+                return;
+            }
+
+            var existente = _pagosManuales.FirstOrDefault(p => p.MedioPagoId == mp.Id);
+            if (existente != null)
+            {
+                existente.Monto += monto;
+            }
+            else
+            {
+                _pagosManuales.Add(new PagoManualDTO
+                {
+                    MedioPagoId = mp.Id,
+                    MedioPagoNombre = mp.Nombre,
+                    Monto = monto,
+                    NumeroOperacion = TxtOperacionPagoManual.Text.Trim()
+                });
+            }
+
+            DgPagosManuales.Items.Refresh();
+            TxtMontoPagoManual.Text = "0.00";
+            TxtOperacionPagoManual.Clear();
+
+            RecalcularBalanceCobro();
+        }
+
+        private void BtnQuitarPago_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is PagoManualDTO pago)
+            {
+                _pagosManuales.Remove(pago);
+                RecalcularBalanceCobro();
+            }
+        }
+
+        private void RecalcularBalanceCobro()
+        {
+            // 🛡️ Candado de nulidad para las etiquetas del balance multi-pago
+            if (LblTotalCobrado == null || LblDiferenciaCobro == null || TxtTotal == null || _pagosManuales == null)
+            {
+                return;
+            }
+
+            decimal.TryParse(TxtTotal.Text, out decimal totalVenta);
+            decimal totalCobrado = _pagosManuales.Sum(p => p.Monto);
+            decimal diferencia = totalVenta - totalCobrado;
+
+            LblTotalCobrado.Text = $"S/ {totalCobrado:N2}";
+
+            if (diferencia == 0)
+            {
+                LblDiferenciaCobro.Text = "S/ 0.00 (CUADRADO)";
+                LblDiferenciaCobro.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#15803D"));
+            }
+            else if (diferencia > 0)
+            {
+                LblDiferenciaCobro.Text = $"Falta: S/ {diferencia:N2}";
+                LblDiferenciaCobro.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#DC2626"));
+            }
+            else
+            {
+                LblDiferenciaCobro.Text = $"Vuelto / Exceso: S/ {Math.Abs(diferencia):N2}";
+                LblDiferenciaCobro.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D97706"));
+            }
+        }
         private void BloquearParaImpresionContable()
         {
             // 🛡️ 1. Deshabilitar los 4 botones de la barra superior (Nuevo, Modificar, Imprimir, Anular)

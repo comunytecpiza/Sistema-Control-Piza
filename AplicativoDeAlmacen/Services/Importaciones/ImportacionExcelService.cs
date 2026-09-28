@@ -1,8 +1,8 @@
 ﻿#nullable enable
 
+using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Data;
 using AplicativoDeAlmacen.Models.Facturación;
-using AplicativoDeAlmacen.Models.Facturación.AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Models.Transferencias;
 using ClosedXML.Excel;
@@ -36,6 +36,11 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             p.Value = valor ?? DBNull.Value;
             cmd.Parameters.Add(p);
         }
+
+        // =========================================================================
+        // MÉTODOS ORIGINALES (RegistroCodigosWindow.xaml.cs y Transferencias)
+        // INTACTOS - NO SE TOCAN
+        // =========================================================================
 
         public async Task<List<string>> LeerCodigosDesdeExcelAsync(string ruta)
         {
@@ -359,6 +364,10 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             return lista;
         }
 
+        // =========================================================================
+        // NUEVOS MÉTODOS MEJORADOS (IMPORTACIÓN DE VENTAS NISIRA)
+        // =========================================================================
+
         public async Task<List<ImportacionCabeceraDTO>> LeerExcelVentasAgrupadoAsync(string rutaArchivo)
         {
             var cabecerasAgrupadas = new List<ImportacionCabeceraDTO>();
@@ -369,139 +378,246 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 using var wb = new XLWorkbook(stream);
                 var ws = wb.Worksheet(1);
 
-                // 🌟 1. DETECCIÓN INTELIGENTE DE COLUMNAS POR NOMBRE DE CABECERA
-                var primeraFilaHeaders = ws.Row(1);
-                int colCodigoInterno = 17; // Valor por defecto
-                int colCantidad = 18;
-
-                foreach (var cell in primeraFilaHeaders.CellsUsed())
+                // 1. Localizar dinámicamente la fila de cabeceras
+                IXLRow? filaCabecera = null;
+                for (int r = 1; r <= 5; r++)
                 {
-                    string headerText = cell.GetString().Trim().ToUpperInvariant();
-                    if (headerText.Contains("CODIGO") || headerText.Contains("CÓDIGO") || headerText.Contains("INTERNO"))
+                    var row = ws.Row(r);
+                    var textos = row.CellsUsed().Select(c => c.GetString().Trim().ToUpperInvariant()).ToList();
+                    if (textos.Contains("SERIE") && (textos.Contains("NUMERO") || textos.Contains("NRODOCUMENTO")))
                     {
-                        colCodigoInterno = cell.Address.ColumnNumber;
-                    }
-                    else if (headerText.Equals("CANTIDAD") || headerText.Equals("CANT"))
-                    {
-                        colCantidad = cell.Address.ColumnNumber;
+                        filaCabecera = row;
+                        break;
                     }
                 }
 
-                var filasRaw = new List<FilaPlanaExcel>();
+                if (filaCabecera == null) filaCabecera = ws.Row(2);
 
-                foreach (var row in ws.RowsUsed().Skip(1))
+                // 2. Índices de columnas predeterminados
+                int colDocTipo = 2;
+                int colSerie = 3;
+                int colNumero = 4;
+                int colDocIdentidad = 6;
+                int colRazonSocial = 7;
+                int colMoneda = 8;
+                int colFecha = 9;
+                int colExonerado = 10;
+                int colImporte = 11;
+                int colProducto = 12;
+                int colPrecio = 13;
+                int colInstitucion = 14;
+                int colCodigoInterno = 16;
+                int colCantidad = 17;
+                int colCondicion = 18;
+                int colEmpresa = -1;
+
+                var canalesPagoColumnas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                // Mapeo automático de columnas
+                foreach (var cell in filaCabecera.CellsUsed())
+                {
+                    string h = cell.GetString().Trim().ToUpperInvariant();
+                    int cNum = cell.Address.ColumnNumber;
+
+                    if (h.Equals("DOCUMENTO") || h.Equals("TIPO DOC")) colDocTipo = cNum;
+                    else if (h.Equals("SERIE")) colSerie = cNum;
+                    else if (h.Equals("NUMERO") || h.Equals("NRO")) colNumero = cNum;
+                    else if (h.Equals("NRODOCUMENTO") || h.Equals("DNI/RUC") || h.Equals("RUC/DNI")) colDocIdentidad = cNum;
+                    else if (h.Equals("RAZONSOCIAL") || h.Equals("CLIENTE") || h.Equals("PAGADOR")) colRazonSocial = cNum;
+                    else if (h.Equals("MONEDA")) colMoneda = cNum;
+                    else if (h.Equals("FECHA") || h.Equals("FEC EMISION")) colFecha = cNum;
+                    else if (h.Equals("EXONERADO")) colExonerado = cNum;
+                    else if (h.Equals("IMPORTE") || h.Equals("TOTAL")) colImporte = cNum;
+                    else if (h.Equals("PRODUCTO") || h.Equals("DESCRIPCION")) colProducto = cNum;
+                    else if (h.Equals("PRECIO") || h.Equals("P.UNITARIO")) colPrecio = cNum;
+                    else if (h.Equals("INSTITUCIÓN") || h.Equals("INSTITUCION") || h.Equals("COLEGIO")) colInstitucion = cNum;
+                    else if (h.Contains("CODIGO") || h.Contains("CÓDIGO") || h.Contains("INTERNO")) colCodigoInterno = cNum;
+                    else if (h.Equals("CANTIDAD") || h.Equals("CANT")) colCantidad = cNum;
+                    else if (h.Equals("CONDICION") || h.Equals("CONDICIÓN")) colCondicion = cNum;
+                    else if (h.Equals("EMPRESA")) colEmpresa = cNum;
+                    else if (h.Contains("EFECTIVO") || h.Contains("YAPE") || h.Contains("PLIN") ||
+                             h.Contains("TRANSF") || h.Contains("DEPOSITO") || h.Contains("TIENDA") ||
+                             h.Contains("CULQUI") || h.Contains("DELIVERY"))
+                    {
+                        canalesPagoColumnas[h] = cNum;
+                    }
+                }
+
+                var agrupador = new Dictionary<string, (ImportacionCabeceraDTO Cabecera, Dictionary<string, ImportacionDetalleDTO> DetDict)>(StringComparer.OrdinalIgnoreCase);
+
+                // 3. Recorrer filas de datos
+                foreach (var row in ws.RowsUsed().Skip(filaCabecera.RowNumber()))
                 {
                     try
                     {
-                        string docTipo = row.Cell(1).GetString().Trim();
-                        string serie = row.Cell(2).GetString().Trim();
-                        string numero = row.Cell(3).GetString().Trim();
+                        string serie = row.Cell(colSerie).GetString().Trim().ToUpperInvariant();
+                        string numeroRaw = row.Cell(colNumero).GetString().Trim();
 
-                        if (string.IsNullOrEmpty(serie) || string.IsNullOrEmpty(numero)) continue;
+                        if (string.IsNullOrEmpty(serie) || string.IsNullOrEmpty(numeroRaw)) continue;
 
-                        decimal afecto = row.Cell(9).TryGetValue(out decimal afVal) ? afVal : 0m;
-                        decimal igv = row.Cell(10).TryGetValue(out decimal igvVal) ? igvVal : 0m;
-                        decimal exonerado = row.Cell(11).TryGetValue(out decimal exVal) ? exVal : 0m;
-                        decimal importe = row.Cell(12).TryGetValue(out decimal impVal) ? impVal : 0m;
-                        string prodDesc = row.Cell(13).GetString().Trim();
-                        decimal precio = row.Cell(14).TryGetValue(out decimal prVal) ? prVal : 0m;
-                        string instDesc = row.Cell(15).GetString().Trim();
+                        string numeroFinal = int.TryParse(numeroRaw, out int numVal) ? numVal.ToString("D7") : numeroRaw.PadLeft(7, '0');
+                        string claveDoc = $"{serie}-{numeroFinal}";
 
-                        // 🌟 2. EXTRACCIÓN SEGURA DEL CÓDIGO PLANO (Ej: "483" o "406")
-                        string codExcel = string.Empty;
-                        var celdaCod = row.Cell(colCodigoInterno);
-                        if (!celdaCod.IsEmpty())
+                        string docTipo = row.Cell(colDocTipo).GetString().Trim().ToUpperInvariant();
+                        DateTime fecha = row.Cell(colFecha).TryGetValue(out DateTime dtVal) ? dtVal : DateTime.Today;
+
+                        string rzExcel = row.Cell(colRazonSocial).GetString().Trim();
+                        string colExcel = row.Cell(colInstitucion).GetString().Trim();
+                        string monedaStr = row.Cell(colMoneda).GetString().Trim().ToUpperInvariant();
+                        if (string.IsNullOrWhiteSpace(monedaStr)) monedaStr = "SOLES";
+
+                        string condicionStr = row.Cell(colCondicion).GetString().Trim().ToUpperInvariant();
+                        if (string.IsNullOrWhiteSpace(condicionStr)) condicionStr = "EFECTIVO";
+
+                        string empresaExcel = (colEmpresa > 0) ? row.Cell(colEmpresa).GetString().Trim() : string.Empty;
+
+                        decimal precio = row.Cell(colPrecio).TryGetValue(out decimal prVal) ? prVal : 0m;
+                        decimal importeFila = row.Cell(colImporte).TryGetValue(out decimal impVal) ? impVal : 0m;
+                        string prodDesc = row.Cell(colProducto).GetString().Trim();
+
+                        int cantFila = 1;
+                        if (row.Cell(colCantidad).TryGetValue(out int cVal) && cVal > 0) cantFila = cVal;
+
+                        string codInternoRaw = row.Cell(colCodigoInterno).GetString().Trim();
+
+                        // Inicializar cabecera si es nueva
+                        if (!agrupador.TryGetValue(claveDoc, out var paquete))
                         {
-                            // Limpieza de caracteres y formato texto/número
-                            codExcel = celdaCod.GetString().Trim();
-                            if (string.IsNullOrEmpty(codExcel) && celdaCod.TryGetValue(out double dVal))
+                            // Detectar si es FACTURA, RECIBO o BOLETA (por columna o por letra de serie)
+                            string tipoDocIdentificado;
+                            if (docTipo.Contains("FACT") || serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
                             {
-                                codExcel = ((long)dVal).ToString();
+                                tipoDocIdentificado = "FACTURA";
+                            }
+                            else if (docTipo.Contains("REC") || serie.StartsWith("R", StringComparison.OrdinalIgnoreCase))
+                            {
+                                tipoDocIdentificado = "RECIBO";
+                            }
+                            else
+                            {
+                                tipoDocIdentificado = "BOLETA";
+                            }
+
+                            var cab = new ImportacionCabeceraDTO
+                            {
+                                DocumentoExcel = tipoDocIdentificado,
+                                Serie = serie,
+                                Numero = numeroFinal,
+                                Fecha = fecha,
+                                RazonSocialExcel = rzExcel,
+                                ClienteExcel = colExcel,
+                                Moneda = monedaStr,
+                                CondicionPagoNombre = condicionStr,
+                                EmpresaNombre = !string.IsNullOrWhiteSpace(empresaExcel) ? empresaExcel : "[ ASIGNANDO... ]",
+                                Detalles = new List<ImportacionDetalleDTO>(),
+                                PagosDesglosados = new List<ImportacionPagoDetalleDTO>()
+                            };
+
+                            paquete = (cab, new Dictionary<string, ImportacionDetalleDTO>(StringComparer.OrdinalIgnoreCase));
+                                agrupador[claveDoc] = paquete;
+                        }
+
+                        // 🌟 LECTURA Y ACUMULACIÓN MULTICANAL DE PAGOS (Para todas las filas del comprobante)
+                        foreach (var canal in canalesPagoColumnas)
+                        {
+                            if (row.Cell(canal.Value).TryGetValue(out decimal montoCanal) && montoCanal > 0)
+                            {
+                                if (canal.Key.Contains("DELIVERY"))
+                                {
+                                    paquete.Cabecera.MontoDelivery += montoCanal;
+                                }
+
+                                var pagoExistente = paquete.Cabecera.PagosDesglosados
+                                    .FirstOrDefault(p => p.MedioPagoNombre.Equals(canal.Key, StringComparison.OrdinalIgnoreCase));
+
+                                if (pagoExistente != null)
+                                {
+                                    pagoExistente.Monto += montoCanal;
+                                }
+                                else
+                                {
+                                    paquete.Cabecera.PagosDesglosados.Add(new ImportacionPagoDetalleDTO
+                                    {
+                                        MedioPagoNombre = canal.Key,
+                                        Monto = montoCanal
+                                    });
+                                }
                             }
                         }
 
-                        int cantFila = 1;
-                        if (row.Cell(colCantidad).TryGetValue(out int cVal) && cVal > 0)
+                        paquete.Cabecera.Total += importeFila;
+                        paquete.Cabecera.Exonerado += importeFila;
+
+                        // Agrupar Detalles por Producto
+                        if (!paquete.DetDict.TryGetValue(prodDesc, out var det))
                         {
-                            cantFila = cVal;
+                            det = new ImportacionDetalleDTO
+                            {
+                                Linea = paquete.DetDict.Count + 1,
+                                DescripcionExcel = prodDesc,
+                                Cantidad = 0,
+                                PrecioUnitario = precio,
+                                Importe = 0,
+                                Codigos = new List<ImportacionCodigoDTO>()
+                            };
+                            paquete.DetDict[prodDesc] = det;
                         }
 
-                        filasRaw.Add(new FilaPlanaExcel
+                        det.Cantidad += cantFila;
+                        det.Importe += importeFila;
+
+                        // Extracción de correlativo numérico
+                        int correlativoNum = 0;
+                        if (!string.IsNullOrWhiteSpace(codInternoRaw))
                         {
-                            Documento = docTipo,
-                            Serie = serie,
-                            Numero = numero,
-                            RazonSocial = row.Cell(6).GetString().Trim(),
-                            Moneda = row.Cell(7).GetString().Trim(),
-                            Fecha = row.Cell(8).GetDateTime(),
-                            Afecto = afecto,
-                            IGV = igv,
-                            Exonerado = exonerado,
-                            Importe = importe,
-                            Producto = prodDesc,
-                            Precio = precio,
-                            Institucion = instDesc,
-                            CodigoInterno = codExcel,
-                            Cantidad = cantFila
+                            int posUltimoGuion = codInternoRaw.LastIndexOf('-');
+                            string parteNum = posUltimoGuion >= 0 ? codInternoRaw.Substring(posUltimoGuion + 1) : codInternoRaw;
+                            string soloDigitos = new string(parteNum.Where(char.IsDigit).ToArray());
+                            int.TryParse(soloDigitos, out correlativoNum);
+                        }
+
+                        det.Codigos.Add(new ImportacionCodigoDTO
+                        {
+                            CodigoExcel = codInternoRaw,
+                            CorrelativoExtraido = correlativoNum,
+                            Cantidad = cantFila,
+                            MensajeValidacion = "PENDIENTE DE VERIFICAR"
                         });
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error al leer fila de Excel: {ex.Message}");
+                    }
                 }
 
-                cabecerasAgrupadas = filasRaw
-                    .GroupBy(c => new { c.Documento, c.Serie, c.Numero })
-                    .Select(gCab =>
+                // 🌟 ARMAR LA LISTA DE CONDICIONES VISIBLES (YAPE, TRANSFERENCIA, EFECTIVO)
+                foreach (var paquete in agrupador.Values)
+                {
+                    paquete.Cabecera.Detalles = paquete.DetDict.Values.ToList();
+
+                    if (paquete.Cabecera.PagosDesglosados.Any())
                     {
-                        var f = gCab.First();
-                        var cab = new ImportacionCabeceraDTO
+                        // Muestra la lista de condiciones separadas por coma (ej: "EFECTIVO, YAPE, TRANSF. BCP")
+                        var nombresUnicos = paquete.Cabecera.PagosDesglosados
+                            .Where(p => p.Monto > 0)
+                            .Select(p => p.MedioPagoNombre.Trim())
+                            .Distinct()
+                            .ToList();
+
+                        if (nombresUnicos.Any())
                         {
-                            DocumentoExcel = gCab.Key.Documento,
-                            Serie = gCab.Key.Serie,
-                            Numero = gCab.Key.Numero,
-                            Fecha = f.Fecha,
-                            RazonSocialExcel = f.RazonSocial,
-                            ClienteExcel = f.Institucion,
-                            Moneda = f.Moneda,
-                            Afecto = gCab.Sum(x => x.Afecto),
-                            Exonerado = gCab.Sum(x => x.Exonerado),
-                            IGV = gCab.Sum(x => x.IGV),
-                            Total = gCab.Sum(x => x.Importe)
-                        };
+                            paquete.Cabecera.CondicionPagoNombre = string.Join(", ", nombresUnicos);
+                        }
+                    }
 
-                        cab.Detalles = gCab
-                            .GroupBy(d => new { d.Producto, d.Precio })
-                            .Select(gDet =>
-                            {
-                                var codigosValidos = gDet
-                                    .Where(c => !string.IsNullOrEmpty(c.CodigoInterno))
-                                    .Select(c => new ImportacionCodigoDTO
-                                    {
-                                        CodigoExcel = c.CodigoInterno, // Número plano (ej: "483")
-                                        Cantidad = 1,
-                                        Error = "PENDIENTE DE VERIFICAR"
-                                    }).ToList();
-
-                                int cantidadFinal = codigosValidos.Any() ? codigosValidos.Count : gDet.Sum(x => x.Cantidad);
-                                decimal importeFinal = gDet.Sum(x => x.Importe);
-
-                                return new ImportacionDetalleDTO
-                                {
-                                    DescripcionExcel = gDet.Key.Producto,
-                                    PrecioUnitario = gDet.Key.Precio,
-                                    Cantidad = cantidadFinal > 0 ? cantidadFinal : 1,
-                                    Importe = importeFinal,
-                                    Codigos = codigosValidos
-                                };
-                            }).ToList();
-
-                        return cab;
-                    }).ToList();
+                    cabecerasAgrupadas.Add(paquete.Cabecera);
+                }
             });
 
             return cabecerasAgrupadas;
         }
 
-        public async Task ValidarDatosImportacionAsync(List<ImportacionCabeceraDTO> comprobantes)
+        public async Task ValidarDatosImportacionAsync(List<ImportacionCabeceraDTO> comprobantes, int almacenId)
         {
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
@@ -509,154 +625,243 @@ namespace AplicativoDeAlmacen.Services.Importaciones
 
             using var cmd = dbConn.CreateCommand();
 
-            string queryExisteComprobante = QueryAdapter.EsMySQL
-                ? "SELECT 1 FROM facturacion_cabecera WHERE serie_documento = @serie AND numero_documento = @numero AND estado_registro = 1 LIMIT 1;"
-                : "SELECT TOP 1 1 FROM facturacion_cabecera WITH (NOLOCK) WHERE serie_documento = @serie AND numero_documento = @numero AND estado_registro = 1;";
+            // A. Series y Empresas vinculadas
+            var mapaSeriesEmpresa = new Dictionary<string, (int EmpresaId, string RazonSocial)>(StringComparer.OrdinalIgnoreCase);
+            cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+        SELECT s.num_seri, s.empresa_id, COALESCE(e.razon_social, 'EMPRESA NO ASIGNADA')
+        FROM series_documentos s
+        LEFT JOIN empresas e ON s.empresa_id = e.id;");
+            using (var rdr = await cmd.ExecuteReaderAsync())
+            {
+                while (await rdr.ReadAsync())
+                {
+                    string numSeri = rdr.GetString(0).Trim();
+                    int empId = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
+                    string empNombre = rdr.GetString(2).Trim();
+                    mapaSeriesEmpresa[numSeri] = (empId, empNombre);
+                }
+            }
 
-            string queryPersona = QueryAdapter.EsMySQL
-                ? @"SELECT id, COALESCE(razon_social, nombres) AS nombre_mostrar 
-            FROM personas_comerciales 
-            WHERE COALESCE(razon_social, '') LIKE @filtro 
-               OR CONCAT(COALESCE(nombres, ''), ' ', COALESCE(apellido_paterno, '')) LIKE @filtro
-               OR COALESCE(nombre_comercial, '') LIKE @filtro
-            LIMIT 1;"
-                : @"SELECT TOP 1 id, ISNULL(razon_social, nombres) AS nombre_mostrar 
-            FROM personas_comerciales WITH (NOLOCK)
-            WHERE ISNULL(razon_social, '') LIKE @filtro 
-               OR LTRIM(RTRIM(ISNULL(nombres, '') + ' ' + ISNULL(apellido_paterno, ''))) LIKE @filtro
-               OR ISNULL(nombre_comercial, '') LIKE @filtro;";
+            // B. Clientes Comodín (7: CLIENTES VARIOS / 8: CLIENTES VARIOS FACTURACION)
+            int clienteBoletaId = 7;
+            int clienteFacturaId = 8;
+            cmd.CommandText = QueryAdapter.FormatearConsulta(@"
+        SELECT id, COALESCE(dni, ''), COALESCE(ruc, '') 
+        FROM personas_comerciales 
+        WHERE dni = '00000000' OR ruc = '00000000000';");
+            using (var rdr = await cmd.ExecuteReaderAsync())
+            {
+                while (await rdr.ReadAsync())
+                {
+                    int id = rdr.GetInt32(0);
+                    string dni = rdr.GetString(1).Trim();
+                    string ruc = rdr.GetString(2).Trim();
+                    if (dni == "00000000") clienteBoletaId = id;
+                    if (ruc == "00000000000") clienteFacturaId = id;
+                }
+            }
 
-            string queryProducto = QueryAdapter.EsMySQL
-                ? "SELECT id, descripcion, abreviatura FROM productos WHERE descripcion = @prod LIMIT 1;"
-                : "SELECT TOP 1 id, descripcion, abreviatura FROM productos WITH (NOLOCK) WHERE descripcion = @prod;";
+            // C. Medios de Pago
+            var mapaMedios = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM medios_pago;");
+            using (var rdr = await cmd.ExecuteReaderAsync())
+            {
+                while (await rdr.ReadAsync())
+                {
+                    mapaMedios[rdr.GetString(1).Trim()] = rdr.GetInt32(0);
+                }
+            }
 
-            // 🌟 Búsqueda del código amarrada estrictamente al producto
+            // D. Monedas
+            var mapaMonedas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion, codigo_sunat FROM monedas;");
+            using (var rdr = await cmd.ExecuteReaderAsync())
+            {
+                while (await rdr.ReadAsync())
+                {
+                    int id = rdr.GetInt32(0);
+                    mapaMonedas[rdr.GetString(1).Trim()] = id;
+                    mapaMonedas[rdr.GetString(2).Trim()] = id;
+                }
+            }
+
+            // E. Catálogo de Productos y Abreviaturas
+            var listaProductos = new List<(int Id, string Descripcion, string Abreviatura)>();
+            cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion, COALESCE(abreviatura, '') FROM productos;");
+            using (var rdr = await cmd.ExecuteReaderAsync())
+            {
+                while (await rdr.ReadAsync())
+                {
+                    listaProductos.Add((rdr.GetInt32(0), rdr.GetString(1).Trim(), rdr.GetString(2).Trim()));
+                }
+            }
+
+            string queryComprobanteRegistrado = QueryAdapter.EsMySQL
+                ? "SELECT 1 FROM facturacion_cabecera WHERE serie_documento = @s AND numero_documento = @n AND estado_registro = 1 LIMIT 1;"
+                : "SELECT TOP 1 1 FROM facturacion_cabecera WITH (NOLOCK) WHERE serie_documento = @s AND numero_documento = @n AND estado_registro = 1;";
+
+            // 🌟 CANDADO MULTI-SEDE: Se evalúa almacen_id para asegurar que el código pertenezca a la sede
             string queryKardexCodigo = QueryAdapter.EsMySQL
-                ? @"SELECT cc.id, cc.codigo, cc.estado_id, COALESCE(mc.movimiento_id, 0) AS movimiento_id
+                ? @"SELECT cc.id, cc.codigo, cc.estado_id, cc.almacen_id, COALESCE(mc.movimiento_id, 0) AS mov_id
             FROM codigos_creados cc
             INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
             LEFT JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-            WHERE rc.producto_id = @ProductoId
-              AND (cc.codigo = @codExacto OR cc.codigo LIKE @codLike OR cc.codigo = @codPlano)
+            WHERE rc.producto_id = @ProdId
+              AND (cc.codigo LIKE @patronNumero OR cc.codigo = @codExacto)
             ORDER BY cc.id DESC LIMIT 1;"
-                : @"SELECT TOP 1 cc.id, cc.codigo, cc.estado_id, ISNULL(mc.movimiento_id, 0) AS movimiento_id
+                : @"SELECT TOP 1 cc.id, cc.codigo, cc.estado_id, cc.almacen_id, ISNULL(mc.movimiento_id, 0) AS mov_id
             FROM codigos_creados cc WITH (NOLOCK)
             INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
             LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-            WHERE rc.producto_id = @ProductoId
-              AND (cc.codigo = @codExacto OR cc.codigo LIKE @codLike OR cc.codigo = @codPlano)
+            WHERE rc.producto_id = @ProdId
+              AND (cc.codigo LIKE @patronNumero OR cc.codigo = @codExacto)
             ORDER BY cc.id DESC;";
 
-            // 🌟 Candado: Detectar si el código ya pertenece a algún comprobante emitido
             string queryFacturado = QueryAdapter.EsMySQL
-                ? @"SELECT fc.serie_documento, fc.numero_documento, fc.tipo_documento
+                ? @"SELECT fc.serie_documento, fc.numero_documento
             FROM facturacion_detalle_codigos fdc
             INNER JOIN facturacion_detalle fd ON fdc.facturacion_detalle_id = fd.id
             INNER JOIN facturacion_cabecera fc ON fd.facturacion_cabecera_id = fc.id
-            WHERE fdc.codigo_creado_id = @CodigoId AND fc.estado_registro = 1
-            LIMIT 1;"
-                : @"SELECT TOP 1 fc.serie_documento, fc.numero_documento, fc.tipo_documento
+            WHERE fdc.codigo_creado_id = @CodId AND fc.estado_registro = 1 LIMIT 1;"
+                : @"SELECT TOP 1 fc.serie_documento, fc.numero_documento
             FROM facturacion_detalle_codigos fdc WITH (NOLOCK)
             INNER JOIN facturacion_detalle fd WITH (NOLOCK) ON fdc.facturacion_detalle_id = fd.id
             INNER JOIN facturacion_cabecera fc WITH (NOLOCK) ON fd.facturacion_cabecera_id = fc.id
-            WHERE fdc.codigo_creado_id = @CodigoId AND fc.estado_registro = 1;";
+            WHERE fdc.codigo_creado_id = @CodId AND fc.estado_registro = 1;";
 
-            foreach (var cabecera in comprobantes)
+            foreach (var cab in comprobantes)
             {
-                // 0. Duplicidad de Comprobante (Se marca pero NO se hace continue para procesar sus códigos)
-                cmd.CommandText = QueryAdapter.FormatearConsulta(queryExisteComprobante);
+                cab.EsValido = true;
+                cab.MensajeError = string.Empty;
+
+                // 1. Empresa
+                if (mapaSeriesEmpresa.TryGetValue(cab.Serie, out var empInfo))
+                {
+                    cab.EmpresaId = empInfo.EmpresaId > 0 ? empInfo.EmpresaId : null;
+                    cab.EmpresaNombre = empInfo.RazonSocial;
+
+                    if (!cab.EmpresaId.HasValue)
+                    {
+                        cab.EsValido = false;
+                        cab.MensajeError += $"La serie '{cab.Serie}' no tiene Empresa asignada. ";
+                    }
+                }
+                else
+                {
+                    cab.EsValido = false;
+                    cab.EmpresaNombre = "[ SERIE NO REGISTRADA ]";
+                    cab.MensajeError += $"La serie '{cab.Serie}' no está registrada en 'series_documentos'. ";
+                }
+
+                // 2. Cliente Comodín
+                if (cab.DocumentoExcel == "FACTURA" || cab.Serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
+                {
+                    cab.CompradorId = clienteFacturaId;
+                    cab.RazonSocialSistema = "CLIENTES VARIOS FACTURACION";
+                    cab.ClienteNumeroDoc = "00000000000";
+                }
+                else
+                {
+                    cab.CompradorId = clienteBoletaId;
+                    cab.RazonSocialSistema = "CLIENTES VARIOS";
+                    cab.ClienteNumeroDoc = "00000000";
+                }
+
+                // 3. Moneda y Medios de Pago
+                cab.MonedaId = mapaMonedas.TryGetValue(cab.Moneda, out int mId) ? mId : 1;
+
+                foreach (var p in cab.PagosDesglosados)
+                {
+                    string nombreLimpio = p.MedioPagoNombre.Trim();
+
+                    if (mapaMedios.TryGetValue(nombreLimpio, out int medId))
+                    {
+                        p.MedioPagoId = medId;
+                    }
+                    else
+                    {
+                        var matchAprox = mapaMedios.FirstOrDefault(m =>
+                            m.Key.Replace(" ", "").Equals(nombreLimpio.Replace(" ", ""), StringComparison.OrdinalIgnoreCase) ||
+                            nombreLimpio.Contains(m.Key, StringComparison.OrdinalIgnoreCase) ||
+                            m.Key.Contains(nombreLimpio, StringComparison.OrdinalIgnoreCase));
+
+                        p.MedioPagoId = matchAprox.Value > 0 ? matchAprox.Value : 1;
+                    }
+                }
+
+                if (cab.PagosDesglosados.Any())
+                {
+                    cab.CondicionPagoId = cab.PagosDesglosados.First().MedioPagoId;
+                }
+                else if (mapaMedios.TryGetValue(cab.CondicionPagoNombre, out int cId))
+                {
+                    cab.CondicionPagoId = cId;
+                    cab.PagosDesglosados.Add(new ImportacionPagoDetalleDTO
+                    {
+                        MedioPagoId = cId,
+                        MedioPagoNombre = cab.CondicionPagoNombre,
+                        Monto = cab.Total
+                    });
+                }
+                else
+                {
+                    cab.CondicionPagoId = 1;
+                }
+
+                // 4. Duplicidad
+                cmd.CommandText = QueryAdapter.FormatearConsulta(queryComprobanteRegistrado);
                 cmd.Parameters.Clear();
-                AgregarParametro(cmd, "@serie", cabecera.Serie);
-                AgregarParametro(cmd, "@numero", cabecera.Numero.PadLeft(7, '0'));
+                AgregarParametro(cmd, "@s", cab.Serie);
+                AgregarParametro(cmd, "@n", cab.Numero);
 
                 if (await cmd.ExecuteScalarAsync() != null)
                 {
-                    cabecera.EsValido = false;
-                    cabecera.MensajeError = "¡Comprobante ya registrado previamente en el sistema! ";
+                    cab.EsValido = false;
+                    cab.MensajeError += "¡Comprobante ya registrado en el sistema! ";
                 }
 
-                // 1. Pagador
-                cmd.CommandText = QueryAdapter.FormatearConsulta(queryPersona);
-                cmd.Parameters.Clear();
-                AgregarParametro(cmd, "@filtro", "%" + cabecera.RazonSocialExcel.Trim() + "%");
-                using (var rdr = await cmd.ExecuteReaderAsync())
+                // 5. Validación de Productos y Códigos por Sede
+                foreach (var det in cab.Detalles)
                 {
-                    if (await rdr.ReadAsync())
-                    {
-                        cabecera.PagadorSistemaId = Convert.ToInt32(rdr["id"]);
-                        cabecera.RazonSocialSistema = rdr["nombre_mostrar"]?.ToString() ?? cabecera.RazonSocialExcel;
-                    }
-                    else
-                    {
-                        cabecera.EsValido = false;
-                        cabecera.MensajeError += "Razón Social no encontrada. ";
-                    }
-                }
+                    det.EsValido = true;
 
-                // 2. Institución
-                cmd.CommandText = QueryAdapter.FormatearConsulta(queryPersona);
-                cmd.Parameters.Clear();
-                AgregarParametro(cmd, "@filtro", "%" + cabecera.ClienteExcel.Trim() + "%");
-                using (var rdr = await cmd.ExecuteReaderAsync())
-                {
-                    if (await rdr.ReadAsync())
-                    {
-                        cabecera.ColegioSistemaId = Convert.ToInt32(rdr["id"]);
-                        cabecera.ClienteSistema = rdr["nombre_mostrar"]?.ToString() ?? cabecera.ClienteExcel;
-                    }
-                    else
-                    {
-                        cabecera.EsValido = false;
-                        cabecera.MensajeError += "Colegio no encontrado. ";
-                    }
-                }
+                    var matchProd = listaProductos.FirstOrDefault(p =>
+                        p.Descripcion.Equals(det.DescripcionExcel, StringComparison.OrdinalIgnoreCase) ||
+                        p.Descripcion.Replace(" ", "").Contains(det.DescripcionExcel.Replace(" ", "")) ||
+                        det.DescripcionExcel.Replace(" ", "").Contains(p.Descripcion.Replace(" ", "")));
 
-                // 3. Productos
-                foreach (var detalle in cabecera.Detalles)
-                {
-                    string abreviaturaProd = string.Empty;
-
-                    cmd.CommandText = QueryAdapter.FormatearConsulta(queryProducto);
-                    cmd.Parameters.Clear();
-                    AgregarParametro(cmd, "@prod", detalle.DescripcionExcel.Trim());
-                    using (var rdr = await cmd.ExecuteReaderAsync())
+                    if (matchProd.Id > 0)
                     {
-                        if (await rdr.ReadAsync())
+                        det.ProductoSistemaId = matchProd.Id;
+                        det.DescripcionSistema = matchProd.Descripcion;
+                        det.AbreviaturaOficial = matchProd.Abreviatura;
+
+                        foreach (var cod in det.Codigos)
                         {
-                            detalle.ProductoSistemaId = Convert.ToInt32(rdr["id"]);
-                            detalle.DescripcionSistema = rdr["descripcion"]?.ToString() ?? "";
-                            abreviaturaProd = rdr["abreviatura"]?.ToString() ?? "";
-                        }
-                        else
-                        {
-                            detalle.EsValido = false;
-                            cabecera.EsValido = false;
-                            cabecera.MensajeError += $"Producto '{detalle.DescripcionExcel}' no encontrado. ";
-                        }
-                    }
+                            if (cod.CorrelativoExtraido <= 0)
+                            {
+                                cod.EsValido = false;
+                                cod.CodigoSistema = "[ CORRELATIVO INVÁLIDO ]";
+                                cod.MensajeValidacion = $"⛔ Correlativo inválido ({cod.CodigoExcel})";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                continue;
+                            }
 
-                    // 4. Búsqueda y Validación de Códigos Físicos
-                    if (detalle.ProductoSistemaId.HasValue && detalle.Codigos.Any())
-                    {
-                        foreach (var cod in detalle.Codigos)
-                        {
-                            string raw = cod.CodigoExcel.Trim();
-                            int num = int.TryParse(raw, out int n) ? n : 0;
-                            string numeroFormateado = num > 0 ? num.ToString("D7") : raw;
-
-                            string codExacto = string.IsNullOrEmpty(abreviaturaProd) ? raw : $"{abreviaturaProd}-{numeroFormateado}";
-                            string codLike = string.IsNullOrEmpty(abreviaturaProd) ? $"%-{numeroFormateado}" : $"{abreviaturaProd}%{numeroFormateado}";
+                            string numD7 = cod.CorrelativoExtraido.ToString("D7");
+                            string patronNumero = $"%-{numD7}";
+                            string codExactoEsperado = !string.IsNullOrEmpty(det.AbreviaturaOficial) ? $"{det.AbreviaturaOficial}-{numD7}" : cod.CodigoExcel;
 
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryKardexCodigo);
                             cmd.Parameters.Clear();
-                            AgregarParametro(cmd, "@ProductoId", detalle.ProductoSistemaId.Value);
-                            AgregarParametro(cmd, "@codExacto", codExacto);
-                            AgregarParametro(cmd, "@codLike", codLike);
-                            AgregarParametro(cmd, "@codPlano", raw);
+                            AgregarParametro(cmd, "@ProdId", det.ProductoSistemaId.Value);
+                            AgregarParametro(cmd, "@patronNumero", patronNumero);
+                            AgregarParametro(cmd, "@codExacto", codExactoEsperado);
 
-                            int codigoId = 0;
+                            int codigoCreadoId = 0;
                             string codigoRealBD = string.Empty;
                             int estadoId = 0;
+                            int codigoAlmacenId = 0;
                             int movId = 0;
                             bool existe = false;
 
@@ -665,229 +870,291 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                                 if (await rdrCod.ReadAsync())
                                 {
                                     existe = true;
-                                    codigoId = Convert.ToInt32(rdrCod["id"]);
-                                    codigoRealBD = rdrCod["codigo"]?.ToString() ?? codExacto;
-                                    estadoId = Convert.ToInt32(rdrCod["estado_id"]);
-                                    movId = Convert.ToInt32(rdrCod["movimiento_id"]);
+                                    codigoCreadoId = rdrCod.GetInt32(0);
+                                    codigoRealBD = rdrCod.GetString(1);
+                                    estadoId = rdrCod.GetInt32(2);
+                                    codigoAlmacenId = rdrCod.GetInt32(3);
+                                    movId = rdrCod.GetInt32(4);
                                 }
                             }
 
                             if (!existe)
                             {
                                 cod.EsValido = false;
-                                string codigoEsperado = !string.IsNullOrEmpty(abreviaturaProd) ? $"{abreviaturaProd}-...-{numeroFormateado}" : raw;
-                                cod.CodigoSistema = codigoEsperado;
-                                cod.CodigoExcel = raw;
-                                cod.MensajeValidacion = $"⛔ NO EXISTE EN KÁRDEX ({abreviaturaProd})";
-                                cod.Error = cod.MensajeValidacion;
-
-                                detalle.EsValido = false;
-                                cabecera.EsValido = false;
-                                cabecera.MensajeError += $"Código '{raw}' no pertenece a '{detalle.DescripcionExcel}'. ";
+                                cod.CodigoCreadoId = null;
+                                cod.CodigoSistema = "[ NO EXISTE EN KÁRDEX ]";
+                                cod.MensajeValidacion = $"⛔ NO EXISTE EN KÁRDEX (Esperado: {det.AbreviaturaOficial}-{numD7})";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código '{cod.CodigoExcel}' no existe en Kárdex. ";
                                 continue;
                             }
 
-                            cod.CodigoCreadoId = codigoId;
+                            cod.CodigoCreadoId = codigoCreadoId;
                             cod.CodigoSistema = codigoRealBD;
-                            cod.CodigoExcel = codigoRealBD;
                             cod.MovimientoKardexId = movId;
 
-                            // 🛑 CANDADO FISCAL: Verificar si ya existe en facturacion_detalle_codigos
+                            // 🛑 🌟 CANDADO MULTI-SEDE: Validar que el código pertenezca a la sede activa
+                            if (codigoAlmacenId != almacenId)
+                            {
+                                cod.EsValido = false;
+                                cod.MensajeValidacion = $"⛔ ERROR: PERTENECE A OTRA SEDE (Almacén ID: {codigoAlmacenId})";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código {codigoRealBD} está en otra sede (Almacén {codigoAlmacenId}). ";
+                                continue;
+                            }
+
+                            // 🛑 Candado: Verificar si ya fue facturado
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryFacturado);
                             cmd.Parameters.Clear();
-                            AgregarParametro(cmd, "@CodigoId", codigoId);
+                            AgregarParametro(cmd, "@CodId", codigoCreadoId);
 
                             string docFacturado = string.Empty;
-                            using (var rdrFact = await cmd.ExecuteReaderAsync())
+                            using (var rdrF = await cmd.ExecuteReaderAsync())
                             {
-                                if (await rdrFact.ReadAsync())
+                                if (await rdrF.ReadAsync())
                                 {
-                                    string sDoc = rdrFact.GetString(0);
-                                    string nDoc = rdrFact.GetString(1);
-                                    docFacturado = $"{sDoc}-{nDoc}";
+                                    docFacturado = $"{rdrF.GetString(0)}-{rdrF.GetString(1)}";
                                 }
                             }
 
                             if (!string.IsNullOrEmpty(docFacturado))
                             {
                                 cod.EsValido = false;
-                                string msgError = $"⛔ YA FACTURADO (Doc: {docFacturado})";
-                                cod.MensajeValidacion = msgError;
-                                cod.Error = msgError;
-
-                                detalle.EsValido = false;
-                                cabecera.EsValido = false;
-                                cabecera.MensajeError += $"Código {codigoRealBD} ya registrado en {docFacturado}. ";
+                                cod.MensajeValidacion = $"⛔ YA FACTURADO EN [{docFacturado}]";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código {codigoRealBD} ya facturado en {docFacturado}. ";
                                 continue;
                             }
 
-                            // 🛑 EVALUACIÓN DE ESTADOS (Solo Estado 4 permitido para emitir comprobante)
+                            // 🛑 CANDADO DE ESTADO: SOLO ESTADO 4 ES VÁLIDO
                             switch (estadoId)
                             {
-                                case 4: // Salida neta aprobada
+                                case 4:
                                     cod.EsValido = true;
-                                    cod.MensajeValidacion = "✓ LISTO PARA TRANSFERIR (SALIDA NETA)";
-                                    cod.Error = cod.MensajeValidacion;
+                                    cod.MensajeValidacion = "✓ LISTO (SALIDA NETA / DESPACHADO)";
                                     break;
 
-                                case 3: // En almacén
+                                case 3:
                                     cod.EsValido = false;
-                                    cod.MensajeValidacion = "⛔ ERROR: CÓDIGO EN ALMACÉN (SIN SALIDA)";
-                                    cod.Error = cod.MensajeValidacion;
-                                    detalle.EsValido = false;
-                                    cabecera.EsValido = false;
-                                    cabecera.MensajeError += $"Código {codigoRealBD} figura en almacén. ";
+                                    cod.MensajeValidacion = "⛔ ERROR: CÓDIGO EN ALMACÉN (SIN SALIDA PREVIA)";
+                                    det.EsValido = false;
+                                    cab.EsValido = false;
+                                    cab.MensajeError += $"Código {codigoRealBD} figura en almacén. ";
                                     break;
 
-                                case 5: // En tránsito
+                                case 5:
                                     cod.EsValido = false;
                                     cod.MensajeValidacion = "⛔ ERROR: CÓDIGO EN TRÁNSITO";
-                                    cod.Error = cod.MensajeValidacion;
-                                    detalle.EsValido = false;
-                                    cabecera.EsValido = false;
-                                    cabecera.MensajeError += $"Código {codigoRealBD} está en tránsito. ";
-                                    break;
-
-                                case 1: // No registrado en stock
-                                    cod.EsValido = false;
-                                    cod.MensajeValidacion = "⛔ ERROR: NO REGISTRADO EN STOCK";
-                                    cod.Error = cod.MensajeValidacion;
-                                    detalle.EsValido = false;
-                                    cabecera.EsValido = false;
-                                    cabecera.MensajeError += $"Código {codigoRealBD} sin stock inicial. ";
+                                    det.EsValido = false;
+                                    cab.EsValido = false;
+                                    cab.MensajeError += $"Código {codigoRealBD} en tránsito. ";
                                     break;
 
                                 default:
                                     cod.EsValido = false;
-                                    cod.MensajeValidacion = $"⛔ ERROR: ESTADO {estadoId} NO PERMITIDO";
-                                    cod.Error = cod.MensajeValidacion;
-                                    detalle.EsValido = false;
-                                    cabecera.EsValido = false;
-                                    cabecera.MensajeError += $"Código {codigoRealBD} con estado {estadoId}. ";
+                                    cod.MensajeValidacion = $"⛔ ERROR: ESTADO {estadoId} NO APTO";
+                                    det.EsValido = false;
+                                    cab.EsValido = false;
+                                    cab.MensajeError += $"Código {codigoRealBD} en estado {estadoId}. ";
                                     break;
                             }
                         }
                     }
-                }
-            }
-        }
-
-        public async Task<int> TransferirComprobantesValidosAsync(List<ImportacionCabeceraDTO> comprobantesValidos, int idUsuario)
-        {
-            int countExito = 0;
-            var procesables = comprobantesValidos.Where(c => c.EsValido).ToList();
-
-            foreach (var excelCab in procesables)
-            {
-                string tipoDocSunat = "03";
-                string docUpper = excelCab.DocumentoExcel.ToUpperInvariant();
-                if (docUpper.Contains("FACTURA") || excelCab.Serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
-                {
-                    tipoDocSunat = "01";
-                }
-                else if (docUpper.Contains("BOLETA") || excelCab.Serie.StartsWith("B", StringComparison.OrdinalIgnoreCase))
-                {
-                    tipoDocSunat = "02";
-                }
-
-                var cabeceraDB = new FacturacionCabecera
-                {
-                    TipoDocumento = tipoDocSunat,
-                    SerieDocumento = excelCab.Serie,
-                    NumeroDocumento = excelCab.Numero.PadLeft(7, '0'),
-                    FechaEmision = excelCab.Fecha,
-                    PuntoVentaId = 1,
-                    CompradorId = excelCab.PagadorSistemaId,
-                    InstitucionId = excelCab.ColegioSistemaId,
-                    Observacion = "Importado desde Plantilla Excel Nisira",
-                    TotalGravado = excelCab.Afecto,
-                    TotalExonerado = excelCab.Exonerado,
-                    TotalIgv = excelCab.IGV,
-                    ImporteTotal = excelCab.Total,
-                    PorcentajeIgv = 18.00m,
-                    EstadoRegistro = true,
-                    UsuarioId = idUsuario
-                };
-
-                int lineIndex = 1;
-
-                foreach (var excelDet in excelCab.Detalles)
-                {
-                    decimal proporcion = excelCab.Total > 0 ? excelDet.Importe / excelCab.Total : 0m;
-
-                    int? movIdDetectado = null;
-                    if (excelDet.Codigos != null && excelDet.Codigos.Any(c => c.MovimientoKardexId.HasValue && c.MovimientoKardexId.Value > 0))
+                    else
                     {
-                        movIdDetectado = excelDet.Codigos.First(c => c.MovimientoKardexId.HasValue).MovimientoKardexId!.Value;
-                    }
+                        det.EsValido = false;
+                        det.DescripcionSistema = "[ PRODUCTO NO REGISTRADO ]";
+                        det.MensajeError = "Producto no encontrado en catálogo";
+                        cab.EsValido = false;
+                        cab.MensajeError += $"Producto '{det.DescripcionExcel}' desconocido. ";
 
-                    var detalleDB = new FacturacionDetalle
-                    {
-                        ProductoId = excelDet.ProductoSistemaId!.Value,
-                        Cantidad = excelDet.Cantidad,
-                        PrecioUnitario = excelDet.PrecioUnitario,
-                        ImporteTotal = excelDet.Importe,
-                        NumeroLinea = lineIndex++,
-                        ValorGravado = Math.Round(excelCab.Afecto * proporcion, 2),
-                        ValorExonerado = Math.Round(excelCab.Exonerado * proporcion, 2),
-                        ValorIgv = Math.Round(excelCab.IGV * proporcion, 2),
-                        ValorInafecto = 0m,
-                        MovimientoId = movIdDetectado ?? 0
-                    };
-
-                    if (excelDet.Codigos != null)
-                    {
-                        foreach (var excelCod in excelDet.Codigos)
+                        foreach (var cod in det.Codigos)
                         {
-                            if (excelCod.CodigoCreadoId.HasValue && excelCod.CodigoCreadoId.Value > 0)
-                            {
-                                detalleDB.Codigos.Add(new FacturacionDetalleCodigos
-                                {
-                                    CodigoCreadoId = excelCod.CodigoCreadoId.Value
-                                });
-                            }
+                            cod.EsValido = false;
+                            cod.CodigoSistema = "[ NO EXISTE ]";
+                            cod.MensajeValidacion = "⛔ PRODUCTO NO REGISTRADO EN EL SISTEMA";
                         }
                     }
-
-                    cabeceraDB.Detalles.Add(detalleDB);
-                }
-
-                try
-                {
-                    int serieId = await ObtenerIdSerieAsync(cabeceraDB.SerieDocumento);
-                    await _facturacionService.GuardarComprobanteAsync(cabeceraDB, serieId);
-                    countExito++;
-                }
-                catch (Exception ex)
-                {
-                    excelCab.EsValido = false;
-                    excelCab.MensajeError = "Error al Transferir: " + ex.Message;
-                    throw new Exception($"Falló la inserción del documento {cabeceraDB.SerieDocumento}-{cabeceraDB.NumeroDocumento}. Detalle técnico: {ex.Message}");
                 }
             }
-
-            return countExito;
         }
 
-        private async Task<int> ObtenerIdSerieAsync(string numeroSerie)
+        public async Task<int> TransferirComprobantesValidosAsync(List<ImportacionCabeceraDTO> comprobantesValidos, int idUsuario, int almacenId)
         {
+            var procesables = comprobantesValidos.Where(c => c.EsValido).ToList();
+            if (!procesables.Any()) return 0;
+
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            using var cmd = dbConn.CreateCommand();
+            using var trans = await dbConn.BeginTransactionAsync();
+            int countExito = 0;
+            string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
 
-            string querySerie = QueryAdapter.EsMySQL
-                ? "SELECT id FROM series_documentos WHERE num_seri = @serie LIMIT 1;"
-                : "SELECT TOP 1 id FROM series_documentos WITH (NOLOCK) WHERE num_seri = @serie;";
+            try
+            {
+                foreach (var cab in procesables)
+                {
+                    string tipoDocSunat;
+                    if (cab.DocumentoExcel.Contains("FACT") || cab.Serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
+                    {
+                        tipoDocSunat = "01"; // Factura
+                    }
+                    else if (cab.DocumentoExcel.Contains("REC") || cab.Serie.StartsWith("R", StringComparison.OrdinalIgnoreCase))
+                    {
+                        tipoDocSunat = "03"; // Recibo
+                    }
+                    else
+                    {
+                        tipoDocSunat = "02"; // Boleta
+                    }
 
-            cmd.CommandText = QueryAdapter.FormatearConsulta(querySerie);
-            AgregarParametro(cmd, "@serie", numeroSerie);
+                    // 🌟 Se asigna @almId con el almacén de la sesión activa
+                    string sqlCab = $@"
+                INSERT INTO facturacion_cabecera (
+                    empresa_id, tipo_documento, serie_documento, numero_documento,
+                    fecha_emision, punto_venta_id, almacen_id, comprador_id,
+                    observacion, total_gravado, total_inafecto, total_exonerado,
+                    moneda_id, condicion_pago_id, total_igv, importe_total,
+                    monto_delivery, porcentaje_igv, fecha_registro, usuario_id, estado_registro
+                ) VALUES (
+                    @empId, @tipoDoc, @serie, @numero,
+                    @fEmision, 1, @almId, @compradorId,
+                    'IMPORTADO DESDE NISIRA', @grav, 0.00, @exon,
+                    @monId, @condId, @igv, @total,
+                    @delivery, 0.00, NOW(), @usrId, 1
+                ); {selectId}";
 
-            object? result = await cmd.ExecuteScalarAsync();
-            if (result == null) throw new Exception($"La serie '{numeroSerie}' no está registrada en el sistema.");
+                    int cabeceraId;
+                    using (var cmdCab = dbConn.CreateCommand())
+                    {
+                        cmdCab.Transaction = trans;
+                        cmdCab.CommandText = QueryAdapter.FormatearConsulta(sqlCab);
 
-            return Convert.ToInt32(result);
+                        AgregarParametro(cmdCab, "@empId", cab.EmpresaId);
+                        AgregarParametro(cmdCab, "@tipoDoc", tipoDocSunat);
+                        AgregarParametro(cmdCab, "@serie", cab.Serie);
+                        AgregarParametro(cmdCab, "@numero", cab.Numero);
+                        AgregarParametro(cmdCab, "@fEmision", cab.Fecha);
+                        AgregarParametro(cmdCab, "@almId", almacenId); // 👈 ID de la sede activa
+                        AgregarParametro(cmdCab, "@compradorId", cab.CompradorId);
+                        AgregarParametro(cmdCab, "@grav", cab.Afecto);
+                        AgregarParametro(cmdCab, "@exon", cab.Exonerado);
+                        AgregarParametro(cmdCab, "@monId", cab.MonedaId);
+                        AgregarParametro(cmdCab, "@condId", cab.CondicionPagoId);
+                        AgregarParametro(cmdCab, "@igv", cab.IGV);
+                        AgregarParametro(cmdCab, "@total", cab.Total);
+                        AgregarParametro(cmdCab, "@delivery", cab.MontoDelivery);
+                        AgregarParametro(cmdCab, "@usrId", idUsuario);
+
+                        var resCab = await cmdCab.ExecuteScalarAsync();
+                        cabeceraId = Convert.ToInt32(resCab);
+                    }
+
+                    // 2. Pagos Desglosados en facturacion_pagos_detalle
+                    foreach (var pago in cab.PagosDesglosados)
+                    {
+                        if (pago.Monto <= 0) continue;
+
+                        int medioIdFinal = pago.MedioPagoId > 0 ? pago.MedioPagoId : 1;
+
+                        string sqlPago = @"
+                    INSERT INTO facturacion_pagos_detalle (
+                        facturacion_cabecera_id, medio_pago_id, monto, observacion, created_at
+                    ) VALUES (
+                        @cabId, @medioId, @monto, @obs, NOW()
+                    );";
+
+                        using var cmdPago = dbConn.CreateCommand();
+                        cmdPago.Transaction = trans;
+                        cmdPago.CommandText = QueryAdapter.FormatearConsulta(sqlPago);
+                        AgregarParametro(cmdPago, "@cabId", cabeceraId);
+                        AgregarParametro(cmdPago, "@medioId", medioIdFinal);
+                        AgregarParametro(cmdPago, "@monto", pago.Monto);
+                        AgregarParametro(cmdPago, "@obs", pago.MedioPagoNombre);
+                        await cmdPago.ExecuteNonQueryAsync();
+                    }
+
+                    // 3. Detalles de productos
+                    int numLinea = 1;
+                    foreach (var det in cab.Detalles)
+                    {
+                        if (!det.ProductoSistemaId.HasValue) continue;
+
+                        int movIdDetectado = 0;
+                        if (det.Codigos.Any(c => c.MovimientoKardexId.HasValue && c.MovimientoKardexId.Value > 0))
+                        {
+                            movIdDetectado = det.Codigos.First(c => c.MovimientoKardexId.HasValue).MovimientoKardexId!.Value;
+                        }
+
+                        string sqlDet = $@"
+                    INSERT INTO facturacion_detalle (
+                        facturacion_cabecera_id, movimiento_id, producto_id, numero_linea,
+                        cantidad, precio_unitario, valor_gravado, valor_inafecto,
+                        valor_exonerado, valor_igv, importe_total
+                    ) VALUES (
+                        @cabId, @movId, @prodId, @linea,
+                        @cant, @precio, 0.00, 0.00,
+                        @total, 0.00, @total
+                    ); {selectId}";
+
+                        int detalleId;
+                        using (var cmdDet = dbConn.CreateCommand())
+                        {
+                            cmdDet.Transaction = trans;
+                            cmdDet.CommandText = QueryAdapter.FormatearConsulta(sqlDet);
+                            AgregarParametro(cmdDet, "@cabId", cabeceraId);
+                            AgregarParametro(cmdDet, "@movId", movIdDetectado);
+                            AgregarParametro(cmdDet, "@prodId", det.ProductoSistemaId.Value);
+                            AgregarParametro(cmdDet, "@linea", numLinea++);
+                            AgregarParametro(cmdDet, "@cant", det.Cantidad);
+                            AgregarParametro(cmdDet, "@precio", det.PrecioUnitario);
+                            AgregarParametro(cmdDet, "@total", det.Importe);
+
+                            var resDet = await cmdDet.ExecuteScalarAsync();
+                            detalleId = Convert.ToInt32(resDet);
+                        }
+
+                        // 4. Códigos Físicos y Actualización a Estado 4 (VENDIDO)
+                        foreach (var cod in det.Codigos)
+                        {
+                            if (!cod.CodigoCreadoId.HasValue || cod.CodigoCreadoId.Value <= 0) continue;
+
+                            string sqlCod = @"
+                        INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id)
+                        VALUES (@detId, @codId);";
+
+                            using var cmdCod = dbConn.CreateCommand();
+                            cmdCod.Transaction = trans;
+                            cmdCod.CommandText = QueryAdapter.FormatearConsulta(sqlCod);
+                            AgregarParametro(cmdCod, "@detId", detalleId);
+                            AgregarParametro(cmdCod, "@codId", cod.CodigoCreadoId.Value);
+                            await cmdCod.ExecuteNonQueryAsync();
+
+                            string sqlUpdKardex = "UPDATE codigos_creados SET estado_id = 4 WHERE id = @codId;";
+                            using var cmdKardex = dbConn.CreateCommand();
+                            cmdKardex.Transaction = trans;
+                            cmdKardex.CommandText = QueryAdapter.FormatearConsulta(sqlUpdKardex);
+                            AgregarParametro(cmdKardex, "@codId", cod.CodigoCreadoId.Value);
+                            await cmdKardex.ExecuteNonQueryAsync();
+                        }
+                    }
+
+                    countExito++;
+                }
+
+                await trans.CommitAsync();
+                return countExito;
+            }
+            catch (Exception ex)
+            {
+                await trans.RollbackAsync();
+                throw new Exception($"Falla durante la transferencia transaccional: {ex.Message}", ex);
+            }
         }
     }
 }

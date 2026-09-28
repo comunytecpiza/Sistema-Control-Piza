@@ -1,0 +1,138 @@
+﻿<UserControl x:Class="AplicativoDeAlmacen.Views.Facturacion.MediosPagoUserControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:hc="https://handyorg.github.io/handycontrol"
+             Background="#F8FAFC">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- HEADER -->
+        <Border Grid.Row="0" Background="#FFFFFF" CornerRadius="10" Padding="16" BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="💳" FontSize="22" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Condiciones y Medios de Pago / Cobranza" FontSize="18" FontWeight="Bold" Foreground="#0F172A"/>
+                    </StackPanel>
+                    <TextBlock Text="Catálogo de canales financieros utilizados en ventas de mostrador e importación NISIRA." 
+                               FontSize="12" Foreground="#64748b" Margin="32,2,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" x:Name="BtnRefrescarMedios" Content="🔄 Actualizar" 
+                        Background="#F1F5F9" Foreground="#334155" FontWeight="SemiBold" Height="36" Padding="14,0"
+                        BorderBrush="#CBD5E1" BorderThickness="1" Cursor="Hand" Click="BtnRefrescarMedios_Click"/>
+            </Grid>
+        </Border>
+
+        <!-- CUERPO PRINCIPAL -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="380"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- FORMULARIO LATERAL -->
+            <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="10" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16" Margin="0,0,12,0">
+                <StackPanel>
+                    <TextBlock Text="Datos del Medio de Pago" FontSize="15" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Nombre del Medio / Canal:" FontWeight="SemiBold" FontSize="12" Foreground="#475569" Margin="0,4,0,4"/>
+                    <TextBox x:Name="TxtNombreMedio" Height="34" VerticalContentAlignment="Center" Margin="0,0,0,8"/>
+
+                    <TextBlock Text="Tipo de Instrumento:" FontWeight="SemiBold" FontSize="12" Foreground="#475569" Margin="0,4,0,4"/>
+                    <ComboBox x:Name="CboTipoMedio" Height="34" Margin="0,0,0,8">
+                        <ComboBoxItem Content="CONTADO" IsSelected="True"/>
+                        <ComboBoxItem Content="BILLETERA_DIGITAL"/>
+                        <ComboBoxItem Content="BANCARIO"/>
+                        <ComboBoxItem Content="CREDITO"/>
+                    </ComboBox>
+
+                    <TextBlock Text="Código Fiscal SUNAT (Opcional):" FontWeight="SemiBold" FontSize="12" Foreground="#475569" Margin="0,4,0,4"/>
+                    <TextBox x:Name="TxtCodigoSunat" MaxLength="10" Height="34" VerticalContentAlignment="Center" Margin="0,0,0,12"/>
+
+                    <CheckBox x:Name="ChkMedioActivo" Content="Medio de Pago Habilitado" IsChecked="True" FontWeight="SemiBold" Foreground="#334155" Margin="0,0,0,16"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                        <Button x:Name="BtnLimpiarMedio" Content="Limpiar" Background="#F1F5F9" Foreground="#64748B" 
+                                Height="34" Padding="14,0" Margin="0,0,8,0" Cursor="Hand" Click="BtnLimpiarMedio_Click"/>
+                        <Button x:Name="BtnGuardarMedio" Content="💾 Guardar Canal" Background="#2563EB" Foreground="#FFFFFF" 
+                                FontWeight="Bold" Height="34" Padding="14,0" Cursor="Hand" Click="BtnGuardarMedio_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- GRILLA Y BÚSQUEDA -->
+            <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="10" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBox x:Name="TxtBuscarMedio" Height="36" VerticalContentAlignment="Center" Padding="8,0"
+                                 Tag="Buscar canal por nombre (ej. Yape, Efectivo, BCP)..." TextChanged="TxtBuscarMedio_TextChanged"/>
+
+                        <Popup x:Name="PopupSugerenciasMedio" PlacementTarget="{Binding ElementName=TxtBuscarMedio}" 
+                               Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                            <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Width="360" MaxHeight="200">
+                                <ListBox x:Name="LstSugerenciasMedio" SelectionChanged="LstSugerenciasMedio_SelectionChanged" BorderThickness="0"/>
+                            </Border>
+                        </Popup>
+
+                        <Button Grid.Column="1" x:Name="BtnNuevoMedio" Content="➕ Nuevo Medio" Background="#10B981" Foreground="#FFFFFF"
+                                FontWeight="Bold" Height="36" Padding="14,0" Margin="8,0,0,0" Cursor="Hand" Click="BtnNuevoMedio_Click"/>
+                    </Grid>
+
+                    <DataGrid Grid.Row="1" x:Name="DgMediosPago" AutoGenerateColumns="False" IsReadOnly="True"
+                              SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                              BorderThickness="1" BorderBrush="#E2E8F0" Background="Transparent"
+                              SelectionChanged="DgMediosPago_SelectionChanged" MouseDoubleClick="DgMediosPago_MouseDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                            <DataGridTextColumn Header="Nombre / Canal" Binding="{Binding Nombre}" Width="*" FontWeight="Bold"/>
+                            <DataGridTextColumn Header="Tipo" Binding="{Binding Tipo}" Width="150"/>
+                            <DataGridTextColumn Header="Cód. SUNAT" Binding="{Binding CodigoSunat}" Width="100"/>
+                            <!-- ✅ REEMPLAZAR POR ESTO: -->
+                            <DataGridTemplateColumn Header="Estado" Width="100">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="BrdEstadoMedio" CornerRadius="12" Padding="8,2" HorizontalAlignment="Center">
+                                            <TextBlock x:Name="TxtEstadoMedio" FontSize="11" FontWeight="Bold"/>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding EsActivo}" Value="True">
+                                                <Setter TargetName="BrdEstadoMedio" Property="Background" Value="#DCFCE7"/>
+                                                <Setter TargetName="TxtEstadoMedio" Property="Text" Value="ACTIVO"/>
+                                                <Setter TargetName="TxtEstadoMedio" Property="Foreground" Value="#15803D"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding EsActivo}" Value="False">
+                                                <Setter TargetName="BrdEstadoMedio" Property="Background" Value="#F1F5F9"/>
+                                                <Setter TargetName="TxtEstadoMedio" Property="Text" Value="INACTIVO"/>
+                                                <Setter TargetName="TxtEstadoMedio" Property="Foreground" Value="#64748B"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <TextBlock Grid.Row="2" x:Name="LblTotalMedios" Text="Total medios de pago: 0" FontSize="12" Foreground="#64748B" Margin="0,8,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>
