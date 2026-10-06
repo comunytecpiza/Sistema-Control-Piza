@@ -720,20 +720,40 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 : "SELECT TOP 1 1 FROM facturacion_cabecera WITH (NOLOCK) WHERE serie_documento = @s AND numero_documento = @n AND estado_registro = 1;";
 
             string queryKardexCodigo = QueryAdapter.EsMySQL
-                ? @"SELECT cc.id, cc.codigo, cc.estado_id, cc.almacen_id, COALESCE(mc.movimiento_id, 0) AS mov_id
-            FROM codigos_creados cc
-            INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
-            LEFT JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
-            WHERE rc.producto_id = @ProdId
-              AND (cc.codigo LIKE @patronNumero OR cc.codigo = @codExacto)
-            ORDER BY cc.id DESC LIMIT 1;"
-                : @"SELECT TOP 1 cc.id, cc.codigo, cc.estado_id, cc.almacen_id, ISNULL(mc.movimiento_id, 0) AS mov_id
-            FROM codigos_creados cc WITH (NOLOCK)
-            INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
-            LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
-            WHERE rc.producto_id = @ProdId
-              AND (cc.codigo LIKE @patronNumero OR cc.codigo = @codExacto)
-            ORDER BY cc.id DESC;";
+                ? @"SELECT cc.id, cc.codigo, cc.estado_id, cc.almacen_id, 
+                           COALESCE(m.id, 0) AS mov_id,
+                           COALESCE(m.almacen_origen_id, COALESCE(m.almacen_id, 0)) AS sede_emisora_id,
+                           COALESCE(a.nombre, 'OTRA SEDE') AS sede_emisora_nombre,
+                           COALESCE(m.ubicacion_id, 0) AS pto_venta_destino_id,
+                           COALESCE(u.descripcion, 'SIN PUNTO ASIGNADO') AS pto_venta_nombre
+                    FROM codigos_creados cc
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    LEFT JOIN movimiento_codigos mc ON mc.codigo_creado_id = cc.id
+                    LEFT JOIN movimiento_detalles md ON mc.movimiento_detalle_id = md.id
+                    LEFT JOIN movimientos m ON md.movimiento_id = m.id AND m.estado_id = 1
+                    LEFT JOIN motivo_productos mp ON m.motivo_producto_id = mp.id AND mp.tipo_movimiento_id = 2
+                    LEFT JOIN almacenes a ON COALESCE(m.almacen_origen_id, m.almacen_id) = a.id
+                    LEFT JOIN ubicaciones u ON m.ubicacion_id = u.id
+                    WHERE rc.producto_id = @ProdId
+                      AND (cc.codigo LIKE @patronNumero OR cc.codigo = @codExacto)
+                    ORDER BY m.id DESC, cc.id DESC LIMIT 1;"
+                : @"SELECT TOP 1 cc.id, cc.codigo, cc.estado_id, cc.almacen_id, 
+                           ISNULL(m.id, 0) AS mov_id,
+                           ISNULL(m.almacen_origen_id, ISNULL(m.almacen_id, 0)) AS sede_emisora_id,
+                           ISNULL(a.nombre, 'OTRA SEDE') AS sede_emisora_nombre,
+                           ISNULL(m.ubicacion_id, 0) AS pto_venta_destino_id,
+                           ISNULL(u.descripcion, 'SIN PUNTO ASIGNADO') AS pto_venta_nombre
+                    FROM codigos_creados cc WITH (NOLOCK)
+                    INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
+                    LEFT JOIN movimiento_codigos mc WITH (NOLOCK) ON mc.codigo_creado_id = cc.id
+                    LEFT JOIN movimiento_detalles md WITH (NOLOCK) ON mc.movimiento_detalle_id = md.id
+                    LEFT JOIN movimientos m WITH (NOLOCK) ON md.movimiento_id = m.id AND m.estado_id = 1
+                    LEFT JOIN motivo_productos mp WITH (NOLOCK) ON m.motivo_producto_id = mp.id AND mp.tipo_movimiento_id = 2
+                    LEFT JOIN almacenes a WITH (NOLOCK) ON ISNULL(m.almacen_origen_id, m.almacen_id) = a.id
+                    LEFT JOIN ubicaciones u WITH (NOLOCK) ON m.ubicacion_id = u.id
+                    WHERE rc.producto_id = @ProdId
+                      AND (cc.codigo LIKE @patronNumero OR cc.codigo = @codExacto)
+                    ORDER BY m.id DESC, cc.id DESC;";
 
             string queryFacturado = QueryAdapter.EsMySQL
                 ? @"SELECT fc.serie_documento, fc.numero_documento
@@ -924,6 +944,10 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                             int estadoId = 0;
                             int codigoAlmacenId = 0;
                             int movId = 0;
+                            int sedeEmisoraId = 0;
+                            string sedeEmisoraNombre = string.Empty;
+                            int ptoVentaDestinoId = 0;
+                            string ptoVentaNombre = string.Empty;
                             bool existe = false;
 
                             using (var rdrCod = await cmd.ExecuteReaderAsync())
@@ -936,6 +960,10 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                                     estadoId = rdrCod.GetInt32(2);
                                     codigoAlmacenId = rdrCod.GetInt32(3);
                                     movId = rdrCod.GetInt32(4);
+                                    sedeEmisoraId = rdrCod.GetInt32(5);
+                                    sedeEmisoraNombre = rdrCod.GetString(6);
+                                    ptoVentaDestinoId = rdrCod.GetInt32(7);
+                                    ptoVentaNombre = rdrCod.GetString(8);
                                 }
                             }
 
@@ -955,16 +983,51 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                             cod.CodigoSistema = codigoRealBD;
                             cod.MovimientoKardexId = movId;
 
-                            if (codigoAlmacenId != almacenId)
+                            // =========================================================================
+                            // 🛑 CANDADO 0: INTEGRIDAD DE KÁRDEX (¿Tiene salida real registrada?)
+                            // =========================================================================
+                            // Si no existe movimiento de salida vinculado en movimiento_codigos:
+                            if (movId <= 0 || sedeEmisoraId <= 0)
                             {
                                 cod.EsValido = false;
-                                cod.MensajeValidacion = $"⛔ ERROR: PERTENECE A OTRA SEDE (Almacén ID: {codigoAlmacenId})";
+                                cod.CodigoCreadoId = null;
+                                cod.MensajeValidacion = "⛔ ERROR: SIN SALIDA EN KÁRDEX (NO DESPACHADO)";
                                 det.EsValido = false;
                                 cab.EsValido = false;
-                                cab.MensajeError += $"Código {codigoRealBD} está en otra sede (Almacén {codigoAlmacenId}). ";
+                                cab.MensajeError += $"Código {codigoRealBD} no tiene registro de salida formal en almacén. ";
                                 continue;
                             }
 
+                            // =========================================================================
+                            // 🛑 CANDADO 1: Validación de SEDE CUSTODIA (¿Quién despachó el libro?)
+                            // =========================================================================
+                            if (sedeEmisoraId != almacenId)
+                            {
+                                cod.EsValido = false;
+                                cod.MensajeValidacion = $"⛔ DESPACHADO POR OTRA SEDE: '{sedeEmisoraNombre}'";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código {codigoRealBD} fue enviado por '{sedeEmisoraNombre}'. ";
+                                continue;
+                            }
+
+                            // =========================================================================
+                            // 🛑 CANDADO 2: Validación de PUNTO DE VENTA (¿A qué feria/colegio se envió?)
+                            // =========================================================================
+                            // El código debe tener un punto de venta destino y coincidir con el de la serie
+                            if (cab.PuntoVentaId > 0 && ptoVentaDestinoId != cab.PuntoVentaId)
+                            {
+                                cod.EsValido = false;
+                                cod.MensajeValidacion = ptoVentaDestinoId <= 0
+                                    ? "⛔ ERROR: CÓDIGO SIN PUNTO DE VENTA ASIGNADO"
+                                    : $"⛔ PERTENECE A OTRO PUNTO: '{ptoVentaNombre}'";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código {codigoRealBD} no corresponde al punto de venta de la serie. ";
+                                continue;
+                            }
+
+                            // 4. Verificación de comprobante duplicado activo
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryFacturado);
                             cmd.Parameters.Clear();
                             AgregarParametro(cmd, "@CodId", codigoCreadoId);
@@ -988,28 +1051,27 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                                 continue;
                             }
 
-                            switch (estadoId)
+                            // 5. Estado físico del libro (Solo si pasó todos los candados anteriores)
+                            if (estadoId == 4)
                             {
-                                case 4:
-                                    cod.EsValido = true;
-                                    cod.MensajeValidacion = "✓ LISTO (SALIDA NETA / DESPACHADO)";
-                                    break;
-
-                                case 3:
-                                    cod.EsValido = false;
-                                    cod.MensajeValidacion = "⛔ ERROR: CÓDIGO EN ALMACÉN (SIN SALIDA PREVIA)";
-                                    det.EsValido = false;
-                                    cab.EsValido = false;
-                                    cab.MensajeError += $"Código {codigoRealBD} figura en almacén. ";
-                                    break;
-
-                                default:
-                                    cod.EsValido = false;
-                                    cod.MensajeValidacion = $"⛔ ERROR: ESTADO {estadoId} NO APTO";
-                                    det.EsValido = false;
-                                    cab.EsValido = false;
-                                    cab.MensajeError += $"Código {codigoRealBD} en estado {estadoId}. ";
-                                    break;
+                                cod.EsValido = true;
+                                cod.MensajeValidacion = "✓ LISTO (SALIDA NETA / DESPACHADO)";
+                            }
+                            else if (estadoId == 3)
+                            {
+                                cod.EsValido = false;
+                                cod.MensajeValidacion = "⛔ ERROR: CÓDIGO EN ALMACÉN (SIN SALIDA PREVIA)";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código {codigoRealBD} figura en almacén sin despacho. ";
+                            }
+                            else
+                            {
+                                cod.EsValido = false;
+                                cod.MensajeValidacion = $"⛔ ERROR: ESTADO {estadoId} NO APTO";
+                                det.EsValido = false;
+                                cab.EsValido = false;
+                                cab.MensajeError += $"Código {codigoRealBD} en estado {estadoId}. ";
                             }
                         }
                     }

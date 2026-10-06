@@ -736,42 +736,42 @@ namespace AplicativoDeAlmacen.Services
                 }
 
                 int motivoIdSalida = cabecera.MotivoProductoId;
-                if (motivoIdSalida == 10 || motivoIdSalida == 4)
+                if ((motivoIdSalida == 10 || motivoIdSalida == 4) && cabecera.AlmacenDestinoId.HasValue && cabecera.AlmacenDestinoId.Value > 0)
                 {
                     int almOrigenTrans = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
-                    int almDestinoTrans = cabecera.AlmacenDestinoId ?? 1;
+                    int almDestinoTrans = cabecera.AlmacenDestinoId.Value;
 
                     string sqlTransControl;
                     if (QueryAdapter.EsMySQL)
                     {
                         sqlTransControl = @"
-                            INSERT INTO transferencias_control 
-                            (movimiento_salida_id, almacen_origen_id, almacen_destino_id, fecha_envio, estado, created_at)
-                            VALUES 
-                            (@movSalidaId, @almOrig, @almDest, @fEnvio, 'PENDIENTE', NOW())
-                            ON DUPLICATE KEY UPDATE 
-                                almacen_origen_id = @almOrig,
-                                almacen_destino_id = @almDest,
-                                fecha_envio = @fEnvio;";
+            INSERT INTO transferencias_control 
+            (movimiento_salida_id, almacen_origen_id, almacen_destino_id, fecha_envio, estado, created_at)
+            VALUES 
+            (@movSalidaId, @almOrig, @almDest, @fEnvio, 'PENDIENTE', NOW())
+            ON DUPLICATE KEY UPDATE 
+                almacen_origen_id = @almOrig,
+                almacen_destino_id = @almDest,
+                fecha_envio = @fEnvio;";
                     }
                     else
                     {
                         sqlTransControl = @"
-                            IF EXISTS (SELECT 1 FROM transferencias_control WHERE movimiento_salida_id = @movSalidaId)
-                            BEGIN
-                                UPDATE transferencias_control
-                                SET almacen_origen_id = @almOrig,
-                                    almacen_destino_id = @almDest,
-                                    fecha_envio = @fEnvio
-                                WHERE movimiento_salida_id = @movSalidaId;
-                            END
-                            ELSE
-                            BEGIN
-                                INSERT INTO transferencias_control 
-                                (movimiento_salida_id, almacen_origen_id, almacen_destino_id, fecha_envio, estado, created_at)
-                                VALUES 
-                                (@movSalidaId, @almOrig, @almDest, @fEnvio, 'PENDIENTE', GETDATE());
-                            END";
+            IF EXISTS (SELECT 1 FROM transferencias_control WHERE movimiento_salida_id = @movSalidaId)
+            BEGIN
+                UPDATE transferencias_control
+                SET almacen_origen_id = @almOrig,
+                    almacen_destino_id = @almDest,
+                    fecha_envio = @fEnvio
+                WHERE movimiento_salida_id = @movSalidaId;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO transferencias_control 
+                (movimiento_salida_id, almacen_origen_id, almacen_destino_id, fecha_envio, estado, created_at)
+                VALUES 
+                (@movSalidaId, @almOrig, @almDest, @fEnvio, 'PENDIENTE', GETDATE());
+            END";
                     }
 
                     using var cmdTransCtrl = dbConn.CreateCommand();
@@ -1227,8 +1227,12 @@ FROM HistorialOrdenado WHERE rn = 1";
                             await InsertarMovimientoCodigosSalidaMasivoAsync(movimientoIdInserted, idDetalle, codigosNuevosParaInsertar, dbConn, transaccion);
                         }
 
-                        int estadoFinalCodigo = (cabecera.MotivoProductoId == 10) ? 5 : 4;
-                        int? almacenFinalCodigo = (cabecera.MotivoProductoId == 10) ? cabecera.AlmacenDestinoId : null;
+                        bool esTransferenciaInterSedes = (cabecera.MotivoProductoId == 10 || cabecera.MotivoProductoId == 4)
+                                && cabecera.AlmacenDestinoId.HasValue
+                                && cabecera.AlmacenDestinoId.Value > 0;
+
+                        int estadoFinalCodigo = esTransferenciaInterSedes ? 5 : 4;
+                        int? almacenFinalCodigo = esTransferenciaInterSedes ? cabecera.AlmacenDestinoId : null;
 
                         var idsAProcesar = codigosProd
                             .Where(c => c.MovCodigo?.CodigoCreadoId > 0)
@@ -1448,6 +1452,11 @@ FROM HistorialOrdenado WHERE rn = 1";
                     motivoProductoId = rdrMov.GetInt32(4);
                 }
 
+                // 🌟 VARIABLE GLOBAL EN EL MÉTODO: Visible para todas las fases de anulación
+                bool eraTransferenciaInterSedes = (motivoProductoId == 10 || motivoProductoId == 4)
+                                                 && almacenDestino.HasValue
+                                                 && almacenDestino.Value > 0;
+
                 // 1. Obtener lista de códigos afectados en esta salida
                 var codigosAnular = new List<int>();
                 using (var cmdCod = dbConn.CreateCommand())
@@ -1463,10 +1472,7 @@ FROM HistorialOrdenado WHERE rn = 1";
 
                 // 2. 🛡️ VALIDACIÓN DE SEGURIDAD SEGÚN MOTIVO
                 if (codigosAnular.Any())
-
-
                 {
-
                     // 🛑 CANDADO FISCAL: NO PERMITIR ANULAR LA SALIDA SI SUS CÓDIGOS ESTÁN FACTURADOS
                     var facturacionService = new FacturacionService();
                     var mapaFacturasActivas = await facturacionService.ObtenerComprobantesActivosPorCodigosAsync(codigosAnular, dbConn, transaccion);
@@ -1496,8 +1502,9 @@ FROM HistorialOrdenado WHERE rn = 1";
                             $"{string.Join("\n", muestraFiscal)}{mas}\n\n" +
                             $"Debe anular primero la factura o boleta antes de revertir el despacho a almacén.");
                     }
-                    // 🚚 CASO A: SALIDA POR TRANSFERENCIA (Motivo 10) -> Todos deben seguir en Estado 5 (Tránsito) hacia el destino
-                    if (motivoProductoId == 10)
+
+                    // 🚚 CASO A: TRANSFERENCIA INTER-SEDES REAL -> Validar que sigan en tránsito (Estado 5) hacia la otra sede
+                    if (eraTransferenciaInterSedes)
                     {
                         for (int i = 0; i < codigosAnular.Count; i += batchSize)
                         {
@@ -1514,7 +1521,7 @@ FROM HistorialOrdenado WHERE rn = 1";
                             using var cmdValTrans = dbConn.CreateCommand();
                             cmdValTrans.Transaction = transaccion;
                             cmdValTrans.CommandText = QueryAdapter.FormatearConsulta(sqlValidaTransito);
-                            AgregarParametro(cmdValTrans, "@almDestinoId", almacenDestino ?? 0);
+                            AgregarParametro(cmdValTrans, "@almDestinoId", almacenDestino!.Value);
 
                             for (int k = 0; k < batchChkTrans.Count; k++)
                             {
@@ -1541,7 +1548,7 @@ FROM HistorialOrdenado WHERE rn = 1";
                             }
                         }
                     }
-                    // 🛒 CASO B: VENTAS, PROMOTORÍA Y OTROS MOTIVOS DE SALIDA -> Validar movimientos posteriores
+                    // 🛒 CASO B: SALIDAS A PUNTOS DE VENTA (SIN ALMACÉN DESTINO) Y DEMÁS MOTIVOS -> Validar movimientos posteriores
                     else
                     {
                         for (int i = 0; i < codigosAnular.Count; i += batchSize)
@@ -1593,15 +1600,13 @@ FROM HistorialOrdenado WHERE rn = 1";
                 }
 
                 progress?.Report(40);
-                
-
                 progress?.Report(60);
 
                 // 4. 🌟 REVERSIÓN EN LOTE DE ESTADOS Y ALMACÉN
                 if (codigosAnular.Any())
                 {
-                    // 🚚 CASO A: TRANSFERENCIA (Motivo 10) -> Regresan directo al Almacén Emisor en Estado 3 (Disponible)
-                    if (motivoProductoId == 10)
+                    // 🚚 CASO A: TRANSFERENCIA REAL ENTRE SEDES -> Regresan de tránsito directo al Almacén Emisor en Estado 3 (Disponible)
+                    if (eraTransferenciaInterSedes)
                     {
                         for (int i = 0; i < codigosAnular.Count; i += batchSize)
                         {
@@ -1609,7 +1614,7 @@ FROM HistorialOrdenado WHERE rn = 1";
                             await ActualizarEstadoYAlmacenCodigosMasivoAsync(batchUpd, 3, almacenEmisor, dbConn, transaccion);
                         }
                     }
-                    // 🛒 CASO B: OTROS MOTIVOS -> Reversión histórica según Kárdex previo
+                    // 🛒 CASO B: SALIDAS A PUNTO DE VENTA (SIN ALMACÉN DESTINO) Y DEMÁS MOTIVOS -> Reversión histórica
                     else
                     {
                         var mapaHistorial = new Dictionary<int, (int EstadoId, int AlmacenId)>();
@@ -1705,9 +1710,7 @@ FROM HistorialOrdenado WHERE rn = 1";
 
                 progress?.Report(80);
 
-
-
-                // 6. Marcar movimiento como Anulado (2)
+                // 6. Marcar movimiento como Anulado (4)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
@@ -1715,8 +1718,9 @@ FROM HistorialOrdenado WHERE rn = 1";
                     AgregarParametro(cmdStatus, "@movId", movimientoId);
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
-                // 🌟 Si era una transferencia, limpiar su control para no dejar pendientes huérfanos
-                if (motivoProductoId == 10 || motivoProductoId == 4)
+
+                // 🌟 Si era una transferencia inter-sedes real, limpiar su control para no dejar pendientes huérfanos
+                if (eraTransferenciaInterSedes)
                 {
                     using var cmdDelControl = dbConn.CreateCommand();
                     cmdDelControl.Transaction = transaccion;

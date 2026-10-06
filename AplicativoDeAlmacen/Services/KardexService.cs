@@ -816,6 +816,7 @@ WHERE md.producto_id = @ProductoId
                         ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
                         : "DATEADD(day, DATEDIFF(day, 0, m.fecha_movimiento), CAST(CAST(COALESCE(m.created_at, m.fecha_movimiento) AS TIME) AS DATETIME))";
 
+                    // 🌟 CORREGIDO: m.estado_id = 4 en cant_sa y orden cronológico
                     string sql = $@"
 SELECT DISTINCT
     m.fecha_movimiento,
@@ -825,7 +826,7 @@ SELECT DISTINCT
     COALESCE(pc.razon_social, u.descripcion, CASE WHEN mp.tipo_movimiento_id = 1 THEN alm_orig.nombre ELSE alm_dest.nombre END, 'ALMACÉN') AS raz_ub,
     CONCAT(COALESCE(m.serie_guia, ''), '-', COALESCE(m.numero_guia, '')) AS gu,
     CASE WHEN m.estado_id = 4 THEN 0 ELSE COALESCE(md.cantidad_ingreso, 0) END AS cant_in,
-    CASE WHEN m.estado_id =  THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
+    CASE WHEN m.estado_id = 4 THEN 0 ELSE COALESCE(md.cantidad_salida, 0) END AS cant_sa,
     m.estado_id,
     CONCAT(COALESCE(CONCAT('C', c.ano, ' / '), ''), CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBRO GUÍA' ELSE 'LIBRO VENTA' END) AS coleccion_nombre,
     COALESCE(usr_c.nombres, CAST(m.usuario_id AS CHAR)) AS usuario_creador,
@@ -869,7 +870,7 @@ ORDER BY {exprFechaOrden} ASC, m.id ASC";
                         while (await reader.ReadAsync())
                         {
                             int estId = reader.IsDBNull(8) ? 1 : reader.GetInt32(8);
-                            bool anulado = (estId == 2);
+                            bool anulado = (estId == 4);
 
                             DateTime? fechaMovRaw = reader.IsDBNull(0) ? (DateTime?)null : reader.GetDateTime(0);
                             DateTime? createdAtRaw = reader.IsDBNull(1) ? (DateTime?)null : reader.GetDateTime(1);

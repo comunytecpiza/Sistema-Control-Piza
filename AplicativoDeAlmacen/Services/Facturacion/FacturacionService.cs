@@ -10,6 +10,7 @@ using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
 using AplicativoDeAlmacen.Models.Documentos;
+using System.Linq;
 
 namespace AplicativoDeAlmacen.Services.facturaciòn
 {
@@ -949,6 +950,168 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 lista.Add(serie);
             }
             return lista;
+        }
+
+        // =========================================================
+        // CONSULTAR TRAZABILIDAD Y DATOS FISCALES POR CÓDIGO
+        // =========================================================
+        public async Task<HistorialVentaCodigoDTO?> ObtenerHistorialContablePorCodigoAsync(
+            int productoId,
+            string codigoEscaneado,
+            int categoriaProductoId,
+            int almacenId = 1)
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+
+            // 1. Resolver abreviatura del producto
+            string abreviaturaBase = "";
+            using (var cmdAbrev = dbConn.CreateCommand())
+            {
+                cmdAbrev.CommandText = QueryAdapter.FormatearConsulta($"SELECT COALESCE(abreviatura, '') FROM productos {nolock} WHERE id = @prodId");
+                AgregarParametro(cmdAbrev, "@prodId", productoId);
+                var resAbrev = await cmdAbrev.ExecuteScalarAsync();
+                abreviaturaBase = resAbrev?.ToString()?.Trim() ?? "";
+            }
+
+            string codigoLimpio = codigoEscaneado.Trim().Replace("'", "-");
+            if (int.TryParse(codigoLimpio, out int numParsed) && !string.IsNullOrEmpty(abreviaturaBase))
+            {
+                codigoLimpio = $"{abreviaturaBase}-{numParsed:D7}";
+            }
+            else if (!codigoLimpio.Contains("-") && !string.IsNullOrEmpty(abreviaturaBase))
+            {
+                codigoLimpio = $"{abreviaturaBase}-{codigoLimpio}";
+            }
+
+            // 2. Consulta de Cabecera y Comprobante Fiscal
+            string sqlVenta = QueryAdapter.EsMySQL
+                ? $@"SELECT 
+                        fc.id,
+                        COALESCE(d.des_docu, fc.tipo_documento) AS tipo_doc_desc,
+                        CONCAT(fc.serie_documento, '-', fc.numero_documento) AS serie_numero,
+                        fc.fecha_emision,
+                        COALESCE(p_comp.razon_social, CONCAT(p_comp.nombres, ' ', p_comp.apellido_paterno), 'CLIENTES VARIOS') AS cliente_nombre,
+                        COALESCE(p_comp.ruc, p_comp.dni, '') AS cliente_doc,
+                        COALESCE(p_inst.razon_social, 'SIN COLEGIO') AS institucion_nombre,
+                        COALESCE(u.descripcion, 'SIN SEDE') AS punto_venta_nombre,
+                        fc.importe_total,
+                        fc.estado_registro
+                    FROM facturacion_detalle_codigos fdc
+                    INNER JOIN facturacion_detalle fd ON fdc.facturacion_detalle_id = fd.id
+                    INNER JOIN facturacion_cabecera fc ON fd.facturacion_cabecera_id = fc.id
+                    INNER JOIN codigos_creados cc ON fdc.codigo_creado_id = cc.id
+                    INNER JOIN registro_codigos rc ON cc.registro_codigo_id = rc.id
+                    LEFT JOIN documentos d ON fc.tipo_documento = d.cod_docu
+                    LEFT JOIN personas_comerciales p_comp ON fc.comprador_id = p_comp.id
+                    LEFT JOIN personas_comerciales p_inst ON fc.institucion_id = p_inst.id
+                    LEFT JOIN ubicaciones u ON fc.punto_venta_id = u.id
+                    WHERE rc.producto_id = @ProdId
+                      AND rc.categoria_producto_id = @CatId
+                      AND (cc.codigo = @Cod OR REPLACE(cc.codigo, '''', '-') = @Cod)
+                      AND fc.estado_registro = 1
+                    ORDER BY fc.id DESC LIMIT 1;"
+                : $@"SELECT TOP 1
+                        fc.id,
+                        COALESCE(d.des_docu, fc.tipo_documento) AS tipo_doc_desc,
+                        CONCAT(fc.serie_documento, '-', fc.numero_documento) AS serie_numero,
+                        fc.fecha_emision,
+                        COALESCE(p_comp.razon_social, CONCAT(p_comp.nombres, ' ', p_comp.apellido_paterno), 'CLIENTES VARIOS') AS cliente_nombre,
+                        COALESCE(p_comp.ruc, p_comp.dni, '') AS cliente_doc,
+                        COALESCE(p_inst.razon_social, 'SIN COLEGIO') AS institucion_nombre,
+                        COALESCE(u.descripcion, 'SIN SEDE') AS punto_venta_nombre,
+                        fc.importe_total,
+                        fc.estado_registro
+                    FROM facturacion_detalle_codigos fdc WITH (NOLOCK)
+                    INNER JOIN facturacion_detalle fd WITH (NOLOCK) ON fdc.facturacion_detalle_id = fd.id
+                    INNER JOIN facturacion_cabecera fc WITH (NOLOCK) ON fd.facturacion_cabecera_id = fc.id
+                    INNER JOIN codigos_creados cc WITH (NOLOCK) ON fdc.codigo_creado_id = cc.id
+                    INNER JOIN registro_codigos rc WITH (NOLOCK) ON cc.registro_codigo_id = rc.id
+                    LEFT JOIN documentos d WITH (NOLOCK) ON fc.tipo_documento = d.cod_docu
+                    LEFT JOIN personas_comerciales p_comp WITH (NOLOCK) ON fc.comprador_id = p_comp.id
+                    LEFT JOIN personas_comerciales p_inst WITH (NOLOCK) ON fc.institucion_id = p_inst.id
+                    LEFT JOIN ubicaciones u WITH (NOLOCK) ON fc.punto_venta_id = u.id
+                    WHERE rc.producto_id = @ProdId
+                      AND rc.categoria_producto_id = @CatId
+                      AND (cc.codigo = @Cod OR REPLACE(cc.codigo, '''', '-') = @Cod)
+                      AND fc.estado_registro = 1
+                    ORDER BY fc.id DESC;";
+
+            HistorialVentaCodigoDTO? resultado = null;
+
+            using (var cmdVenta = dbConn.CreateCommand())
+            {
+                cmdVenta.CommandText = QueryAdapter.FormatearConsulta(sqlVenta);
+                AgregarParametro(cmdVenta, "@ProdId", productoId);
+                AgregarParametro(cmdVenta, "@CatId", categoriaProductoId);
+                AgregarParametro(cmdVenta, "@Cod", codigoLimpio);
+
+                using var rdrV = await cmdVenta.ExecuteReaderAsync();
+                if (await rdrV.ReadAsync())
+                {
+                    resultado = new HistorialVentaCodigoDTO
+                    {
+                        FacturacionCabeceraId = rdrV.GetInt32(0),
+                        TipoDocumento = rdrV.GetString(1),
+                        SerieNumero = rdrV.GetString(2),
+                        FechaEmision = rdrV.IsDBNull(3) ? null : rdrV.GetDateTime(3),
+                        ClienteNombre = rdrV.GetString(4),
+                        ClienteNumeroDoc = rdrV.GetString(5),
+                        InstitucionColegio = rdrV.GetString(6),
+                        PuntoVentaNombre = rdrV.GetString(7),
+                        ImporteTotalComprobante = rdrV.GetDecimal(8),
+                        ComprobanteActivo = rdrV.GetInt32(9) == 1
+                    };
+                }
+            }
+
+            if (resultado == null)
+            {
+                resultado = new HistorialVentaCodigoDTO
+                {
+                    ClienteNombre = "SIN VENTA / NO FACTURADO",
+                    InstitucionColegio = "-",
+                    SerieNumero = "[ NO FACTURADO ]",
+                    CanalesPago = "-"
+                };
+            }
+
+            // 3. Pagos Desglosados
+            if (resultado.FacturacionCabeceraId > 0)
+            {
+                using var cmdPagos = dbConn.CreateCommand();
+                cmdPagos.CommandText = QueryAdapter.FormatearConsulta(@"
+SELECT COALESCE(mp.nombre, 'OTRO MEDIO'), fpd.monto, COALESCE(fpd.numero_operacion, ''), COALESCE(fpd.observacion, '')
+FROM facturacion_pago_detalle fpd
+LEFT JOIN medios_pago mp ON fpd.medio_pago_id = mp.id
+WHERE fpd.facturacion_cabecera_id = @CabId");
+                AgregarParametro(cmdPagos, "@CabId", resultado.FacturacionCabeceraId);
+
+                using var rdrP = await cmdPagos.ExecuteReaderAsync();
+                while (await rdrP.ReadAsync())
+                {
+                    resultado.DetallePagosFiscales.Add(new PagoComprobanteItemDTO
+                    {
+                        MedioPago = rdrP.GetString(0),
+                        Monto = rdrP.GetDecimal(1),
+                        NumeroOperacion = rdrP.GetString(2),
+                        Observacion = rdrP.GetString(3)
+                    });
+                }
+                resultado.CanalesPago = resultado.DetallePagosFiscales.Any()
+                    ? string.Join(", ", resultado.DetallePagosFiscales.Select(p => p.MedioPago))
+                    : "EFECTIVO";
+            }
+
+            // 4. Movimientos de Almacén (Kárdex)
+            var kardexService = new KardexService();
+            resultado.MovimientosKardex = await kardexService.ObtenerHistorialCompletoPorCodigoAsync(
+                productoId, codigoEscaneado, categoriaProductoId, almacenId, incluirAnulados: true);
+
+            return resultado;
         }
     }
 }
