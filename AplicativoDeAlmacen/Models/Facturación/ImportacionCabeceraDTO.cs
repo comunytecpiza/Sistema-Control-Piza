@@ -9,9 +9,10 @@ namespace AplicativoDeAlmacen.Models.Facturación
     public class ImportacionCabeceraDTO
     {
         // 🌟 1. EMPRESA EMISORA (PRIMER CAMPO PARA LA GRILLA)
+        public int? InstitucionId { get; set; }
         public int? EmpresaId { get; set; }
         public string EmpresaNombre { get; set; } = "[ SIN ASIGNAR ]";
-
+        public int PuntoVentaId { get; set; }
         // 🌟 2. DATOS DEL COMPROBANTE
         public string DocumentoExcel { get; set; } = string.Empty; // BOLETA / FACTURA
         public string Serie { get; set; } = string.Empty;          // B001, BA01, FA01

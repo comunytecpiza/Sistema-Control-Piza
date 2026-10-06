@@ -673,10 +673,29 @@ namespace AplicativoDeAlmacen.Views
             _currentMovimientoId = movimiento.Id;
             _isCargaTransferenciaActiva = false;
 
+            if (movimiento.EstadoId == 4)
+            {
+                if (_anularMode)
+                {
+                    MessageBox.Show($"Este movimiento ({movimiento.SerieDocumento}-{movimiento.NumeroDocumento}) ya se encuentra PREVIAMENTE ANULADO.",
+                                    "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+                    EstablecerEstadoInicial();
+                    return;
+                }
+                else if (!_printMode) // Si intentó "Editar"
+                {
+                    MessageBox.Show($"El movimiento ({movimiento.SerieDocumento}-{movimiento.NumeroDocumento}) está ANULADO. Solo puede ser consultado en modo lectura.",
+                                    "Documento Anulado", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    BloquearParaImpresion();
+                    return;
+                }
+            }
+
             if (movimiento.FechaMovimiento.HasValue)
             {
                 dtpFechaRecepcion.SelectedDate = movimiento.FechaMovimiento.Value;
             }
+
 
             bool esTransferenciaIngreso = (movimiento.MotivoProductoId == 4);
             if (esTransferenciaIngreso)
@@ -1211,7 +1230,6 @@ namespace AplicativoDeAlmacen.Views
             }
 
             int miAlmacenActual = SesionSistema.AlmacenActual?.Id ?? 1;
-            // 👈 Se eliminó la segunda declaración duplicada de idMotivoIngreso
             int? almacenOrigenReal = null;
             int? almacenDestinoReal = miAlmacenActual;
 
@@ -1220,8 +1238,6 @@ namespace AplicativoDeAlmacen.Views
                 almacenOrigenReal = cboAlmacenDestino.SelectedValue != null
                     ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
                     : (int?)null;
-
-                almacenDestinoReal = miAlmacenActual;
             }
 
             // 🌟 REGLA DE ORO DE HORAS OPERATIVAS:

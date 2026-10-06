@@ -1,11 +1,12 @@
-﻿using AplicativoDeAlmacen.Core;
-using AplicativoDeAlmacen.Data;
-using AplicativoDeAlmacen.Models.Documentos;
-using AplicativoDeAlmacen.Models.Facturación;
+﻿#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Threading.Tasks;
+using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Models.Documentos;
+using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
 
 namespace AplicativoDeAlmacen.Services.Facturación
@@ -27,264 +28,213 @@ namespace AplicativoDeAlmacen.Services.Facturación
             cmd.Parameters.Add(p);
         }
 
-        // =========================================================================
-        // 1. EMPRESAS (CRUD)
-        // =========================================================================
-
+        // =======================================================
+        // OBTENER EMPRESAS (Cambiado a la tabla "empresas")
+        // =======================================================
         public async Task<List<Empresa>> ObtenerEmpresasAsync(bool soloActivas = true)
         {
             var lista = new List<Empresa>();
+            // SE CORRIGIÓ EL NOMBRE DE LA TABLA A "empresas"
+            string query = "SELECT id, ruc, razon_social, nombre_comercial, direccion, es_activo FROM empresas";
+            if (soloActivas) query += " WHERE es_activo = 1";
+
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            string query = @"
-                SELECT id, ruc, razon_social, nombre_comercial, direccion, es_activo, created_at
-                FROM empresas
-                " + (soloActivas ? "WHERE es_activo = 1 " : "") + @"
-                ORDER BY razon_social ASC;";
-
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-
             using var reader = await cmd.ExecuteReaderAsync();
+
             while (await reader.ReadAsync())
             {
                 lista.Add(new Empresa
                 {
-                    Id = reader.GetInt32(0),
-                    Ruc = reader.GetString(1),
-                    RazonSocial = reader.GetString(2),
-                    NombreComercial = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    Direccion = reader.IsDBNull(4) ? null : reader.GetString(4),
-                    EsActivo = Convert.ToBoolean(reader.GetValue(5)),
-                    FechaRegistro = reader.IsDBNull(6) ? DateTime.Now : reader.GetDateTime(6)
+                    Id = Convert.ToInt32(reader["id"]),
+                    Ruc = reader["ruc"].ToString()!,
+                    RazonSocial = reader["razon_social"].ToString()!,
+                    NombreComercial = reader["nombre_comercial"] != DBNull.Value ? reader["nombre_comercial"].ToString() : null,
+                    Direccion = reader["direccion"] != DBNull.Value ? reader["direccion"].ToString() : null,
+                    EsActivo = Convert.ToInt32(reader["es_activo"]) == 1
                 });
             }
-
             return lista;
         }
 
-        public async Task<int> GuardarEmpresaAsync(Empresa emp)
-        {
-            using var conn = _database.GetConnection();
-            var dbConn = (DbConnection)conn;
-            await dbConn.OpenAsync();
-
-            string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
-
-            if (emp.Id > 0)
-            {
-                string sqlUpd = @"
-                    UPDATE empresas 
-                    SET ruc = @ruc,
-                        razon_social = @rs,
-                        nombre_comercial = @nc,
-                        direccion = @dir,
-                        es_activo = @act,
-                        updated_at = NOW()
-                    WHERE id = @id;";
-
-                using var cmd = dbConn.CreateCommand();
-                cmd.CommandText = QueryAdapter.FormatearConsulta(sqlUpd);
-                AgregarParametro(cmd, "@ruc", emp.Ruc.Trim());
-                AgregarParametro(cmd, "@rs", emp.RazonSocial.Trim());
-                AgregarParametro(cmd, "@nc", emp.NombreComercial?.Trim());
-                AgregarParametro(cmd, "@dir", emp.Direccion?.Trim());
-                AgregarParametro(cmd, "@act", emp.EsActivo ? 1 : 0);
-                AgregarParametro(cmd, "@id", emp.Id);
-
-                await cmd.ExecuteNonQueryAsync();
-                return emp.Id;
-            }
-            else
-            {
-                string sqlIns = $@"
-                    INSERT INTO empresas (ruc, razon_social, nombre_comercial, direccion, es_activo, created_at)
-                    VALUES (@ruc, @rs, @nc, @dir, @act, NOW());
-                    {selectId}";
-
-                using var cmd = dbConn.CreateCommand();
-                cmd.CommandText = QueryAdapter.FormatearConsulta(sqlIns);
-                AgregarParametro(cmd, "@ruc", emp.Ruc.Trim());
-                AgregarParametro(cmd, "@rs", emp.RazonSocial.Trim());
-                AgregarParametro(cmd, "@nc", emp.NombreComercial?.Trim());
-                AgregarParametro(cmd, "@dir", emp.Direccion?.Trim());
-                AgregarParametro(cmd, "@act", emp.EsActivo ? 1 : 0);
-
-                var res = await cmd.ExecuteScalarAsync();
-                return Convert.ToInt32(res);
-            }
-        }
-
-        public async Task<bool> CambiarEstadoEmpresaAsync(int empresaId, bool activo)
-        {
-            using var conn = _database.GetConnection();
-            var dbConn = (DbConnection)conn;
-            await dbConn.OpenAsync();
-
-            using var cmd = dbConn.CreateCommand();
-            cmd.CommandText = QueryAdapter.FormatearConsulta("UPDATE empresas SET es_activo = @act WHERE id = @id;");
-            AgregarParametro(cmd, "@act", activo ? 1 : 0);
-            AgregarParametro(cmd, "@id", empresaId);
-
-            return await cmd.ExecuteNonQueryAsync() > 0;
-        }
-
-        // =========================================================================
-        // 2. SERIES VINCULADAS A EMPRESAS (series_documentos)
-        // =========================================================================
-
+        // =======================================================
+        // OBTENER SERIES (Ya incluye la empresa vinculada)
+        // =======================================================
         public async Task<List<SerieDocumento>> ObtenerSeriesConEmpresaAsync()
         {
             var lista = new List<SerieDocumento>();
+            // SE CORRIGIÓ EL JOIN A LA TABLA "empresas"
+            string query = @"
+                SELECT s.id, s.num_seri, s.tip_seri, s.num_fact, s.num_bole, s.num_reci, s.empresa_id,
+                       e.ruc, e.razon_social 
+                FROM series_documentos s
+                LEFT JOIN empresas e ON s.empresa_id = e.id
+                WHERE s.est_regi = 1 
+                ORDER BY s.num_seri";
+
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            string query = @"
-                SELECT 
-                    s.id, 
-                    s.ubicacion_id, 
-                    s.empresa_id, 
-                    s.num_seri, 
-                    s.tip_seri, 
-                    s.num_fact, 
-                    s.num_bole, 
-                    s.num_reci, 
-                    s.fec_regi, 
-                    s.cod_usua, 
-                    s.est_regi,
-                    e.razon_social AS empresa_nombre
-                FROM series_documentos s
-                LEFT JOIN empresas e ON s.empresa_id = e.id
-                ORDER BY s.num_seri ASC;";
-
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
-
             using var reader = await cmd.ExecuteReaderAsync();
+
             while (await reader.ReadAsync())
             {
-                var s = new SerieDocumento
+                var serie = new SerieDocumento
                 {
-                    Id = reader.GetInt32(0),
-                    UbicacionId = reader.GetInt32(1),
-                    EmpresaId = reader.IsDBNull(2) ? null : reader.GetInt32(2),
-                    NumeroSerie = reader.GetString(3),
-                    TipoSerie = reader.IsDBNull(4) ? "E" : reader.GetString(4),
-                    CorrelativoFactura = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-                    CorrelativoBoleta = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
-                    CorrelativoRecibo = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
-                    FechaRegistro = reader.IsDBNull(8) ? DateTime.Now : reader.GetDateTime(8),
-                    CodigoUsuario = reader.IsDBNull(9) ? "" : reader.GetString(9),
-                    EstadoId = reader.IsDBNull(10) ? 1 : reader.GetInt32(10)
+                    Id = Convert.ToInt32(reader["id"]),
+                    NumeroSerie = reader["num_seri"].ToString()!,
+                    TipoSerie = reader["tip_seri"].ToString(),
+                    CorrelativoFactura = Convert.ToInt32(reader["num_fact"]),
+                    CorrelativoBoleta = Convert.ToInt32(reader["num_bole"]),
+                    CorrelativoRecibo = Convert.ToInt32(reader["num_reci"]),
+                    EmpresaId = reader["empresa_id"] != DBNull.Value ? Convert.ToInt32(reader["empresa_id"]) : (int?)null
                 };
 
-                if (!reader.IsDBNull(2) && !reader.IsDBNull(11))
+                if (serie.EmpresaId.HasValue)
                 {
-                    s.Empresa = new Empresa
+                    serie.Empresa = new Empresa
                     {
-                        Id = reader.GetInt32(2),
-                        RazonSocial = reader.GetString(11)
+                        Id = serie.EmpresaId.Value,
+                        Ruc = reader["ruc"].ToString()!,
+                        RazonSocial = reader["razon_social"].ToString()!
                     };
                 }
 
-                lista.Add(s);
+                lista.Add(serie);
             }
-
             return lista;
         }
 
-        public async Task<bool> AsignarEmpresaASerieAsync(int serieDocumentoId, int? empresaId)
+        // =======================================================
+        // VINCULAR EMPRESA A SERIE
+        // =======================================================
+        public async Task AsignarEmpresaASerieAsync(int serieId, int? empresaId)
         {
+            string query = "UPDATE series_documentos SET empresa_id = @EmpresaId WHERE id = @Id";
+
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
-
-            using var cmd = dbConn.CreateCommand();
-            cmd.CommandText = QueryAdapter.FormatearConsulta("UPDATE series_documentos SET empresa_id = @empId WHERE id = @id;");
-            AgregarParametro(cmd, "@empId", empresaId);
-            AgregarParametro(cmd, "@id", serieDocumentoId);
-
-            return await cmd.ExecuteNonQueryAsync() > 0;
-        }
-
-        // =========================================================================
-        // 3. MONEDAS (CONSULTA Y GESTIÓN RÁPIDA)
-        // =========================================================================
-
-        public async Task<List<Moneda>> ObtenerMonedasAsync(bool soloActivas = true)
-        {
-            var lista = new List<Moneda>();
-            using var conn = _database.GetConnection();
-            var dbConn = (DbConnection)conn;
-            await dbConn.OpenAsync();
-
-            string query = @"
-                SELECT id, codigo_sunat, descripcion, simbolo, es_activo
-                FROM monedas
-                " + (soloActivas ? "WHERE es_activo = 1 " : "") + @"
-                ORDER BY id ASC;";
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+            AgregarParametro(cmd, "@Id", serieId);
+            AgregarParametro(cmd, "@EmpresaId", empresaId);
 
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // =======================================================
+        // GUARDAR EMPRESA (Cambiado a la tabla "empresas")
+        // =======================================================
+        public async Task GuardarEmpresaAsync(Empresa emp)
+        {
+            string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
+            string query;
+
+            if (emp.Id == 0)
+            {
+                // SE CORRIGIÓ EL INSERT A LA TABLA "empresas"
+                query = $@"INSERT INTO empresas (ruc, razon_social, nombre_comercial, direccion, es_activo, created_at, updated_at) 
+                           VALUES (@Ruc, @Razon, @Comercial, @Dir, @Activo, {nowFunc}, {nowFunc})";
+            }
+            else
+            {
+                // SE CORRIGIÓ EL UPDATE A LA TABLA "empresas"
+                query = $@"UPDATE empresas SET ruc = @Ruc, razon_social = @Razon, nombre_comercial = @Comercial, 
+                           direccion = @Dir, es_activo = @Activo, updated_at = {nowFunc} WHERE id = @Id";
+            }
+
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+            if (emp.Id != 0) AgregarParametro(cmd, "@Id", emp.Id);
+            AgregarParametro(cmd, "@Ruc", emp.Ruc);
+            AgregarParametro(cmd, "@Razon", emp.RazonSocial);
+            AgregarParametro(cmd, "@Comercial", emp.NombreComercial);
+            AgregarParametro(cmd, "@Dir", emp.Direccion);
+            AgregarParametro(cmd, "@Activo", emp.EsActivo ? 1 : 0);
+
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // =======================================================
+        // MÉTODOS DE MONEDA 
+        // =======================================================
+        // =======================================================
+        // MÉTODOS DE MONEDA (Adaptados a tu tabla física real)
+        // =======================================================
+        public async Task<List<Moneda>> ObtenerMonedasAsync(bool soloActivas = true)
+        {
+            var lista = new List<Moneda>();
+            // Se corrigió "codigo_sunat" y se omitieron fechas porque no existen en tu tabla
+            string query = "SELECT id, codigo_sunat, descripcion, simbolo, es_activo FROM monedas";
+            if (soloActivas) query += " WHERE es_activo = 1";
+
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
             using var reader = await cmd.ExecuteReaderAsync();
+
             while (await reader.ReadAsync())
             {
                 lista.Add(new Moneda
                 {
-                    Id = reader.GetInt32(0),
-                    CodigoSunat = reader.GetString(1),
-                    Descripcion = reader.GetString(2),
-                    Simbolo = reader.GetString(3),
-                    EsActivo = Convert.ToBoolean(reader.GetValue(4))
+                    Id = Convert.ToInt32(reader["id"]),
+                    CodigoSunat = reader["codigo_sunat"].ToString()!, // Corregido aquí
+                    Descripcion = reader["descripcion"].ToString()!,
+                    Simbolo = reader["simbolo"] != DBNull.Value ? reader["simbolo"].ToString() : null,
+                    EsActivo = Convert.ToInt32(reader["es_activo"]) == 1
                 });
             }
-
             return lista;
         }
 
-        public async Task<int> GuardarMonedaAsync(Moneda m)
+        public async Task GuardarMonedaAsync(Moneda mon)
         {
+            string query;
+
+            if (mon.Id == 0)
+            {
+                // Se corrigió "codigo_sunat" y se quitaron created_at/updated_at
+                query = @"INSERT INTO monedas (codigo_sunat, descripcion, simbolo, es_activo) 
+                          VALUES (@CodSunat, @Desc, @Simbolo, @Activo)";
+            }
+            else
+            {
+                // Se corrigió "codigo_sunat" y se quitaron created_at/updated_at
+                query = @"UPDATE monedas SET codigo_sunat = @CodSunat, descripcion = @Desc, 
+                          simbolo = @Simbolo, es_activo = @Activo WHERE id = @Id";
+            }
+
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
-            if (m.Id > 0)
-            {
-                using var cmd = dbConn.CreateCommand();
-                cmd.CommandText = QueryAdapter.FormatearConsulta(@"
-                    UPDATE monedas 
-                    SET codigo_sunat = @cod, descripcion = @desc, simbolo = @sim, es_activo = @act 
-                    WHERE id = @id;");
-                AgregarParametro(cmd, "@cod", m.CodigoSunat.Trim().ToUpper());
-                AgregarParametro(cmd, "@desc", m.Descripcion.Trim().ToUpper());
-                AgregarParametro(cmd, "@sim", m.Simbolo.Trim());
-                AgregarParametro(cmd, "@act", m.EsActivo ? 1 : 0);
-                AgregarParametro(cmd, "@id", m.Id);
+            if (mon.Id != 0) AgregarParametro(cmd, "@Id", mon.Id);
 
-                await cmd.ExecuteNonQueryAsync();
-                return m.Id;
-            }
-            else
-            {
-                using var cmd = dbConn.CreateCommand();
-                cmd.CommandText = QueryAdapter.FormatearConsulta($@"
-                    INSERT INTO monedas (codigo_sunat, descripcion, simbolo, es_activo) 
-                    VALUES (@cod, @desc, @sim, @act); 
-                    {selectId}");
-                AgregarParametro(cmd, "@cod", m.CodigoSunat.Trim().ToUpper());
-                AgregarParametro(cmd, "@desc", m.Descripcion.Trim().ToUpper());
-                AgregarParametro(cmd, "@sim", m.Simbolo.Trim());
-                AgregarParametro(cmd, "@act", m.EsActivo ? 1 : 0);
+            AgregarParametro(cmd, "@CodSunat", mon.CodigoSunat);
+            AgregarParametro(cmd, "@Desc", mon.Descripcion);
+            AgregarParametro(cmd, "@Simbolo", mon.Simbolo);
+            AgregarParametro(cmd, "@Activo", mon.EsActivo ? 1 : 0);
 
-                var res = await cmd.ExecuteScalarAsync();
-                return Convert.ToInt32(res);
-            }
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 }

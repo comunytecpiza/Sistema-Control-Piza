@@ -789,62 +789,105 @@ namespace AplicativoDeAlmacen.Services
                 // --- El resto del método continúa con su lógica masiva idéntica ---
                 progress?.Report(20);
 
+                // 1. Cargar el estado previo de los productos en BD (ProductoId -> CantidadSalida)
+                var productosPreviosEnBD = new Dictionary<int, int>();
+                if (existingMovimientoId.HasValue)
+                {
+                    using var cmdProdPrev = dbConn.CreateCommand();
+                    cmdProdPrev.Transaction = transaccion;
+                    cmdProdPrev.CommandText = QueryAdapter.FormatearConsulta(
+                        "SELECT producto_id, cantidad_salida FROM movimiento_detalles WHERE movimiento_id = @mId");
+                    AgregarParametro(cmdProdPrev, "@mId", movimientoIdInserted);
+                    using var rdrProdPrev = await cmdProdPrev.ExecuteReaderAsync();
+                    while (await rdrProdPrev.ReadAsync())
+                    {
+                        productosPreviosEnBD[rdrProdPrev.GetInt32(0)] = Convert.ToInt32(rdrProdPrev.GetValue(1));
+                    }
+                }
+
                 var codigosPreviosEnBD = existingMovimientoId.HasValue
                     ? await ObtenerCodigosEnMovimientoAsync(new List<int> { movimientoIdInserted }, dbConn, transaccion)
                     : new HashSet<int>();
 
                 var nuevosCodigosIds = new HashSet<int>(listaCodigos.Where(c => c.MovCodigo?.CodigoCreadoId > 0).Select(c => c.MovCodigo!.CodigoCreadoId));
 
+                // 2. 🛑 CANDADO DE STOCK: Si un producto sin código AUMENTÓ su cantidad de salida, validar disponibilidad
+                if (existingMovimientoId.HasValue)
+                {
+                    int almacenEmisorCheck = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
+                    foreach (var item in listaProductos)
+                    {
+                        bool esSinCodigo = item.EsProductoSinCodigo || !listaCodigos.Any(c => c.ProductoId == item.ProductoId);
+                        if (esSinCodigo)
+                        {
+                            int cantPrevia = productosPreviosEnBD.TryGetValue(item.ProductoId, out int cp) ? cp : 0;
+                            int cantNueva = (int)item.Cantidad;
+
+                            if (cantNueva > cantPrevia)
+                            {
+                                int aumentoRequerido = cantNueva - cantPrevia;
+                                await ValidarDisponibilidadSalidaSinCodigoAsync(item.ProductoId, aumentoRequerido, almacenEmisorCheck, dbConn, transaccion);
+                            }
+                        }
+                    }
+                }
+
+                // 3. Evaluar igualdad estricta (Productos, Cantidades y Códigos)
+                bool productosSonIdenticos = existingMovimientoId.HasValue &&
+                                             productosPreviosEnBD.Count == listaProductos.Count &&
+                                             new HashSet<int>(productosPreviosEnBD.Keys).SetEquals(listaProductos.Select(p => p.ProductoId));
+
+                bool cantidadesSonIdenticas = productosSonIdenticos &&
+                                              listaProductos.All(p => productosPreviosEnBD.TryGetValue(p.ProductoId, out int cantBD) &&
+                                                                     cantBD == (int)p.Cantidad);
+
                 bool sonCodigosExactamenteIguales = existingMovimientoId.HasValue &&
                                                     codigosPreviosEnBD.Count == nuevosCodigosIds.Count &&
                                                     codigosPreviosEnBD.SetEquals(nuevosCodigosIds);
 
+                // 🌟 SI NINGÚN CÓDIGO SERIALIZADO CAMBIÓ: Procesa detalles, borra eliminados y actualiza Kárdex
                 if (sonCodigosExactamenteIguales)
                 {
-
-                    // 🌟 NUEVO: Si quitaste productos de la lista en la pantalla, eliminarlos de la BD
                     var idsProductosEnPantalla = listaProductos.Select(p => p.ProductoId).Distinct().ToList();
 
+                    // A. 💥 ELIMINAR DE LA BD LOS PRODUCTOS QUITADOS DE LA GRILLA (Con o sin ítems restantes)
                     using (var cmdBorrarDet = dbConn.CreateCommand())
                     {
                         cmdBorrarDet.Transaction = transaccion;
 
-                        // Parámetros dinámicos para la cláusula NOT IN
-                        var paramP = idsProductosEnPantalla.Select((_, idx) => $"@pIdKeep{idx}").ToList();
-                        string condicionNotIn = paramP.Any() ? $"AND producto_id NOT IN ({string.Join(",", paramP)})" : "";
+                        string condicionNotIn = idsProductosEnPantalla.Any()
+                            ? $"AND producto_id NOT IN ({string.Join(",", idsProductosEnPantalla)})"
+                            : "";
 
                         cmdBorrarDet.CommandText = QueryAdapter.FormatearConsulta($@"
-                        DELETE FROM registro_rangos 
-                        WHERE movimiento_detalle_id IN (
-                            SELECT id FROM movimiento_detalles 
-                            WHERE movimiento_id = @movId {condicionNotIn}
-                        );
+            DELETE FROM registro_rangos 
+            WHERE movimiento_detalle_id IN (
+                SELECT id FROM movimiento_detalles 
+                WHERE movimiento_id = @movId {condicionNotIn}
+            );
 
-                        DELETE FROM movimiento_detalles 
-                        WHERE movimiento_id = @movId {condicionNotIn};");
+            DELETE FROM movimiento_detalles 
+            WHERE movimiento_id = @movId {condicionNotIn};");
 
                         AgregarParametro(cmdBorrarDet, "@movId", movimientoIdInserted);
-                        for (int k = 0; k < idsProductosEnPantalla.Count; k++)
-                        {
-                            AgregarParametro(cmdBorrarDet, $"@pIdKeep{k}", idsProductosEnPantalla[k]);
-                        }
-
                         await cmdBorrarDet.ExecuteNonQueryAsync();
                     }
+
+                    // B. Actualizar o insertar los productos que quedaron en la grilla
                     foreach (var item in listaProductos)
                     {
                         int idDetalle = 0;
                         using (var cmdCheck = dbConn.CreateCommand())
                         {
                             cmdCheck.Transaction = transaccion;
-                            cmdCheck.CommandText = QueryAdapter.FormatearConsulta("SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId AND producto_id = @prodId");
+                            cmdCheck.CommandText = QueryAdapter.FormatearConsulta(
+                                "SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId AND producto_id = @prodId");
                             AgregarParametro(cmdCheck, "@movId", movimientoIdInserted);
                             AgregarParametro(cmdCheck, "@prodId", item.ProductoId);
                             object? resDet = await cmdCheck.ExecuteScalarAsync();
                             if (resDet != null && resDet != DBNull.Value) idDetalle = Convert.ToInt32(resDet);
                         }
 
-                        // 🌟 Cantidad prioritaria directa desde el item de la grilla
                         int cantidadDespachoPura = (int)item.Cantidad;
                         if (cantidadDespachoPura == 0 && item.Detalle != null && item.Detalle.CantidadSalida > 0)
                         {
@@ -861,7 +904,8 @@ namespace AplicativoDeAlmacen.Services
                         {
                             using var cmdUpd = dbConn.CreateCommand();
                             cmdUpd.Transaction = transaccion;
-                            cmdUpd.CommandText = QueryAdapter.FormatearConsulta("UPDATE movimiento_detalles SET cantidad_salida = @cant, costo_unitario = @costo WHERE id = @detId");
+                            cmdUpd.CommandText = QueryAdapter.FormatearConsulta(
+                                "UPDATE movimiento_detalles SET cantidad_salida = @cant, costo_unitario = @costo WHERE id = @detId");
                             AgregarParametro(cmdUpd, "@cant", cantidadDespachoPura);
                             AgregarParametro(cmdUpd, "@costo", costoUnitarioPuro);
                             AgregarParametro(cmdUpd, "@detId", idDetalle);
@@ -869,7 +913,6 @@ namespace AplicativoDeAlmacen.Services
                         }
                         else
                         {
-                            // 🌟 Si el producto es nuevo en la edición (ej. agregaste bolsos después), hace el INSERT
                             string queryDetalle = $@"INSERT INTO movimiento_detalles (movimiento_id, producto_id, cantidad_ingreso, cantidad_salida, costo_unitario, created_at)
                                      VALUES (@movId, @prodId, 0, @cant, @costo, {nowFunc}); {selectId}";
                             using var cmdDet = dbConn.CreateCommand();
@@ -881,7 +924,6 @@ namespace AplicativoDeAlmacen.Services
                             AgregarParametro(cmdDet, "@costo", costoUnitarioPuro);
                             idDetalle = Convert.ToInt32(await cmdDet.ExecuteScalarAsync());
 
-                            // Registrar rango genérico si no tiene códigos
                             if (!listaCodigos.Any(c => c.ProductoId == item.ProductoId))
                             {
                                 string sqlInsRango = $@"INSERT INTO registro_rangos (producto_id, categoria_producto_id, abreviatura_base, desde_num, hasta_num, movimiento_detalle_id, created_at) 
@@ -896,15 +938,19 @@ namespace AplicativoDeAlmacen.Services
                         }
                     }
 
+                    // C. 🔄 RECALCULAR STOCK PARA TODOS (Los que quedaron + Los que se eliminaron)
                     int almacenEmisorIgual = cabecera.AlmacenOrigenId ?? cabecera.AlmacenId ?? 1;
-                    var productosUnicosIgual = listaProductos.Select(p => p.ProductoId).Distinct();
-                    foreach (var pid in productosUnicosIgual)
+                    var todosLosAfectados = listaProductos.Select(p => p.ProductoId)
+                        .Concat(productosPreviosEnBD.Keys)
+                        .Distinct();
+
+                    foreach (var pid in todosLosAfectados)
                     {
                         await ActualizarStockProductoPorKardexAsync(pid, almacenEmisorIgual, dbConn, transaccion);
                     }
 
                     progress?.Report(100);
-                    transaccion.Commit();
+                    await transaccion.CommitAsync();
                     return true;
                 }
 
@@ -1218,31 +1264,62 @@ FROM HistorialOrdenado WHERE rn = 1";
                     progress?.Report(pct);
                 }
 
-                // 🌟 PURGA SEGURA: Solo elimina detalles con cantidad <= 0 (conserva productos sin códigos)
-                string sqlPurgarDetallesVacios = @"
-    DELETE FROM registro_rangos 
-    WHERE movimiento_detalle_id IN (SELECT id FROM movimiento_detalles WHERE movimiento_id = @movId AND cantidad_salida <= 0);
+                
+                // 🌟 FASE E: BORRADO QUIRÚRGICO DE ÍTEMS HUÉRFANOS Y RECÁLCULO COMPLETO
+                // =========================================================================
+                var idsEnPantallaFin = listaProductos.Select(p => p.ProductoId).Distinct().ToList();
 
-    DELETE FROM movimiento_detalles 
-    WHERE movimiento_id = @movId AND cantidad_salida <= 0;";
-
-                using (var cmdPurga = dbConn.CreateCommand())
+                // 1. Si se borraron productos sin código en la grilla durante el flujo normal:
+                using (var cmdBorrarDetFin = dbConn.CreateCommand())
                 {
-                    cmdPurga.Transaction = transaccion;
-                    cmdPurga.CommandText = QueryAdapter.FormatearConsulta(sqlPurgarDetallesVacios);
-                    AgregarParametro(cmdPurga, "@movId", movimientoIdInserted);
-                    await cmdPurga.ExecuteNonQueryAsync();
+                    cmdBorrarDetFin.Transaction = transaccion;
+
+                    string condicionNotInFin = idsEnPantallaFin.Any()
+                        ? $"AND md.producto_id NOT IN ({string.Join(",", idsEnPantallaFin)})"
+                        : "";
+
+                    // Elimina registro_rangos de productos que ya no están y NO son serializados
+                    string sqlDelRangosFin = $@"
+        DELETE FROM registro_rangos 
+        WHERE movimiento_detalle_id IN (
+            SELECT md.id FROM movimiento_detalles md
+            WHERE md.movimiento_id = @movId {condicionNotInFin}
+              AND NOT EXISTS (
+                  SELECT 1 FROM movimiento_codigos mc 
+                  WHERE mc.movimiento_detalle_id = md.id AND mc.codigo_creado_id IS NOT NULL
+              )
+        )";
+                    cmdBorrarDetFin.CommandText = QueryAdapter.FormatearConsulta(sqlDelRangosFin);
+                    AgregarParametro(cmdBorrarDetFin, "@movId", movimientoIdInserted);
+                    await cmdBorrarDetFin.ExecuteNonQueryAsync();
+
+                    // Elimina la fila de movimiento_detalles de los productos sin código que se quitaron
+                    string sqlDelDetFin = $@"
+        DELETE FROM movimiento_detalles 
+        WHERE movimiento_id = @movId {condicionNotInFin.Replace("md.", "")}
+          AND id NOT IN (
+              SELECT DISTINCT mc.movimiento_detalle_id 
+              FROM movimiento_codigos mc 
+              WHERE mc.movimiento_id = @movId AND mc.codigo_creado_id IS NOT NULL
+          )";
+                    cmdBorrarDetFin.CommandText = QueryAdapter.FormatearConsulta(sqlDelDetFin);
+                    await cmdBorrarDetFin.ExecuteNonQueryAsync();
                 }
 
                 progress?.Report(95);
-                var productosUnicos = listaProductos.Select(p => p.ProductoId).Distinct();
-                foreach (var pid in productosUnicos)
+
+                // 2. 🔄 Recalcular Kárdex/Stock físico para TODOS los productos (los que quedaron + los que se borraron)
+                var todosLosProductosAfectadosFin = listaProductos.Select(p => p.ProductoId)
+                    .Concat(productosPreviosEnBD.Keys)
+                    .Distinct();
+
+                foreach (var pid in todosLosProductosAfectadosFin)
                 {
                     await ActualizarStockProductoPorKardexAsync(pid, almacenEmisor, dbConn, transaccion);
                 }
 
                 progress?.Report(100);
-                transaccion.Commit();
+                await transaccion.CommitAsync();
                 return true;
             }
             catch (Exception ex)
@@ -1674,6 +1751,40 @@ FROM HistorialOrdenado WHERE rn = 1";
             {
                 await transaccion.RollbackAsync();
                 throw new Exception(ex.Message);
+            }
+        }
+
+        private async Task ValidarDisponibilidadSalidaSinCodigoAsync(int productoId, int cantidadRequerida, int almacenId, DbConnection conn, DbTransaction trans)
+        {
+            string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
+            string sql = $@"
+        SELECT stock_actual 
+        FROM stock_almacen {nolock}
+        WHERE producto_id = @pId AND almacen_id = @almId";
+
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = trans;
+            cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
+            AgregarParametro(cmd, "@pId", productoId);
+            AgregarParametro(cmd, "@almId", almacenId);
+
+            var res = await cmd.ExecuteScalarAsync();
+            int stockDisponible = res != null && res != DBNull.Value ? Convert.ToInt32(res) : 0;
+
+            if (stockDisponible < cantidadRequerida)
+            {
+                string nombreProd = $"ID {productoId}";
+                using (var cmdNom = conn.CreateCommand())
+                {
+                    cmdNom.Transaction = trans;
+                    cmdNom.CommandText = QueryAdapter.FormatearConsulta("SELECT descripcion FROM productos WHERE id = @pId");
+                    AgregarParametro(cmdNom, "@pId", productoId);
+                    nombreProd = (await cmdNom.ExecuteScalarAsync())?.ToString() ?? nombreProd;
+                }
+
+                throw new InvalidOperationException(
+                    $"⚠️ Stock Insuficiente:\n\nEl producto '{nombreProd}' no cuenta con stock suficiente en este almacén para procesar la salida.\n" +
+                    $"• Stock disponible: {stockDisponible}\n• Cantidad adicional requerida: {cantidadRequerida}");
             }
         }
     }

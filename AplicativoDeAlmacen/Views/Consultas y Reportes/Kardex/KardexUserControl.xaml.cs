@@ -1,4 +1,6 @@
-﻿using System;
+﻿#nullable enable
+
+using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,7 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Services;
-using AplicativoDeAlmacen.Core; // Asegúrate de tener este using para el EventBus
+using AplicativoDeAlmacen.Core;
 using AplicativoDeAlmacen.Services.Reportes;
 
 namespace AplicativoDeAlmacen.Views
@@ -18,14 +20,10 @@ namespace AplicativoDeAlmacen.Views
         private readonly ReporteExcelService _reporteExcel;
         private readonly ProductoService _productoService;
         private int _productoSeleccionadoId;
-        private KardexFisicoReporte _ultimoReporte;
+        private KardexFisicoReporte? _ultimoReporte;
 
-        // Bandera para evitar bucles cuando manipulamos la caja de texto por código
         private bool _estaSeleccionando = false;
-
-        // 🌟 Memoria RAM: Aquí guardaremos los productos para buscar a la velocidad de la luz
         private List<Producto> _todosLosProductos = new List<Producto>();
-
         private bool _ejecutandoConsulta = false;
 
         public KardexUserControl()
@@ -38,13 +36,11 @@ namespace AplicativoDeAlmacen.Views
             _productoService = new ProductoService();
             _reporteExcel = new ReporteExcelService();
 
-            // Fechas por defecto
             DpDesde.SelectedDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             DpHasta.SelectedDate = DateTime.Today;
 
             Loaded += KardexUserControl_Loaded;
 
-            // Reactividad segura: solo si no se está ejecutando otra consulta
             EventBus.OnMovimientosChanged += () => Application.Current.Dispatcher.InvokeAsync(() => {
                 if (_productoSeleccionadoId != 0 && this.IsVisible && !_ejecutandoConsulta)
                 {
@@ -64,18 +60,16 @@ namespace AplicativoDeAlmacen.Views
         {
             try
             {
-                // 🛡️ Solo cargar de BD la primera vez
                 if (_todosLosProductos == null || !_todosLosProductos.Any())
                 {
                     var dbProductos = await _productoService.ObtenerTodosAsync();
                     _todosLosProductos = dbProductos.ToList();
                 }
 
-                // 🌟 MÁSCARA: Se asegura de vincularse solo una vez
-                ConfigurarMascaraFecha(DpDesde);
-                ConfigurarMascaraFecha(DpHasta);
+                // Configuración de validación limpia y formato nativo
+                ConfigurarDatePickerNativo(DpDesde);
+                ConfigurarDatePickerNativo(DpHasta);
 
-                // 🌟 TECLADO: Limpiar antes de reasignar
                 CboProductos.PreviewKeyDown -= Filtros_PreviewKeyDown;
                 DpDesde.PreviewKeyDown -= Filtros_PreviewKeyDown;
                 DpHasta.PreviewKeyDown -= Filtros_PreviewKeyDown;
@@ -90,19 +84,40 @@ namespace AplicativoDeAlmacen.Views
             }
         }
 
-        // ====================================================================
-        // 🌟 ATAJO DE TECLADO (Presionar ENTER para buscar)
-        // ====================================================================
+        private void ConfigurarDatePickerNativo(DatePicker dp)
+        {
+            if (dp == null) return;
+
+            // Manejo de entrada manual permitiendo formatos con / o -
+            dp.DateValidationError += (s, ev) =>
+            {
+                if (DateTime.TryParse(ev.Text, new System.Globalization.CultureInfo("es-ES"), System.Globalization.DateTimeStyles.None, out DateTime fechaParsed))
+                {
+                    dp.SelectedDate = fechaParsed;
+                    ev.ThrowException = false;
+                }
+            };
+        }
+
         private void Filtros_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Enter)
             {
                 e.Handled = true;
 
-                var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
-                string textoEscrito = textBox?.Text?.Trim() ?? CboProductos.Text?.Trim() ?? "";
+                // Si se presionó enter sobre un DatePicker, asegurar parseo de texto manual
+                if (sender is DatePicker dp)
+                {
+                    var textBox = dp.Template.FindName("PART_TextBox", dp) as TextBox;
+                    if (textBox != null && DateTime.TryParse(textBox.Text, new System.Globalization.CultureInfo("es-ES"), System.Globalization.DateTimeStyles.None, out DateTime f))
+                    {
+                        dp.SelectedDate = f;
+                    }
+                }
 
-                // 🌟 RESOLUCIÓN INTELIGENTE POR ID O NOMBRE ANTES DE CONSULTAR
+                var txtProd = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
+                string textoEscrito = txtProd?.Text?.Trim() ?? CboProductos.Text?.Trim() ?? "";
+
                 if (!string.IsNullOrWhiteSpace(textoEscrito))
                 {
                     if (int.TryParse(textoEscrito, out int idNum))
@@ -112,10 +127,10 @@ namespace AplicativoDeAlmacen.Views
                         {
                             _estaSeleccionando = true;
                             _productoSeleccionadoId = prodPorId.Id;
-                            if (textBox != null)
+                            if (txtProd != null)
                             {
-                                textBox.Text = prodPorId.Descripcion;
-                                textBox.CaretIndex = textBox.Text.Length;
+                                txtProd.Text = prodPorId.Descripcion;
+                                txtProd.CaretIndex = txtProd.Text.Length;
                             }
                             _estaSeleccionando = false;
                         }
@@ -125,24 +140,22 @@ namespace AplicativoDeAlmacen.Views
                         var primerProd = lista.First();
                         _estaSeleccionando = true;
                         _productoSeleccionadoId = primerProd.Id;
-                        if (textBox != null)
+                        if (txtProd != null)
                         {
-                            textBox.Text = primerProd.Descripcion;
-                            textBox.CaretIndex = textBox.Text.Length;
+                            txtProd.Text = primerProd.Descripcion;
+                            txtProd.CaretIndex = txtProd.Text.Length;
                         }
                         _estaSeleccionando = false;
                     }
                 }
 
                 CboProductos.IsDropDownOpen = false;
-
-                // 🚀 Dispara la consulta directamente
                 BtnEjecutarKardex_Click(null, null);
             }
         }
 
         // ====================================================================
-        // EVENTO 1: Cuando el usuario escribe (Filtro ultrarrápido en RAM)
+        // 🌟 BUSCADOR SIN CORTE DE ESPACIOS
         // ====================================================================
         private void CboProductos_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -151,7 +164,8 @@ namespace AplicativoDeAlmacen.Views
             var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
             if (textBox == null) return;
 
-            string searchText = textBox.Text?.Trim() ?? string.Empty;
+            string rawText = textBox.Text ?? string.Empty;
+            string searchText = rawText.Trim();
 
             if (string.IsNullOrWhiteSpace(searchText))
             {
@@ -166,22 +180,20 @@ namespace AplicativoDeAlmacen.Views
 
             bool esNumero = int.TryParse(searchText, out int idBuscado);
 
-            // 🌟 FILTRADO BIVALENTE: Por ID exacto, ID parcial, Descripción o Abreviatura
             var filtrados = _todosLosProductos
                 .Where(p => (esNumero && p.Id == idBuscado) ||
                             p.Id.ToString().StartsWith(searchText) ||
-                            (p.Descripcion != null && p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase)) ||
-                            (p.Abreviatura != null && p.Abreviatura.Contains(searchText, StringComparison.OrdinalIgnoreCase)))
+                            (!string.IsNullOrEmpty(p.Descripcion) && p.Descripcion.Contains(searchText, StringComparison.OrdinalIgnoreCase)) ||
+                            (!string.IsNullOrEmpty(p.Abreviatura) && p.Abreviatura.Contains(searchText, StringComparison.OrdinalIgnoreCase)))
                 .OrderBy(p => (esNumero && p.Id == idBuscado) ? 0 : 1)
                 .ThenBy(p => p.Descripcion)
-                .Take(5)
+                .Take(15)
                 .ToList();
 
             CboProductos.ItemsSource = filtrados;
             CboProductos.DisplayMemberPath = "Descripcion";
             CboProductos.IsDropDownOpen = filtrados.Any();
 
-            // Si hay coincidencia exacta de ID, asignamos de una vez el ID seleccionado
             if (esNumero)
             {
                 var matchExacto = _todosLosProductos.FirstOrDefault(p => p.Id == idBuscado);
@@ -191,25 +203,19 @@ namespace AplicativoDeAlmacen.Views
                 }
             }
 
-            textBox.Text = searchText;
-            textBox.CaretIndex = cursorPosition;
+            textBox.Text = rawText;
+            textBox.CaretIndex = Math.Min(cursorPosition, rawText.Length);
 
             _estaSeleccionando = false;
         }
 
-        // ====================================================================
-        // EVENTO 2: Cuando el usuario hace clic en un resultado de la lista
-        // ====================================================================
         private void CboProductos_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (CboProductos.SelectedItem is Producto producto)
             {
                 _estaSeleccionando = true;
-
-                // Guardamos el ID real para el Kardex
                 _productoSeleccionadoId = producto.Id;
 
-                // Modificamos el texto interno visualmente
                 var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
                 if (textBox != null)
                 {
@@ -217,16 +223,14 @@ namespace AplicativoDeAlmacen.Views
                     textBox.CaretIndex = textBox.Text.Length;
                 }
 
-                // Cerramos la lista desplegable
                 CboProductos.IsDropDownOpen = false;
-
                 _estaSeleccionando = false;
             }
         }
 
         private async void BtnEjecutarKardex_Click(object? sender, RoutedEventArgs? e)
         {
-            if (_ejecutandoConsulta) return; // 🛡️ FRENO ABSOLUTO A RECURSIÓN
+            if (_ejecutandoConsulta) return;
             if (_productoSeleccionadoId == 0) return;
 
             try
@@ -265,99 +269,29 @@ namespace AplicativoDeAlmacen.Views
             finally
             {
                 Mouse.OverrideCursor = null;
-                _ejecutandoConsulta = false; // 🛡️ Libera el seguro
+                _ejecutandoConsulta = false;
             }
-        }
-
-        // ====================================================================
-        // 🌟 MÁSCARA INTELIGENTE PARA FECHAS (Autocompleta las diagonales / )
-        // ====================================================================
-        private bool _isFormattingDate = false;
-
-        private void ConfigurarMascaraFecha(DatePicker datePicker)
-        {
-            if (datePicker == null) return;
-
-            datePicker.ApplyTemplate();
-
-            if (datePicker.Template.FindName("PART_TextBox", datePicker) is TextBox textBox)
-            {
-                textBox.TextChanged -= TextBoxFecha_TextChanged;
-                textBox.TextChanged += TextBoxFecha_TextChanged;
-                textBox.MaxLength = 10;
-            }
-        }
-
-        private void TextBoxFecha_TextChanged(object sender, TextChangedEventArgs ev)
-        {
-            if (_isFormattingDate) return;
-
-            if (sender is not TextBox tb) return;
-
-            // Si el usuario borra caracteres, no interferir
-            if (ev.Changes.Any(c => c.RemovedLength > 0 && c.AddedLength == 0)) return;
-
-            string textoActual = tb.Text ?? string.Empty;
-
-            // Solo dígitos numéricos
-            string numeros = new string(textoActual.Where(char.IsDigit).ToArray());
-            if (string.IsNullOrEmpty(numeros)) return;
-
-            string nuevoTexto = textoActual;
-
-            if (numeros.Length >= 2 && numeros.Length < 4)
-            {
-                nuevoTexto = numeros.Insert(2, "/");
-            }
-            else if (numeros.Length >= 4)
-            {
-                int lenAnio = Math.Min(numeros.Length - 4, 4);
-                nuevoTexto = numeros.Substring(0, 2) + "/" + numeros.Substring(2, 2) + "/" + numeros.Substring(4, lenAnio);
-            }
-
-            // 🛡️ Si no hay cambios reales, salir inmediatamente
-            if (nuevoTexto == textoActual) return;
-
-            // 🛡️ Asignar de manera diferida mediante Dispatcher para romper el bucle síncrono de WPF
-            _isFormattingDate = true;
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                tb.Text = nuevoTexto;
-                tb.CaretIndex = tb.Text.Length;
-                _isFormattingDate = false;
-            }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
             if (_ultimoReporte == null)
             {
-                MessageBox.Show(
-                    "Primero genere el Kardex.",
-                    "Sistema",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information
-                );
+                MessageBox.Show("Primero genere el Kardex.", "Sistema", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // SOLUCIÓN: Pasamos el objeto completo, no solo la lista de detalles
             _reporteExcel.ExportarKardex(_ultimoReporte);
         }
 
-        // 🌟 MÉTODO PARA CARGAR AUTOMÁTICAMENTE DESDE OTRA VISTA (Ej: Doble clic en Saldos)
         public async void CargarKardexDirecto(int productoId, string nombreProducto, DateTime desde, DateTime hasta)
         {
             try
             {
-                // 1. Seteamos las fechas en los DatePicker
                 DpDesde.SelectedDate = desde;
                 DpHasta.SelectedDate = hasta;
-
-                // 2. 🌟 ASIGNAMOS EL ID OBLIGATORIO PARA QUE NO SALGA EL ERROR
                 _productoSeleccionadoId = productoId;
 
-                // 3. Escribimos el nombre del producto en el ComboBox autocompletable
                 var textBox = CboProductos.Template.FindName("PART_EditableTextBox", CboProductos) as TextBox;
                 if (textBox != null)
                 {
@@ -365,7 +299,6 @@ namespace AplicativoDeAlmacen.Views
                     textBox.CaretIndex = textBox.Text.Length;
                 }
 
-                // 4. Disparamos la consulta del Kárdex de manera automática
                 BtnEjecutarKardex_Click(null, null);
             }
             catch (Exception ex)
@@ -376,31 +309,26 @@ namespace AplicativoDeAlmacen.Views
 
         private void KardexDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            // Verificamos que haya una fila seleccionada y que el objeto tenga datos
             if (KardexDataGrid.SelectedItem is KardexFisicoItem filaSeleccionada)
             {
                 if (string.IsNullOrWhiteSpace(filaSeleccionada.Registro)) return;
 
-                // Formato esperado de Registro: "0001-0000003"
                 string[] partes = filaSeleccionada.Registro.Split('-');
                 if (partes.Length < 2) return;
 
                 string serie = partes[0].Trim();
                 string numero = partes[1].Trim();
 
-                // 🌟 Buscamos la ventana principal para abrir la pestaña correspondiente
                 if (Window.GetWindow(this) is IMainWindow mainShell)
                 {
                     if (filaSeleccionada.Ingreso > 0)
                     {
-                        // Es un movimiento de ENTRADA
                         var vistaIngreso = new IngresoUserControl();
                         vistaIngreso.CargarDocumentoParaConsulta(serie, numero);
                         mainShell.AbrirPestaña($"📥 Ingreso : {serie}-{numero}(Vista Previa)", vistaIngreso);
                     }
                     else if (filaSeleccionada.Salida > 0)
                     {
-                        // Es un movimiento de SALIDA
                         var vistaSalida = new SalidasUserControl();
                         vistaSalida.CargarDocumentoParaConsulta(serie, numero);
                         mainShell.AbrirPestaña($"📤 Salida : {serie}-{numero} (Vista Previa)", vistaSalida);

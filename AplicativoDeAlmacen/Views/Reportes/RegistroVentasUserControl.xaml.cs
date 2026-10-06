@@ -9,7 +9,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using AplicativoDeAlmacen.Core;
+using AplicativoDeAlmacen.Models.Documentos;
 using AplicativoDeAlmacen.Models.Reportes;
+using AplicativoDeAlmacen.Services.Documentos;
 using AplicativoDeAlmacen.Services.Reportes;
 
 namespace AplicativoDeAlmacen.Views.Reportes
@@ -19,7 +21,8 @@ namespace AplicativoDeAlmacen.Views.Reportes
         private readonly RegistroVentasService _service;
         private readonly ReporteExcelService _excelService;
         private readonly ObservableCollection<RegistroVentaItemDTO> _ventasList = new();
-
+        private readonly DocumentoService _documentoService = new();
+        private List<Documento> _documentosActivos = new();
         private readonly int _miSedeId;
         private readonly string _miSedeNombre;
 
@@ -35,7 +38,7 @@ namespace AplicativoDeAlmacen.Views.Reportes
             _miSedeNombre = SesionSistema.AlmacenActual?.Nombre ?? "Sede Principal";
 
             InicializarFiltros();
-            _ = CargarSeriesAsync();
+            Loaded += async (s, e) => await CargarCatalogosInicialesAsync();
         }
 
         private void InicializarFiltros()
@@ -49,14 +52,31 @@ namespace AplicativoDeAlmacen.Views.Reportes
             DpHasta.SelectedDate = DateTime.Today;
         }
 
+        private async Task CargarCatalogosInicialesAsync()
+        {
+            try
+            {
+                _documentosActivos = await _documentoService.ObtenerActivosAsync();
+                CmbDocumento.ItemsSource = _documentosActivos;
+                CmbDocumento.DisplayMemberPath = "Descripcion";
+                CmbDocumento.SelectedValuePath = "Codigo";
+                if (_documentosActivos.Any()) CmbDocumento.SelectedIndex = 0;
+
+                await CargarSeriesAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error al cargar catálogos: {ex.Message}");
+            }
+        }
         private async Task CargarSeriesAsync()
         {
             try
             {
                 string? tipoDoc = null;
-                if (ChkTodosDocumentos.IsChecked == false && CmbDocumento.SelectedItem is ComboBoxItem item)
+                if (ChkTodosDocumentos.IsChecked == false && CmbDocumento.SelectedValue != null)
                 {
-                    tipoDoc = item.Tag?.ToString();
+                    tipoDoc = CmbDocumento.SelectedValue.ToString();
                 }
 
                 var series = await _service.ObtenerSeriesPorSedeAsync(_miSedeId, tipoDoc);
@@ -82,19 +102,22 @@ namespace AplicativoDeAlmacen.Views.Reportes
             _ = CargarSeriesAsync();
         }
 
-        private void RbModoFecha_Checked(object sender, RoutedEventArgs e)
+        // 🌟 Manejo limpio de selección de fechas sin trabas
+        private void RbModoFecha_Changed(object sender, RoutedEventArgs e)
         {
-            if (CmbMes == null || DpDesde == null) return;
+            if (CmbMes == null || DpDesde == null || DpHasta == null || TxtAno == null) return;
 
             bool porMes = RbPorMes.IsChecked == true;
+            bool porRango = RbPorRango.IsChecked == true;
+
             CmbMes.IsEnabled = porMes;
             TxtAno.IsEnabled = porMes;
 
-            DpDesde.IsEnabled = !porMes;
-            DpHasta.IsEnabled = !porMes;
+            DpDesde.IsEnabled = porRango;
+            DpHasta.IsEnabled = porRango;
         }
 
-        private (DateTime Desde, DateTime Hasta, string Periodo) ResolverRangoFechas()
+        private (DateTime? Desde, DateTime? Hasta, string Periodo) ResolverRangoFechas()
         {
             if (RbPorMes.IsChecked == true)
             {
@@ -107,26 +130,38 @@ namespace AplicativoDeAlmacen.Views.Reportes
                 string periodo = $"{CmbMes.SelectedItem} {ano}";
                 return (desde, hasta, periodo);
             }
-            else
+            else if (RbPorRango.IsChecked == true)
             {
                 DateTime desde = DpDesde.SelectedDate ?? new DateTime(DateTime.Today.Year, 1, 1);
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Today;
                 string periodo = $"Del {desde:dd/MM/yyyy} al {hasta:dd/MM/yyyy}";
                 return (desde, hasta, periodo);
             }
+            else
+            {
+                // Modo Histórico Completo
+                return (null, null, "HISTÓRICO COMPLETO");
+            }
         }
 
         private async void BtnEjecutar_Click(object sender, RoutedEventArgs e)
         {
             var rango = ResolverRangoFechas();
-            if (rango.Desde > rango.Hasta)
+
+            if (rango.Desde.HasValue && rango.Hasta.HasValue && rango.Desde > rango.Hasta)
             {
                 MessageBox.Show("La fecha 'Desde' no puede ser mayor que la fecha 'Hasta'.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            string? tipoDoc = (ChkTodosDocumentos.IsChecked == false && CmbDocumento.SelectedItem is ComboBoxItem item) ? item.Tag?.ToString() : null;
-            string? serie = (ChkTodasSeries.IsChecked == false && CmbSerie.SelectedItem != null) ? CmbSerie.SelectedItem.ToString() : null;
+            // Lectura del valor oficial del documento seleccionado
+            string? tipoDoc = (ChkTodosDocumentos.IsChecked == false && CmbDocumento.SelectedValue != null)
+                ? CmbDocumento.SelectedValue.ToString()
+                : null;
+
+            string? serie = (ChkTodasSeries.IsChecked == false && CmbSerie.SelectedItem != null)
+                ? CmbSerie.SelectedItem.ToString()
+                : null;
 
             try
             {
@@ -140,15 +175,17 @@ namespace AplicativoDeAlmacen.Views.Reportes
                     _ventasList.Add(v);
                 }
 
-                // Calcular totales del pie
                 TxtTotalGravado.Text = _ventasList.Sum(x => x.TotalGravado).ToString("N2");
                 TxtTotalExonerado.Text = _ventasList.Sum(x => x.TotalExonerado).ToString("N2");
                 TxtTotalIgv.Text = _ventasList.Sum(x => x.TotalIgv).ToString("N2");
+                TxtTotalDelivery.Text = _ventasList.Sum(x => x.MontoDelivery).ToString("N2");
                 TxtTotalImporte.Text = _ventasList.Sum(x => x.ImporteTotal).ToString("N2");
+
+                LblTotalRegistros.Text = $"{_ventasList.Count} comprobante(s) encontrado(s)";
 
                 if (!_ventasList.Any())
                 {
-                    MessageBox.Show("No se encontraron comprobantes registrados en el período seleccionado.", "Sin Registros", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("No se encontraron comprobantes registrados en el criterio seleccionado.", "Sin Registros", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
             }
             catch (Exception ex)

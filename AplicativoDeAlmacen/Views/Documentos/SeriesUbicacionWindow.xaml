@@ -1,8 +1,8 @@
 ﻿<Window x:Class="AplicativoDeAlmacen.Views.SeriesUbicacionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Series Punto de Venta" Height="500" Width="650"
-        WindowStartupLocation="CenterOwner" Background="#F4F6F9" ResizeMode="NoResize">
+        Title="Series Punto de Venta" Height="520" Width="680"
+        WindowStartupLocation="CenterOwner" Background="#F1F5F9" ResizeMode="NoResize" FontFamily="Segoe UI">
 
     <Grid>
         <Grid Margin="20">
@@ -12,92 +12,67 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <TextBlock x:Name="TxtTituloSede" Text="Series Punto de Venta : Sede" FontSize="18" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,15"/>
-
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,15">
-                <Button Content="📄 Nuevo" Click="BtnNuevo_Click" Width="90" Height="35" Margin="0,0,10,0" Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
-                <Button Content="✏️ Modificar" Click="BtnModificar_Click" Width="100" Height="35" Margin="0,0,10,0" Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
-                <Button Content="❌ Eliminar" Click="BtnEliminar_Click" Width="90" Height="35" Margin="0,0,10,0" Background="#EF4444" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
-                <Button Content="🚪 Salir" Click="BtnSalir_Click" Width="90" Height="35" Background="#64748B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+            <!-- TÍTULO -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,15">
+                <TextBlock x:Name="TxtTituloSede" Text="Series Punto de Venta : Sede" FontSize="18" FontWeight="Bold" Foreground="#0F172A"/>
+                <TextBlock Text="Configure las series autorizadas y sus correlativos por tipo de comprobante." FontSize="12" Foreground="#64748B" Margin="0,2,0,0"/>
             </StackPanel>
 
-            <Border Grid.Row="2" Background="White" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="5">
-                <DataGrid x:Name="DgSeries" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" RowHeight="35" Background="Transparent" BorderThickness="0">
+            <!-- BOTONERA SUPERIOR -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,15">
+                <Button Content="✨ Nueva Serie" Click="BtnNuevo_Click" Width="110" Height="35" Margin="0,0,10,0" Background="#10B981" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="✏️ Modificar" Click="BtnModificar_Click" Width="100" Height="35" Margin="0,0,10,0" Background="#F59E0B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="❌ Eliminar" Click="BtnEliminar_Click" Width="90" Height="35" Margin="0,0,10,0" Background="#EF4444" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                <Button Content="🚪 Salir" Click="BtnSalir_Click" Width="80" Height="35" Background="#64748B" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+            </StackPanel>
+
+            <!-- GRILLA DE SERIES -->
+            <Border Grid.Row="2" Background="White" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1" Padding="2">
+                <DataGrid x:Name="DgSeries" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" 
+                          GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#F1F5F9" RowHeight="36" 
+                          Background="Transparent" BorderThickness="0" SelectionMode="Single">
                     <DataGrid.ColumnHeaderStyle>
                         <Style TargetType="DataGridColumnHeader">
-                            <Setter Property="Background" Value="#FDE68A"/>
-                            <Setter Property="Foreground" Value="Black"/>
-                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Background" Value="#F8FAFC"/>
+                            <Setter Property="Foreground" Value="#334155"/>
+                            <Setter Property="FontWeight" Value="Bold"/>
                             <Setter Property="Padding" Value="10,8"/>
+                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                            <Setter Property="BorderBrush" Value="#E2E8F0"/>
                         </Style>
                     </DataGrid.ColumnHeaderStyle>
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Serie" Binding="{Binding NumeroSerie}" Width="*" FontWeight="Bold"/>
-                        <DataGridTextColumn Header="Tipo" Binding="{Binding TipoSerie}" Width="*"/>
-                        <DataGridTextColumn Header="# Factura" Binding="{Binding CorrelativoFactura}" Width="*"/>
-                        <DataGridTextColumn Header="# Boleta" Binding="{Binding CorrelativoBoleta}" Width="*"/>
-                        <DataGridTextColumn Header="# Recibo" Binding="{Binding CorrelativoRecibo}" Width="*"/>
+                        <DataGridTextColumn Header="Serie" Binding="{Binding NumeroSerie}" Width="100" FontWeight="Bold"/>
+                        <DataGridTextColumn Header="Cód. Doc" Binding="{Binding TipoSerie}" Width="90"/>
+                        <DataGridTextColumn Header="Últ. Factura" Binding="{Binding CorrelativoFactura}" Width="110"/>
+                        <DataGridTextColumn Header="Últ. Boleta" Binding="{Binding CorrelativoBoleta}" Width="110"/>
+                        <DataGridTextColumn Header="Últ. Recibo / Otros" Binding="{Binding CorrelativoRecibo}" Width="*"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>
         </Grid>
 
+        <!-- MODAL FORMULARIO -->
         <Grid x:Name="ModalFormulario" Visibility="Collapsed" Background="#66000000">
-            <Border Background="White" Width="350" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="8" Padding="20">
+            <Border Background="White" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="8" Padding="24" BorderBrush="#CBD5E1" BorderThickness="1">
                 <StackPanel>
-                    <TextBlock x:Name="TxtTituloModal" Text="Agregar Nueva Serie" FontSize="16" FontWeight="Bold" Margin="0,0,0,20" Foreground="#1E293B"/>
+                    <TextBlock x:Name="TxtTituloModal" Text="Configurar Serie" FontSize="16" FontWeight="Bold" Margin="0,0,0,16" Foreground="#0F172A"/>
 
-                    <Grid Margin="0,0,0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Serie :" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        <TextBox x:Name="TxtSerie" Grid.Column="1" Height="28" Padding="5,0" CharacterCasing="Upper"/>
-                    </Grid>
+                    <!-- TIPO DE DOCUMENTO (CATÁLOGO DINÁMICO) -->
+                    <TextBlock Text="Tipo de Comprobante:" FontWeight="SemiBold" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="CboDocumentos" Height="34" DisplayMemberPath="Descripcion" SelectedValuePath="Codigo" Margin="0,0,0,12" SelectionChanged="CboDocumentos_SelectionChanged"/>
 
-                    <Grid Margin="0,0,0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Tipo :" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <RadioButton x:Name="RbManual" Content="Manual" Foreground="#059669" Margin="0,0,15,0"/>
-                            <RadioButton x:Name="RbElectronica" Content="Electrónica" Foreground="#059669" IsChecked="True"/>
-                        </StackPanel>
-                    </Grid>
+                    <!-- NÚMERO DE SERIE -->
+                    <TextBlock Text="N° de Serie (Ej: F001, B001, T001):" FontWeight="SemiBold" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TxtSerie" Height="34" Padding="8,4" CharacterCasing="Upper" Margin="0,0,0,12"/>
 
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="# Factura :" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        <TextBox x:Name="TxtFactura" Grid.Column="1" Height="28" Padding="5,0" Text="0" HorizontalContentAlignment="Right"/>
-                    </Grid>
+                    <!-- CORRELATIVO -->
+                    <TextBlock x:Name="LblCorrelativo" Text="Último Correlativo Emitido:" FontWeight="SemiBold" FontSize="12" Foreground="#475569" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TxtCorrelativo" Height="34" Padding="8,4" Text="0" Margin="0,0,0,20"/>
 
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="# Boleta :" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        <TextBox x:Name="TxtBoleta" Grid.Column="1" Height="28" Padding="5,0" Text="0" HorizontalContentAlignment="Right"/>
-                    </Grid>
-
-                    <Grid Margin="0,0,0,20">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="# Recibo :" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        <TextBox x:Name="TxtRecibo" Grid.Column="1" Height="28" Padding="5,0" Text="0" HorizontalContentAlignment="Right"/>
-                    </Grid>
-
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                        <Button Content="💾 Grabar" Click="BtnGrabarSerie_Click" Width="100" Height="35" Margin="0,0,15,0" Background="#2563EB" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
-                        <Button Content="🚪 Salir" Click="BtnCerrarModal_Click" Width="100" Height="35" Background="White" BorderBrush="#CBD5E0" BorderThickness="1" FontWeight="Bold" Cursor="Hand"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancelar" Click="BtnCerrarModal_Click" Width="90" Height="34" Background="#F1F5F9" Foreground="#64748B" FontWeight="SemiBold" BorderThickness="0" Margin="0,0,10,0" Cursor="Hand"/>
+                        <Button Content="💾 Guardar" Click="BtnGrabarSerie_Click" Width="110" Height="34" Background="#2563EB" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
                     </StackPanel>
                 </StackPanel>
             </Border>

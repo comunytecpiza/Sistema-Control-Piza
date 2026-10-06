@@ -9,6 +9,7 @@ using AplicativoDeAlmacen.Models.Facturación;
 using AplicativoDeAlmacen.Models.Models;
 using AplicativoDeAlmacen.Data;
 using static AplicativoDeAlmacen.Data.DataConnection;
+using AplicativoDeAlmacen.Models.Documentos;
 
 namespace AplicativoDeAlmacen.Services.facturaciòn
 {
@@ -30,7 +31,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
         }
 
         // =========================================================================
-        // 1. GUARDAR NUEVO COMPROBANTE (ESTRUCTURA EXACTA DE BD)
+        // 1. GUARDAR NUEVO COMPROBANTE
         // =========================================================================
         public async Task<int> GuardarComprobanteAsync(FacturacionCabecera cabecera, int serieId)
         {
@@ -47,17 +48,17 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
 
                 // 1. INSERTAR CABECERA
                 string queryCabecera = $@"
-        INSERT INTO facturacion_cabecera 
-        (empresa_id, tipo_documento, serie_documento, numero_documento, fecha_emision, punto_venta_id, almacen_id,
-         comprador_id, institucion_id, observacion, total_gravado, total_inafecto, 
-         total_exonerado, total_igv, importe_total, monto_delivery, moneda_id, condicion_pago_id, 
-         porcentaje_igv, fecha_registro, usuario_id, estado_registro)
-        VALUES 
-        (@EmpresaId, @TipoDoc, @SerieDoc, @NumDoc, @FecEmi, @PtoVentaId, @AlmId,
-         @CompradorId, @InstId, @Obs, @TotGrav, @TotIna, 
-         @TotExo, @TotIgv, @ImpTot, @MontoDelivery, @MonedaId, @CondPagoId, 
-         @PorcIgv, {nowFunc}, @UsuId, 1);
-        {selectId}";
+                    INSERT INTO facturacion_cabecera 
+                    (empresa_id, tipo_documento, serie_documento, numero_documento, fecha_emision, punto_venta_id, almacen_id,
+                     comprador_id, institucion_id, observacion, total_gravado, total_inafecto, 
+                     total_exonerado, total_igv, importe_total, monto_delivery, moneda_id, condicion_pago_id, 
+                     porcentaje_igv, fecha_registro, usuario_id, estado_registro)
+                    VALUES 
+                    (@EmpresaId, @TipoDoc, @SerieDoc, @NumDoc, @FecEmi, @PtoVentaId, @AlmId,
+                     @CompradorId, @InstId, @Obs, @TotGrav, @TotIna, 
+                     @TotExo, @TotIgv, @ImpTot, @MontoDelivery, @MonedaId, @CondPagoId, 
+                     @PorcIgv, {nowFunc}, @UsuId, 1);
+                    {selectId}";
 
                 int nuevaCabeceraId;
                 using (var cmdCabecera = dbConn.CreateCommand())
@@ -89,16 +90,16 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                     nuevaCabeceraId = Convert.ToInt32(await cmdCabecera.ExecuteScalarAsync());
                 }
 
-                cabecera.Id = nuevaCabeceraId; // 🌟 Se asigna de inmediato el ID real generado
+                cabecera.Id = nuevaCabeceraId;
 
-                // 🌟 2. INSERTAR DESGLOSE MULTI-PAGO EN LA MISMA TRANSACCIÓN
+                // 2. INSERTAR PAGOS (SIN NULLs)
                 if (cabecera.Pagos != null && cabecera.Pagos.Count > 0)
                 {
                     string queryPago = @"
-            INSERT INTO facturacion_pagos_detalle 
-            (facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion, created_at)
-            VALUES 
-            (@CabId, @MedioId, @Monto, @NumOp, @Obs, NOW());";
+                        INSERT INTO facturacion_pagos_detalle 
+                        (facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion)
+                        VALUES 
+                        (@CabId, @MedioId, @Monto, @NumOp, @Obs);";
 
                     foreach (var pago in cabecera.Pagos)
                     {
@@ -108,182 +109,25 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                         AgregarParametro(cmdPago, "@CabId", nuevaCabeceraId);
                         AgregarParametro(cmdPago, "@MedioId", pago.MedioPagoId > 0 ? pago.MedioPagoId : 1);
                         AgregarParametro(cmdPago, "@Monto", pago.Monto);
-                        AgregarParametro(cmdPago, "@NumOp", string.IsNullOrWhiteSpace(pago.NumeroOperacion) ? DBNull.Value : pago.NumeroOperacion);
+                        AgregarParametro(cmdPago, "@NumOp", string.IsNullOrWhiteSpace(pago.NumeroOperacion) ? string.Empty : pago.NumeroOperacion.Trim());
                         AgregarParametro(cmdPago, "@Obs", "VENTA MANUAL");
                         await cmdPago.ExecuteNonQueryAsync();
                     }
                 }
 
                 // 3. INSERTAR DETALLES Y CÓDIGOS
+                // 🌟 E. RE-INSERTAR DETALLES Y SUS CÓDIGOS
                 string queryDetalle = $@"
-        INSERT INTO facturacion_detalle 
-        (facturacion_cabecera_id, movimiento_id, producto_id, numero_linea, cantidad, precio_unitario, 
-         valor_gravado, valor_inafecto, valor_exonerado, valor_igv, importe_total)
-        VALUES 
-        (@CabId, @MovId, @ProdId, @NumLinea, @Cant, @PreUnit, 
-         @ValGrav, @ValIna, @ValExo, @ValIgv, @ImpTot);
-        {selectId}";
+    INSERT INTO facturacion_detalle 
+    (facturacion_cabecera_id, movimiento_id, producto_id, numero_linea, cantidad, precio_unitario, 
+     valor_gravado, valor_inafecto, valor_exonerado, valor_igv, importe_total)
+    VALUES 
+    (@CabId, @MovId, @ProdId, @NumLinea, @Cant, @PreUnit, 
+     @ValGrav, @ValIna, @ValExo, @ValIgv, @ImpTot);
+    {selectId}";
 
-                string queryCodigo = @"
-        INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id)
-        VALUES (@DetId, @CodCreadoId)";
-
-                string queryUpdKardex = @"
-        UPDATE codigos_creados SET estado_id = 4 WHERE id = @CodCreadoId";
-
-                int linea = 1;
-                foreach (var detalle in cabecera.Detalles)
-                {
-                    int nuevoDetalleId;
-                    using (var cmdDetalle = dbConn.CreateCommand())
-                    {
-                        cmdDetalle.Transaction = transaction;
-                        cmdDetalle.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
-
-                        AgregarParametro(cmdDetalle, "@CabId", nuevaCabeceraId);
-                        AgregarParametro(cmdDetalle, "@MovId", (detalle.MovimientoId > 0) ? (object)detalle.MovimientoId : DBNull.Value);
-                        AgregarParametro(cmdDetalle, "@ProdId", detalle.ProductoId);
-                        AgregarParametro(cmdDetalle, "@NumLinea", linea++);
-                        AgregarParametro(cmdDetalle, "@Cant", detalle.Cantidad);
-                        AgregarParametro(cmdDetalle, "@PreUnit", detalle.PrecioUnitario);
-                        AgregarParametro(cmdDetalle, "@ValGrav", detalle.ValorGravado);
-                        AgregarParametro(cmdDetalle, "@ValIna", detalle.ValorInafecto);
-                        AgregarParametro(cmdDetalle, "@ValExo", detalle.ValorExonerado);
-                        AgregarParametro(cmdDetalle, "@ValIgv", detalle.ValorIgv);
-                        AgregarParametro(cmdDetalle, "@ImpTot", detalle.ImporteTotal);
-
-                        nuevoDetalleId = Convert.ToInt32(await cmdDetalle.ExecuteScalarAsync());
-                    }
-
-                    if (detalle.Codigos != null && detalle.Codigos.Count > 0)
-                    {
-                        foreach (var codigo in detalle.Codigos)
-                        {
-                            using var cmdCod = dbConn.CreateCommand();
-                            cmdCod.Transaction = transaction;
-                            cmdCod.CommandText = QueryAdapter.FormatearConsulta(queryCodigo);
-                            AgregarParametro(cmdCod, "@DetId", nuevoDetalleId);
-                            AgregarParametro(cmdCod, "@CodCreadoId", codigo.CodigoCreadoId);
-                            await cmdCod.ExecuteNonQueryAsync();
-
-                            using var cmdKardex = dbConn.CreateCommand();
-                            cmdKardex.Transaction = transaction;
-                            cmdKardex.CommandText = QueryAdapter.FormatearConsulta(queryUpdKardex);
-                            AgregarParametro(cmdKardex, "@CodCreadoId", codigo.CodigoCreadoId);
-                            await cmdKardex.ExecuteNonQueryAsync();
-                        }
-                    }
-                }
-
-                // 4. ACTUALIZAR CORRELATIVO EN TABLA SERIES
-                string campoUpdate = cabecera.TipoDocumento == "01" ? "num_fact = num_fact + 1" :
-                                     cabecera.TipoDocumento == "02" ? "num_bole = num_bole + 1" :
-                                     cabecera.TipoDocumento == "03" ? "num_reci = num_reci + 1" : "";
-
-                if (!string.IsNullOrEmpty(campoUpdate))
-                {
-                    string queryCorrelativo = $"UPDATE series_documentos SET {campoUpdate} WHERE id = @SerieId";
-                    using var cmdCorr = dbConn.CreateCommand();
-                    cmdCorr.Transaction = transaction;
-                    cmdCorr.CommandText = QueryAdapter.FormatearConsulta(queryCorrelativo);
-                    AgregarParametro(cmdCorr, "@SerieId", serieId);
-                    await cmdCorr.ExecuteNonQueryAsync();
-                }
-
-                await transaction.CommitAsync();
-                return nuevaCabeceraId;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                throw new Exception("Error al guardar el comprobante: " + ex.Message, ex);
-            }
-        }
-
-        // =========================================================================
-        // 2. ACTUALIZAR COMPROBANTE EXISTENTE
-        // =========================================================================
-        public async Task ActualizarComprobanteAsync(FacturacionCabecera cabecera, int usuarioModificadorId)
-        {
-            using var conn = _database.GetConnection();
-            var dbConn = (DbConnection)conn;
-            await dbConn.OpenAsync();
-
-            using var transaction = dbConn.BeginTransaction();
-
-            try
-            {
-                string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
-                string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
-
-                // 1. ACTUALIZAR CABECERA
-                string queryUpdateCab = $@"
-                UPDATE facturacion_cabecera SET 
-                    tipo_documento = @TipoDoc, 
-                    fecha_emision = @FecEmi, 
-                    punto_venta_id = @PtoVentaId,
-                    almacen_id = @AlmId,
-                    comprador_id = @CompradorId, 
-                    institucion_id = @InstId, 
-                    observacion = @Obs, 
-                    total_gravado = @TotGrav, 
-                    total_inafecto = @TotIna, 
-                    total_exonerado = @TotExo, 
-                    total_igv = @TotIgv, 
-                    importe_total = @ImpTot,
-                    usuario_update_id = @UsrUpdateId,
-                    updated_at = {nowFunc}
-                WHERE id = @CabId";
-
-                using (var cmdCab = dbConn.CreateCommand())
-                {
-                    cmdCab.Transaction = transaction;
-                    cmdCab.CommandText = QueryAdapter.FormatearConsulta(queryUpdateCab);
-
-                    AgregarParametro(cmdCab, "@CabId", cabecera.Id);
-                    AgregarParametro(cmdCab, "@TipoDoc", cabecera.TipoDocumento);
-                    AgregarParametro(cmdCab, "@FecEmi", cabecera.FechaEmision);
-                    AgregarParametro(cmdCab, "@PtoVentaId", cabecera.PuntoVentaId);
-                    AgregarParametro(cmdCab, "@AlmId", cabecera.AlmacenId ?? 1);
-                    AgregarParametro(cmdCab, "@CompradorId", cabecera.CompradorId);
-                    AgregarParametro(cmdCab, "@InstId", cabecera.InstitucionId);
-                    AgregarParametro(cmdCab, "@Obs", cabecera.Observacion);
-                    AgregarParametro(cmdCab, "@TotGrav", cabecera.TotalGravado);
-                    AgregarParametro(cmdCab, "@TotIna", cabecera.TotalInafecto);
-                    AgregarParametro(cmdCab, "@TotExo", cabecera.TotalExonerado);
-                    AgregarParametro(cmdCab, "@TotIgv", cabecera.TotalIgv);
-                    AgregarParametro(cmdCab, "@ImpTot", cabecera.ImporteTotal);
-                    AgregarParametro(cmdCab, "@UsrUpdateId", usuarioModificadorId);
-
-                    await cmdCab.ExecuteNonQueryAsync();
-                }
-
-                // 2. ELIMINAR DETALLES Y CÓDIGOS ANTERIORES
-                string queryDelCod = "DELETE FROM facturacion_detalle_codigos WHERE facturacion_detalle_id IN (SELECT id FROM facturacion_detalle WHERE facturacion_cabecera_id = @CabId)";
-                string queryDelDet = "DELETE FROM facturacion_detalle WHERE facturacion_cabecera_id = @CabId";
-
-                using (var cmdDel = dbConn.CreateCommand())
-                {
-                    cmdDel.Transaction = transaction;
-                    cmdDel.CommandText = QueryAdapter.FormatearConsulta(queryDelCod);
-                    AgregarParametro(cmdDel, "@CabId", cabecera.Id);
-                    await cmdDel.ExecuteNonQueryAsync();
-
-                    cmdDel.CommandText = QueryAdapter.FormatearConsulta(queryDelDet);
-                    await cmdDel.ExecuteNonQueryAsync();
-                }
-
-                // 3. RE-INSERTAR DETALLES
-                string queryDetalle = $@"
-                INSERT INTO facturacion_detalle 
-                (facturacion_cabecera_id, movimiento_id, producto_id, numero_linea, cantidad, precio_unitario, 
-                 valor_gravado, valor_inafecto, valor_exonerado, valor_igv, importe_total, created_at)
-                VALUES 
-                (@CabId, @MovId, @ProdId, @NumLinea, @Cant, @PreUnit, 
-                 @ValGrav, @ValIna, @ValExo, @ValIgv, @ImpTot, {nowFunc});
-                {selectId}";
-
-                string queryCodigo = "INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id) VALUES (@DetId, @CodCreadoId)";
+                string queryCodigo = "INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id) VALUES (@DetId, @CodCreadoId);";
+                string queryUpdKardex = "UPDATE codigos_creados SET estado_id = 4 WHERE id = @CodCreadoId;";
 
                 int linea = 1;
                 foreach (var detalle in cabecera.Detalles)
@@ -319,8 +163,251 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                             AgregarParametro(cmdCod, "@DetId", nuevoDetalleId);
                             AgregarParametro(cmdCod, "@CodCreadoId", codigo.CodigoCreadoId);
                             await cmdCod.ExecuteNonQueryAsync();
+
+                            using var cmdKardex = dbConn.CreateCommand();
+                            cmdKardex.Transaction = transaction;
+                            cmdKardex.CommandText = QueryAdapter.FormatearConsulta(queryUpdKardex);
+                            AgregarParametro(cmdKardex, "@CodCreadoId", codigo.CodigoCreadoId);
+                            await cmdKardex.ExecuteNonQueryAsync();
                         }
                     }
+                }
+
+                // 4. ACTUALIZAR CORRELATIVO
+                string campoUpdate = cabecera.TipoDocumento switch
+                {
+                    "01" => "num_fact = num_fact + 1",
+                    "02" or "03" => "num_bole = num_bole + 1",
+                    _ => "num_reci = num_reci + 1"
+                };
+
+                if (!string.IsNullOrEmpty(campoUpdate))
+                {
+                    string queryCorrelativo = $"UPDATE series_documentos SET {campoUpdate} WHERE id = @SerieId";
+                    using var cmdCorr = dbConn.CreateCommand();
+                    cmdCorr.Transaction = transaction;
+                    cmdCorr.CommandText = QueryAdapter.FormatearConsulta(queryCorrelativo);
+                    AgregarParametro(cmdCorr, "@SerieId", serieId);
+                    await cmdCorr.ExecuteNonQueryAsync();
+                }
+
+                await transaction.CommitAsync();
+                return nuevaCabeceraId;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                throw new Exception("Error al guardar el comprobante: " + ex.Message, ex);
+            }
+        }
+
+        // =========================================================================
+        // 2. ACTUALIZAR COMPROBANTE CON AUDITORÍA COMPLETA
+        // =========================================================================
+        public async Task ActualizarComprobanteAsync(FacturacionCabecera cabecera, int usuarioModificadorId, string motivoEdicion = "EDICIÓN DE COMPROBANTE")
+        {
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            using var transaction = dbConn.BeginTransaction();
+
+            try
+            {
+                string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
+                string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
+
+                // 🌟 A. CAPTURAR DATOS PREVIOS PARA LA AUDITORÍA
+                decimal importePrevio = 0.00m;
+                string observacionPrevia = string.Empty;
+
+                string queryPrev = "SELECT importe_total, COALESCE(observacion, '') FROM facturacion_cabecera WHERE id = @CabId;";
+                using (var cmdPrev = dbConn.CreateCommand())
+                {
+                    cmdPrev.Transaction = transaction;
+                    cmdPrev.CommandText = QueryAdapter.FormatearConsulta(queryPrev);
+                    AgregarParametro(cmdPrev, "@CabId", cabecera.Id);
+                    using var rdrPrev = await cmdPrev.ExecuteReaderAsync();
+                    if (await rdrPrev.ReadAsync())
+                    {
+                        importePrevio = rdrPrev.GetDecimal(0);
+                        observacionPrevia = rdrPrev.GetString(1);
+                    }
+                }
+
+                // 🌟 B. ACTUALIZAR CABECERA
+                string queryUpdateCab = $@"
+            UPDATE facturacion_cabecera SET 
+                tipo_documento = @TipoDoc, 
+                fecha_emision = @FecEmi, 
+                punto_venta_id = @PtoVentaId,
+                almacen_id = @AlmId,
+                comprador_id = @CompradorId, 
+                institucion_id = @InstId, 
+                observacion = @Obs, 
+                total_gravado = @TotGrav, 
+                total_inafecto = @TotIna, 
+                total_exonerado = @TotExo, 
+                total_igv = @TotIgv, 
+                importe_total = @ImpTot,
+                monto_delivery = @MontoDelivery,
+                usuario_update_id = @UsrUpdateId,
+                updated_at = {nowFunc}
+            WHERE id = @CabId";
+
+                using (var cmdCab = dbConn.CreateCommand())
+                {
+                    cmdCab.Transaction = transaction;
+                    cmdCab.CommandText = QueryAdapter.FormatearConsulta(queryUpdateCab);
+
+                    AgregarParametro(cmdCab, "@CabId", cabecera.Id);
+                    AgregarParametro(cmdCab, "@TipoDoc", cabecera.TipoDocumento);
+                    AgregarParametro(cmdCab, "@FecEmi", cabecera.FechaEmision);
+                    AgregarParametro(cmdCab, "@PtoVentaId", cabecera.PuntoVentaId);
+                    AgregarParametro(cmdCab, "@AlmId", cabecera.AlmacenId ?? 1);
+                    AgregarParametro(cmdCab, "@CompradorId", cabecera.CompradorId);
+                    AgregarParametro(cmdCab, "@InstId", cabecera.InstitucionId);
+                    AgregarParametro(cmdCab, "@Obs", cabecera.Observacion);
+                    AgregarParametro(cmdCab, "@TotGrav", cabecera.TotalGravado);
+                    AgregarParametro(cmdCab, "@TotIna", cabecera.TotalInafecto);
+                    AgregarParametro(cmdCab, "@TotExo", cabecera.TotalExonerado);
+                    AgregarParametro(cmdCab, "@TotIgv", cabecera.TotalIgv);
+                    AgregarParametro(cmdCab, "@ImpTot", cabecera.ImporteTotal);
+                    AgregarParametro(cmdCab, "@MontoDelivery", cabecera.MontoDelivery);
+                    AgregarParametro(cmdCab, "@UsrUpdateId", usuarioModificadorId);
+
+                    await cmdCab.ExecuteNonQueryAsync();
+                }
+
+                // 🌟 C. BORRAR Y REINSERTAR PAGOS (SIN created_at)
+                string queryDelPagos = "DELETE FROM facturacion_pagos_detalle WHERE facturacion_cabecera_id = @CabId;";
+                using (var cmdDelPagos = dbConn.CreateCommand())
+                {
+                    cmdDelPagos.Transaction = transaction;
+                    cmdDelPagos.CommandText = QueryAdapter.FormatearConsulta(queryDelPagos);
+                    AgregarParametro(cmdDelPagos, "@CabId", cabecera.Id);
+                    await cmdDelPagos.ExecuteNonQueryAsync();
+                }
+
+                if (cabecera.Pagos != null && cabecera.Pagos.Count > 0)
+                {
+                    // ✅ CORREGIDO: columnas exactas sin created_at
+                    string queryPago = @"
+                INSERT INTO facturacion_pagos_detalle 
+                (facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion)
+                VALUES 
+                (@CabId, @MedioId, @Monto, @NumOp, @Obs);";
+
+                    foreach (var pago in cabecera.Pagos)
+                    {
+                        using var cmdPago = dbConn.CreateCommand();
+                        cmdPago.Transaction = transaction;
+                        cmdPago.CommandText = QueryAdapter.FormatearConsulta(queryPago);
+                        AgregarParametro(cmdPago, "@CabId", cabecera.Id);
+                        AgregarParametro(cmdPago, "@MedioId", pago.MedioPagoId > 0 ? pago.MedioPagoId : 1);
+                        AgregarParametro(cmdPago, "@Monto", pago.Monto);
+                        AgregarParametro(cmdPago, "@NumOp", string.IsNullOrWhiteSpace(pago.NumeroOperacion) ? string.Empty : pago.NumeroOperacion.Trim());
+                        AgregarParametro(cmdPago, "@Obs", "VENTA MANUAL");
+                        await cmdPago.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // 🌟 D. BORRAR DETALLES ANTERIORES
+                string queryDelCod = "DELETE FROM facturacion_detalle_codigos WHERE facturacion_detalle_id IN (SELECT id FROM facturacion_detalle WHERE facturacion_cabecera_id = @CabId)";
+                string queryDelDet = "DELETE FROM facturacion_detalle WHERE facturacion_cabecera_id = @CabId";
+
+                using (var cmdDel = dbConn.CreateCommand())
+                {
+                    cmdDel.Transaction = transaction;
+                    cmdDel.CommandText = QueryAdapter.FormatearConsulta(queryDelCod);
+                    AgregarParametro(cmdDel, "@CabId", cabecera.Id);
+                    await cmdDel.ExecuteNonQueryAsync();
+
+                    cmdDel.CommandText = QueryAdapter.FormatearConsulta(queryDelDet);
+                    await cmdDel.ExecuteNonQueryAsync();
+                }
+
+                // 🌟 E. REINSERTAR DETALLES Y CÓDIGOS (SIN created_at)
+                string queryDetalle = $@"
+            INSERT INTO facturacion_detalle 
+            (facturacion_cabecera_id, movimiento_id, producto_id, numero_linea, cantidad, precio_unitario, 
+             valor_gravado, valor_inafecto, valor_exonerado, valor_igv, importe_total)
+            VALUES 
+            (@CabId, @MovId, @ProdId, @NumLinea, @Cant, @PreUnit, 
+             @ValGrav, @ValIna, @ValExo, @ValIgv, @ImpTot);
+            {selectId}";
+
+                string queryCodigo = "INSERT INTO facturacion_detalle_codigos (facturacion_detalle_id, codigo_creado_id) VALUES (@DetId, @CodCreadoId);";
+                string queryUpdKardex = "UPDATE codigos_creados SET estado_id = 4 WHERE id = @CodCreadoId;";
+
+                int linea = 1;
+                foreach (var detalle in cabecera.Detalles)
+                {
+                    int nuevoDetalleId;
+                    using (var cmdDet = dbConn.CreateCommand())
+                    {
+                        cmdDet.Transaction = transaction;
+                        cmdDet.CommandText = QueryAdapter.FormatearConsulta(queryDetalle);
+
+                        AgregarParametro(cmdDet, "@CabId", cabecera.Id);
+                        AgregarParametro(cmdDet, "@MovId", (detalle.MovimientoId > 0) ? (object)detalle.MovimientoId : DBNull.Value);
+                        AgregarParametro(cmdDet, "@ProdId", detalle.ProductoId);
+                        AgregarParametro(cmdDet, "@NumLinea", linea++);
+                        AgregarParametro(cmdDet, "@Cant", detalle.Cantidad);
+                        AgregarParametro(cmdDet, "@PreUnit", detalle.PrecioUnitario);
+                        AgregarParametro(cmdDet, "@ValGrav", detalle.ValorGravado);
+                        AgregarParametro(cmdDet, "@ValIna", detalle.ValorInafecto);
+                        AgregarParametro(cmdDet, "@ValExo", detalle.ValorExonerado);
+                        AgregarParametro(cmdDet, "@ValIgv", detalle.ValorIgv);
+                        AgregarParametro(cmdDet, "@ImpTot", detalle.ImporteTotal);
+
+                        nuevoDetalleId = Convert.ToInt32(await cmdDet.ExecuteScalarAsync());
+                    }
+
+                    if (detalle.Codigos != null && detalle.Codigos.Count > 0)
+                    {
+                        foreach (var codigo in detalle.Codigos)
+                        {
+                            using var cmdCod = dbConn.CreateCommand();
+                            cmdCod.Transaction = transaction;
+                            cmdCod.CommandText = QueryAdapter.FormatearConsulta(queryCodigo);
+                            AgregarParametro(cmdCod, "@DetId", nuevoDetalleId);
+                            AgregarParametro(cmdCod, "@CodCreadoId", codigo.CodigoCreadoId);
+                            await cmdCod.ExecuteNonQueryAsync();
+
+                            using var cmdKardex = dbConn.CreateCommand();
+                            cmdKardex.Transaction = transaction;
+                            cmdKardex.CommandText = QueryAdapter.FormatearConsulta(queryUpdKardex);
+                            AgregarParametro(cmdKardex, "@CodCreadoId", codigo.CodigoCreadoId);
+                            await cmdKardex.ExecuteNonQueryAsync();
+                        }
+                    }
+                }
+
+                // 🌟 F. INSERTAR AUDITORÍA
+                string queryAuditoria = $@"
+            INSERT INTO facturacion_auditoria_ediciones
+            (facturacion_cabecera_id, usuario_id, fecha_edicion, motivo_edicion, 
+             observacion_previa, observacion_nueva, total_items_nuevos, importe_previo, importe_nuevo)
+            VALUES
+            (@CabId, @UsrId, {nowFunc}, @Motivo, 
+             @ObsPrev, @ObsNueva, @TotItems, @ImpPrev, @ImpNuevo);";
+
+                using (var cmdAudit = dbConn.CreateCommand())
+                {
+                    cmdAudit.Transaction = transaction;
+                    cmdAudit.CommandText = QueryAdapter.FormatearConsulta(queryAuditoria);
+
+                    AgregarParametro(cmdAudit, "@CabId", cabecera.Id);
+                    AgregarParametro(cmdAudit, "@UsrId", usuarioModificadorId);
+                    AgregarParametro(cmdAudit, "@Motivo", string.IsNullOrWhiteSpace(motivoEdicion) ? "EDICIÓN GENERAL" : motivoEdicion.Trim());
+                    AgregarParametro(cmdAudit, "@ObsPrev", string.IsNullOrWhiteSpace(observacionPrevia) ? string.Empty : observacionPrevia);
+                    AgregarParametro(cmdAudit, "@ObsNueva", string.IsNullOrWhiteSpace(cabecera.Observacion) ? string.Empty : cabecera.Observacion.Trim());
+                    AgregarParametro(cmdAudit, "@TotItems", cabecera.Detalles.Count);
+                    AgregarParametro(cmdAudit, "@ImpPrev", importePrevio);
+                    AgregarParametro(cmdAudit, "@ImpNuevo", cabecera.ImporteTotal);
+
+                    await cmdAudit.ExecuteNonQueryAsync();
                 }
 
                 await transaction.CommitAsync();
@@ -344,15 +431,15 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             FacturacionCabecera? cabecera = null;
 
             string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
-            string sqlAlm = almacenId.HasValue ? " AND (almacen_id = @AlmId OR almacen_id IS NULL)" : "";
+            string sqlAlm = almacenId.HasValue ? " AND (almacen_id = @AlmId OR punto_venta_id = @AlmId)" : "";
 
             string queryCab = $@"
-            SELECT id, tipo_documento, serie_documento, numero_documento, fecha_emision, punto_venta_id, almacen_id,
-                   comprador_id, institucion_id, observacion, total_gravado, total_inafecto, total_exonerado,
-                   total_igv, importe_total, porcentaje_igv, fecha_registro, usuario_id, estado_registro,
-                   usuario_update_id, updated_at
-            FROM facturacion_cabecera {nolock}
-            WHERE serie_documento = @Serie AND numero_documento = @Numero {sqlAlm}";
+                SELECT id, empresa_id, tipo_documento, serie_documento, numero_documento, fecha_emision, punto_venta_id, almacen_id,
+                       comprador_id, institucion_id, observacion, total_gravado, total_inafecto, total_exonerado,
+                       total_igv, importe_total, monto_delivery, porcentaje_igv, fecha_registro, usuario_id, estado_registro,
+                       usuario_update_id, updated_at
+                FROM facturacion_cabecera {nolock}
+                WHERE serie_documento = @Serie AND numero_documento = @Numero {sqlAlm}";
 
             using (var cmd = dbConn.CreateCommand())
             {
@@ -367,11 +454,12 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                     cabecera = new FacturacionCabecera
                     {
                         Id = Convert.ToInt32(reader["id"]),
+                        EmpresaId = reader["empresa_id"] == DBNull.Value ? null : Convert.ToInt32(reader["empresa_id"]),
                         TipoDocumento = reader["tipo_documento"].ToString() ?? "01",
                         SerieDocumento = reader["serie_documento"].ToString() ?? "",
                         NumeroDocumento = reader["numero_documento"].ToString() ?? "",
                         FechaEmision = Convert.ToDateTime(reader["fecha_emision"]),
-                        PuntoVentaId = Convert.ToInt32(reader["punto_venta_id"]),
+                        PuntoVentaId = reader["punto_venta_id"] == DBNull.Value ? 0 : Convert.ToInt32(reader["punto_venta_id"]),
                         AlmacenId = reader["almacen_id"] == DBNull.Value ? null : Convert.ToInt32(reader["almacen_id"]),
                         CompradorId = reader["comprador_id"] == DBNull.Value ? null : Convert.ToInt32(reader["comprador_id"]),
                         InstitucionId = reader["institucion_id"] == DBNull.Value ? null : Convert.ToInt32(reader["institucion_id"]),
@@ -381,7 +469,8 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                         TotalExonerado = Convert.ToDecimal(reader["total_exonerado"]),
                         TotalIgv = Convert.ToDecimal(reader["total_igv"]),
                         ImporteTotal = Convert.ToDecimal(reader["importe_total"]),
-                        PorcentajeIgv = Convert.ToDecimal(reader["porcentaje_igv"]),
+                        MontoDelivery = reader["monto_delivery"] == DBNull.Value ? 0.00m : Convert.ToDecimal(reader["monto_delivery"]),
+                        PorcentajeIgv = reader["porcentaje_igv"] == DBNull.Value ? 18.00m : Convert.ToDecimal(reader["porcentaje_igv"]),
                         FechaRegistro = Convert.ToDateTime(reader["fecha_registro"]),
                         UsuarioId = Convert.ToInt32(reader["usuario_id"]),
                         EstadoRegistro = Convert.ToBoolean(reader["estado_registro"])
@@ -391,7 +480,39 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
 
             if (cabecera == null) return null;
 
-            // Cargar Detalles
+
+            // 1. Cargar Pagos Registrados
+            string queryPagos = $@"
+                SELECT fp.id, fp.medio_pago_id, mp.nombre AS medio_pago_nombre, fp.monto, fp.numero_operacion
+                FROM facturacion_pago_detalle fp {nolock}
+                INNER JOIN medios_pago mp {nolock} ON fp.medio_pago_id = mp.id
+                WHERE fp.facturacion_cabecera_id = @CabId;";
+
+            try
+            {
+                using var cmdPagos = dbConn.CreateCommand();
+                cmdPagos.CommandText = QueryAdapter.FormatearConsulta(queryPagos);
+                AgregarParametro(cmdPagos, "@CabId", cabecera.Id);
+
+                using var readerPagos = await cmdPagos.ExecuteReaderAsync();
+                while (await readerPagos.ReadAsync())
+                {
+                    cabecera.Pagos.Add(new FacturacionPagoDetalle
+                    {
+                        Id = Convert.ToInt32(readerPagos["id"]),
+                        FacturacionCabeceraId = cabecera.Id,
+                        MedioPagoId = Convert.ToInt32(readerPagos["medio_pago_id"]),
+                        Monto = Convert.ToDecimal(readerPagos["monto"]),
+                        NumeroOperacion = readerPagos["numero_operacion"] == DBNull.Value ? string.Empty : readerPagos["numero_operacion"].ToString()!
+                    });
+                }
+            }
+            catch
+            {
+                // Manejo de registros legacy
+            }
+
+            // 2. Cargar Detalles
             string queryDet = $"SELECT * FROM facturacion_detalle {nolock} WHERE facturacion_cabecera_id = @CabId ORDER BY numero_linea ASC";
             using (var cmd = dbConn.CreateCommand())
             {
@@ -419,14 +540,14 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 }
             }
 
-            // Cargar Códigos asociados a cada detalle
+            // 3. Cargar Códigos asociados a cada detalle
             foreach (var det in cabecera.Detalles)
             {
                 string queryCod = $@"
-                SELECT dc.id, dc.codigo_creado_id, cc.codigo 
-                FROM facturacion_detalle_codigos dc {nolock}
-                INNER JOIN codigos_creados cc {nolock} ON dc.codigo_creado_id = cc.id
-                WHERE dc.facturacion_detalle_id = @DetId";
+                    SELECT dc.id, dc.codigo_creado_id, cc.codigo 
+                    FROM facturacion_detalle_codigos dc {nolock}
+                    INNER JOIN codigos_creados cc {nolock} ON dc.codigo_creado_id = cc.id
+                    WHERE dc.facturacion_detalle_id = @DetId";
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = QueryAdapter.FormatearConsulta(queryCod);
@@ -459,12 +580,12 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             string nowFunc = QueryAdapter.EsMySQL ? "NOW()" : "GETDATE()";
 
             string queryAnular = $@"
-            UPDATE facturacion_cabecera SET 
-                estado_registro = 0,
-                usuario_anulacion_id = @UsrId,
-                fecha_anulacion = {nowFunc},
-                motivo_anulacion = @Motivo
-            WHERE id = @id";
+                UPDATE facturacion_cabecera SET 
+                    estado_registro = 0,
+                    usuario_anulacion_id = @UsrId,
+                    fecha_anulacion = {nowFunc},
+                    motivo_anulacion = @Motivo
+                WHERE id = @id";
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(queryAnular);
@@ -487,16 +608,16 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             string limit1 = QueryAdapter.EsMySQL ? "LIMIT 1" : "";
 
             string queryExistencia = $@"
-            SELECT {top1} cc.id, cc.codigo, cc.estado_id, cc.almacen_id
-            FROM codigos_creados cc {nolock}
-            INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-            WHERE rc.producto_id = @ProductoId
-              AND (
-                  cc.codigo = @CodigoExacto 
-                  OR cc.codigo LIKE @CodigoSufijo
-                  OR REPLACE(cc.codigo, '''', '-') = @CodigoExacto
-              )
-            {limit1}";
+                SELECT {top1} cc.id, cc.codigo, cc.estado_id, cc.almacen_id
+                FROM codigos_creados cc {nolock}
+                INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+                WHERE rc.producto_id = @ProductoId
+                  AND (
+                      cc.codigo = @CodigoExacto 
+                      OR cc.codigo LIKE @CodigoSufijo
+                      OR REPLACE(cc.codigo, '''', '-') = @CodigoExacto
+                  )
+                {limit1}";
 
             int codigoCreadoId = 0;
             string codigoCompleto = "";
@@ -525,13 +646,13 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             }
 
             string queryVendido = $@"
-            SELECT {top1} fc.serie_documento, fc.numero_documento
-            FROM facturacion_detalle_codigos fdc {nolock}
-            INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
-            INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
-            WHERE fdc.codigo_creado_id = @CodigoId 
-              AND fc.estado_registro = 1
-            {limit1}";
+                SELECT {top1} fc.serie_documento, fc.numero_documento
+                FROM facturacion_detalle_codigos fdc {nolock}
+                INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
+                INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
+                WHERE fdc.codigo_creado_id = @CodigoId 
+                  AND fc.estado_registro = 1
+                {limit1}";
 
             using (var cmdVend = dbConn.CreateCommand())
             {
@@ -547,28 +668,27 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 }
             }
 
-            // 3. CONSULTAR EL ÚLTIMO MOVIMIENTO REAL VIGENTE EN KÁRDEX
             string sqlFiltroAlm = almacenId.HasValue
                 ? " AND (m.almacen_origen_id = @AlmId OR m.almacen_destino_id = @AlmId OR m.almacen_id = @AlmId)"
                 : "";
 
             string queryUltimoMovimiento = $@"
-SELECT {top1} 
-    m.id AS movimiento_id, 
-    mp.tipo_movimiento_id, 
-    m.motivo_producto_id,
-    mp.descripcion AS motivo_desc,
-    m.serie_documento, 
-    m.numero_documento,
-    m.fecha_movimiento
-FROM movimiento_codigos mc {nolock}
-INNER JOIN movimientos m {nolock} ON mc.movimiento_id = m.id
-INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-WHERE mc.codigo_creado_id = @CodigoId
-  AND m.estado_id = 1
-  {sqlFiltroAlm}
-ORDER BY m.fecha_movimiento DESC, m.id DESC
-{limit1}";
+                SELECT {top1} 
+                    m.id AS movimiento_id, 
+                    mp.tipo_movimiento_id, 
+                    m.motivo_producto_id,
+                    mp.descripcion AS motivo_desc,
+                    m.serie_documento, 
+                    m.numero_documento,
+                    m.fecha_movimiento
+                FROM movimiento_codigos mc {nolock}
+                INNER JOIN movimientos m {nolock} ON mc.movimiento_id = m.id
+                INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+                WHERE mc.codigo_creado_id = @CodigoId
+                  AND m.estado_id = 1
+                  {sqlFiltroAlm}
+                ORDER BY m.fecha_movimiento DESC, m.id DESC
+                {limit1}";
 
             int movimientoIdCapturado = 0;
 
@@ -581,14 +701,12 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
                 using var readerMov = await cmdMov.ExecuteReaderAsync();
                 if (await readerMov.ReadAsync())
                 {
-                    int tipoMov = Convert.ToInt32(readerMov["tipo_movimiento_id"]); // 1: Entrada, 2: Salida
+                    int tipoMov = Convert.ToInt32(readerMov["tipo_movimiento_id"]);
                     int motivoId = Convert.ToInt32(readerMov["motivo_producto_id"]);
                     string motivoDesc = readerMov["motivo_desc"].ToString() ?? "";
                     string sDoc = readerMov["serie_documento"].ToString() ?? "";
                     string nDoc = readerMov["numero_documento"].ToString() ?? "";
 
-                    // 🛑 REGLA 1: Si el ÚLTIMO movimiento fue una ENTRADA (por compra, devolución o ajuste)
-                    // Significa que el libro regresó o nunca salió comercialmente
                     if (tipoMov == 1)
                     {
                         throw new InvalidOperationException(
@@ -596,8 +714,6 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
                             "No es una salida neta; debe registrar un despacho de salida vigente antes de facturar.");
                     }
 
-                    // 🛑 REGLA 2: Si es una salida pero es de transferencia entre sedes (Motivo 10)
-                    // No se puede facturar porque es movimiento logístico, no venta
                     if (tipoMov == 2 && motivoId == 10)
                     {
                         throw new InvalidOperationException(
@@ -605,7 +721,6 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
                             "No puede ser facturado hasta que complete su recepción y posterior salida comercial.");
                     }
 
-                    // 🛑 REGLA 3: Si el estado del código fue corrompido o devuelto
                     if (estadoInterno != 4)
                     {
                         throw new InvalidOperationException(
@@ -643,24 +758,24 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
             string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
             string sql = $@"
-            SELECT {topClause}
-                cc.id AS codigo_id,
-                cc.codigo,
-                cc.estado_id,
-                cc.almacen_id,
-                rc.producto_id,
-                rc.categoria_producto_id,
-                COALESCE(cp.nombre, 'SIN CATEGORÍA') AS categoria_producto,
-                p.descripcion,
-                COALESCE(p.precio_unitario, 0) AS precio_unitario,
-                CASE WHEN cc.estado_id = 4 THEN 1 ELSE 0 END AS tiene_salida
-            FROM codigos_creados cc {nolock}
-            INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
-            INNER JOIN productos p {nolock} ON rc.producto_id = p.id
-            LEFT JOIN categoria_producto cp {nolock} ON rc.categoria_producto_id = cp.id
-            WHERE cc.codigo = @codigo 
-               OR REPLACE(cc.codigo, '''', '-') = @codigo
-            {limitClause};";
+                SELECT {topClause}
+                    cc.id AS codigo_id,
+                    cc.codigo,
+                    cc.estado_id,
+                    cc.almacen_id,
+                    rc.producto_id,
+                    rc.categoria_producto_id,
+                    COALESCE(cp.nombre, 'SIN CATEGORÍA') AS categoria_producto,
+                    p.descripcion,
+                    COALESCE(p.precio_unitario, 0) AS precio_unitario,
+                    CASE WHEN cc.estado_id = 4 THEN 1 ELSE 0 END AS tiene_salida
+                FROM codigos_creados cc {nolock}
+                INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
+                INNER JOIN productos p {nolock} ON rc.producto_id = p.id
+                LEFT JOIN categoria_producto cp {nolock} ON rc.categoria_producto_id = cp.id
+                WHERE cc.codigo = @codigo 
+                   OR REPLACE(cc.codigo, '''', '-') = @codigo
+                {limitClause};";
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
@@ -694,10 +809,6 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
             };
         }
 
-
-        // =========================================================================
-        // 5. CONSULTA MASIVA DE CANDADO FISCAL (ANTI-ALTERACIÓN DE CÓDIGOS FACTURADOS)
-        // =========================================================================
         public async Task<Dictionary<int, string>> ObtenerComprobantesActivosPorCodigosAsync(
             IEnumerable<int> codigosIds,
             DbConnection conn,
@@ -728,16 +839,16 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
                 }
 
                 string query = $@"
-        SELECT 
-            fdc.codigo_creado_id, 
-            fc.tipo_documento, 
-            fc.serie_documento, 
-            fc.numero_documento
-        FROM facturacion_detalle_codigos fdc {nolock}
-        INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
-        INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
-        WHERE fdc.codigo_creado_id IN ({string.Join(",", paramNames)})
-          AND fc.estado_registro = 1";
+                    SELECT 
+                        fdc.codigo_creado_id, 
+                        fc.tipo_documento, 
+                        fc.serie_documento, 
+                        fc.numero_documento
+                    FROM facturacion_detalle_codigos fdc {nolock}
+                    INNER JOIN facturacion_detalle fd {nolock} ON fdc.facturacion_detalle_id = fd.id
+                    INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
+                    WHERE fdc.codigo_creado_id IN ({string.Join(",", paramNames)})
+                      AND fc.estado_registro = 1";
 
                 cmd.CommandText = QueryAdapter.FormatearConsulta(query);
 
@@ -772,11 +883,11 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
             await dbConn.OpenAsync();
 
             string sql = @"
-        INSERT INTO facturacion_pagos_detalle (
-            facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion, created_at
-        ) VALUES (
-            @cabId, @medioId, @monto, @numOp, 'VENTA MANUAL', NOW()
-        );";
+                INSERT INTO facturacion_pagos_detalle (
+                    facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion
+                ) VALUES (
+                    @cabId, @medioId, @monto, @numOp, 'VENTA MANUAL'
+                );";
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = Data.QueryAdapter.FormatearConsulta(sql);
@@ -784,9 +895,60 @@ ORDER BY m.fecha_movimiento DESC, m.id DESC
             var p1 = cmd.CreateParameter(); p1.ParameterName = "@cabId"; p1.Value = cabeceraId; cmd.Parameters.Add(p1);
             var p2 = cmd.CreateParameter(); p2.ParameterName = "@medioId"; p2.Value = medioPagoId; cmd.Parameters.Add(p2);
             var p3 = cmd.CreateParameter(); p3.ParameterName = "@monto"; p3.Value = monto; cmd.Parameters.Add(p3);
-            var p4 = cmd.CreateParameter(); p4.ParameterName = "@numOp"; p4.Value = (object?)numeroOperacion ?? DBNull.Value; cmd.Parameters.Add(p4);
+            var p4 = cmd.CreateParameter(); p4.ParameterName = "@numOp"; p4.Value = string.IsNullOrWhiteSpace(numeroOperacion) ? string.Empty : numeroOperacion.Trim(); cmd.Parameters.Add(p4);
 
             await cmd.ExecuteNonQueryAsync();
+        }
+
+        public async Task<List<SerieDocumento>> ObtenerTodasLasSeriesAsync()
+        {
+            var lista = new List<SerieDocumento>();
+            string query = @"
+        SELECT s.id, s.ubicacion_id, s.empresa_id, s.num_seri, s.tip_seri, 
+               s.num_fact, s.num_bole, s.num_reci, s.fec_regi, s.cod_usua, s.est_regi,
+               e.razon_social AS empresa_razon_social
+        FROM series_documentos s
+        LEFT JOIN empresas e ON s.empresa_id = e.id
+        WHERE s.est_regi = 1
+        ORDER BY s.num_seri";
+
+            using var conn = _database.GetConnection();
+            var dbConn = (DbConnection)conn;
+            await dbConn.OpenAsync();
+
+            using var cmd = dbConn.CreateCommand();
+            cmd.CommandText = QueryAdapter.FormatearConsulta(query);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var serie = new SerieDocumento
+                {
+                    Id = Convert.ToInt32(reader["id"]),
+                    UbicacionId = reader["ubicacion_id"] != DBNull.Value ? Convert.ToInt32(reader["ubicacion_id"]) : 0,
+                    EmpresaId = reader["empresa_id"] != DBNull.Value ? Convert.ToInt32(reader["empresa_id"]) : null,
+                    NumeroSerie = reader["num_seri"].ToString() ?? "",
+                    TipoSerie = reader["tip_seri"] != DBNull.Value ? reader["tip_seri"].ToString()! : "",
+                    CorrelativoFactura = Convert.ToInt32(reader["num_fact"]),
+                    CorrelativoBoleta = Convert.ToInt32(reader["num_bole"]),
+                    CorrelativoRecibo = Convert.ToInt32(reader["num_reci"]),
+                    FechaRegistro = reader["fec_regi"] != DBNull.Value ? Convert.ToDateTime(reader["fec_regi"]) : DateTime.Now,
+                    CodigoUsuario = reader["cod_usua"] != DBNull.Value ? reader["cod_usua"].ToString() : "SYS",
+                    EstadoId = Convert.ToInt32(reader["est_regi"])
+                };
+
+                if (serie.EmpresaId.HasValue && reader["empresa_razon_social"] != DBNull.Value)
+                {
+                    serie.Empresa = new Empresa
+                    {
+                        Id = serie.EmpresaId.Value,
+                        RazonSocial = reader["empresa_razon_social"].ToString()!
+                    };
+                }
+
+                lista.Add(serie);
+            }
+            return lista;
         }
     }
 }

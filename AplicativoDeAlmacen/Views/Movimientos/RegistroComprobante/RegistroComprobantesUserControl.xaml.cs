@@ -31,15 +31,21 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         private readonly UbicacionService _ubicacionService;
         private readonly PersonaComercialService _personaService;
         private readonly ReporteExcelService _reporteService;
+        private readonly AplicativoDeAlmacen.Services.Facturación.MedioPagoService _medioPagoService = new();
+        private List<Ubicacion> _cacheSedes = new List<Ubicacion>();
         private bool _moduloIniciado = false;
         private readonly ObservableCollection<PagoManualDTO> _pagosManuales = new ObservableCollection<PagoManualDTO>();
-        private readonly AplicativoDeAlmacen.Services.Facturación.MedioPagoService _medioPagoService = new();
-        private ObservableCollection<ItemGridDTO> _itemsGrid = new ObservableCollection<ItemGridDTO>();
+        private readonly ObservableCollection<ItemGridDTO> _itemsGrid = new ObservableCollection<ItemGridDTO>();
         private readonly Dictionary<int, string> _mapaEmpresas = new Dictionary<int, string>();
         private List<SerieDocumento> _todasLasSeries = new List<SerieDocumento>();
+
+        private readonly DocumentoService _documentoService; // NUEVO
+        private List<Documento> _documentosActivos = new List<Documento>(); // NUEVO
+
         private bool _isUpdatingFicha = false;
         private bool _isInitializing = false;
         private int _idComprobanteActual = 0;
+        private int? _empresaIdComprobanteCargado = null;
 
         private enum ModoFormulario
         {
@@ -56,54 +62,45 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         public RegistroComprobantesUserControl()
         {
             InitializeComponent();
+
             _facturacionService = new FacturacionService();
             _serieService = new SerieDocumentoService();
             _ubicacionService = new UbicacionService();
             _personaService = new PersonaComercialService();
             _reporteService = new ReporteExcelService();
+            _documentoService = new DocumentoService();
 
             DgItems.ItemsSource = _itemsGrid;
             DgPagosManuales.ItemsSource = _pagosManuales;
+
             Loaded += async (s, e) => await InicializarModulo();
-        }
-
-        private void ActualizarNumeroCorrelativo()
-        {
-            if (_modoActual != ModoFormulario.Nuevo) return;
-            if (CmbSerie.SelectedItem is not SerieDocumento s) return;
-
-            string tipo = (CmbTipoDocu.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "01";
-
-            int correlativo = tipo == "01" ? s.CorrelativoFactura :
-                              tipo == "02" ? s.CorrelativoBoleta :
-                                             s.CorrelativoRecibo;
-
-            TxtNumero.Text = (correlativo + 1).ToString("D7");
         }
 
         private async Task InicializarModulo()
         {
-            if (_moduloIniciado || _modoActual == ModoFormulario.BuscandoParaImprimir || _idComprobanteActual > 0)
-            {
-                return;
-            }
+            if (_moduloIniciado || _modoActual == ModoFormulario.BuscandoParaImprimir || _idComprobanteActual > 0) return;
 
             try
             {
                 _isInitializing = true;
                 _moduloIniciado = true;
+                Cursor = Cursors.Wait;
 
-                // 🌟 1. Cargar Catálogo de Empresas en memoria
-                await CargarCatalogoEmpresas();
+                var tDocs = _documentoService.ObtenerActivosAsync();
+                var tEmpresas = CargarCatalogoEmpresas();
+                var tSeries = _serieService.ObtenerTodasLasSeriesAsync();
+                var tMedios = _medioPagoService.ObtenerMediosPagoAsync(soloActivos: true);
+                var tSedes = _ubicacionService.ObtenerTodasAsync();
 
-                // 2. Cargar Series de la BD
-                await CargarTodasLasSeries();
-                FiltrarSeriesPorTipoDocumento();
+                await Task.WhenAll(tDocs, tEmpresas, tSeries, tMedios, tSedes);
 
-                // 3. Cargar Medios de Pago
-                var medios = await _medioPagoService.ObtenerMediosPagoAsync(soloActivos: true);
-                CmbMedioPagoManual.ItemsSource = medios;
-                if (medios.Any()) CmbMedioPagoManual.SelectedIndex = 0;
+                _documentosActivos = tDocs.Result;
+                _todasLasSeries = tSeries.Result;
+                _cacheSedes = tSedes.Result;
+
+                CmbTipoDocu.ItemsSource = _documentosActivos;
+                CmbMedioPagoManual.ItemsSource = tMedios.Result;
+                if (tMedios.Result.Any()) CmbMedioPagoManual.SelectedIndex = 0;
 
                 if (_modoActual == ModoFormulario.Ninguno && _idComprobanteActual == 0)
                 {
@@ -118,10 +115,16 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             finally
             {
                 _isInitializing = false;
+                Cursor = Cursors.Arrow;
+
+                if (_documentosActivos.Any())
+                {
+                    CmbTipoDocu.SelectedIndex = 0;
+                    FiltrarSeriesPorTipoDocumento();
+                }
             }
         }
 
-        // 🌟 Método auxiliar para tener en memoria ID -> Razón Social de Empresa
         private async Task CargarCatalogoEmpresas()
         {
             _mapaEmpresas.Clear();
@@ -141,15 +144,18 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 _mapaEmpresas[id] = rz;
             }
         }
-    
 
         private async Task CargarTodasLasSeries()
         {
             _todasLasSeries.Clear();
             var ubicaciones = await _ubicacionService.ObtenerTodasAsync();
-            foreach (var u in ubicaciones)
+
+            // Ejecuta las consultas de todas las sedes al mismo tiempo (Paralelismo) para que no demore
+            var tareas = ubicaciones.Select(u => _serieService.ObtenerSeriesPorUbicacionAsync(u.Id)).ToList();
+            await Task.WhenAll(tareas);
+
+            foreach (var seriesSede in tareas.Select(t => t.Result))
             {
-                var seriesSede = await _serieService.ObtenerSeriesPorUbicacionAsync(u.Id);
                 _todasLasSeries.AddRange(seriesSede);
             }
         }
@@ -158,12 +164,10 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             if (CmbSerie == null || _todasLasSeries == null) return;
 
-            if (CmbTipoDocu.SelectedItem is ComboBoxItem item)
+            if (CmbTipoDocu.SelectedItem is Documento doc)
             {
-                string tag = item.Tag.ToString() ?? "01";
-                var series = _todasLasSeries.Where(s =>
-                    !string.IsNullOrEmpty(s.NumeroSerie) &&
-                    s.NumeroSerie.StartsWith(tag == "01" ? "F" : tag == "02" ? "B" : "R")).ToList();
+                // Filtra comparando exactamente el TipoSerie (ej. "01", "03") con el Codigo del documento seleccionado
+                var series = _todasLasSeries.Where(s => s.TipoSerie == doc.Codigo).ToList();
 
                 CmbSerie.ItemsSource = series;
                 CmbSerie.DisplayMemberPath = "NumeroSerie";
@@ -171,28 +175,34 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        private async void CmbSerie_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void ActualizarNumeroCorrelativo()
+        {
+            if (_modoActual != ModoFormulario.Nuevo) return;
+            if (CmbSerie.SelectedItem is not SerieDocumento s) return;
+            if (CmbTipoDocu.SelectedItem is not Documento doc) return;
+
+            int correlativo = doc.Codigo switch
+            {
+                "01" => s.CorrelativoFactura,
+                "02" or "03" => s.CorrelativoBoleta,
+                _ => s.CorrelativoRecibo
+            };
+
+            TxtNumero.Text = (correlativo + 1).ToString("D7");
+        }
+
+        private void CmbSerie_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_isInitializing) return;
             if (TxtNumero == null || TxtPuntoVenta == null || TxtEmpresaTitular == null) return;
 
             if (CmbSerie.SelectedItem is SerieDocumento s)
             {
-                // 1. Obtener Sede
-                var todasSedes = await _ubicacionService.ObtenerTodasAsync();
-                var sede = todasSedes.FirstOrDefault(u => u.Id == s.UbicacionId);
-
+                var sede = _cacheSedes.FirstOrDefault(u => u.Id == s.UbicacionId);
                 TxtPuntoVenta.Text = sede?.Descripcion ?? "Ubicación Desconocida";
                 TxtPuntoVenta.Tag = sede?.Id;
 
-                // 🌟 2. Resolver Empresa Titular por Serie
                 int empresaIdDetectada = s.EmpresaId ?? s.Empresa?.Id ?? 0;
-
-                // Si el objeto en memoria no traía el EmpresaId, consultarlo directamente a la BD
-                if (empresaIdDetectada == 0 && !string.IsNullOrWhiteSpace(s.NumeroSerie))
-                {
-                    empresaIdDetectada = await ObtenerEmpresaIdPorSerieAsync(s.NumeroSerie);
-                }
 
                 if (empresaIdDetectada > 0 && _mapaEmpresas.TryGetValue(empresaIdDetectada, out string? razonSocialEmpresa))
                 {
@@ -221,7 +231,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        // 🌟 Consulta de respaldo rápida por si el modelo SerieDocumento no traía el ID mapeado
         private async Task<int> ObtenerEmpresaIdPorSerieAsync(string numSeri)
         {
             try
@@ -233,9 +242,9 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                 using var cmd = dbConn.CreateCommand();
                 cmd.CommandText = Data.QueryAdapter.FormatearConsulta(@"
-            SELECT COALESCE(empresa_id, 0) 
-            FROM series_documentos 
-            WHERE num_seri = @serie LIMIT 1;");
+                    SELECT COALESCE(empresa_id, 0) 
+                    FROM series_documentos 
+                    WHERE num_seri = @serie LIMIT 1;");
 
                 var p = cmd.CreateParameter();
                 p.ParameterName = "@serie";
@@ -262,11 +271,16 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         // ==========================================
         private void BtnNuevo_Click(object sender, RoutedEventArgs e)
         {
-            if (_isInitializing) return;
+            if (_isInitializing)
+            {
+                HandyControl.Controls.Growl.Info("Sincronizando catálogos, por favor espere un segundo...");
+                return;
+            }
 
             LimpiarBotonAnularDinamico();
             _modoActual = ModoFormulario.Nuevo;
             _idComprobanteActual = 0;
+            _empresaIdComprobanteCargado = null;
 
             PanelFormulario.IsEnabled = true;
             LimpiarFormulario();
@@ -287,11 +301,16 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnModificar_Click(object sender, RoutedEventArgs e)
         {
-            if (_isInitializing) return;
+            if (_isInitializing)
+            {
+                HandyControl.Controls.Growl.Info("Sincronizando catálogos, por favor espere un segundo...");
+                return;
+            }
 
             LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
+            _empresaIdComprobanteCargado = null;
             _modoActual = ModoFormulario.BuscandoParaEditar;
 
             BtnImprimirExcel.IsEnabled = false;
@@ -305,18 +324,23 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnImprimir_Click(object sender, RoutedEventArgs e)
         {
-            if (_isInitializing) return;
+            if (_isInitializing)
+            {
+                HandyControl.Controls.Growl.Info("Sincronizando catálogos, por favor espere un segundo...");
+                return;
+            }
 
             LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
+            _empresaIdComprobanteCargado = null;
             _modoActual = ModoFormulario.BuscandoParaImprimir;
 
             BtnImprimirExcel.IsEnabled = false;
             PanelFormulario.IsEnabled = true;
             ConfigurarModoBusqueda();
 
-            BtnGrabar.IsEnabled = false; // 👈 Asegurado en falso desde el inicio
+            BtnGrabar.IsEnabled = false;
             TxtNumero.Focus();
 
             MessageBox.Show("Seleccione la Serie, escriba el número de comprobante y presione ENTER para cargarlo en modo Vista Previa. Luego use 'Exportar Excel'.",
@@ -325,18 +349,23 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnAnular_Click(object sender, RoutedEventArgs e)
         {
-            if (_isInitializing) return;
+            if (_isInitializing)
+            {
+                HandyControl.Controls.Growl.Info("Sincronizando catálogos, por favor espere un segundo...");
+                return;
+            }
 
             LimpiarBotonAnularDinamico();
             LimpiarFormulario();
             _idComprobanteActual = 0;
+            _empresaIdComprobanteCargado = null;
             _modoActual = ModoFormulario.BuscandoParaAnular;
 
             BtnImprimirExcel.IsEnabled = false;
             PanelFormulario.IsEnabled = true;
             ConfigurarModoBusqueda();
 
-            BtnGrabar.IsEnabled = false; // 👈 Asegurado en falso desde el inicio
+            BtnGrabar.IsEnabled = false;
             TxtNumero.Focus();
 
             MessageBox.Show("Modo Anulación activado.\n\nSeleccione la Serie, escriba el número de comprobante y presione ENTER para revisar su contenido antes de confirmar.",
@@ -347,6 +376,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             _modoActual = ModoFormulario.Ninguno;
             _idComprobanteActual = 0;
+            _empresaIdComprobanteCargado = null;
 
             LimpiarBotonAnularDinamico();
             BtnImprimirExcel.IsEnabled = false;
@@ -355,7 +385,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         }
 
         // ==========================================
-        // BOTÓN ROJO DINÁMICO DE CONFIRMAR ANULACIÓN
+        // BOTÓN ROJO DINÁMICO DE ANULACIÓN
         // ==========================================
         private void MostrarBotonAnularDinamico()
         {
@@ -405,7 +435,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             string docIdent = $"{CmbSerie.Text}-{TxtNumero.Text}";
             var result = MessageBox.Show(
-                $"⚠️ ¿Está absolutamente seguro de ANULAR el comprobante {docIdent}?\n\nEl registro quedará marcado formalmente como anulado.",
+                $"⚠ ¿Está absolutamente seguro de ANULAR el comprobante {docIdent}?\n\nEl registro quedará marcado formalmente como anulado.",
                 "Confirmar Reversión",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
@@ -414,7 +444,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             {
                 try
                 {
-                    this.Cursor = Cursors.Wait;
+                    Cursor = Cursors.Wait;
                     if (_btnAnularDefinitivo != null) _btnAnularDefinitivo.IsEnabled = false;
 
                     int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
@@ -424,6 +454,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                     _modoActual = ModoFormulario.Ninguno;
                     _idComprobanteActual = 0;
+                    _empresaIdComprobanteCargado = null;
                     LimpiarBotonAnularDinamico();
                     LimpiarFormulario();
                     PanelFormulario.IsEnabled = false;
@@ -435,13 +466,13 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 }
                 finally
                 {
-                    this.Cursor = Cursors.Arrow;
+                    Cursor = Cursors.Arrow;
                 }
             }
         }
 
         // ==========================================
-        // GRABAR / ACTUALIZAR
+        // GRABAR / ACTUALIZAR (CON AUDITORÍA VINCULADA)
         // ==========================================
         private async void BtnGrabar_Click(object sender, RoutedEventArgs e)
         {
@@ -460,7 +491,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             decimal.TryParse(TxtTotal.Text, out decimal totalVenta);
             decimal.TryParse(TxtMontoDelivery.Text.Trim(), out decimal delivery);
 
-            // Si no agregó pagos a la grilla inferior, asignar Efectivo por defecto
             if (!_pagosManuales.Any())
             {
                 _pagosManuales.Add(new PagoManualDTO
@@ -474,14 +504,18 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
             int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
+            int? empresaIdFinal = TxtEmpresaTitular.Tag != null
+                ? Convert.ToInt32(TxtEmpresaTitular.Tag)
+                : _empresaIdComprobanteCargado;
+
             var cabecera = new FacturacionCabecera
             {
-                EmpresaId = TxtEmpresaTitular.Tag != null ? Convert.ToInt32(TxtEmpresaTitular.Tag) : (int?)null,
-                TipoDocumento = (CmbTipoDocu.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "01",
-                SerieDocumento = (CmbSerie.SelectedItem as SerieDocumento)?.NumeroSerie ?? "",
+                EmpresaId = empresaIdFinal,
+                TipoDocumento = (CmbTipoDocu.SelectedItem as Documento)?.Codigo ?? "01",
+                SerieDocumento = (CmbSerie.SelectedItem as SerieDocumento)?.NumeroSerie ?? CmbSerie.Text.Trim(),
                 NumeroDocumento = TxtNumero.Text.Trim(),
                 FechaEmision = DpFecha.SelectedDate ?? DateTime.Now,
-                PuntoVentaId = TxtPuntoVenta.Tag != null ? Convert.ToInt32(TxtPuntoVenta.Tag) : 0,
+                PuntoVentaId = TxtPuntoVenta.Tag != null ? Convert.ToInt32(TxtPuntoVenta.Tag) : miAlmacenId,
                 AlmacenId = miAlmacenId,
                 CompradorId = int.TryParse(TxtRazonSocialId.Text, out int idClie) ? idClie : (int?)null,
                 InstitucionId = int.TryParse(TxtClienteId.Text, out int idInst) ? idInst : (int?)null,
@@ -497,7 +531,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 CondicionPagoId = _pagosManuales.First().MedioPagoId
             };
 
-            // 🌟 Pasar los pagos a la cabecera para que se guarden dentro de la misma transacción
             foreach (var p in _pagosManuales)
             {
                 cabecera.Pagos.Add(new FacturacionPagoDetalle
@@ -527,13 +560,17 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             try
             {
-                this.Cursor = Cursors.Wait;
+                Cursor = Cursors.Wait;
 
                 if (_idComprobanteActual > 0)
                 {
                     cabecera.Id = _idComprobanteActual;
-                    await _facturacionService.ActualizarComprobanteAsync(cabecera, usuarioActivoId);
-                    MessageBox.Show("Comprobante actualizado correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    // 🌟 Auditoría: se envía el motivo descriptivo de la edición
+                    string motivoAuditoria = $"Edición operativa comprobante {cabecera.SerieDocumento}-{cabecera.NumeroDocumento}";
+                    await _facturacionService.ActualizarComprobanteAsync(cabecera, usuarioActivoId, motivoAuditoria);
+
+                    MessageBox.Show("Comprobante actualizado y auditado correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
@@ -549,6 +586,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
                 LimpiarFormulario();
                 _idComprobanteActual = 0;
+                _empresaIdComprobanteCargado = null;
                 PanelFormulario.IsEnabled = false;
             }
             catch (Exception ex)
@@ -557,12 +595,12 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
             finally
             {
-                this.Cursor = Cursors.Arrow;
+                Cursor = Cursors.Arrow;
             }
         }
 
         // ==========================================
-        // CARGA POR NÚMERO Y CANDADO DE AUDITORÍA
+        // CARGA POR NÚMERO Y VISTA PREVIA
         // ==========================================
         private async void TxtNumero_KeyDown(object sender, KeyEventArgs e)
         {
@@ -578,11 +616,13 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 _modoActual != ModoFormulario.BuscandoParaImprimir &&
                 _modoActual != ModoFormulario.BuscandoParaAnular) return;
 
-            if (CmbSerie.SelectedItem is not SerieDocumento serieSeleccionada)
+            if (CmbSerie.SelectedItem is not SerieDocumento serieSeleccionada && string.IsNullOrWhiteSpace(CmbSerie.Text))
             {
                 MessageBox.Show("Seleccione una serie primero.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
+
+            string serieTexto = (CmbSerie.SelectedItem as SerieDocumento)?.NumeroSerie ?? CmbSerie.Text.Trim();
 
             string inputNumero = TxtNumero.Text.Trim();
             if (!int.TryParse(inputNumero, out int numeroInt))
@@ -596,14 +636,14 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             try
             {
-                this.Cursor = Cursors.Wait;
+                Cursor = Cursors.Wait;
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                var comprobante = await _facturacionService.ObtenerComprobantePorNumeroAsync(serieSeleccionada.NumeroSerie, numeroFormateado, miAlmacenId);
+                var comprobante = await _facturacionService.ObtenerComprobantePorNumeroAsync(serieTexto, numeroFormateado, miAlmacenId);
 
                 if (comprobante == null)
                 {
-                    MessageBox.Show($"No se encontró el comprobante {serieSeleccionada.NumeroSerie}-{numeroFormateado}.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"No se encontró el comprobante {serieTexto}-{numeroFormateado} en la sede actual.", "Búsqueda", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
@@ -617,53 +657,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                     }
                 }
 
-                _idComprobanteActual = comprobante.Id;
-                DpFecha.SelectedDate = comprobante.FechaEmision;
-                TxtObservacion.Text = comprobante.Observacion;
-
-                if (comprobante.CompradorId.HasValue)
-                {
-                    var cliente = await _personaService.ObtenerPorIdAsync(comprobante.CompradorId.Value);
-                    LlenarFichaCliente(cliente, esRazonSocial: true);
-                }
-
-                if (comprobante.InstitucionId.HasValue)
-                {
-                    var colegio = await _personaService.ObtenerPorIdAsync(comprobante.InstitucionId.Value);
-                    LlenarFichaCliente(colegio, esRazonSocial: false);
-                }
-
-                _itemsGrid.Clear();
-                var productoService = new ProductoService();
-
-                foreach (var det in comprobante.Detalles)
-                {
-                    var producto = await productoService.ObtenerPorIdAsync(det.ProductoId);
-
-                    _itemsGrid.Add(new ItemGridDTO
-                    {
-                        ProductoId = det.ProductoId,
-                        MovimientoId = det.MovimientoId,
-                        DescripcionProducto = producto?.Descripcion ?? "PRODUCTO NO ENCONTRADO",
-                        UnidadMedida = producto?.UnidadMedida?.Descripcion ?? "UND",
-                        CanProd = det.Cantidad,
-                        PreUnit = det.PrecioUnitario,
-                        ImpTota = det.ImporteTotal,
-                        Codigos = det.Codigos.Select(c => new CodigoLeidoDTO
-                        {
-                            CodigoCreadoId = c.CodigoCreadoId,
-                            CodigoString = c.CodigoTexto,
-                            Cantidad = 1,
-                            Coleccion = "Kardex Recuperado"
-                        }).ToList()
-                    });
-                }
-
-                RecalcularTotales();
-                TxtOpGravadas.Text = comprobante.TotalGravado.ToString("N2");
-                TxtOpExoneradas.Text = comprobante.TotalExonerado.ToString("N2");
-                TxtIgv.Text = comprobante.TotalIgv.ToString("N2");
-                TxtTotal.Text = comprobante.ImporteTotal.ToString("N2");
+                await PoblarFormularioConComprobante(comprobante);
 
                 TxtNumero.IsReadOnly = true;
                 TxtNumero.Background = (Brush)new BrushConverter().ConvertFromString("#F8FAFC");
@@ -678,7 +672,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         return;
                     }
 
-                    // En edición: se habilitan campos, ítems y el botón guardar
                     HabilitarTodoElFormulario();
                     BtnGrabar.IsEnabled = true;
                     BtnImprimirExcel.IsEnabled = false;
@@ -690,10 +683,9 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         MessageBox.Show("¡ATENCIÓN! Este comprobante se encuentra ANULADO.", "Comprobante Anulado", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
 
-                    // En impresión: bloqueo estricto de edición e inserción
-                    ConfigurarModoBusqueda();
-                    BtnGrabar.IsEnabled = false;            // 👈 Bloqueado: No permite sobreguardar al imprimir
-                    BtnImprimirExcel.IsEnabled = true;     // 👈 Habilita únicamente la exportación
+                    BloquearParaImpresionContable();
+                    BtnGrabar.IsEnabled = false;
+                    BtnImprimirExcel.IsEnabled = true;
                 }
                 else if (_modoActual == ModoFormulario.BuscandoParaAnular)
                 {
@@ -707,15 +699,228 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                         return;
                     }
 
-                    // En anulación: el botón verde desaparece y se muestra el rojo
                     BtnGrabar.IsEnabled = false;
                     MostrarBotonAnularDinamico();
                 }
-
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al cargar comprobante: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
-                this.Cursor = Cursors.Arrow;
+                Cursor = Cursors.Arrow;
+            }
+        }
+
+        private async Task PoblarFormularioConComprobante(FacturacionCabecera comprobante)
+        {
+            _isUpdatingFicha = true;
+
+            try
+            {
+                _idComprobanteActual = comprobante.Id;
+                _empresaIdComprobanteCargado = comprobante.EmpresaId;
+                DpFecha.SelectedDate = comprobante.FechaEmision;
+                TxtObservacion.Text = comprobante.Observacion;
+
+                // 1. Tipo de documento y Serie (Selección dinámica de la entidad Documento)
+                var docCoincidente = _documentosActivos.FirstOrDefault(d => d.Codigo == comprobante.TipoDocumento);
+                if (docCoincidente != null)
+                {
+                    CmbTipoDocu.SelectedItem = docCoincidente;
+                }
+                else
+                {
+                    CmbTipoDocu.SelectedValue = comprobante.TipoDocumento;
+                }
+
+                FiltrarSeriesPorTipoDocumento();
+
+                // 1. Tipo de documento y Serie
+                CmbTipoDocu.SelectedValue = comprobante.TipoDocumento;
+                FiltrarSeriesPorTipoDocumento();
+
+                var serieObj = _todasLasSeries.FirstOrDefault(s => string.Equals(s.NumeroSerie?.Trim(), comprobante.SerieDocumento?.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (serieObj != null)
+                {
+                    CmbSerie.SelectedItem = serieObj;
+                }
+
+                // 2. Empresa y Punto de Venta
+                if (comprobante.EmpresaId.HasValue && _mapaEmpresas.TryGetValue(comprobante.EmpresaId.Value, out string? razonEmpresa))
+                {
+                    TxtEmpresaTitular.Text = razonEmpresa;
+                    TxtEmpresaTitular.Tag = comprobante.EmpresaId.Value;
+                }
+                else
+                {
+                    TxtEmpresaTitular.Text = "[ EMPRESA REGISTRADA ]";
+                    TxtEmpresaTitular.Tag = comprobante.EmpresaId;
+                }
+
+                if (comprobante.PuntoVentaId > 0)
+                {
+                    var todasSedes = await _ubicacionService.ObtenerTodasAsync();
+                    var sede = todasSedes.FirstOrDefault(u => u.Id == comprobante.PuntoVentaId);
+                    TxtPuntoVenta.Text = sede?.Descripcion ?? "Sede Principal";
+                    TxtPuntoVenta.Tag = comprobante.PuntoVentaId;
+                }
+
+                // 3. Personas Comerciales
+                if (comprobante.CompradorId.HasValue)
+                {
+                    var cliente = await _personaService.ObtenerPorIdAsync(comprobante.CompradorId.Value);
+                    LlenarFichaCliente(cliente, esRazonSocial: true);
+                }
+                else
+                {
+                    TxtRazonSocialBuscador.Text = "CLIENTES VARIOS";
+                    TxtRazonSocialId.Text = "";
+                }
+
+                if (comprobante.InstitucionId.HasValue)
+                {
+                    var colegio = await _personaService.ObtenerPorIdAsync(comprobante.InstitucionId.Value);
+                    LlenarFichaCliente(colegio, esRazonSocial: false);
+                }
+                else
+                {
+                    TxtClienteBuscador.Text = "";
+                    TxtClienteId.Text = "";
+                }
+
+                // 4. Delivery (Asignación Directa y Forzada)
+                decimal delivery = comprobante.MontoDelivery;
+                if (delivery > 0)
+                {
+                    ChkTieneDelivery.IsChecked = true;
+                    TxtMontoDelivery.IsEnabled = true;
+                    TxtMontoDelivery.Background = Brushes.White;
+                    TxtMontoDelivery.Foreground = (Brush)new BrushConverter().ConvertFromString("#1E293B");
+                    TxtMontoDelivery.Text = delivery.ToString("N2");
+                    TxtTotalDelivery.Text = delivery.ToString("N2");
+                }
+                else
+                {
+                    ChkTieneDelivery.IsChecked = false;
+                    TxtMontoDelivery.IsEnabled = false;
+                    TxtMontoDelivery.Background = (Brush)new BrushConverter().ConvertFromString("#F1F5F9");
+                    TxtMontoDelivery.Foreground = (Brush)new BrushConverter().ConvertFromString("#64748B");
+                    TxtMontoDelivery.Text = "0.00";
+                    TxtTotalDelivery.Text = "0.00";
+                }
+
+                // 5. Ítems y Códigos
+                _itemsGrid.Clear();
+                var productoService = new ProductoService();
+
+                foreach (var det in comprobante.Detalles)
+                {
+                    var producto = await productoService.ObtenerPorIdAsync(det.ProductoId);
+
+                    _itemsGrid.Add(new ItemGridDTO
+                    {
+                        NumLine = det.NumeroLinea,
+                        ProductoId = det.ProductoId,
+                        MovimientoId = det.MovimientoId,
+                        DescripcionProducto = producto?.Descripcion ?? "PRODUCTO",
+                        UnidadMedida = producto?.UnidadMedida?.Descripcion ?? "UND",
+                        CanProd = det.Cantidad,
+                        PreUnit = det.PrecioUnitario,
+                        ImpTota = det.ImporteTotal,
+                        Codigos = det.Codigos.Select(c => new CodigoLeidoDTO
+                        {
+                            CodigoCreadoId = c.CodigoCreadoId,
+                            CodigoString = c.CodigoTexto,
+                            Cantidad = 1,
+                            Coleccion = "Kardex Recuperado"
+                        }).ToList()
+                    });
+                }
+
+                // 6. Cargar Pagos Reales de BD
+                _pagosManuales.Clear();
+                var medios = await _medioPagoService.ObtenerMediosPagoAsync();
+
+                if (comprobante.Pagos != null && comprobante.Pagos.Any())
+                {
+                    foreach (var p in comprobante.Pagos)
+                    {
+                        var medio = medios.FirstOrDefault(m => m.Id == p.MedioPagoId);
+                        _pagosManuales.Add(new PagoManualDTO
+                        {
+                            MedioPagoId = p.MedioPagoId,
+                            MedioPagoNombre = medio?.Nombre ?? "PAGO REGISTRADO",
+                            Monto = p.Monto,
+                            NumeroOperacion = p.NumeroOperacion ?? ""
+                        });
+                    }
+                }
+                else
+                {
+                    _pagosManuales.Add(new PagoManualDTO
+                    {
+                        MedioPagoId = 1,
+                        MedioPagoNombre = "EFECTIVO",
+                        Monto = comprobante.ImporteTotal
+                    });
+                }
+
+                // 7. Totales Exactos de la Cabecera
+                TxtOpGravadas.Text = comprobante.TotalGravado.ToString("N2");
+                TxtOpExoneradas.Text = comprobante.TotalExonerado.ToString("N2");
+                TxtIgv.Text = comprobante.TotalIgv.ToString("N2");
+                TxtTotalDelivery.Text = delivery.ToString("N2");
+                TxtTotal.Text = comprobante.ImporteTotal.ToString("N2");
+
+                RecalcularBalanceCobro();
+            }
+            finally
+            {
+                _isUpdatingFicha = false;
+            }
+        }
+
+        public async Task CargarComprobanteParaConsultaAsync(string serie, string numero)
+        {
+            try
+            {
+                Cursor = Cursors.Wait;
+                _moduloIniciado = true;
+                _modoActual = ModoFormulario.BuscandoParaImprimir;
+
+                if (_todasLasSeries == null || !_todasLasSeries.Any())
+                {
+                    await CargarTodasLasSeries();
+                }
+
+                string numeroNormalizado = int.TryParse(numero, out int nVal) ? nVal.ToString("D7") : numero.Trim();
+                string seriePura = serie.Trim().ToUpper();
+
+                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
+                var comprobante = await _facturacionService.ObtenerComprobantePorNumeroAsync(seriePura, numeroNormalizado, miAlmacenId);
+
+                if (comprobante == null)
+                {
+                    MessageBox.Show($"No se encontró el comprobante {seriePura}-{numeroNormalizado} en esta sede.", "No encontrado", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                LimpiarFormulario();
+                TxtNumero.Text = comprobante.NumeroDocumento;
+
+                await PoblarFormularioConComprobante(comprobante);
+
+                BloquearParaImpresionContable();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al consultar comprobante: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Arrow;
             }
         }
 
@@ -732,7 +937,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             try
             {
-                string tipoDoc = (CmbTipoDocu.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "FACTURA";
+                string tipoDoc = (CmbTipoDocu.SelectedItem as Documento)?.Descripcion ?? "COMPROBANTE";
                 string serieNumero = $"{CmbSerie.Text}-{TxtNumero.Text}";
                 string fecha = DpFecha.SelectedDate?.ToString("dd/MM/yyyy") ?? "";
                 string operador = SesionSistema.UsuarioActual?.Nombres ?? "SISTEMA";
@@ -758,7 +963,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         }
 
         // ==========================================
-        // HELPERS Y AUTOCOMPLETADOS
+        // HELPERS, FORMULARIO Y BALANCE
         // ==========================================
         private void ConfigurarModoBusqueda()
         {
@@ -770,7 +975,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtNumero.IsReadOnly = false;
             TxtNumero.Background = Brushes.White;
 
-            // Campos de cabecera bloqueados
             TxtRazonSocialBuscador.IsEnabled = false;
             TxtDniRuc.IsEnabled = false;
             CmbTipoIdentidad.IsEnabled = false;
@@ -781,17 +985,20 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtObservacion.IsEnabled = false;
             DpFecha.IsEnabled = false;
 
-            // Botones de acciones de ítems bloqueados
             BtnAgregarItem.IsEnabled = false;
             BtnModificarItem.IsEnabled = false;
             BtnEliminarItem.IsEnabled = false;
             BtnLector.IsEnabled = false;
 
-            // Grilla en modo solo lectura para inspección con doble clic
             DgItems.IsEnabled = true;
             DgItems.IsReadOnly = true;
 
-            // 🛑 CANDADO DE MODO: Si NO es "Nuevo" ni "BuscandoParaEditar", apagar botón de Guardar
+            // Bloquear sección de pagos en búsqueda
+            if (CmbMedioPagoManual != null) CmbMedioPagoManual.IsEnabled = false;
+            if (TxtMontoPagoManual != null) TxtMontoPagoManual.IsEnabled = false;
+            if (TxtOperacionPagoManual != null) TxtOperacionPagoManual.IsEnabled = false;
+            if (DgPagosManuales != null) DgPagosManuales.IsReadOnly = true;
+
             if (BtnGrabar != null)
             {
                 BtnGrabar.IsEnabled = (_modoActual == ModoFormulario.Nuevo || _modoActual == ModoFormulario.BuscandoParaEditar);
@@ -818,6 +1025,12 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             BtnLector.IsEnabled = true;
             DgItems.IsEnabled = true;
             DgItems.IsReadOnly = false;
+
+            // Habilitar sección de pagos
+            if (CmbMedioPagoManual != null) CmbMedioPagoManual.IsEnabled = true;
+            if (TxtMontoPagoManual != null) TxtMontoPagoManual.IsEnabled = true;
+            if (TxtOperacionPagoManual != null) TxtOperacionPagoManual.IsEnabled = true;
+            if (DgPagosManuales != null) DgPagosManuales.IsReadOnly = false;
 
             TxtNumero.IsEnabled = true;
             TxtNumero.IsReadOnly = true;
@@ -851,7 +1064,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 TxtMontoDelivery.Foreground = (Brush)new BrushConverter().ConvertFromString("#64748B");
                 TxtMontoDelivery.Text = "0.00";
             }
-            if (ChkTieneDelivery != null) ChkTieneDelivery.IsChecked = false;
             RecalcularBalanceCobro();
 
             _itemsGrid.Clear();
@@ -870,7 +1082,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void RecalcularTotales()
         {
-            // 🛡️ Candado de nulidad: Si la interfaz aún se está dibujando, no ejecutar
             if (TxtOpExoneradas == null || TxtOpGravadas == null || TxtIgv == null ||
                 TxtTotal == null || TxtTotalDelivery == null || TxtMontoDelivery == null || _itemsGrid == null)
             {
@@ -890,6 +1101,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             RecalcularBalanceCobro();
         }
+
         private void LlenarFichaCliente(PersonaComercial? cliente, bool esRazonSocial)
         {
             if (cliente == null) return;
@@ -934,7 +1146,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 if (lista != null && lista.Any())
                 {
                     LstRazonSocial.ItemsSource = lista;
-                    PopRazonSocial.IsOpen = false; // Reset para refrescar posición si hubo scroll
+                    PopRazonSocial.IsOpen = false;
                     PopRazonSocial.IsOpen = true;
                 }
                 else
@@ -1052,9 +1264,48 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             RecalcularTotales();
         }
 
-        private void BtnSaltarNumero_Click(object sender, RoutedEventArgs e)
+        private async void BtnSaltarNumero_Click(object sender, RoutedEventArgs e)
         {
-            MessageBox.Show("Funcionalidad para saltar número de comprobante.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (CmbSerie.SelectedItem is not SerieDocumento serieSeleccionada ||
+                CmbTipoDocu.SelectedItem is not Documento docSeleccionado)
+            {
+                MessageBox.Show("Seleccione primero un tipo de comprobante y una serie.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string numeroActual = TxtNumero.Text;
+            var result = MessageBox.Show(
+                $"¿Está seguro que desea SALTAR el número físico {serieSeleccionada.NumeroSerie}-{numeroActual}?\n\nEl correlativo avanzará al siguiente número en la base de datos sin registrar ninguna venta.",
+                "Confirmar Salto de Correlativo",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                try
+                {
+                    Cursor = Cursors.Wait;
+
+                    // 1. Llama al servicio que ya tenías para sumar +1 al correlativo en BD
+                    await _serieService.ActualizarCorrelativoAsync(serieSeleccionada.Id, docSeleccionado.Codigo);
+
+                    // 2. Refresca la lista de series en memoria para obtener el nuevo número
+                    await CargarTodasLasSeries();
+
+                    // 3. Vuelve a filtrar y cargar el número en pantalla
+                    FiltrarSeriesPorTipoDocumento();
+
+                    HandyControl.Controls.Growl.Success($"Correlativo saltado con éxito. El nuevo número es {TxtNumero.Text}");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error al saltar el correlativo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    Cursor = Cursors.Arrow;
+                }
+            }
         }
 
         private void BtnModificarNumero_Click(object sender, RoutedEventArgs e)
@@ -1095,153 +1346,15 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             }
         }
 
-        public async Task CargarComprobanteParaConsultaAsync(string serie, string numero)
-        {
-            try
-            {
-                this.Cursor = Cursors.Wait;
-                _moduloIniciado = true; // 👈 Evita que el evento Loaded posterior ejecute LimpiarFormulario()
-                _modoActual = ModoFormulario.BuscandoParaImprimir;
-
-                // 1. Asegurar catálogo de series en memoria sin alertas
-                if (_todasLasSeries == null || !_todasLasSeries.Any())
-                {
-                    await CargarTodasLasSeries();
-                }
-
-                // 2. Normalizar número a 7 dígitos (ej: 1 -> 0000001)
-                string numeroNormalizado = int.TryParse(numero, out int nVal) ? nVal.ToString("D7") : numero.Trim();
-                string seriePura = serie.Trim().ToUpper();
-
-                // 3. Obtener el comprobante directo usando el servicio de facturación
-                int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
-                var comprobante = await _facturacionService.ObtenerComprobantePorNumeroAsync(seriePura, numeroNormalizado, miAlmacenId);
-
-                if (comprobante == null)
-                {
-                    MessageBox.Show($"No se encontró el comprobante {seriePura}-{numeroNormalizado} en esta sede.", "No encontrado", MessageBoxButton.OK, MessageBoxImage.Information);
-                    return;
-                }
-
-                // 4. Limpiar e inicializar formulario
-                LimpiarFormulario();
-                _idComprobanteActual = comprobante.Id;
-
-                // Tipo de Comprobante
-                foreach (ComboBoxItem item in CmbTipoDocu.Items)
-                {
-                    if (item.Tag?.ToString() == comprobante.TipoDocumento)
-                    {
-                        CmbTipoDocu.SelectedItem = item;
-                        break;
-                    }
-                }
-
-                FiltrarSeriesPorTipoDocumento();
-
-                // Serie
-                var serieObj = _todasLasSeries.FirstOrDefault(s => string.Equals(s.NumeroSerie?.Trim(), seriePura, StringComparison.OrdinalIgnoreCase));
-                if (serieObj != null)
-                {
-                    CmbSerie.SelectedItem = serieObj;
-                }
-                else
-                {
-                    var serieAux = new SerieDocumento { NumeroSerie = seriePura };
-                    var listSeries = CmbSerie.ItemsSource as List<SerieDocumento> ?? new List<SerieDocumento>();
-                    listSeries.Add(serieAux);
-                    CmbSerie.ItemsSource = null;
-                    CmbSerie.ItemsSource = listSeries;
-                    CmbSerie.SelectedItem = serieAux;
-                }
-
-                TxtNumero.Text = comprobante.NumeroDocumento;
-                DpFecha.SelectedDate = comprobante.FechaEmision;
-                TxtObservacion.Text = comprobante.Observacion;
-
-                // Cargar Personas Comerciales
-                if (comprobante.CompradorId.HasValue)
-                {
-                    var cliente = await _personaService.ObtenerPorIdAsync(comprobante.CompradorId.Value);
-                    LlenarFichaCliente(cliente, esRazonSocial: true);
-                }
-
-                if (comprobante.InstitucionId.HasValue)
-                {
-                    var colegio = await _personaService.ObtenerPorIdAsync(comprobante.InstitucionId.Value);
-                    LlenarFichaCliente(colegio, esRazonSocial: false);
-                }
-
-                
-                // Cargar Ítems y Códigos asegurando la coherencia aritmética
-                _itemsGrid.Clear();
-                var prodService = new ProductoService();
-
-                foreach (var det in comprobante.Detalles)
-                {
-                    var producto = await prodService.ObtenerPorIdAsync(det.ProductoId);
-
-                    // 1. Determinar la cantidad real: si tiene códigos asignados, manda el conteo de códigos
-                    int cantidadReal = (det.Codigos != null && det.Codigos.Any())
-                        ? det.Codigos.Count
-                        : (int)det.Cantidad;
-
-                    decimal precioUnit = det.PrecioUnitario;
-
-                    // 2. Corregir el importe total de la línea (Cantidad * Precio)
-                    decimal importeCalculado = Math.Round(cantidadReal * precioUnit, 2);
-
-                    _itemsGrid.Add(new ItemGridDTO
-                    {
-                        NumLine = det.NumeroLinea,
-                        ProductoId = det.ProductoId,
-                        MovimientoId = det.MovimientoId,
-                        DescripcionProducto = producto?.Descripcion ?? "PRODUCTO",
-                        UnidadMedida = producto?.UnidadMedida?.Descripcion ?? "UND",
-                        CanProd = cantidadReal,
-                        PreUnit = precioUnit,
-                        ImpTota = importeCalculado, // 👈 3 * 180.00 = 540.00 asegurado
-                        Codigos = det.Codigos.Select(c => new CodigoLeidoDTO
-                        {
-                            CodigoCreadoId = c.CodigoCreadoId,
-                            CodigoString = c.CodigoTexto,
-                            Cantidad = 1,
-                            Coleccion = "Kardex"
-                        }).ToList()
-                    });
-                }
-
-                // 3. Recalcular la cabecera con los valores consistentes de la grilla
-                RecalcularTotales();
-
-                // Cargar Totales
-                TxtOpGravadas.Text = comprobante.TotalGravado.ToString("N2");
-                TxtOpExoneradas.Text = comprobante.TotalExonerado.ToString("N2");
-                TxtIgv.Text = comprobante.TotalIgv.ToString("N2");
-                TxtTotal.Text = comprobante.ImporteTotal.ToString("N2");
-
-                // 5. Aplicar bloqueo visual para lectura
-                BloquearParaImpresionContable();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al consultar comprobante: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                this.Cursor = Cursors.Arrow;
-            }
-
-        }
-
         private void TxtMontoDelivery_TextChanged(object sender, TextChangedEventArgs e)
         {
+            if (_isUpdatingFicha) return;
             RecalcularTotales();
         }
 
         private void ChkTieneDelivery_Changed(object sender, RoutedEventArgs e)
         {
-            if (TxtMontoDelivery == null) return;
+            if (_isUpdatingFicha || TxtMontoDelivery == null) return;
 
             if (ChkTieneDelivery.IsChecked == true)
             {
@@ -1268,14 +1381,12 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void TxtSoloNumerosDecimales_PreviewTextInput(object sender, TextCompositionEventArgs e)
         {
-            // Solo permite dígitos y un único punto decimal
             var tb = sender as TextBox;
-            string textoCompleto = (tb?.Text ?? "") + e.Text;
             bool esValido = System.Text.RegularExpressions.Regex.IsMatch(e.Text, @"^[0-9.]+$");
 
             if (!esValido || (e.Text == "." && (tb?.Text.Contains(".") ?? false)))
             {
-                e.Handled = true; // Bloquea caracteres no numéricos
+                e.Handled = true;
             }
         }
 
@@ -1319,6 +1430,11 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void BtnQuitarPago_Click(object sender, RoutedEventArgs e)
         {
+            if (_modoActual == ModoFormulario.BuscandoParaImprimir || _modoActual == ModoFormulario.BuscandoParaAnular)
+            {
+                return;
+            }
+
             if ((sender as FrameworkElement)?.DataContext is PagoManualDTO pago)
             {
                 _pagosManuales.Remove(pago);
@@ -1328,7 +1444,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
         private void RecalcularBalanceCobro()
         {
-            // 🛡️ Candado de nulidad para las etiquetas del balance multi-pago
             if (LblTotalCobrado == null || LblDiferenciaCobro == null || TxtTotal == null || _pagosManuales == null)
             {
                 return;
@@ -1356,19 +1471,14 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
                 LblDiferenciaCobro.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D97706"));
             }
         }
+
         private void BloquearParaImpresionContable()
         {
-            // 🛡️ 1. Deshabilitar los 4 botones de la barra superior (Nuevo, Modificar, Imprimir, Anular)
-            if (PanelFormulario?.Parent is FrameworkElement root)
+            if (PanelFormulario?.Parent is FrameworkElement)
             {
-                // Si PanelFormulario está dentro del Grid general, buscamos los botones superiores
-                if (VisualTreeHelper.GetParent(PanelFormulario) is FrameworkElement parentGrid)
-                {
-                    DeshabilitarBotonesSuperiores(this);
-                }
+                DeshabilitarBotonesSuperiores(this);
             }
 
-            // 🛡️ 2. Configurar el formulario y campos en solo lectura
             PanelFormulario.IsEnabled = true;
 
             CmbTipoDocu.IsEnabled = false;
@@ -1386,22 +1496,24 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             TxtObservacion.IsEnabled = false;
             DpFecha.IsEnabled = false;
 
-            // 🛡️ 3. Grilla de ítems en modo inspección (seleccionable pero no editable)
             DgItems.IsEnabled = true;
             DgItems.IsReadOnly = true;
 
-            // 🛡️ 4. Bloquear botones de edición de detalle
+            // Bloqueo estricto del panel de pagos en modo impresión/consulta
+            if (CmbMedioPagoManual != null) CmbMedioPagoManual.IsEnabled = false;
+            if (TxtMontoPagoManual != null) TxtMontoPagoManual.IsEnabled = false;
+            if (TxtOperacionPagoManual != null) TxtOperacionPagoManual.IsEnabled = false;
+            if (DgPagosManuales != null) DgPagosManuales.IsReadOnly = true;
+
             if (BtnGrabar != null) BtnGrabar.IsEnabled = false;
             if (BtnAgregarItem != null) BtnAgregarItem.IsEnabled = false;
             if (BtnModificarItem != null) BtnModificarItem.IsEnabled = false;
             if (BtnEliminarItem != null) BtnEliminarItem.IsEnabled = false;
             if (BtnLector != null) BtnLector.IsEnabled = false;
 
-            // 🌟 5. Habilitar únicamente la exportación a Excel
             if (BtnImprimirExcel != null) BtnImprimirExcel.IsEnabled = true;
         }
 
-        // Helper para deshabilitar automáticamente los botones sin x:Name (Nuevo, Modificar, Imprimir, Anular, Saltar N°, Editar N°)
         private void DeshabilitarBotonesSuperiores(DependencyObject parent)
         {
             int count = VisualTreeHelper.GetChildrenCount(parent);

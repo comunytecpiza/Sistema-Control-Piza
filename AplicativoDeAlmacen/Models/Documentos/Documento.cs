@@ -8,7 +8,11 @@ namespace AplicativoDeAlmacen.Models.Documentos
 {
     public class Documento
     {
-        public string Codigo { get; set; } // cod_docu (ej. "01", "02", "03")
-        public string Descripcion { get; set; } // des_docu (ej. "FACTURA")
+        public string Codigo { get; set; } = string.Empty; // cod_docu (ej. "01", "03", "07")
+        public string Descripcion { get; set; } = string.Empty; // des_docu
+        public string? Abreviatura { get; set; } // abreviatura (ej. "FAC", "BOL")
+        public bool Estado { get; set; } = true; // est_regi (1 o 0)
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
     }
 }

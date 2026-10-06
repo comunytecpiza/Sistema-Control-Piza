@@ -43,7 +43,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             string sql = $@"
                 SELECT {top} u.id, u.descripcion, COALESCE(u.direccion, '') AS direccion,
-                             COALESCE(l.nombre, '-') AS localidad_nombre
+                       COALESCE(l.nombre, '-') AS localidad_nombre
                 FROM ubicaciones u {nolock}
                 LEFT JOIN localidades l {nolock} ON u.localidad_id = l.id
                 WHERE u.estado_id = 1
@@ -102,7 +102,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 LEFT JOIN movimientos m {nolock} ON fd.movimiento_id = m.id
                 WHERE fc.estado_registro = 1
                   AND (fc.almacen_id = @AlmId OR fc.punto_venta_id = @AlmId)
-                  AND (m.ubicacion_id = @UbicacionId OR m.almacen_destino_id = @UbicacionId)
+                  AND (fc.punto_venta_id = @UbicacionId OR m.ubicacion_id = @UbicacionId OR m.almacen_destino_id = @UbicacionId)
                   AND fc.fecha_emision >= @Desde 
                   AND fc.fecha_emision <= @Hasta
                 GROUP BY p.id, p.abreviatura, p.descripcion
@@ -151,16 +151,14 @@ namespace AplicativoDeAlmacen.Services.Reportes
                            CASE WHEN rc.categoria_producto_id = 1 THEN 'LIBROS GUÍA' ELSE 'LIBROS VENTA' END) AS coleccion_tipo,
                     fc.fecha_emision,
                     CONCAT(
-                        CASE 
-                            WHEN fc.tipo_documento = '01' THEN 'FAC-'
-                            WHEN fc.tipo_documento = '03' THEN 'REC-'
-                            ELSE 'BOL-'
-                        END, 
+                        COALESCE(NULLIF(TRIM(d.abreviatura), ''), d.des_docu, 'DOC'),
+                        '-', 
                         fc.serie_documento, '-', fc.numero_documento
                     ) AS documento_completo,
                     fd.precio_unitario AS importe_unitario
                 FROM facturacion_detalle fd {nolock}
                 INNER JOIN facturacion_cabecera fc {nolock} ON fd.facturacion_cabecera_id = fc.id
+                LEFT JOIN documentos d {nolock} ON fc.tipo_documento = d.cod_docu
                 LEFT JOIN movimientos m {nolock} ON fd.movimiento_id = m.id
                 LEFT JOIN facturacion_detalle_codigos fdc {nolock} ON fdc.facturacion_detalle_id = fd.id
                 LEFT JOIN codigos_creados cc {nolock} ON fdc.codigo_creado_id = cc.id
@@ -168,7 +166,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 LEFT JOIN colecciones c {nolock} ON rc.coleccion_id = c.id
                 WHERE fc.estado_registro = 1
                   AND (fc.almacen_id = @AlmId OR fc.punto_venta_id = @AlmId)
-                  AND (m.ubicacion_id = @UbicacionId OR m.almacen_destino_id = @UbicacionId)
+                  AND (fc.punto_venta_id = @UbicacionId OR m.ubicacion_id = @UbicacionId OR m.almacen_destino_id = @UbicacionId)
                   AND fd.producto_id = @ProductoId
                   AND fc.fecha_emision >= @Desde 
                   AND fc.fecha_emision <= @Hasta

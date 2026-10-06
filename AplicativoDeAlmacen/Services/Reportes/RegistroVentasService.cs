@@ -60,8 +60,8 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
         public async Task<List<RegistroVentaItemDTO>> ConsultarRegistroVentasAsync(
     int almacenId,
-    DateTime desde,
-    DateTime hasta,
+    DateTime? desde = null,
+    DateTime? hasta = null,
     string? tipoDoc = null,
     string? serie = null)
         {
@@ -73,59 +73,74 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
 
+            string filtroFecha = (desde.HasValue && hasta.HasValue)
+                ? " AND fc.fecha_emision >= @Desde AND fc.fecha_emision <= @Hasta "
+                : "";
             string filtroTipo = !string.IsNullOrWhiteSpace(tipoDoc) ? " AND fc.tipo_documento = @TipoDoc " : "";
             string filtroSerie = !string.IsNullOrWhiteSpace(serie) ? " AND fc.serie_documento = @Serie " : "";
 
-            // 🌟 SEPARACIÓN DE JOINS: Un join para comprador y otro para institucion
-            // Así NO duplica filas y concatena limpiamente: "CLIENTES VARIOS - [ABEJITAS]"
             string sql = $@"
         SELECT 
             fc.fecha_emision,
+            fc.fecha_registro,
+            fc.updated_at,
             fc.tipo_documento,
             fc.serie_documento,
             fc.numero_documento,
             CONCAT(
-                CASE 
-                    WHEN fc.tipo_documento = '01' THEN 'FAC-'
-                    WHEN fc.tipo_documento = '03' THEN 'REC-'
-                    ELSE 'BOL-'
-                END, 
+                COALESCE(NULLIF(TRIM(d.abreviatura), ''), d.des_docu, 'DOC'),
+                '-', 
                 fc.serie_documento, '-', fc.numero_documento
             ) AS documento_completo,
             CASE 
-                WHEN p_inst.id IS NOT NULL AND p_inst.id <> p_comp.id THEN
-                    CONCAT(COALESCE(p_comp.razon_social, CONCAT(p_comp.nombres, ' ', p_comp.apellido_paterno), 'VARIOS'),
-                           ' - [', 
-                           COALESCE(p_inst.razon_social, CONCAT(p_inst.nombres, ' ', p_inst.apellido_paterno)), 
-                           ']')
-                ELSE
-                    COALESCE(p_comp.razon_social, CONCAT(p_comp.nombres, ' ', p_comp.apellido_paterno),
-                             p_inst.razon_social, CONCAT(p_inst.nombres, ' ', p_inst.apellido_paterno), 
-                             'CLIENTES VARIOS')
+                WHEN p_inst.id IS NOT NULL AND p_comp.id IS NOT NULL AND p_inst.id <> p_comp.id THEN
+                    CONCAT(
+                        COALESCE(NULLIF(TRIM(p_comp.razon_social), ''), NULLIF(TRIM(CONCAT(p_comp.nombres, ' ', p_comp.apellido_paterno)), ''), 'CLIENTES VARIOS'),
+                        ' - [',
+                        COALESCE(NULLIF(TRIM(p_inst.razon_social), ''), NULLIF(TRIM(CONCAT(p_inst.nombres, ' ', p_inst.apellido_paterno)), ''), 'COLEGIO'),
+                        ']'
+                    )
+                WHEN p_inst.id IS NOT NULL AND (p_comp.id IS NULL OR p_comp.id = p_inst.id) THEN
+                    CONCAT(
+                        'CLIENTES VARIOS - [',
+                        COALESCE(NULLIF(TRIM(p_inst.razon_social), ''), NULLIF(TRIM(CONCAT(p_inst.nombres, ' ', p_inst.apellido_paterno)), ''), 'COLEGIO'),
+                        ']'
+                    )
+                WHEN p_comp.id IS NOT NULL THEN
+                    COALESCE(NULLIF(TRIM(p_comp.razon_social), ''), NULLIF(TRIM(CONCAT(p_comp.nombres, ' ', p_comp.apellido_paterno)), ''), 'CLIENTES VARIOS')
+                ELSE 'CLIENTES VARIOS'
             END AS cliente_razon_social,
             COALESCE(p_comp.ruc, p_comp.dni, p_inst.ruc, p_inst.dni, '') AS cliente_documento,
             fc.total_gravado,
             fc.total_exonerado,
             fc.total_inafecto,
             fc.total_igv,
-            fc.importe_total
+            COALESCE(fc.monto_delivery, 0.00) AS monto_delivery,
+            fc.importe_total,
+            COALESCE(u_crea.nombres, 'SISTEMA') AS usuario_creador,
+            COALESCE(u_edit.nombres, '-') AS usuario_editor
         FROM facturacion_cabecera fc {nolock}
+        LEFT JOIN documentos d {nolock} ON fc.tipo_documento = d.cod_docu
         LEFT JOIN personas_comerciales p_comp {nolock} ON fc.comprador_id = p_comp.id
         LEFT JOIN personas_comerciales p_inst {nolock} ON fc.institucion_id = p_inst.id
+        LEFT JOIN usuarios u_crea {nolock} ON fc.usuario_id = u_crea.id
+        LEFT JOIN usuarios u_edit {nolock} ON fc.usuario_update_id = u_edit.id
         WHERE fc.estado_registro = 1
           AND (fc.almacen_id = @AlmId OR fc.punto_venta_id = @AlmId)
-          AND fc.fecha_emision >= @Desde 
-          AND fc.fecha_emision <= @Hasta
+          {filtroFecha}
           {filtroTipo}
           {filtroSerie}
-        ORDER BY fc.fecha_emision ASC, fc.id ASC;";
+        ORDER BY fc.fecha_emision DESC, fc.id DESC;";
 
             using var cmd = dbConn.CreateCommand();
             cmd.CommandText = QueryAdapter.FormatearConsulta(sql);
 
             AgregarParametro(cmd, "@AlmId", almacenId);
-            AgregarParametro(cmd, "@Desde", desde.Date);
-            AgregarParametro(cmd, "@Hasta", hasta.Date.AddDays(1).AddTicks(-1));
+            if (desde.HasValue && hasta.HasValue)
+            {
+                AgregarParametro(cmd, "@Desde", desde.Value.Date);
+                AgregarParametro(cmd, "@Hasta", hasta.Value.Date.AddDays(1).AddTicks(-1));
+            }
             if (!string.IsNullOrWhiteSpace(tipoDoc)) AgregarParametro(cmd, "@TipoDoc", tipoDoc);
             if (!string.IsNullOrWhiteSpace(serie)) AgregarParametro(cmd, "@Serie", serie);
 
@@ -135,6 +150,8 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 lista.Add(new RegistroVentaItemDTO
                 {
                     FechaEmision = Convert.ToDateTime(rdr["fecha_emision"]),
+                    FechaRegistro = Convert.ToDateTime(rdr["fecha_registro"]),
+                    FechaModificacion = rdr.IsDBNull(rdr.GetOrdinal("updated_at")) ? null : Convert.ToDateTime(rdr["updated_at"]),
                     TipoDoc = rdr["tipo_documento"]?.ToString() ?? "",
                     Serie = rdr["serie_documento"]?.ToString() ?? "",
                     Numero = rdr["numero_documento"]?.ToString() ?? "",
@@ -145,7 +162,10 @@ namespace AplicativoDeAlmacen.Services.Reportes
                     TotalExonerado = Convert.ToDecimal(rdr["total_exonerado"]),
                     TotalInafecto = Convert.ToDecimal(rdr["total_inafecto"]),
                     TotalIgv = Convert.ToDecimal(rdr["total_igv"]),
-                    ImporteTotal = Convert.ToDecimal(rdr["importe_total"])
+                    MontoDelivery = Convert.ToDecimal(rdr["monto_delivery"]),
+                    ImporteTotal = Convert.ToDecimal(rdr["importe_total"]),
+                    UsuarioCreador = rdr["usuario_creador"]?.ToString() ?? "SISTEMA",
+                    UsuarioEditor = rdr["usuario_editor"]?.ToString() ?? "-"
                 });
             }
 

@@ -70,23 +70,25 @@ WHERE md.producto_id = @ProductoId
                 using (IDbCommand cmd = conn.CreateCommand())
                 {
                     string subqueryTrazabilidad = $@"
-            CASE 
-                WHEN m.motivo_producto_id = 2 THEN 1
-                WHEN m.motivo_producto_id = 1 THEN 0
-                WHEN mp.tipo_movimiento_id = 1 THEN 
-                    CASE WHEN EXISTS (
-                        SELECT 1 
-                        FROM movimiento_codigos mc_curr {nolock}
-                        INNER JOIN movimiento_codigos mc_prev {nolock} ON mc_curr.codigo_creado_id = mc_prev.codigo_creado_id
-                        INNER JOIN movimientos m_prev {nolock} ON mc_prev.movimiento_id = m_prev.id
-                        INNER JOIN motivo_productos mp_prev {nolock} ON m_prev.motivo_producto_id = mp_prev.id
-                        WHERE mc_curr.movimiento_id = m.id
-                          AND mp_prev.tipo_movimiento_id = 2
-                          AND m_prev.id < m.id
-                          AND m_prev.estado_id = 1
-                    ) THEN 1 ELSE 0 END
-                ELSE 0 
-            END AS es_devolucion_real";
+                    CASE 
+                        WHEN m.motivo_producto_id IN (2, 3) THEN 1
+                        WHEN m.motivo_producto_id = 1 THEN 0
+                        -- Si llega a Central (1) por Transferencia (4), para Central es devolución/retorno
+                        WHEN m.motivo_producto_id = 4 AND COALESCE(m.almacen_destino_id, 1) = 1 THEN 1
+                        WHEN mp.tipo_movimiento_id = 1 THEN 
+                            CASE WHEN EXISTS (
+                                SELECT 1 
+                                FROM movimiento_codigos mc_curr {nolock}
+                                INNER JOIN movimiento_codigos mc_prev {nolock} ON mc_curr.codigo_creado_id = mc_prev.codigo_creado_id
+                                INNER JOIN movimientos m_prev {nolock} ON mc_prev.movimiento_id = m_prev.id
+                                INNER JOIN motivo_productos mp_prev {nolock} ON m_prev.motivo_producto_id = mp_prev.id
+                                WHERE mc_curr.movimiento_id = m.id
+                                  AND mp_prev.tipo_movimiento_id = 2
+                                  AND m_prev.id < m.id
+                                  AND m_prev.estado_id = 1
+                            ) THEN 1 ELSE 0 END
+                        ELSE 0 
+                    END AS es_devolucion_real";
 
                     string exprFechaOrden = QueryAdapter.EsMySQL
                         ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
@@ -130,7 +132,7 @@ LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE md.producto_id = @ProductoId
   AND m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -195,20 +197,37 @@ ORDER BY {exprFechaOrden} ASC, m.id ASC";
                                 string motivoUpper = motivoTexto.ToUpperInvariant();
                                 bool esCompra = motivoUpper.Contains("COMPRA") || motivoId == 1;
                                 bool esTransferencia = motivoUpper.Contains("TRANSFERENCIA") || motivoId == 4;
+                                bool esPromotoria = motivoUpper.Contains("PROMO") || motivoId == 3;
+                                bool esDevolucionCliente = motivoUpper.Contains("DEVOLUC") || motivoId == 2;
 
                                 if (esAlmacenCentral)
                                 {
-                                    if (esCompra || (!esDevolucionReal && motivoId != 2 && !esTransferencia))
-                                        reporte.TotalIngresos += ing;
-                                    else
+                                    // 🏢 ALMACÉN PRINCIPAL / CENTRAL:
+                                    // - Compras (1) y Otros/Stock Inicial (13) -> INGRESOS PUROS
+                                    // - Transferencias recibidas (4), Promotoría (3) y Devoluciones (2) -> DEVOLUCIONES / REINGRESOS
+                                    if (esTransferencia || esPromotoria || esDevolucionCliente || esDevolucionReal)
+                                    {
                                         reporte.TotalDevoluciones += ing;
+                                    }
+                                    else
+                                    {
+                                        reporte.TotalIngresos += ing;
+                                    }
                                 }
                                 else
                                 {
-                                    if (esTransferencia || esCompra || (!esDevolucionReal && motivoId != 2))
-                                        reporte.TotalIngresos += ing;
-                                    else
+                                    // 🏪 OTRAS SEDES / SUCURSALES:
+                                    // - Transferencia recibida (4) -> INGRESO PURO (abastecimiento)
+                                    // - Compras (1) y Otros/Stock Inicial (13) -> INGRESO PURO
+                                    // - Promotoría (3) y Devoluciones de Clientes (2) -> DEVOLUCIONES / REINGRESOS
+                                    if (esPromotoria || esDevolucionCliente || (esDevolucionReal && !esTransferencia))
+                                    {
                                         reporte.TotalDevoluciones += ing;
+                                    }
+                                    else
+                                    {
+                                        reporte.TotalIngresos += ing;
+                                    }
                                 }
                             }
 
@@ -253,7 +272,7 @@ ORDER BY {exprFechaOrden} ASC, m.id ASC";
         FROM movimiento_detalles md {nolock}
         INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
         INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-        WHERE m.estado_id != 2
+        WHERE m.estado_id != 4
           AND (
              (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
              (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -553,7 +572,7 @@ WHERE md.producto_id = @ProductoId
                 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
                 WHERE md.producto_id = @ProductoId
                   AND m.fecha_movimiento < @FechaDesde
-                  AND m.estado_id != 2";
+                  AND m.estado_id != 4";
 
                     cmdInit.CommandText = QueryAdapter.FormatearConsulta(qInit);
                     AgregarParametro(cmdInit, "@ProductoId", productoId);
@@ -600,7 +619,7 @@ WHERE md.producto_id = @ProductoId
                 WHERE md.producto_id = @ProductoId
                   AND m.fecha_movimiento >= @FechaDesde
                   AND m.fecha_movimiento <= @FechaHasta
-                  AND m.estado_id != 2 
+                  AND m.estado_id != 4
                   AND (
                      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
                      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -791,7 +810,7 @@ WHERE md.producto_id = @ProductoId
                 using (var cmd = conn.CreateCommand())
                 {
                     string nolock = QueryAdapter.EsMySQL ? "" : "WITH (NOLOCK)";
-                    string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 2 ";
+                    string sqlAnuladosFiltro = incluirAnulados ? "" : " AND m.estado_id != 4 ";
 
                     string exprFechaOrden = QueryAdapter.EsMySQL
                         ? "COALESCE(TIMESTAMP(DATE(m.fecha_movimiento), TIME(m.created_at)), m.fecha_movimiento)"
@@ -979,7 +998,7 @@ LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE md.producto_id = @ProductoId
   AND m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -1062,7 +1081,7 @@ LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
 WHERE md.producto_id = @ProductoId
   AND m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -1177,7 +1196,7 @@ LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
 LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -1273,7 +1292,7 @@ LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
 LEFT JOIN almacenes alm_dest {nolock} ON m.almacen_destino_id = alm_dest.id
 WHERE m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -1375,7 +1394,7 @@ LEFT JOIN usuarios usr_c {nolock} ON m.usuario_id = usr_c.id
 LEFT JOIN usuarios usr_u {nolock} ON m.usuario_update_id = usr_u.id
 WHERE m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -1458,7 +1477,7 @@ INNER JOIN registro_codigos rc {nolock} ON cc.registro_codigo_id = rc.id
 LEFT JOIN categoria_producto cat {nolock} ON rc.categoria_producto_id = cat.id
 WHERE m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
   AND (
      (mp.tipo_movimiento_id = 1 AND COALESCE(m.almacen_destino_id, 1) = @AlmacenId) OR
      (mp.tipo_movimiento_id = 2 AND COALESCE(m.almacen_origen_id, 1) = @AlmacenId)
@@ -1547,7 +1566,7 @@ WHERE mp.tipo_movimiento_id = 1
   AND m.motivo_producto_id NOT IN (2, 3) -- Excluye devoluciones de clientes
   AND COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)) = 1 -- Almacén Central
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
 GROUP BY md.producto_id";
 
                     cmdIngCentral.CommandText = QueryAdapter.FormatearConsulta(qIngCentral);
@@ -1732,7 +1751,7 @@ LEFT JOIN almacenes alm_orig {nolock} ON m.almacen_origen_id = alm_orig.id
 LEFT JOIN almacenes alm_base {nolock} ON m.almacen_id = alm_base.id
 WHERE m.fecha_movimiento >= @FechaDesde
   AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 2
+  AND m.estado_id != 4
 ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
                     cmdMov.CommandText = QueryAdapter.FormatearConsulta(qMov);
@@ -1824,6 +1843,8 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
 
             return (ubicacionesMap.Values.ToList(), almacenesRealesMap.Values.ToList(), catalogo, almacenesList, ingresosCentralMap);
         }
+
+        
 
     }
 }

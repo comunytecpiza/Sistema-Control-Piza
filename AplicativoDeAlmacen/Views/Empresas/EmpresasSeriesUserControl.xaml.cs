@@ -1,5 +1,8 @@
-﻿using AplicativoDeAlmacen.Models.Documentos;
+﻿#nullable enable
+
+using AplicativoDeAlmacen.Models.Documentos;
 using AplicativoDeAlmacen.Models.Facturación;
+using AplicativoDeAlmacen.Services.Documentos;
 using AplicativoDeAlmacen.Services.Facturación;
 using HandyControl.Controls;
 using System;
@@ -16,21 +19,32 @@ namespace AplicativoDeAlmacen.Views.Empresas
     public partial class EmpresasSeriesUserControl : UserControl
     {
         private readonly EmpresaService _empresaService = new EmpresaService();
+        private readonly DocumentoService _documentoService = new DocumentoService();
 
+        private List<Documento> _todosLosDocumentos = new List<Documento>();
         private List<Empresa> _todasLasEmpresas = new List<Empresa>();
         private List<SerieDocumento> _todasLasSeries = new List<SerieDocumento>();
         private List<Moneda> _todasLasMonedas = new List<Moneda>();
 
+        private string? _documentoEditandoCodigo = null;
         private int? _empresaEditandoId = null;
         private int? _monedaEditandoId = null;
         private SerieDocumento? _serieSeleccionada = null;
 
+        private readonly DispatcherTimer _timerBuscarDocu;
         private readonly DispatcherTimer _timerBuscarEmpresa;
         private readonly DispatcherTimer _timerBuscarSerie;
 
         public EmpresasSeriesUserControl()
         {
             InitializeComponent();
+
+            _timerBuscarDocu = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _timerBuscarDocu.Tick += (s, e) =>
+            {
+                _timerBuscarDocu.Stop();
+                FiltrarDocumentosEnGrilla();
+            };
 
             _timerBuscarEmpresa = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _timerBuscarEmpresa.Tick += (s, e) =>
@@ -54,22 +68,31 @@ namespace AplicativoDeAlmacen.Views.Empresas
             try
             {
                 Cursor = Cursors.Wait;
+                _todosLosDocumentos = await _documentoService.ObtenerTodosAsync();
                 _todasLasEmpresas = await _empresaService.ObtenerEmpresasAsync(soloActivas: false);
                 _todasLasSeries = await _empresaService.ObtenerSeriesConEmpresaAsync();
                 _todasLasMonedas = await _empresaService.ObtenerMonedasAsync(soloActivas: false);
 
+                // Paso 1: Documentos
+                DgDocumentos.ItemsSource = _todosLosDocumentos;
+                LblTotalDocumentos.Text = $"Total documentos: {_todosLosDocumentos.Count}";
+
+                // Paso 2: Empresas
                 DgEmpresas.ItemsSource = _todasLasEmpresas;
                 LblTotalEmpresas.Text = $"Total empresas: {_todasLasEmpresas.Count}";
 
+                // Paso 3: Series y combos asociados
                 DgSeriesDocumentos.ItemsSource = _todasLasSeries;
-
                 CboEmpresasParaSerie.ItemsSource = _todasLasEmpresas.Where(x => x.EsActivo).ToList();
 
+                // NOTA: Se retiró CboDocumentoParaSerie ya que el documento viene atado a la serie desde Ubicaciones.
+
+                // Paso 4: Monedas
                 DgMonedas.ItemsSource = _todasLasMonedas;
             }
             catch (Exception ex)
             {
-                Growl.Error($"Error al cargar catálogos: {ex.Message}");
+                Growl.Error($"Error al sincronizar catálogos: {ex.Message}");
             }
             finally
             {
@@ -80,11 +103,111 @@ namespace AplicativoDeAlmacen.Views.Empresas
         private async void BtnRefrescarTodo_Click(object sender, RoutedEventArgs e)
         {
             await CargarDatosAsync();
-            Growl.Success("Catálogos sincronizados.");
+            Growl.Success("Catálogos comerciales actualizados.");
         }
 
         // =========================================================================
-        // PESTAÑA 1: EMPRESAS
+        // NAVEGACIÓN SECUENCIAL
+        // =========================================================================
+        private void BtnIrPasoEmpresas_Click(object sender, RoutedEventArgs e) => TabConfiguracion.SelectedIndex = 1;
+        private void BtnIrPasoSeries_Click(object sender, RoutedEventArgs e) => TabConfiguracion.SelectedIndex = 2;
+
+        // =========================================================================
+        // PASO 1: DOCUMENTOS
+        // =========================================================================
+        private void TxtBuscarDocu_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            _timerBuscarDocu.Stop();
+            _timerBuscarDocu.Start();
+        }
+
+        private void FiltrarDocumentosEnGrilla()
+        {
+            string f = TxtBuscarDocu.Text.Trim().ToLower();
+            if (string.IsNullOrWhiteSpace(f))
+            {
+                DgDocumentos.ItemsSource = _todosLosDocumentos;
+            }
+            else
+            {
+                DgDocumentos.ItemsSource = _todosLosDocumentos.Where(x =>
+                    x.Codigo.ToLower().Contains(f) ||
+                    x.Descripcion.ToLower().Contains(f) ||
+                    (x.Abreviatura != null && x.Abreviatura.ToLower().Contains(f))
+                ).ToList();
+            }
+            LblTotalDocumentos.Text = $"Total documentos: {DgDocumentos.Items.Count}";
+        }
+
+        private void DgDocumentos_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (DgDocumentos.SelectedItem is Documento doc)
+            {
+                _documentoEditandoCodigo = doc.Codigo;
+                TxtCodDocu.Text = doc.Codigo;
+                TxtCodDocu.IsReadOnly = true;
+                TxtDesDocu.Text = doc.Descripcion;
+                TxtAbrevDocu.Text = doc.Abreviatura ?? "";
+                ChkDocuActivo.IsChecked = doc.Estado;
+                BtnGuardarDocu.Content = "✏️ Actualizar Documento";
+            }
+        }
+
+        private void BtnLimpiarDocu_Click(object sender, RoutedEventArgs e)
+        {
+            _documentoEditandoCodigo = null;
+            TxtCodDocu.IsReadOnly = false;
+            TxtCodDocu.Clear();
+            TxtDesDocu.Clear();
+            TxtAbrevDocu.Clear();
+            ChkDocuActivo.IsChecked = true;
+            BtnGuardarDocu.Content = "💾 Guardar Documento";
+            DgDocumentos.SelectedItem = null;
+        }
+
+        private async void BtnGuardarDocu_Click(object sender, RoutedEventArgs e)
+        {
+            string cod = TxtCodDocu.Text.Trim().ToUpper();
+            string des = TxtDesDocu.Text.Trim().ToUpper();
+
+            if (string.IsNullOrWhiteSpace(cod) || string.IsNullOrWhiteSpace(des))
+            {
+                Growl.Warning("Complete el código SUNAT y la descripción del documento.");
+                return;
+            }
+
+            try
+            {
+                var doc = new Documento
+                {
+                    Codigo = cod,
+                    Descripcion = des,
+                    Abreviatura = string.IsNullOrWhiteSpace(TxtAbrevDocu.Text) ? null : TxtAbrevDocu.Text.Trim().ToUpper(),
+                    Estado = ChkDocuActivo.IsChecked ?? true
+                };
+
+                if (_documentoEditandoCodigo != null)
+                {
+                    await _documentoService.ActualizarAsync(doc);
+                    Growl.Success("Documento actualizado correctamente.");
+                }
+                else
+                {
+                    await _documentoService.InsertarAsync(doc);
+                    Growl.Success("Nuevo comprobante registrado.");
+                }
+
+                BtnLimpiarDocu_Click(null, null);
+                await CargarDatosAsync();
+            }
+            catch (Exception ex)
+            {
+                Growl.Error($"No se pudo guardar el documento: {ex.Message}");
+            }
+        }
+
+        // =========================================================================
+        // PASO 2: EMPRESAS
         // =========================================================================
         private void TxtBuscarEmpresa_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -160,32 +283,15 @@ namespace AplicativoDeAlmacen.Views.Empresas
 
         private void DgEmpresas_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (DgEmpresas.SelectedItem is Empresa emp)
-            {
-                CargarEmpresaEnFormulario(emp);
-            }
+            if (DgEmpresas.SelectedItem is Empresa emp) CargarEmpresaEnFormulario(emp);
         }
 
         private void DgEmpresas_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (DgEmpresas.SelectedItem is Empresa emp)
-            {
-                CargarEmpresaEnFormulario(emp);
-            }
+            if (DgEmpresas.SelectedItem is Empresa emp) CargarEmpresaEnFormulario(emp);
         }
 
-        private void BtnEditarEmpresaFila_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is Empresa emp)
-            {
-                CargarEmpresaEnFormulario(emp);
-            }
-        }
-
-        private void BtnCancelarEmpresa_Click(object sender, RoutedEventArgs e)
-        {
-            LimpiarFormularioEmpresa();
-        }
+        private void BtnCancelarEmpresa_Click(object sender, RoutedEventArgs e) => LimpiarFormularioEmpresa();
 
         private async void BtnGuardarEmpresa_Click(object sender, RoutedEventArgs e)
         {
@@ -230,7 +336,7 @@ namespace AplicativoDeAlmacen.Views.Empresas
         }
 
         // =========================================================================
-        // PESTAÑA 2: SERIES POR EMPRESA
+        // PASO 3: ASIGNACIÓN DE SERIES
         // =========================================================================
         private void TxtBuscarSerie_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -259,15 +365,16 @@ namespace AplicativoDeAlmacen.Views.Empresas
             if (DgSeriesDocumentos.SelectedItem is SerieDocumento serie)
             {
                 _serieSeleccionada = serie;
-                LblSerieSeleccionadaInfo.Text = $"Serie: {serie.NumeroSerie} (Tipo: {serie.TipoSerie})";
+
+                // Busca la descripción legible del comprobante
+                string nombreDoc = _todosLosDocumentos.FirstOrDefault(d => d.Codigo == serie.TipoSerie)?.Descripcion ?? "Desconocido";
+
+                LblSerieSeleccionadaInfo.Text = $"Serie: {serie.NumeroSerie} | Doc: {nombreDoc}";
+
                 if (serie.EmpresaId.HasValue)
-                {
                     CboEmpresasParaSerie.SelectedValue = serie.EmpresaId.Value;
-                }
                 else
-                {
                     CboEmpresasParaSerie.SelectedIndex = -1;
-                }
             }
         }
 
@@ -275,16 +382,24 @@ namespace AplicativoDeAlmacen.Views.Empresas
         {
             if (_serieSeleccionada == null)
             {
-                Growl.Warning("Seleccione primero una Serie de la lista.");
+                Growl.Warning("Seleccione primero una Serie de la grilla inferior.");
                 return;
             }
 
-            int? empresaId = CboEmpresasParaSerie.SelectedValue != null ? Convert.ToInt32(CboEmpresasParaSerie.SelectedValue) : (int?)null;
+            if (CboEmpresasParaSerie.SelectedValue == null)
+            {
+                Growl.Warning("Seleccione la Empresa Titular a vincular.");
+                return;
+            }
+
+            int empresaId = Convert.ToInt32(CboEmpresasParaSerie.SelectedValue);
 
             try
             {
+                // Vincula directamente la empresa en series_documentos
                 await _empresaService.AsignarEmpresaASerieAsync(_serieSeleccionada.Id, empresaId);
-                Growl.Success($"Serie {_serieSeleccionada.NumeroSerie} asignada con éxito.");
+
+                Growl.Success($"Serie {_serieSeleccionada.NumeroSerie} vinculada con éxito.");
                 await CargarDatosAsync();
             }
             catch (Exception ex)
@@ -294,7 +409,7 @@ namespace AplicativoDeAlmacen.Views.Empresas
         }
 
         // =========================================================================
-        // PESTAÑA 3: MONEDAS
+        // PASO 4: MONEDAS
         // =========================================================================
         private void DgMonedas_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {

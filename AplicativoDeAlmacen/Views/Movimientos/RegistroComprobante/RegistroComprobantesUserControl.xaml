@@ -139,11 +139,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Margin="0,0,8,0">
                                     <TextBlock Text="Tipo Comprobante:" Style="{StaticResource FormLabelStyle}"/>
-                                    <ComboBox x:Name="CmbTipoDocu" SelectionChanged="CmbTipoDocu_SelectionChanged">
-                                        <ComboBoxItem Content="FACTURA" Tag="01" IsSelected="True"/>
-                                        <ComboBoxItem Content="BOLETA" Tag="02"/>
-                                        <ComboBoxItem Content="RECIBO" Tag="03"/>
-                                    </ComboBox>
+                                    <ComboBox x:Name="CmbTipoDocu" DisplayMemberPath="Descripcion" SelectedValuePath="Codigo" SelectionChanged="CmbTipoDocu_SelectionChanged"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="0,0,8,0">
                                     <TextBlock Text="Serie:" Style="{StaticResource FormLabelStyle}"/>

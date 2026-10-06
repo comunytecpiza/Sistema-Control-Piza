@@ -1,7 +1,125 @@
 ﻿<UserControl x:Class="AplicativoDeAlmacen.Views.Empresas.EmpresasSeriesUserControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="#F8FAFC">
+             Background="#F1F5F9" FontFamily="Segoe UI">
+
+    <UserControl.Resources>
+        <!-- Estilo base para etiquetas de campo -->
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#475569"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+
+        <!-- Estilo unificado para cajas de texto con bordes redondeados limpios -->
+        <Style x:Key="InputTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#94A3B8"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#2563EB"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Estilo para ComboBox -->
+        <Style x:Key="InputComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="BorderBrush" Value="#CBD5E1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Estilo base de botones de acción con bordes redondeados limpios -->
+        <Style x:Key="ActionButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="btnBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="btnBorder" Property="Opacity" Value="0.9"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="btnBorder" Property="Opacity" Value="0.75"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="btnBorder" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Estilo para las pestañas de navegación -->
+        <Style TargetType="TabItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder" Background="#E2E8F0" BorderBrush="#CBD5E1" 
+                                BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" 
+                                Margin="0,0,6,0" Padding="16,8" Cursor="Hand">
+                            <ContentPresenter x:Name="TabContent" ContentSource="Header" 
+                                              VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="#FFFFFF"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="#94A3B8"/>
+                                <Setter Property="Foreground" Value="#0F172A"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="False">
+                                <Setter Property="Foreground" Value="#64748B"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -9,71 +127,77 @@
         </Grid.RowDefinitions>
 
         <!-- ENCABEZADO SUPERIOR -->
-        <Border Grid.Row="0" Background="#FFFFFF" CornerRadius="8" Padding="16,14" BorderBrush="#CBD5E1" BorderThickness="1.2" Margin="0,0,0,12">
+        <Border Grid.Row="0" Background="#FFFFFF" CornerRadius="8" Padding="16,12" 
+                BorderBrush="#E2E8F0" BorderThickness="1" Margin="0,0,0,12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
+
                 <StackPanel VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="🏛️" FontSize="20" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Configuración Comercial: Empresas, Series y Monedas" FontSize="16" FontWeight="Bold" Foreground="#0F172A"/>
+                        <TextBlock Text="🏛️" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Configuración Comercial y Fiscal" FontSize="16" FontWeight="Bold" Foreground="#0F172A"/>
                     </StackPanel>
-                    <TextBlock Text="Catálogo de empresas emisoras, asignación de series para facturación electrónica y monedas." 
-                               FontSize="12" Foreground="#64748B" Margin="28,2,0,0"/>
+                    <TextBlock Text="Flujo ordenado: 1. Tipos de Documentos ➔ 2. Empresas ➔ 3. Asignación de Series ➔ 4. Monedas." 
+                               FontSize="12" Foreground="#2563EB" FontWeight="Medium" Margin="26,2,0,0"/>
                 </StackPanel>
+
                 <Button Grid.Column="1" x:Name="BtnRefrescarTodo" Content="🔄 Actualizar Catálogos" 
-                        Background="#F1F5F9" Foreground="#334155" FontWeight="SemiBold" Height="36" Padding="14,0"
-                        BorderBrush="#94A3B8" BorderThickness="1.2" Cursor="Hand" Click="BtnRefrescarTodo_Click"/>
+                        Style="{StaticResource ActionButtonStyle}"
+                        Background="#F8FAFC" Foreground="#334155" BorderBrush="#CBD5E1" BorderThickness="1"
+                        Click="BtnRefrescarTodo_Click" ToolTip="Vuelve a cargar los datos desde la base de datos"/>
             </Grid>
         </Border>
 
-        <!-- PESTAÑAS -->
-        <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0">
+        <!-- PESTAÑAS SECUENCIALES -->
+        <TabControl Grid.Row="1" x:Name="TabConfiguracion" Background="Transparent" BorderThickness="0">
 
             <!-- ======================================================== -->
-            <!-- TAB 1: EMPRESAS -->
+            <!-- PASO 1: TIPOS DE DOCUMENTO -->
             <!-- ======================================================== -->
-            <TabItem Header="🏢 Empresas Emisoras" FontWeight="SemiBold">
-                <Grid Margin="0,12,0,0">
+            <TabItem Header="1. Catálogo de Documentos">
+                <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="380"/>
+                        <ColumnDefinition Width="360"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- FORMULARIO LATERAL -->
-                    <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1.2" Padding="16" Margin="0,0,12,0">
+                    <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16" Margin="0,0,12,0">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel>
-                                <TextBlock Text="Ficha de Empresa" FontSize="14" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,12"/>
+                                <TextBlock Text="Ficha del Comprobante" FontSize="14" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,4"/>
+                                <TextBlock Text="Define los comprobantes legales y de control emitidos por el sistema." 
+                                           FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,14"/>
 
-                                <TextBlock Text="RUC (11 dígitos):" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtRuc" MaxLength="11" Height="34" Margin="0,0,0,10"/>
+                                <TextBlock Text="Código SUNAT (ej. 01, 03, 07):" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtCodDocu" Style="{StaticResource InputTextBoxStyle}" MaxLength="4" Margin="0,0,0,10"/>
 
-                                <TextBlock Text="Razón Social:" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtRazonSocial" Height="34" Margin="0,0,0,10"/>
+                                <TextBlock Text="Descripción Oficial:" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtDesDocu" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,10"/>
 
-                                <TextBlock Text="Nombre Comercial:" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtNombreComercial" Height="34" Margin="0,0,0,10"/>
+                                <TextBlock Text="Abreviatura (ej. FAC, BOL, NC):" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtAbrevDocu" Style="{StaticResource InputTextBoxStyle}" MaxLength="10" Margin="0,0,0,12"/>
 
-                                <TextBlock Text="Dirección Fiscal:" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                                <TextBox x:Name="TxtDireccionFiscal" Height="60" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,0,0,14"/>
+                                <CheckBox x:Name="ChkDocuActivo" Content="Comprobante Activo para Emisión" IsChecked="True" 
+                                          FontWeight="SemiBold" Foreground="#1E293B" Margin="0,0,0,16"/>
 
-                                <CheckBox x:Name="ChkEmpresaActiva" Content="Empresa Activa / Habilitada" IsChecked="True" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,0,20"/>
-
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button x:Name="BtnCancelarEmpresa" Content="Limpiar" Background="#F1F5F9" Foreground="#64748B" 
-                                            Height="34" Padding="14,0" Margin="0,0,8,0" Cursor="Hand" Click="BtnCancelarEmpresa_Click"/>
-                                    <Button x:Name="BtnGuardarEmpresa" Content="💾 Guardar Empresa" Background="#2563EB" Foreground="#FFFFFF" 
-                                            FontWeight="Bold" Height="34" Padding="14,0" Cursor="Hand" Click="BtnGuardarEmpresa_Click"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,14">
+                                    <Button x:Name="BtnLimpiarDocu" Content="Limpiar" Style="{StaticResource ActionButtonStyle}"
+                                            Background="#F1F5F9" Foreground="#64748B" Margin="0,0,8,0" Click="BtnLimpiarDocu_Click"/>
+                                    <Button x:Name="BtnGuardarDocu" Content="💾 Guardar" Style="{StaticResource ActionButtonStyle}"
+                                            Background="#2563EB" Foreground="#FFFFFF" Click="BtnGuardarDocu_Click"/>
                                 </StackPanel>
+
+                                <Button Content="Continuar a Empresas ➔" Style="{StaticResource ActionButtonStyle}"
+                                        Background="#EFF6FF" Foreground="#1D4ED8" BorderBrush="#BFDBFE" BorderThickness="1"
+                                        Click="BtnIrPasoEmpresas_Click"/>
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
 
-                    <!-- GRILLA Y BÚSQUEDA -->
-                    <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1.2" Padding="16">
+                    <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="14">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -81,49 +205,127 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <Grid Grid.Row="0" Margin="0,0,0,12">
+                            <TextBox Grid.Row="0" x:Name="TxtBuscarDocu" Style="{StaticResource InputTextBoxStyle}" 
+                                     Margin="0,0,0,10" Tag="Buscar por código o descripción..." TextChanged="TxtBuscarDocu_TextChanged"/>
+
+                            <DataGrid Grid.Row="1" x:Name="DgDocumentos" AutoGenerateColumns="False" IsReadOnly="True"
+                                      SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                                      Background="#FFFFFF" BorderBrush="#E2E8F0" RowHeight="34"
+                                      SelectionChanged="DgDocumentos_SelectionChanged">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Cód. SUNAT" Binding="{Binding Codigo}" Width="95" FontWeight="Bold"/>
+                                    <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
+                                    <DataGridTextColumn Header="Abreviatura" Binding="{Binding Abreviatura}" Width="100"/>
+                                    <DataGridCheckBoxColumn Header="Activo" Binding="{Binding Estado}" Width="75"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <TextBlock Grid.Row="2" x:Name="LblTotalDocumentos" Text="Total documentos: 0" FontSize="11.5" Foreground="#64748B" Margin="0,8,0,0"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <!-- ======================================================== -->
+            <!-- PASO 2: EMPRESAS EMISORAS -->
+            <!-- ======================================================== -->
+            <TabItem Header="2. Empresas Emisoras">
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="360"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16" Margin="0,0,12,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <TextBlock Text="Ficha de la Empresa" FontSize="14" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,4"/>
+                                <TextBlock Text="Datos de la entidad titular registrada ante SUNAT." 
+                                           FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+                                <TextBlock Text="RUC (11 dígitos):" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtRuc" Style="{StaticResource InputTextBoxStyle}" MaxLength="11" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Razón Social:" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtRazonSocial" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Nombre Comercial (Opcional):" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtNombreComercial" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="Dirección Fiscal:" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBox x:Name="TxtDireccionFiscal" Height="50" Padding="8,4" FontSize="12.5" 
+                                         TextWrapping="Wrap" BorderBrush="#CBD5E1" BorderThickness="1" Margin="0,0,0,12"/>
+
+                                <CheckBox x:Name="ChkEmpresaActiva" Content="Empresa Operativa" IsChecked="True" 
+                                          FontWeight="SemiBold" Foreground="#1E293B" Margin="0,0,0,16"/>
+
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,14">
+                                    <Button x:Name="BtnCancelarEmpresa" Content="Limpiar" Style="{StaticResource ActionButtonStyle}"
+                                            Background="#F1F5F9" Foreground="#64748B" Margin="0,0,8,0" Click="BtnCancelarEmpresa_Click"/>
+                                    <Button x:Name="BtnGuardarEmpresa" Content="💾 Guardar" Style="{StaticResource ActionButtonStyle}"
+                                            Background="#2563EB" Foreground="#FFFFFF" Click="BtnGuardarEmpresa_Click"/>
+                                </StackPanel>
+
+                                <Button Content="Continuar a Series ➔" Style="{StaticResource ActionButtonStyle}"
+                                        Background="#EFF6FF" Foreground="#1D4ED8" BorderBrush="#BFDBFE" BorderThickness="1"
+                                        Click="BtnIrPasoSeries_Click"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+
+                    <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
-                                <TextBox x:Name="TxtBuscarEmpresa" Height="36" Tag="Buscar empresa por RUC o Razón Social..." TextChanged="TxtBuscarEmpresa_TextChanged"/>
+                                <TextBox x:Name="TxtBuscarEmpresa" Style="{StaticResource InputTextBoxStyle}" 
+                                         Tag="Buscar por RUC o Razón Social..." TextChanged="TxtBuscarEmpresa_TextChanged"/>
 
                                 <Popup x:Name="PopupSugerenciasEmpresa" PlacementTarget="{Binding ElementName=TxtBuscarEmpresa}" 
                                        Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
-                                    <Border Background="White" BorderBrush="#94A3B8" BorderThickness="1.2" CornerRadius="6" Width="380" MaxHeight="220">
-                                        <ListBox x:Name="LstSugerenciasEmpresa" SelectionChanged="LstSugerenciasEmpresa_SelectionChanged" BorderThickness="0" Background="White"/>
+                                    <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Width="360" MaxHeight="200">
+                                        <ListBox x:Name="LstSugerenciasEmpresa" SelectionChanged="LstSugerenciasEmpresa_SelectionChanged" BorderThickness="0"/>
                                     </Border>
                                 </Popup>
 
-                                <Button Grid.Column="1" x:Name="BtnNuevaEmpresa" Content="➕ Nueva Empresa" Background="#10B981" Foreground="#FFFFFF"
-                                        FontWeight="Bold" Height="36" Padding="14,0" Margin="8,0,0,0" Cursor="Hand" Click="BtnNuevaEmpresa_Click"/>
+                                <Button Grid.Column="1" x:Name="BtnNuevaEmpresa" Content="➕ Nueva" Style="{StaticResource ActionButtonStyle}"
+                                        Background="#10B981" Foreground="#FFFFFF" Margin="8,0,0,0" Click="BtnNuevaEmpresa_Click"/>
                             </Grid>
 
                             <DataGrid Grid.Row="1" x:Name="DgEmpresas" AutoGenerateColumns="False" IsReadOnly="True"
                                       SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                                      Background="#FFFFFF" BorderBrush="#E2E8F0" RowHeight="34"
                                       SelectionChanged="DgEmpresas_SelectionChanged" MouseDoubleClick="DgEmpresas_MouseDoubleClick">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
-                                    <DataGridTextColumn Header="RUC" Binding="{Binding Ruc}" Width="120" FontWeight="SemiBold"/>
+                                    <DataGridTextColumn Header="RUC" Binding="{Binding Ruc}" Width="110" FontWeight="SemiBold"/>
                                     <DataGridTextColumn Header="Razón Social" Binding="{Binding RazonSocial}" Width="*"/>
-                                    <DataGridTextColumn Header="Nombre Comercial" Binding="{Binding NombreComercial}" Width="160"/>
-                                    <DataGridTemplateColumn Header="Estado" Width="100">
+                                    <DataGridTextColumn Header="Comercial" Binding="{Binding NombreComercial}" Width="140"/>
+                                    <DataGridTemplateColumn Header="Estado" Width="90">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <Border x:Name="BrdEstado" CornerRadius="12" Padding="8,2" HorizontalAlignment="Center">
-                                                    <TextBlock x:Name="TxtEstado" FontSize="11" FontWeight="Bold"/>
+                                                <Border x:Name="BrdBadge" CornerRadius="10" Padding="6,2" HorizontalAlignment="Center">
+                                                    <TextBlock x:Name="TxtBadge" FontSize="10.5" FontWeight="Bold"/>
                                                 </Border>
                                                 <DataTemplate.Triggers>
                                                     <DataTrigger Binding="{Binding EsActivo}" Value="True">
-                                                        <Setter TargetName="BrdEstado" Property="Background" Value="#DCFCE7"/>
-                                                        <Setter TargetName="TxtEstado" Property="Text" Value="ACTIVO"/>
-                                                        <Setter TargetName="TxtEstado" Property="Foreground" Value="#15803D"/>
+                                                        <Setter TargetName="BrdBadge" Property="Background" Value="#DCFCE7"/>
+                                                        <Setter TargetName="TxtBadge" Property="Text" Value="ACTIVO"/>
+                                                        <Setter TargetName="TxtBadge" Property="Foreground" Value="#15803D"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding EsActivo}" Value="False">
-                                                        <Setter TargetName="BrdEstado" Property="Background" Value="#F1F5F9"/>
-                                                        <Setter TargetName="TxtEstado" Property="Text" Value="INACTIVO"/>
-                                                        <Setter TargetName="TxtEstado" Property="Foreground" Value="#64748B"/>
+                                                        <Setter TargetName="BrdBadge" Property="Background" Value="#F1F5F9"/>
+                                                        <Setter TargetName="TxtBadge" Property="Text" Value="INACTIVO"/>
+                                                        <Setter TargetName="TxtBadge" Property="Foreground" Value="#64748B"/>
                                                     </DataTrigger>
                                                 </DataTemplate.Triggers>
                                             </DataTemplate>
@@ -132,68 +334,74 @@
                                 </DataGrid.Columns>
                             </DataGrid>
 
-                            <TextBlock Grid.Row="2" x:Name="LblTotalEmpresas" Text="Total empresas: 0" FontSize="12" Foreground="#64748B" Margin="0,8,0,0"/>
+                            <TextBlock Grid.Row="2" x:Name="LblTotalEmpresas" Text="Total empresas: 0" FontSize="11.5" Foreground="#64748B" Margin="0,8,0,0"/>
                         </Grid>
                     </Border>
                 </Grid>
             </TabItem>
 
             <!-- ======================================================== -->
-            <!-- TAB 2: SERIES POR EMPRESA -->
+            <!-- PASO 3: ASIGNACIÓN DE SERIES -->
             <!-- ======================================================== -->
-            <TabItem Header="🧾 Asignación de Series" FontWeight="SemiBold">
-                <Grid Margin="0,12,0,0">
+            <TabItem Header="3. Asignación de Series">
+                <Grid Margin="0,10,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Border Grid.Row="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1.2" Padding="14" Margin="0,0,0,12">
+                    <!-- Panel de Asignación Rápida -->
+                    <Border Grid.Row="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="14" Margin="0,0,0,10">
                         <Grid>
+                            <!-- SOLO 3 COLUMNAS -->
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="320"/>
+                                <ColumnDefinition Width="300"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Center">
-                                <TextBlock Text="Serie Seleccionada:" FontSize="12" FontWeight="SemiBold" Foreground="#475569"/>
-                                <TextBlock x:Name="LblSerieSeleccionadaInfo" Text="Seleccione una serie de la tabla para asignarle su empresa" 
-                                           FontSize="13" FontWeight="Bold" Foreground="#2563EB" Margin="0,2,0,0"/>
+                                <TextBlock Text="Serie y Comprobante Seleccionado:" Style="{StaticResource FieldLabelStyle}"/>
+                                <TextBlock x:Name="LblSerieSeleccionadaInfo" Text="Seleccione un registro de la grilla inferior" 
+                                           FontSize="13" FontWeight="Bold" Foreground="#2563EB"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="1" Margin="0,0,12,0">
-                                <TextBlock Text="Empresa Emisora Titular:" FontSize="12" FontWeight="SemiBold" Foreground="#475569" Margin="0,0,0,4"/>
-                                <ComboBox x:Name="CboEmpresasParaSerie" Height="34" DisplayMemberPath="RazonSocial" SelectedValuePath="Id"/>
+                            <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                                <TextBlock Text="Asignar Empresa Titular:" Style="{StaticResource FieldLabelStyle}"/>
+                                <ComboBox x:Name="CboEmpresasParaSerie" Style="{StaticResource InputComboBoxStyle}" 
+                                          DisplayMemberPath="RazonSocial" SelectedValuePath="Id"/>
                             </StackPanel>
 
-                            <Button Grid.Column="2" x:Name="BtnAsignarEmpresaSerie" Content="🔗 Guardar Asignación" 
-                                    Background="#0284C7" Foreground="White" FontWeight="Bold" Height="34" Padding="16,0" 
-                                    VerticalAlignment="Bottom" Cursor="Hand" Click="BtnAsignarEmpresaSerie_Click"/>
+                            <!-- BOTON EN LA COLUMNA 2 -->
+                            <Button Grid.Column="2" x:Name="BtnAsignarEmpresaSerie" Content="🔗 Vincular Serie" 
+                                    Style="{StaticResource ActionButtonStyle}" Background="#0284C7" Foreground="#FFFFFF"
+                                    VerticalAlignment="Bottom" Click="BtnAsignarEmpresaSerie_Click"/>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1.2" Padding="16">
+                    <!-- Grilla -->
+                    <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="14">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
 
-                            <TextBox Grid.Row="0" x:Name="TxtBuscarSerie" Height="36" Margin="0,0,0,12"
-                                     Tag="Filtrar por N° Serie (ej. B001, FA01) o Razón Social..." TextChanged="TxtBuscarSerie_TextChanged"/>
+                            <TextBox Grid.Row="0" x:Name="TxtBuscarSerie" Style="{StaticResource InputTextBoxStyle}" 
+                                     Margin="0,0,0,10" Tag="Buscar por número de serie o empresa..." TextChanged="TxtBuscarSerie_TextChanged"/>
 
                             <DataGrid Grid.Row="1" x:Name="DgSeriesDocumentos" AutoGenerateColumns="False" IsReadOnly="True"
                                       SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                                      Background="#FFFFFF" BorderBrush="#E2E8F0" RowHeight="34"
                                       SelectionChanged="DgSeriesDocumentos_SelectionChanged">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
-                                    <DataGridTextColumn Header="N° Serie" Binding="{Binding NumeroSerie}" Width="110" FontWeight="Bold"/>
-                                    <DataGridTextColumn Header="Tipo" Binding="{Binding TipoSerie}" Width="80"/>
-                                    <DataGridTextColumn Header="Empresa Asignada" Binding="{Binding Empresa.RazonSocial, TargetNullValue='[ SIN EMPRESA ASIGNADA ]'}" Width="*"/>
-                                    <DataGridTextColumn Header="Últ. Boleta" Binding="{Binding CorrelativoBoleta}" Width="100"/>
-                                    <DataGridTextColumn Header="Últ. Factura" Binding="{Binding CorrelativoFactura}" Width="100"/>
-                                    <DataGridTextColumn Header="Últ. Recibo" Binding="{Binding CorrelativoRecibo}" Width="100"/>
+                                    <DataGridTextColumn Header="N° Serie" Binding="{Binding NumeroSerie}" Width="95" FontWeight="Bold"/>
+                                    <DataGridTextColumn Header="Cód. Doc" Binding="{Binding TipoSerie}" Width="80"/>
+                                    <DataGridTextColumn Header="Empresa Titular" Binding="{Binding Empresa.RazonSocial, TargetNullValue='[ SIN ASIGNAR ]'}" Width="*"/>
+                                    <DataGridTextColumn Header="Últ. Boleta" Binding="{Binding CorrelativoBoleta}" Width="90"/>
+                                    <DataGridTextColumn Header="Últ. Factura" Binding="{Binding CorrelativoFactura}" Width="90"/>
+                                    <DataGridTextColumn Header="Últ. Recibo" Binding="{Binding CorrelativoRecibo}" Width="90"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
@@ -202,47 +410,53 @@
             </TabItem>
 
             <!-- ======================================================== -->
-            <!-- TAB 3: MONEDAS -->
+            <!-- PASO 4: MONEDAS -->
             <!-- ======================================================== -->
-            <TabItem Header="🪙 Monedas" FontWeight="SemiBold">
-                <Grid Margin="0,12,0,0">
+            <TabItem Header="4. Monedas">
+                <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="340"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1.2" Padding="16" Margin="0,0,12,0">
+                    <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="16" Margin="0,0,12,0">
                         <StackPanel>
-                            <TextBlock Text="Ficha de Moneda" FontSize="14" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,12"/>
+                            <TextBlock Text="Ficha de Moneda" FontSize="14" FontWeight="Bold" Foreground="#0F172A" Margin="0,0,0,4"/>
+                            <TextBlock Text="Catálogo de divisas utilizadas en cotizaciones y ventas." 
+                                       FontSize="11.5" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,14"/>
 
-                            <TextBlock Text="Código SUNAT (ISO):" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                            <TextBox x:Name="TxtCodigoMoneda" MaxLength="5" Height="34" Margin="0,0,0,10"/>
+                            <TextBlock Text="Código ISO (ej. PEN, USD):" Style="{StaticResource FieldLabelStyle}"/>
+                            <TextBox x:Name="TxtCodigoMoneda" Style="{StaticResource InputTextBoxStyle}" MaxLength="5" Margin="0,0,0,10"/>
 
-                            <TextBlock Text="Descripción / Nombre:" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                            <TextBox x:Name="TxtDescripcionMoneda" Height="34" Margin="0,0,0,10"/>
+                            <TextBlock Text="Descripción:" Style="{StaticResource FieldLabelStyle}"/>
+                            <TextBox x:Name="TxtDescripcionMoneda" Style="{StaticResource InputTextBoxStyle}" Margin="0,0,0,10"/>
 
-                            <TextBlock Text="Símbolo:" FontWeight="SemiBold" FontSize="12" Foreground="#334155" Margin="0,0,0,4"/>
-                            <TextBox x:Name="TxtSimboloMoneda" MaxLength="5" Height="34" Margin="0,0,0,14"/>
+                            <TextBlock Text="Símbolo (ej. S/, $):" Style="{StaticResource FieldLabelStyle}"/>
+                            <TextBox x:Name="TxtSimboloMoneda" Style="{StaticResource InputTextBoxStyle}" MaxLength="5" Margin="0,0,0,12"/>
 
-                            <CheckBox x:Name="ChkMonedaActiva" Content="Moneda Habilitada" IsChecked="True" FontWeight="SemiBold" Foreground="#0F172A" Margin="0,0,0,20"/>
+                            <CheckBox x:Name="ChkMonedaActiva" Content="Moneda Habilitada" IsChecked="True" 
+                                      FontWeight="SemiBold" Foreground="#1E293B" Margin="0,0,0,16"/>
 
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                <Button x:Name="BtnLimpiarMoneda" Content="Limpiar" Background="#F1F5F9" Foreground="#64748B" Height="34" Padding="14,0" Margin="0,0,8,0" Click="BtnLimpiarMoneda_Click"/>
-                                <Button x:Name="BtnGuardarMoneda" Content="💾 Guardar Moneda" Background="#059669" Foreground="#FFFFFF" FontWeight="Bold" Height="34" Padding="14,0" Click="BtnGuardarMoneda_Click"/>
+                                <Button x:Name="BtnLimpiarMoneda" Content="Limpiar" Style="{StaticResource ActionButtonStyle}"
+                                        Background="#F1F5F9" Foreground="#64748B" Margin="0,0,8,0" Click="BtnLimpiarMoneda_Click"/>
+                                <Button x:Name="BtnGuardarMoneda" Content="💾 Guardar" Style="{StaticResource ActionButtonStyle}"
+                                        Background="#059669" Foreground="#FFFFFF" Click="BtnGuardarMoneda_Click"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#CBD5E1" BorderThickness="1.2" Padding="16">
+                    <Border Grid.Column="1" Background="#FFFFFF" CornerRadius="8" BorderBrush="#E2E8F0" BorderThickness="1" Padding="14">
                         <DataGrid x:Name="DgMonedas" AutoGenerateColumns="False" IsReadOnly="True"
                                   SelectionMode="Single" SelectionUnit="FullRow" CanUserAddRows="False"
+                                  Background="#FFFFFF" BorderBrush="#E2E8F0" RowHeight="34"
                                   SelectionChanged="DgMonedas_SelectionChanged">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
-                                <DataGridTextColumn Header="Código ISO" Binding="{Binding CodigoSunat}" Width="110" FontWeight="Bold"/>
+                                <DataGridTextColumn Header="Código ISO" Binding="{Binding CodigoSunat}" Width="100" FontWeight="Bold"/>
                                 <DataGridTextColumn Header="Descripción" Binding="{Binding Descripcion}" Width="*"/>
-                                <DataGridTextColumn Header="Símbolo" Binding="{Binding Simbolo}" Width="90"/>
-                                <DataGridCheckBoxColumn Header="Activo" Binding="{Binding EsActivo}" Width="80"/>
+                                <DataGridTextColumn Header="Símbolo" Binding="{Binding Simbolo}" Width="85"/>
+                                <DataGridCheckBoxColumn Header="Activo" Binding="{Binding EsActivo}" Width="75"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>

@@ -1,56 +1,120 @@
 ﻿<Window x:Class="AplicativoDeAlmacen.Views.RegistrarModuloWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Configurar Módulo" Height="480" Width="420"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
-        Background="#F8FAFC" FontFamily="Segoe UI" Loaded="Window_Loaded">
+        Title="Configurar y Asignar Módulo" 
+        Height="600" Width="520"
+        MinHeight="550" MinWidth="480"
+        WindowStartupLocation="CenterScreen" 
+        Background="#F8FAFC" FontFamily="Segoe UI" 
+        Loaded="Window_Loaded">
 
-    <Grid Margin="25">
-        <StackPanel>
-            <TextBlock Text="🧩 Asignación de Vista" FontSize="20" FontWeight="Bold" Foreground="#1E293B" Margin="0,0,0,15"/>
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Cabecera -->
+            <RowDefinition Height="*"/>
+            <!-- Contenido Scrollable si fuese necesario -->
+            <RowDefinition Height="Auto"/>
+            <!-- Botonera Inferior Fija -->
+        </Grid.RowDefinitions>
 
-            <TextBlock Text="Vista Técnica Detectada:" Foreground="#64748B" FontWeight="SemiBold"/>
-            <TextBox x:Name="TxtVista" IsReadOnly="True" Background="#E2E8F0" Padding="8" Margin="0,5,0,15" Foreground="#475569" FontWeight="Bold"/>
+        <!-- CABECERA -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="🧩 Asignación de Vista" FontSize="22" FontWeight="Bold" Foreground="#0F172A"/>
+            <TextBlock Text="Vincule el componente detectado a un módulo nuevo o existente." FontSize="12.5" Foreground="#64748B" Margin="0,3,0,0"/>
+        </StackPanel>
 
-            <CheckBox x:Name="ChkModuloExistente" Content="Vincular a un Módulo que ya existe en la Base de Datos" 
-                      Foreground="#3B82F6" FontWeight="Bold" Margin="0,0,0,15" Click="ChkModuloExistente_Click"/>
+        <!-- FORMULARIO PRINCIPAL -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+            <StackPanel>
+                <TextBlock Text="Vista Técnica Detectada:" Foreground="#475569" FontWeight="SemiBold" FontSize="12"/>
+                <TextBox x:Name="TxtVista" IsReadOnly="True" Background="#E2E8F0" Padding="10,8" Margin="0,6,0,16" 
+                         Foreground="#1E293B" FontWeight="Bold" FontSize="13" BorderBrush="#CBD5E1">
+                    <TextBox.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="6"/>
+                        </Style>
+                    </TextBox.Resources>
+                </TextBox>
 
-            <Border BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Margin="0,0,0,15"/>
+                <CheckBox x:Name="ChkModuloExistente" 
+                          Content="Vincular a un Módulo existente en la Base de Datos" 
+                          Foreground="#2563EB" FontWeight="Bold" FontSize="12.5" Margin="0,0,0,16" 
+                          Click="ChkModuloExistente_Click" Cursor="Hand"/>
 
-            <StackPanel x:Name="PanelExistente" Visibility="Collapsed" Margin="0,0,0,20">
-                <TextBlock Text="Seleccione el Módulo Huérfano:" Foreground="#64748B" FontWeight="SemiBold"/>
-                <ComboBox x:Name="CboModulosHuerfanos" DisplayMemberPath="NombreModulo" SelectedValuePath="Id" Padding="6" Margin="0,5,0,0" Height="33"/>
-                <TextBlock Text="Nota: Solo se muestran módulos sin vista asignada." FontSize="11" Foreground="#94A3B8" Margin="0,5,0,0"/>
+                <Border BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Margin="0,0,0,16"/>
+
+                <!-- PANEL PARA VINCULAR HUÉRFANO -->
+                <StackPanel x:Name="PanelExistente" Visibility="Collapsed" Margin="0,0,0,16">
+                    <TextBlock Text="Seleccione el Módulo Huérfano:" Foreground="#475569" FontWeight="SemiBold" FontSize="12"/>
+                    <ComboBox x:Name="CboModulosHuerfanos" DisplayMemberPath="NombreModulo" SelectedValuePath="Id" 
+                              Padding="8" Margin="0,6,0,4" Height="38" FontSize="13"/>
+                    <TextBlock Text="Nota: Solo se listan los módulos que no tienen una vista XAML asignada." FontSize="11" Foreground="#94A3B8"/>
+                </StackPanel>
+
+                <!-- PANEL DE NUEVO MÓDULO -->
+                <StackPanel x:Name="PanelNuevo" Visibility="Visible">
+                    <TextBlock Text="Código Único (Ej: MOD_VENTAS):" Foreground="#475569" FontWeight="SemiBold" FontSize="12"/>
+                    <TextBox x:Name="TxtCodigo" Padding="10,8" Margin="0,6,0,16" CharacterCasing="Upper" FontSize="13" BorderBrush="#CBD5E1">
+                        <TextBox.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </TextBox.Resources>
+                    </TextBox>
+
+                    <TextBlock Text="Nombre a mostrar en el menú:" Foreground="#475569" FontWeight="SemiBold" FontSize="12"/>
+                    <TextBox x:Name="TxtNombre" Padding="10,8" Margin="0,6,0,16" FontSize="13" BorderBrush="#CBD5E1">
+                        <TextBox.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </TextBox.Resources>
+                    </TextBox>
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="100"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Margin="0,0,14,0">
+                            <TextBlock Text="Categoría:" Foreground="#475569" FontWeight="SemiBold" FontSize="12"/>
+                            <ComboBox x:Name="CboCategoria" DisplayMemberPath="Nombre" SelectedValuePath="Id" 
+                                      Padding="8" Margin="0,6,0,0" Height="38" FontSize="13" 
+                                      SelectionChanged="CboCategoria_SelectionChanged"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Orden:" Foreground="#475569" FontWeight="SemiBold" FontSize="12"/>
+                            <TextBox x:Name="TxtOrden" Text="99" Padding="10,8" Margin="0,6,0,0" Height="38"
+                                     TextAlignment="Center" FontWeight="Bold" FontSize="13" BorderBrush="#CBD5E1">
+                                <TextBox.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </TextBox.Resources>
+                            </TextBox>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
             </StackPanel>
+        </ScrollViewer>
 
-            <StackPanel x:Name="PanelNuevo" Visibility="Visible">
-                <TextBlock Text="Código Único (Ej: MOD_VENTAS):" Foreground="#64748B" FontWeight="SemiBold"/>
-                <TextBox x:Name="TxtCodigo" Padding="8" Margin="0,5,0,15" CharacterCasing="Upper"/>
-
-                <TextBlock Text="Nombre a mostrar en el menú:" Foreground="#64748B" FontWeight="SemiBold"/>
-                <TextBox x:Name="TxtNombre" Padding="8" Margin="0,5,0,15"/>
-
-                <Grid Margin="0,0,0,20">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="80"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                        <TextBlock Text="Categoría:" Foreground="#64748B" FontWeight="SemiBold"/>
-                        <ComboBox x:Name="CboCategoria" DisplayMemberPath="Nombre" SelectedValuePath="Id" Padding="6" Margin="0,5,0,0" Height="33" SelectionChanged="CboCategoria_SelectionChanged"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="Orden:" Foreground="#64748B" FontWeight="SemiBold"/>
-                        <TextBox x:Name="TxtOrden" Text="99" Padding="8" Margin="0,5,0,0" TextAlignment="Center"/>
-                    </StackPanel>
-                </Grid>
-            </StackPanel>
-
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-                <Button Content="Cancelar" Width="90" Height="35" Background="Transparent" BorderThickness="0" Foreground="#64748B" FontWeight="Bold" Cursor="Hand" Click="BtnCancelar_Click"/>
-                <Button Content="💾 Guardar Cambios" Width="150" Height="35" Background="#10B981" BorderThickness="0" Foreground="White" FontWeight="Bold" Cursor="Hand" Margin="10,0,0,0" Click="BtnGuardar_Click">
+        <!-- BOTONERA FIJA INFERIOR (SIEMPRE VISIBLE) -->
+        <Border Grid.Row="2" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,16,0,0" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancelar" Width="100" Height="40" Background="Transparent" BorderBrush="#CBD5E1" 
+                        BorderThickness="1" Foreground="#64748B" FontWeight="SemiBold" Cursor="Hand" Margin="0,0,12,0" 
+                        Click="BtnCancelar_Click">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="6"/>
+                        </Style>
+                    </Button.Resources>
+                </Button>
+                <Button Content="💾 Guardar Cambios" Width="180" Height="40" Background="#10B981" BorderThickness="0" 
+                        Foreground="White" FontWeight="Bold" FontSize="13" Cursor="Hand" Click="BtnGuardar_Click">
                     <Button.Resources>
                         <Style TargetType="Border">
                             <Setter Property="CornerRadius" Value="6"/>
@@ -58,6 +122,6 @@
                     </Button.Resources>
                 </Button>
             </StackPanel>
-        </StackPanel>
+        </Border>
     </Grid>
 </Window>

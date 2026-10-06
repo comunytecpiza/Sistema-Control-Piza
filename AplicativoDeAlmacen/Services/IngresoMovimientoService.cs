@@ -295,12 +295,12 @@ namespace AplicativoDeAlmacen.Services
             string queryCalculo = @"
         SELECT COALESCE(
             SUM(CASE 
-                WHEN m.almacen_destino_id = @AlmId AND mp.tipo_movimiento_id = 1 
+                WHEN (COALESCE(m.almacen_destino_id, m.almacen_id) = @AlmId) AND mp.tipo_movimiento_id = 1 
                 THEN md.cantidad_ingreso 
                 ELSE 0 
             END) -
             SUM(CASE 
-                WHEN m.almacen_origen_id = @AlmId AND mp.tipo_movimiento_id = 2 
+                WHEN (COALESCE(m.almacen_origen_id, m.almacen_id) = @AlmId) AND mp.tipo_movimiento_id = 2 
                 THEN md.cantidad_salida 
                 ELSE 0 
             END), 0) AS stock_calculado
@@ -310,9 +310,9 @@ namespace AplicativoDeAlmacen.Services
         WHERE md.producto_id = @ProdId
           AND m.estado_id = 1
           AND (
-              (m.almacen_destino_id = @AlmId AND mp.tipo_movimiento_id = 1)
+              (COALESCE(m.almacen_destino_id, m.almacen_id) = @AlmId AND mp.tipo_movimiento_id = 1)
               OR
-              (m.almacen_origen_id = @AlmId AND mp.tipo_movimiento_id = 2)
+              (COALESCE(m.almacen_origen_id, m.almacen_id) = @AlmId AND mp.tipo_movimiento_id = 2)
           )";
 
             int stockCalculado = 0;
@@ -815,54 +815,87 @@ namespace AplicativoDeAlmacen.Services
 
                     using var rdrMov = await cmdMov.ExecuteReaderAsync();
                     if (!await rdrMov.ReadAsync()) throw new Exception("El movimiento no existe.");
-                    // Reemplaza: if (rdrMov.GetInt32(1) == 2) ...
+
                     if (rdrMov.GetInt32(1) == 4) throw new Exception("Este movimiento de ingreso ya está anulado (Cancelado).");
 
                     fechaMovimiento = rdrMov.IsDBNull(0) ? DateTime.Today : rdrMov.GetDateTime(0);
                     almacenDestino = rdrMov.GetInt32(2);
                 }
 
-                // 1. Obtener lista de códigos involucrados
+                // A. Códigos Físicos Serializados
                 var codigosAnular = new List<int>();
                 using (var cmdCod = dbConn.CreateCommand())
                 {
                     cmdCod.Transaction = transaccion;
-                    cmdCod.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId");
+                    cmdCod.CommandText = QueryAdapter.FormatearConsulta(
+                        "SELECT DISTINCT codigo_creado_id FROM movimiento_codigos WHERE movimiento_id = @movId AND codigo_creado_id IS NOT NULL");
                     AgregarParametro(cmdCod, "@movId", movimientoId);
                     using var rdrC = await cmdCod.ExecuteReaderAsync();
-                    while (await rdrC.ReadAsync()) codigosAnular.Add(rdrC.GetInt32(0));
+                    while (await rdrC.ReadAsync())
+                    {
+                        if (!rdrC.IsDBNull(0)) codigosAnular.Add(rdrC.GetInt32(0));
+                    }
                 }
 
-                // 2. Verificar si tienen movimientos posteriores que impidan la anulación
-                foreach (var codId in codigosAnular)
+                if (codigosAnular.Any())
                 {
-                    bool tienePost = await TieneMovimientosPosterioresAsync(codId, movimientoId, fechaMovimiento, dbConn, transaccion);
-                    if (tienePost) throw new Exception($"Rechazado: El código ID {codId} registra movimientos logísticos posteriores.");
+                    foreach (var codId in codigosAnular)
+                    {
+                        bool tienePost = await TieneMovimientosPosterioresAsync(codId, movimientoId, fechaMovimiento, dbConn, transaccion);
+                        if (tienePost) throw new Exception($"Rechazado: El código ID {codId} registra movimientos logísticos posteriores.");
+                    }
                 }
 
                 progress?.Report(30);
 
-                
-
-                progress?.Report(60);
-
-                // 4. 🌟 REVERSIÓN HISTÓRICA EXACTA CÓDIGO POR CÓDIGO
-                foreach (var codId in codigosAnular)
+                if (codigosAnular.Any())
                 {
-                    var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(codId, movimientoId, dbConn, transaccion);
+                    foreach (var codId in codigosAnular)
+                    {
+                        var (estadoAnterior, almacenAnterior) = await ObtenerEstadoYAlmacenAnteriorAsync(codId, movimientoId, dbConn, transaccion);
 
-                    using var cmdRevert = dbConn.CreateCommand();
-                    cmdRevert.Transaction = transaccion;
-                    cmdRevert.CommandText = QueryAdapter.FormatearConsulta("UPDATE codigos_creados SET estado_id = @est, almacen_id = @alm WHERE id = @codId");
-                    AgregarParametro(cmdRevert, "@est", estadoAnterior);
-                    AgregarParametro(cmdRevert, "@alm", almacenAnterior);
-                    AgregarParametro(cmdRevert, "@codId", codId);
-                    await cmdRevert.ExecuteNonQueryAsync();
+                        using var cmdRevert = dbConn.CreateCommand();
+                        cmdRevert.Transaction = transaccion;
+                        cmdRevert.CommandText = QueryAdapter.FormatearConsulta(
+                            "UPDATE codigos_creados SET estado_id = @est, almacen_id = @alm WHERE id = @codId");
+                        AgregarParametro(cmdRevert, "@est", estadoAnterior);
+                        AgregarParametro(cmdRevert, "@alm", almacenAnterior);
+                        AgregarParametro(cmdRevert, "@codId", codId);
+                        await cmdRevert.ExecuteNonQueryAsync();
+                    }
                 }
 
+                progress?.Report(50);
 
-                
-                // 6. Marcar la cabecera como Cancelada / Anulada (estado_id = 4)
+                // B. Obtener todos los productos del movimiento y validar stock para productos SIN CÓDIGO
+                var productosMovimiento = new List<(int ProductoId, int Cantidad)>();
+                using (var cmdProds = dbConn.CreateCommand())
+                {
+                    cmdProds.Transaction = transaccion;
+                    cmdProds.CommandText = QueryAdapter.FormatearConsulta(
+                        "SELECT producto_id, COALESCE(cantidad_ingreso, 0) FROM movimiento_detalles WHERE movimiento_id = @movId");
+                    AgregarParametro(cmdProds, "@movId", movimientoId);
+
+                    using var rdrP = await cmdProds.ExecuteReaderAsync();
+                    while (await rdrP.ReadAsync())
+                    {
+                        productosMovimiento.Add((rdrP.GetInt32(0), Convert.ToInt32(rdrP.GetValue(1))));
+                    }
+                }
+
+                // 🛑 Candado Anti-Negativos para productos sin código al anular todo
+                foreach (var item in productosMovimiento)
+                {
+                    bool tieneCodigos = codigosAnular.Any(); // si no hubo códigos físicos en el movimiento
+                    if (!tieneCodigos)
+                    {
+                        await ValidarDisponibilidadRetiroSinCodigoAsync(item.ProductoId, item.Cantidad, almacenDestino, dbConn, transaccion);
+                    }
+                }
+
+                progress?.Report(70);
+
+                // C. Marcar la cabecera como Cancelada / Anulada (estado_id = 4)
                 using (var cmdStatus = dbConn.CreateCommand())
                 {
                     cmdStatus.Transaction = transaccion;
@@ -870,7 +903,8 @@ namespace AplicativoDeAlmacen.Services
                     AgregarParametro(cmdStatus, "@movId", movimientoId);
                     await cmdStatus.ExecuteNonQueryAsync();
                 }
-                // 🌟 Si era una entrada por transferencia, desvincularla para que vuelva a ser PENDIENTE
+
+                // D. Desvincular transferencias si aplicaba
                 string sqlRevertTransControl = @"
                     UPDATE transferencias_control 
                     SET movimiento_ingreso_id = NULL,
@@ -886,26 +920,15 @@ namespace AplicativoDeAlmacen.Services
                     await cmdRevTrans.ExecuteNonQueryAsync();
                 }
 
-                // 7. Recalcular el stock físico del almacén
-                using (var cmdProds = dbConn.CreateCommand())
+                // E. Recalcular el stock físico del almacén para TODOS los productos del movimiento
+                var prodIds = productosMovimiento.Select(p => p.ProductoId).Distinct().ToList();
+                foreach (var pid in prodIds)
                 {
-                    cmdProds.Transaction = transaccion;
-                    cmdProds.CommandText = QueryAdapter.FormatearConsulta("SELECT DISTINCT producto_id FROM movimiento_detalles WHERE movimiento_id = @movId");
-                    AgregarParametro(cmdProds, "@movId", movimientoId);
-
-                    using var rdrP = await cmdProds.ExecuteReaderAsync();
-                    var prodIds = new List<int>();
-                    while (await rdrP.ReadAsync()) prodIds.Add(rdrP.GetInt32(0));
-                    rdrP.Close();
-
-                    foreach (var pid in prodIds)
-                    {
-                        await ActualizarStockProductoPorKardexAsync(pid, almacenDestino, dbConn, transaccion);
-                    }
+                    await ActualizarStockProductoPorKardexAsync(pid, almacenDestino, dbConn, transaccion);
                 }
 
                 progress?.Report(100);
-                transaccion.Commit();
+                await transaccion.CommitAsync();
                 return true;
             }
             catch (Exception ex)
@@ -1004,6 +1027,8 @@ namespace AplicativoDeAlmacen.Services
 
             int usuarioActivoId = SesionSistema.UsuarioActual?.Id ?? 1;
             int rolUsuarioActivo = SesionSistema.UsuarioActual?.RolUsuarioId ?? SesionSistema.UsuarioActual?.Rol?.Id ?? 0;
+
+            var productosPreviosEnBD = new Dictionary<int, int>();
 
             // 🛑 CANDADO DE AUDITORÍA: Validar plazo de 5 días hábiles sobre created_at
             if (existingMovimientoId.HasValue)
@@ -1228,18 +1253,26 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // 🌟 FASE B: OPTIMIZACIÓN SI NO CAMBIARON CÓDIGOS
-                bool sonCodigosExactamenteIguales = existingMovimientoId.HasValue &&
-                                                    codigosPreviosEnBD.Count == nuevosIdsEnviados.Count &&
-                                                    codigosPreviosEnBD.SetEquals(nuevosIdsEnviados);
+                // =========================================================================
+                // 🌟 FASE B: FAST-TRACK (SOLO SI ABSOLUTAMENTE NADA CAMBIÓ EN LA GRILLA)
+                // =========================================================================
+                bool productosSonIdenticos = existingMovimientoId.HasValue &&
+                                             productosPreviosEnBD.Count == productos.Count &&
+                                             new HashSet<int>(productosPreviosEnBD.Keys).SetEquals(productos.Select(p => p.ProductoId));
 
-                if (sonCodigosExactamenteIguales)
+                // Validar también que no hayan cambiado las cantidades escritas
+                bool cantidadesSonIdenticas = productosSonIdenticos &&
+                                              productos.All(p => productosPreviosEnBD.TryGetValue(p.ProductoId, out int cantBD) &&
+                                                                 cantBD == (int)p.Detalle.CantidadIngreso);
+
+                bool codigosSonIdenticos = existingMovimientoId.HasValue &&
+                                           codigosPreviosEnBD.Count == nuevosIdsEnviados.Count &&
+                                           codigosPreviosEnBD.SetEquals(nuevosIdsEnviados);
+
+                // 🛑 SOLO entra aquí si NO se agregó, NO se borró y NO se modificó ningún producto ni código.
+                // Si borraste 1 producto (ej. de 3 a 2), esta condición es FALSE y OBLIGA al flujo a bajar hasta la FASE E.
+                if (productosSonIdenticos && cantidadesSonIdenticas && codigosSonIdenticos)
                 {
-                    foreach (var item in productos) await UpsertMovimientoDetalleAsync(movimientoId, item, dbConn, transaccion);
-                    var productosUnicosIguales = productos.Select(p => p.ProductoId).Distinct();
-                    int almacenAfectadoIgual = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
-                    foreach (var pid in productosUnicosIguales) await ActualizarStockProductoPorKardexAsync(pid, almacenAfectadoIgual, dbConn, transaccion);
-
                     progress?.Report(100);
                     await transaccion.CommitAsync();
                     return true;
@@ -1588,17 +1621,116 @@ namespace AplicativoDeAlmacen.Services
                     }
                 }
 
-                // 🌟 FASE E: RECALCULAR STOCK FÍSICO EN ALMACÉN
+
+
+                // =========================================================================
+                // 🌟 FASE E: SINCRONIZACIÓN DE GRILLA VS BD (ELIMINACIÓN Y KÁRDEX)
+                // =========================================================================
+                progress?.Report(90);
+
+                int almacenAfectado = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? miAlmacenActualId;
+
+                // 1. Obtener los IDs de los productos que SÍ están presentes en la pantalla en este momento
+                var idsProductosEnPantalla = productos.Select(p => p.ProductoId).Distinct().ToList();
+
+                // 2. 🛑 CANDADO ANTI-NEGATIVOS: Validar solo reducciones o eliminaciones de productos SIN código
+                if (existingMovimientoId.HasValue)
+                {
+                    foreach (var kvp in productosPreviosEnBD)
+                    {
+                        int pId = kvp.Key;
+                        int cantPrevia = kvp.Value;
+
+                        var prodEnPantalla = productos.FirstOrDefault(p => p.ProductoId == pId);
+                        int cantNueva = prodEnPantalla != null ? (int)prodEnPantalla.Detalle.CantidadIngreso : 0;
+
+                        // Si se redujo la cantidad o el producto fue borrado de la grilla
+                        if (cantNueva < cantPrevia)
+                        {
+                            int diferenciaARetirar = cantPrevia - cantNueva;
+
+                            // Verificamos si este producto en particular NO tiene códigos en la tabla movimiento_codigos
+                            bool esProductoSinCodigo = false;
+                            using (var cmdCheck = dbConn.CreateCommand())
+                            {
+                                cmdCheck.Transaction = transaccion;
+                                cmdCheck.CommandText = QueryAdapter.FormatearConsulta(@"
+                    SELECT COUNT(*) 
+                    FROM movimiento_codigos mc 
+                    INNER JOIN movimiento_detalles md ON mc.movimiento_detalle_id = md.id 
+                    WHERE md.movimiento_id = @movId AND md.producto_id = @pId AND mc.codigo_creado_id IS NOT NULL");
+                                AgregarParametro(cmdCheck, "@movId", movimientoId);
+                                AgregarParametro(cmdCheck, "@pId", pId);
+                                int totalCodigosBD = Convert.ToInt32(await cmdCheck.ExecuteScalarAsync());
+                                esProductoSinCodigo = (totalCodigosBD == 0);
+                            }
+
+                            // Si es producto a granel (sin series), validamos que no deje saldo negativo
+                            if (esProductoSinCodigo)
+                            {
+                                await ValidarDisponibilidadRetiroSinCodigoAsync(pId, diferenciaARetirar, almacenAfectado, dbConn, transaccion);
+                            }
+                        }
+                    }
+                }
+
+                // 3. 💥 BORRADO PROFESIONAL DE PRODUCTOS SIN CÓDIGO HUÉRFANOS
+                // Si un detalle en BD pertenece a este movimiento, NO tiene códigos serializados y NO está en pantalla: SE ELIMINA.
+                string filtroExclusion = idsProductosEnPantalla.Any()
+                    ? $"AND md.producto_id NOT IN ({string.Join(",", idsProductosEnPantalla)})"
+                    : "";
+
+                // A. Eliminar rangos de los productos que ya no están en la grilla y no son serializados
+                string sqlDelRangos = $@"
+    DELETE FROM registro_rangos 
+    WHERE movimiento_detalle_id IN (
+        SELECT md.id FROM movimiento_detalles md
+        WHERE md.movimiento_id = @movId {filtroExclusion}
+          AND NOT EXISTS (
+              SELECT 1 FROM movimiento_codigos mc 
+              WHERE mc.movimiento_detalle_id = md.id AND mc.codigo_creado_id IS NOT NULL
+          )
+    )";
+                using (var cmdDelR = dbConn.CreateCommand())
+                {
+                    cmdDelR.Transaction = transaccion;
+                    cmdDelR.CommandText = QueryAdapter.FormatearConsulta(sqlDelRangos);
+                    AgregarParametro(cmdDelR, "@movId", movimientoId);
+                    await cmdDelR.ExecuteNonQueryAsync();
+                }
+
+                // B. Eliminar la fila de movimiento_detalles
+                string sqlDelDetalles = $@"
+    DELETE FROM movimiento_detalles 
+    WHERE movimiento_id = @movId {filtroExclusion.Replace("md.", "")}
+      AND id NOT IN (
+          SELECT DISTINCT mc.movimiento_detalle_id 
+          FROM movimiento_codigos mc 
+          WHERE mc.movimiento_id = @movId AND mc.codigo_creado_id IS NOT NULL
+      )";
+                using (var cmdDelDet = dbConn.CreateCommand())
+                {
+                    cmdDelDet.Transaction = transaccion;
+                    cmdDelDet.CommandText = QueryAdapter.FormatearConsulta(sqlDelDetalles);
+                    AgregarParametro(cmdDelDet, "@movId", movimientoId);
+                    await cmdDelDet.ExecuteNonQueryAsync();
+                }
+
+                // 4. Recalcular stock por Kárdex para TODOS los productos afectados (los que quedaron + los que se borraron)
+                var todosLosProductosAfectados = productos.Select(p => p.ProductoId)
+                    .Concat(productosPreviosEnBD.Keys)
+                    .Distinct()
+                    .ToList();
+
                 progress?.Report(95);
-                var productosUnicos = productos.Select(p => p.ProductoId).Distinct();
-                int almacenAfectado = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
-                foreach (var pid in productosUnicos)
+
+                foreach (var pid in todosLosProductosAfectados)
                 {
                     await ActualizarStockProductoPorKardexAsync(pid, almacenAfectado, dbConn, transaccion);
                 }
 
                 progress?.Report(100);
-                transaccion.Commit();
+                await transaccion.CommitAsync();
                 return true;
             }
             catch (Exception)
@@ -2579,6 +2711,113 @@ namespace AplicativoDeAlmacen.Services
             {
                 Debug.WriteLine($"Error al consultar historial del código {codigoId}: {ex.Message}");
                 return (3, 1);
+            }
+        }
+
+
+        private async Task<bool> ValidarRetiroProductoSinCodigoAsync(
+        int productoId,
+        int cantidadARetirar,
+        int almacenId,
+        DateTime fechaMovimiento,
+        int movimientoId,
+        DbConnection conn,
+        DbTransaction trans)
+        {
+            // 1. Verificar stock actual físico disponible en el almacén
+            string sqlStock = @"
+        SELECT COALESCE(stock_actual, 0) 
+        FROM stock_almacen 
+        WHERE producto_id = @pId AND almacen_id = @almId";
+
+            int stockActual = 0;
+            using (var cmdStock = conn.CreateCommand())
+            {
+                cmdStock.Transaction = trans;
+                cmdStock.CommandText = QueryAdapter.FormatearConsulta(sqlStock);
+                AgregarParametro(cmdStock, "@pId", productoId);
+                AgregarParametro(cmdStock, "@almId", almacenId);
+                var res = await cmdStock.ExecuteScalarAsync();
+                if (res != null && res != DBNull.Value) stockActual = Convert.ToInt32(res);
+            }
+
+            // Si al retirar esta cantidad el stock queda en negativo, se bloquea de inmediato
+            if (stockActual - cantidadARetirar < 0)
+            {
+                return false;
+            }
+
+            // 2. Verificar si existen salidas posteriores (en fecha u orden) en el kárdex
+            string sqlSalidasPost = @"
+        SELECT COUNT(*)
+        FROM movimiento_detalles md
+        INNER JOIN movimientos m ON md.movimiento_id = m.id
+        INNER JOIN motivo_productos mp ON m.motivo_producto_id = mp.id
+        WHERE md.producto_id = @pId
+          AND m.id != @movId
+          AND m.estado_id = 1
+          AND mp.tipo_movimiento_id = 2 -- Salidas (Venta, Promotoría, Traslado, etc.)
+          AND COALESCE(m.almacen_origen_id, m.almacen_id, 1) = @almId
+          AND (
+              m.fecha_movimiento > @fMov 
+              OR (m.fecha_movimiento = @fMov AND m.id > @movId)
+          )";
+
+            using (var cmdPost = conn.CreateCommand())
+            {
+                cmdPost.Transaction = trans;
+                cmdPost.CommandText = QueryAdapter.FormatearConsulta(sqlSalidasPost);
+                AgregarParametro(cmdPost, "@pId", productoId);
+                AgregarParametro(cmdPost, "@movId", movimientoId);
+                AgregarParametro(cmdPost, "@almId", almacenId);
+                AgregarParametro(cmdPost, "@fMov", fechaMovimiento);
+
+                int salidasPosteriores = Convert.ToInt32(await cmdPost.ExecuteScalarAsync());
+
+                // Si hay salidas posteriores pero el stock libre cubre la resta completa, es seguro proceder.
+                // Si no lo cubre, significa que esas salidas posteriores consumieron este ingreso.
+                if (salidasPosteriores > 0 && (stockActual - cantidadARetirar < 0))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // =========================================================================
+        // CANDADO ANTI-NEGATIVOS PARA PRODUCTOS SIN CÓDIGO
+        // =========================================================================
+        private async Task ValidarDisponibilidadRetiroSinCodigoAsync(
+            int productoId,
+            int cantidadARetirar,
+            int almacenId,
+            DbConnection conn,
+            DbTransaction trans)
+        {
+            string sqlStock = @"
+            SELECT COALESCE(stock_actual, 0) 
+            FROM stock_almacen 
+            WHERE producto_id = @pId AND almacen_id = @almId";
+
+            int stockActual = 0;
+            using (var cmdStock = conn.CreateCommand())
+            {
+                cmdStock.Transaction = trans;
+                cmdStock.CommandText = QueryAdapter.FormatearConsulta(sqlStock);
+                AgregarParametro(cmdStock, "@pId", productoId);
+                AgregarParametro(cmdStock, "@almId", almacenId);
+                var res = await cmdStock.ExecuteScalarAsync();
+                if (res != null && res != DBNull.Value) stockActual = Convert.ToInt32(res);
+            }
+
+            if (stockActual - cantidadARetirar < 0)
+            {
+                string descProducto = await ObtenerDescripcionProductoAsync(productoId);
+                throw new InvalidOperationException(
+                    $"⚠️ Stock Insuficiente para modificar/anular:\n\n" +
+                    $"El producto \"{descProducto}\" solo cuenta con {stockActual} unidad(es) en stock actual de este almacén.\n" +
+                    $"No es posible retirar o reducir {cantidadARetirar} unidad(es) porque el saldo caería en negativo (piezas ya fueron consumidas en salidas o promotoría posteriores).");
             }
         }
     }

@@ -38,7 +38,6 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
             DgCodigos.ItemsSource = _codigosAgregados;
         }
 
-        // 🌟 CONSTRUCTOR CORRECTO REQUERIDO POR CONTABILIDAD / FACTURACIÓN
         public AgregarItemWindow(ItemGridDTO itemExistente) : this()
         {
             _modoEdicion = true;
@@ -98,8 +97,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
         {
             if (_productoSeleccionado == null) return;
 
-            bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado.Abreviatura)
-                                       || _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase);
+            bool esArticuloSinCodigo = _productoSeleccionado.Abreviatura?.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase) == true;
 
             _codigosAgregados.Clear();
 
@@ -293,8 +291,7 @@ namespace AplicativoDeAlmacen.Views.Movimientos.RegistroComprobante
 
             _isTyping = true;
 
-            bool esSinCodigo = string.IsNullOrWhiteSpace(_productoSeleccionado?.Abreviatura)
-                               || _productoSeleccionado.Abreviatura.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase);
+            bool esSinCodigo = _productoSeleccionado?.Abreviatura?.Equals("SIN_CODIGO", StringComparison.OrdinalIgnoreCase) == true;
 
             _codigosAgregados.Clear();
 

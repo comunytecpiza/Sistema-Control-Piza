@@ -365,7 +365,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
         }
 
         // =========================================================================
-        // NUEVOS MÉTODOS MEJORADOS (IMPORTACIÓN DE VENTAS NISIRA)
+        // MÉTODOS MEJORADOS (IMPORTACIÓN DE VENTAS NISIRA)
         // =========================================================================
 
         public async Task<List<ImportacionCabeceraDTO>> LeerExcelVentasAgrupadoAsync(string rutaArchivo)
@@ -380,11 +380,11 @@ namespace AplicativoDeAlmacen.Services.Importaciones
 
                 // 1. Localizar dinámicamente la fila de cabeceras
                 IXLRow? filaCabecera = null;
-                for (int r = 1; r <= 5; r++)
+                for (int r = 1; r <= 6; r++)
                 {
                     var row = ws.Row(r);
                     var textos = row.CellsUsed().Select(c => c.GetString().Trim().ToUpperInvariant()).ToList();
-                    if (textos.Contains("SERIE") && (textos.Contains("NUMERO") || textos.Contains("NRODOCUMENTO")))
+                    if (textos.Contains("SERIE") && (textos.Contains("NUMERO") || textos.Contains("NRODOCUMENTO") || textos.Contains("NRO")))
                     {
                         filaCabecera = row;
                         break;
@@ -413,31 +413,34 @@ namespace AplicativoDeAlmacen.Services.Importaciones
 
                 var canalesPagoColumnas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-                // Mapeo automático de columnas
+                // Mapeo automático de columnas mejorado
                 foreach (var cell in filaCabecera.CellsUsed())
                 {
                     string h = cell.GetString().Trim().ToUpperInvariant();
                     int cNum = cell.Address.ColumnNumber;
 
-                    if (h.Equals("DOCUMENTO") || h.Equals("TIPO DOC")) colDocTipo = cNum;
+                    if (h.Equals("DOCUMENTO") || h.Equals("TIPO DOC") || h.Contains("TIPO")) colDocTipo = cNum;
                     else if (h.Equals("SERIE")) colSerie = cNum;
-                    else if (h.Equals("NUMERO") || h.Equals("NRO")) colNumero = cNum;
-                    else if (h.Equals("NRODOCUMENTO") || h.Equals("DNI/RUC") || h.Equals("RUC/DNI")) colDocIdentidad = cNum;
-                    else if (h.Equals("RAZONSOCIAL") || h.Equals("CLIENTE") || h.Equals("PAGADOR")) colRazonSocial = cNum;
+                    else if (h.Equals("NUMERO") || h.Equals("NRO") || h.Equals("CORRELATIVO")) colNumero = cNum;
+                    else if (h.Equals("NRODOCUMENTO") || h.Equals("DNI/RUC") || h.Equals("RUC/DNI") || h.Equals("RUC") || h.Equals("DNI")) colDocIdentidad = cNum;
+                    else if (h.Equals("RAZONSOCIAL") || h.Equals("RAZON SOCIAL") || h.Equals("CLIENTE") || h.Equals("PAGADOR")) colRazonSocial = cNum;
                     else if (h.Equals("MONEDA")) colMoneda = cNum;
-                    else if (h.Equals("FECHA") || h.Equals("FEC EMISION")) colFecha = cNum;
+                    else if (h.Equals("FECHA") || h.Equals("FEC EMISION") || h.Contains("EMISION")) colFecha = cNum;
                     else if (h.Equals("EXONERADO")) colExonerado = cNum;
                     else if (h.Equals("IMPORTE") || h.Equals("TOTAL")) colImporte = cNum;
                     else if (h.Equals("PRODUCTO") || h.Equals("DESCRIPCION")) colProducto = cNum;
-                    else if (h.Equals("PRECIO") || h.Equals("P.UNITARIO")) colPrecio = cNum;
-                    else if (h.Equals("INSTITUCIÓN") || h.Equals("INSTITUCION") || h.Equals("COLEGIO")) colInstitucion = cNum;
+                    else if (h.Equals("PRECIO") || h.Equals("P.UNITARIO") || h.Equals("P. UNITARIO")) colPrecio = cNum;
+
+                    // 🌟 Reconocimiento flexible para Institución Educativa / Colegio
+                    else if (h.Contains("INSTITU") || h.Contains("COLEG") || h.Contains("ESCUEL") || h.Contains("CENTRO EDUCATIVO")) colInstitucion = cNum;
+
                     else if (h.Contains("CODIGO") || h.Contains("CÓDIGO") || h.Contains("INTERNO")) colCodigoInterno = cNum;
                     else if (h.Equals("CANTIDAD") || h.Equals("CANT")) colCantidad = cNum;
-                    else if (h.Equals("CONDICION") || h.Equals("CONDICIÓN")) colCondicion = cNum;
+                    else if (h.Equals("CONDICION") || h.Equals("CONDICIÓN") || h.Contains("CONDICION")) colCondicion = cNum;
                     else if (h.Equals("EMPRESA")) colEmpresa = cNum;
                     else if (h.Contains("EFECTIVO") || h.Contains("YAPE") || h.Contains("PLIN") ||
                              h.Contains("TRANSF") || h.Contains("DEPOSITO") || h.Contains("TIENDA") ||
-                             h.Contains("CULQUI") || h.Contains("DELIVERY"))
+                             h.Contains("CULQUI") || h.Contains("CULQI") || h.Contains("DELIVERY"))
                     {
                         canalesPagoColumnas[h] = cNum;
                     }
@@ -462,7 +465,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         DateTime fecha = row.Cell(colFecha).TryGetValue(out DateTime dtVal) ? dtVal : DateTime.Today;
 
                         string rzExcel = row.Cell(colRazonSocial).GetString().Trim();
-                        string colExcel = row.Cell(colInstitucion).GetString().Trim();
+                        string colExcel = (colInstitucion > 0) ? row.Cell(colInstitucion).GetString().Trim() : string.Empty;
                         string monedaStr = row.Cell(colMoneda).GetString().Trim().ToUpperInvariant();
                         if (string.IsNullOrWhiteSpace(monedaStr)) monedaStr = "SOLES";
 
@@ -481,22 +484,11 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         string codInternoRaw = row.Cell(colCodigoInterno).GetString().Trim();
 
                         // Inicializar cabecera si es nueva
+                        // Inicializar cabecera si es nueva
                         if (!agrupador.TryGetValue(claveDoc, out var paquete))
                         {
-                            // Detectar si es FACTURA, RECIBO o BOLETA (por columna o por letra de serie)
-                            string tipoDocIdentificado;
-                            if (docTipo.Contains("FACT") || serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
-                            {
-                                tipoDocIdentificado = "FACTURA";
-                            }
-                            else if (docTipo.Contains("REC") || serie.StartsWith("R", StringComparison.OrdinalIgnoreCase))
-                            {
-                                tipoDocIdentificado = "RECIBO";
-                            }
-                            else
-                            {
-                                tipoDocIdentificado = "BOLETA";
-                            }
+                            // Conserva el valor textual original para resolverlo dinámicamente contra la BD en la validación
+                            string tipoDocIdentificado = string.IsNullOrWhiteSpace(docTipo) ? "BOLETA" : docTipo;
 
                             var cab = new ImportacionCabeceraDTO
                             {
@@ -514,10 +506,9 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                             };
 
                             paquete = (cab, new Dictionary<string, ImportacionDetalleDTO>(StringComparer.OrdinalIgnoreCase));
-                                agrupador[claveDoc] = paquete;
+                            agrupador[claveDoc] = paquete;
                         }
-
-                        // 🌟 LECTURA Y ACUMULACIÓN MULTICANAL DE PAGOS (Para todas las filas del comprobante)
+                        // Acumulación multicanal de pagos
                         foreach (var canal in canalesPagoColumnas)
                         {
                             if (row.Cell(canal.Value).TryGetValue(out decimal montoCanal) && montoCanal > 0)
@@ -566,7 +557,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         det.Cantidad += cantFila;
                         det.Importe += importeFila;
 
-                        // Extracción de correlativo numérico
                         int correlativoNum = 0;
                         if (!string.IsNullOrWhiteSpace(codInternoRaw))
                         {
@@ -590,14 +580,12 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                     }
                 }
 
-                // 🌟 ARMAR LA LISTA DE CONDICIONES VISIBLES (YAPE, TRANSFERENCIA, EFECTIVO)
                 foreach (var paquete in agrupador.Values)
                 {
                     paquete.Cabecera.Detalles = paquete.DetDict.Values.ToList();
 
                     if (paquete.Cabecera.PagosDesglosados.Any())
                     {
-                        // Muestra la lista de condiciones separadas por coma (ej: "EFECTIVO, YAPE, TRANSF. BCP")
                         var nombresUnicos = paquete.Cabecera.PagosDesglosados
                             .Where(p => p.Monto > 0)
                             .Select(p => p.MedioPagoNombre.Trim())
@@ -625,30 +613,47 @@ namespace AplicativoDeAlmacen.Services.Importaciones
 
             using var cmd = dbConn.CreateCommand();
 
-            // A. Series y Empresas vinculadas
-            var mapaSeriesEmpresa = new Dictionary<string, (int EmpresaId, string RazonSocial)>(StringComparer.OrdinalIgnoreCase);
+            // A. Catálogo dinámico de Documentos
+            var catalogoDocumentos = new List<(string Codigo, string Descripcion, string Abreviatura)>();
+            cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT cod_docu, des_docu, COALESCE(abreviatura, '') FROM documentos WHERE est_regi = 1;");
+            using (var rdr = await cmd.ExecuteReaderAsync())
+            {
+                while (await rdr.ReadAsync())
+                {
+                    catalogoDocumentos.Add((rdr.GetString(0).Trim(), rdr.GetString(1).Trim(), rdr.GetString(2).Trim()));
+                }
+            }
+
+            // B. Series, Empresa vinculada, Sede física y Tipo de Comprobante
+            var mapaSeries = new Dictionary<string, (int UbicacionId, int EmpresaId, string RazonSocial, string TipoDocumento)>(StringComparer.OrdinalIgnoreCase);
             cmd.CommandText = QueryAdapter.FormatearConsulta(@"
-        SELECT s.num_seri, s.empresa_id, COALESCE(e.razon_social, 'EMPRESA NO ASIGNADA')
+        SELECT s.num_seri, COALESCE(s.ubicacion_id, 0), COALESCE(s.empresa_id, 0), 
+               COALESCE(e.razon_social, 'EMPRESA NO ASIGNADA'), COALESCE(s.tip_seri, '01')
         FROM series_documentos s
-        LEFT JOIN empresas e ON s.empresa_id = e.id;");
+        LEFT JOIN empresas e ON s.empresa_id = e.id
+        WHERE s.est_regi = 1;");
             using (var rdr = await cmd.ExecuteReaderAsync())
             {
                 while (await rdr.ReadAsync())
                 {
                     string numSeri = rdr.GetString(0).Trim();
-                    int empId = rdr.IsDBNull(1) ? 0 : rdr.GetInt32(1);
-                    string empNombre = rdr.GetString(2).Trim();
-                    mapaSeriesEmpresa[numSeri] = (empId, empNombre);
+                    int uId = rdr.GetInt32(1);
+                    int empId = rdr.GetInt32(2);
+                    string empNombre = rdr.GetString(3).Trim();
+                    string tipDoc = rdr.GetString(4).Trim();
+                    mapaSeries[numSeri] = (uId, empId, empNombre, tipDoc);
                 }
             }
 
-            // B. Clientes Comodín (7: CLIENTES VARIOS / 8: CLIENTES VARIOS FACTURACION)
+            // C. Clientes Comodín y Catálogo Completo de Personas Comerciales
             int clienteBoletaId = 7;
             int clienteFacturaId = 8;
+            var listaInstitucionesBD = new List<(int Id, string NombreNorm)>();
+
             cmd.CommandText = QueryAdapter.FormatearConsulta(@"
-        SELECT id, COALESCE(dni, ''), COALESCE(ruc, '') 
-        FROM personas_comerciales 
-        WHERE dni = '00000000' OR ruc = '00000000000';");
+        SELECT id, COALESCE(dni, ''), COALESCE(ruc, ''), COALESCE(razon_social, ''), COALESCE(nombres, ''), COALESCE(apellido_paterno, '')
+        FROM personas_comerciales;");
+
             using (var rdr = await cmd.ExecuteReaderAsync())
             {
                 while (await rdr.ReadAsync())
@@ -656,12 +661,26 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                     int id = rdr.GetInt32(0);
                     string dni = rdr.GetString(1).Trim();
                     string ruc = rdr.GetString(2).Trim();
+                    string rz = rdr.GetString(3).Trim();
+                    string nom = rdr.GetString(4).Trim();
+                    string ape = rdr.GetString(5).Trim();
+                    string nomCompleto = $"{nom} {ape}".Trim();
+
                     if (dni == "00000000") clienteBoletaId = id;
                     if (ruc == "00000000000") clienteFacturaId = id;
+
+                    if (!string.IsNullOrEmpty(rz))
+                    {
+                        listaInstitucionesBD.Add((id, LimpiarNombreColegio(rz)));
+                    }
+                    if (!string.IsNullOrEmpty(nomCompleto) && !nomCompleto.Equals(rz, StringComparison.OrdinalIgnoreCase))
+                    {
+                        listaInstitucionesBD.Add((id, LimpiarNombreColegio(nomCompleto)));
+                    }
                 }
             }
 
-            // C. Medios de Pago
+            // D. Medios de Pago
             var mapaMedios = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, nombre FROM medios_pago;");
             using (var rdr = await cmd.ExecuteReaderAsync())
@@ -672,7 +691,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 }
             }
 
-            // D. Monedas
+            // E. Monedas
             var mapaMonedas = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion, codigo_sunat FROM monedas;");
             using (var rdr = await cmd.ExecuteReaderAsync())
@@ -685,7 +704,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 }
             }
 
-            // E. Catálogo de Productos y Abreviaturas
+            // F. Catálogo de Productos
             var listaProductos = new List<(int Id, string Descripcion, string Abreviatura)>();
             cmd.CommandText = QueryAdapter.FormatearConsulta("SELECT id, descripcion, COALESCE(abreviatura, '') FROM productos;");
             using (var rdr = await cmd.ExecuteReaderAsync())
@@ -700,7 +719,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 ? "SELECT 1 FROM facturacion_cabecera WHERE serie_documento = @s AND numero_documento = @n AND estado_registro = 1 LIMIT 1;"
                 : "SELECT TOP 1 1 FROM facturacion_cabecera WITH (NOLOCK) WHERE serie_documento = @s AND numero_documento = @n AND estado_registro = 1;";
 
-            // 🌟 CANDADO MULTI-SEDE: Se evalúa almacen_id para asegurar que el código pertenezca a la sede
             string queryKardexCodigo = QueryAdapter.EsMySQL
                 ? @"SELECT cc.id, cc.codigo, cc.estado_id, cc.almacen_id, COALESCE(mc.movimiento_id, 0) AS mov_id
             FROM codigos_creados cc
@@ -729,16 +747,49 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             INNER JOIN facturacion_cabecera fc WITH (NOLOCK) ON fd.facturacion_cabecera_id = fc.id
             WHERE fdc.codigo_creado_id = @CodId AND fc.estado_registro = 1;";
 
+
             foreach (var cab in comprobantes)
             {
+                // 1. Inicializamos como válido por defecto antes de evaluar
                 cab.EsValido = true;
                 cab.MensajeError = string.Empty;
 
-                // 1. Empresa
-                if (mapaSeriesEmpresa.TryGetValue(cab.Serie, out var empInfo))
+                // =========================================================================
+                // 🌟 VALIDACIÓN 1: Cuadre exacto de Medios de Pago (Multi-pago vs Total)
+                // =========================================================================
+                decimal sumaPagosDesglosados = cab.PagosDesglosados.Sum(p => p.Monto);
+
+                if (cab.PagosDesglosados.Any())
                 {
-                    cab.EmpresaId = empInfo.EmpresaId > 0 ? empInfo.EmpresaId : null;
-                    cab.EmpresaNombre = empInfo.RazonSocial;
+                    // Tolerancia estricta de 0.05 por redondeos de centavos en el Excel
+                    if (Math.Abs(sumaPagosDesglosados - cab.Total) > 0.05m)
+                    {
+                        cab.EsValido = false;
+                        cab.MensajeError += $"Inconsistencia de pagos: El total del comprobante es S/ {cab.Total:N2}, pero los canales de pago suman S/ {sumaPagosDesglosados:N2}. ";
+                    }
+                }
+
+                // =========================================================================
+                // 🌟 VALIDACIÓN 2: Cuadre de la suma de productos vs Total de Venta
+                // =========================================================================
+                decimal sumaDetalles = cab.Detalles.Sum(d => d.Importe);
+                if (sumaDetalles > 0 && Math.Abs(sumaDetalles - cab.Total) > 0.05m)
+                {
+                    cab.EsValido = false;
+                    cab.MensajeError += $"Inconsistencia de ítems: El total del comprobante es S/ {cab.Total:N2}, pero la suma de sus productos es S/ {sumaDetalles:N2}. ";
+                }
+
+                // 2. Serie, Empresa y Tipo de Comprobante dinámico
+                if (mapaSeries.TryGetValue(cab.Serie, out var serieInfo))
+                {
+                    cab.EmpresaId = serieInfo.EmpresaId > 0 ? serieInfo.EmpresaId : null;
+                    cab.EmpresaNombre = serieInfo.RazonSocial;
+
+                    string codDocOficial = serieInfo.TipoDocumento;
+                    var docEncontrado = catalogoDocumentos.FirstOrDefault(d => d.Codigo == codDocOficial);
+                    cab.DocumentoExcel = !string.IsNullOrEmpty(docEncontrado.Descripcion) ? docEncontrado.Descripcion : codDocOficial;
+
+                    cab.PuntoVentaId = serieInfo.UbicacionId > 0 ? serieInfo.UbicacionId : almacenId;
 
                     if (!cab.EmpresaId.HasValue)
                     {
@@ -750,21 +801,32 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 {
                     cab.EsValido = false;
                     cab.EmpresaNombre = "[ SERIE NO REGISTRADA ]";
-                    cab.MensajeError += $"La serie '{cab.Serie}' no está registrada en 'series_documentos'. ";
+                    cab.MensajeError += $"La serie '{cab.Serie}' no existe en 'series_documentos'. ";
                 }
 
-                // 2. Cliente Comodín
-                if (cab.DocumentoExcel == "FACTURA" || cab.Serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
+                // 2.1 Institución / Colegio
+                cab.InstitucionId = null;
+                string textoColegio = !string.IsNullOrWhiteSpace(cab.ClienteExcel)
+                    ? cab.ClienteExcel.Trim()
+                    : cab.RazonSocialExcel.Trim();
+
+                if (!string.IsNullOrWhiteSpace(textoColegio))
                 {
-                    cab.CompradorId = clienteFacturaId;
-                    cab.RazonSocialSistema = "CLIENTES VARIOS FACTURACION";
-                    cab.ClienteNumeroDoc = "00000000000";
-                }
-                else
-                {
-                    cab.CompradorId = clienteBoletaId;
-                    cab.RazonSocialSistema = "CLIENTES VARIOS";
-                    cab.ClienteNumeroDoc = "00000000";
+                    string colegioLimpio = LimpiarNombreColegio(textoColegio);
+                    var matchExacto = listaInstitucionesBD.FirstOrDefault(x => x.NombreNorm == colegioLimpio);
+                    if (matchExacto.Id > 0)
+                    {
+                        cab.InstitucionId = matchExacto.Id;
+                    }
+                    else
+                    {
+                        var matchContiene = listaInstitucionesBD.FirstOrDefault(x =>
+                            x.NombreNorm.Contains(colegioLimpio) || colegioLimpio.Contains(x.NombreNorm));
+                        if (matchContiene.Id > 0)
+                        {
+                            cab.InstitucionId = matchContiene.Id;
+                        }
+                    }
                 }
 
                 // 3. Moneda y Medios de Pago
@@ -773,7 +835,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                 foreach (var p in cab.PagosDesglosados)
                 {
                     string nombreLimpio = p.MedioPagoNombre.Trim();
-
                     if (mapaMedios.TryGetValue(nombreLimpio, out int medId))
                     {
                         p.MedioPagoId = medId;
@@ -808,7 +869,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                     cab.CondicionPagoId = 1;
                 }
 
-                // 4. Duplicidad
+                // 4. Verificación de duplicidad
                 cmd.CommandText = QueryAdapter.FormatearConsulta(queryComprobanteRegistrado);
                 cmd.Parameters.Clear();
                 AgregarParametro(cmd, "@s", cab.Serie);
@@ -894,7 +955,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                             cod.CodigoSistema = codigoRealBD;
                             cod.MovimientoKardexId = movId;
 
-                            // 🛑 🌟 CANDADO MULTI-SEDE: Validar que el código pertenezca a la sede activa
                             if (codigoAlmacenId != almacenId)
                             {
                                 cod.EsValido = false;
@@ -905,7 +965,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                                 continue;
                             }
 
-                            // 🛑 Candado: Verificar si ya fue facturado
                             cmd.CommandText = QueryAdapter.FormatearConsulta(queryFacturado);
                             cmd.Parameters.Clear();
                             AgregarParametro(cmd, "@CodId", codigoCreadoId);
@@ -929,7 +988,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                                 continue;
                             }
 
-                            // 🛑 CANDADO DE ESTADO: SOLO ESTADO 4 ES VÁLIDO
                             switch (estadoId)
                             {
                                 case 4:
@@ -943,14 +1001,6 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                                     det.EsValido = false;
                                     cab.EsValido = false;
                                     cab.MensajeError += $"Código {codigoRealBD} figura en almacén. ";
-                                    break;
-
-                                case 5:
-                                    cod.EsValido = false;
-                                    cod.MensajeValidacion = "⛔ ERROR: CÓDIGO EN TRÁNSITO";
-                                    det.EsValido = false;
-                                    cab.EsValido = false;
-                                    cab.MensajeError += $"Código {codigoRealBD} en tránsito. ";
                                     break;
 
                                 default:
@@ -982,6 +1032,20 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             }
         }
 
+            // 🌟 Helper que elimina ruidos típicos de NISIRA (I.E., C.E., acentos y espacios dobles)
+            private string LimpiarNombreColegio(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto)) return string.Empty;
+
+            string t = texto.Trim().ToUpperInvariant();
+            t = t.Replace("Á", "A").Replace("É", "E").Replace("Í", "I").Replace("Ó", "O").Replace("Ú", "U");
+            t = t.Replace("I.E.P.", "").Replace("I.E.P", "").Replace("I.E.", "").Replace("I.E", "")
+                 .Replace("C.E.P.", "").Replace("C.E.", "").Replace("COLEGIO", "").Replace("ESCUELA", "");
+            t = Regex.Replace(t, @"[^\w\s]", ""); // Elimina puntos, guiones y símbolos
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+            return t;
+        }
+
         public async Task<int> TransferirComprobantesValidosAsync(List<ImportacionCabeceraDTO> comprobantesValidos, int idUsuario, int almacenId)
         {
             var procesables = comprobantesValidos.Where(c => c.EsValido).ToList();
@@ -991,6 +1055,18 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
+            // Precargar tipos de comprobantes asignados a cada serie en BD
+            var tiposPorSerie = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            using (var cmdSeries = dbConn.CreateCommand())
+            {
+                cmdSeries.CommandText = QueryAdapter.FormatearConsulta("SELECT num_seri, tip_seri FROM series_documentos WHERE est_regi = 1;");
+                using var rdrSeries = await cmdSeries.ExecuteReaderAsync();
+                while (await rdrSeries.ReadAsync())
+                {
+                    tiposPorSerie[rdrSeries.GetString(0).Trim()] = rdrSeries.GetString(1).Trim();
+                }
+            }
+
             using var trans = await dbConn.BeginTransactionAsync();
             int countExito = 0;
             string selectId = QueryAdapter.EsMySQL ? "SELECT LAST_INSERT_ID();" : "SELECT SCOPE_IDENTITY();";
@@ -999,35 +1075,23 @@ namespace AplicativoDeAlmacen.Services.Importaciones
             {
                 foreach (var cab in procesables)
                 {
-                    string tipoDocSunat;
-                    if (cab.DocumentoExcel.Contains("FACT") || cab.Serie.StartsWith("F", StringComparison.OrdinalIgnoreCase))
-                    {
-                        tipoDocSunat = "01"; // Factura
-                    }
-                    else if (cab.DocumentoExcel.Contains("REC") || cab.Serie.StartsWith("R", StringComparison.OrdinalIgnoreCase))
-                    {
-                        tipoDocSunat = "03"; // Recibo
-                    }
-                    else
-                    {
-                        tipoDocSunat = "02"; // Boleta
-                    }
+                    // 🌟 Obtiene el código dinámico de la serie (ej: "01", "03", "REC")
+                    string tipoDocSunat = tiposPorSerie.TryGetValue(cab.Serie, out string? tip) ? tip : "01";
 
-                    // 🌟 Se asigna @almId con el almacén de la sesión activa
                     string sqlCab = $@"
-                INSERT INTO facturacion_cabecera (
-                    empresa_id, tipo_documento, serie_documento, numero_documento,
-                    fecha_emision, punto_venta_id, almacen_id, comprador_id,
-                    observacion, total_gravado, total_inafecto, total_exonerado,
-                    moneda_id, condicion_pago_id, total_igv, importe_total,
-                    monto_delivery, porcentaje_igv, fecha_registro, usuario_id, estado_registro
-                ) VALUES (
-                    @empId, @tipoDoc, @serie, @numero,
-                    @fEmision, 1, @almId, @compradorId,
-                    'IMPORTADO DESDE NISIRA', @grav, 0.00, @exon,
-                    @monId, @condId, @igv, @total,
-                    @delivery, 0.00, NOW(), @usrId, 1
-                ); {selectId}";
+                    INSERT INTO facturacion_cabecera (
+                        empresa_id, tipo_documento, serie_documento, numero_documento,
+                        fecha_emision, punto_venta_id, almacen_id, comprador_id, institucion_id,
+                        observacion, total_gravado, total_inafecto, total_exonerado,
+                        moneda_id, condicion_pago_id, total_igv, importe_total,
+                        monto_delivery, porcentaje_igv, fecha_registro, usuario_id, estado_registro
+                    ) VALUES (
+                        @empId, @tipoDoc, @serie, @numero,
+                        @fEmision, @ptoVentaId, @almId, @compradorId, @instId,
+                        'IMPORTADO DESDE NISIRA', @grav, 0.00, @exon,
+                        @monId, @condId, @igv, @total,
+                        @delivery, 0.00, NOW(), @usrId, 1
+                    ); {selectId}";
 
                     int cabeceraId;
                     using (var cmdCab = dbConn.CreateCommand())
@@ -1040,8 +1104,11 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         AgregarParametro(cmdCab, "@serie", cab.Serie);
                         AgregarParametro(cmdCab, "@numero", cab.Numero);
                         AgregarParametro(cmdCab, "@fEmision", cab.Fecha);
-                        AgregarParametro(cmdCab, "@almId", almacenId); // 👈 ID de la sede activa
+                        // 🌟 AQUÍ SE AGREGAN AMBOS: PUNTO DE VENTA (34) Y ALMACÉN DE STOCK
+                        AgregarParametro(cmdCab, "@ptoVentaId", cab.PuntoVentaId > 0 ? cab.PuntoVentaId : almacenId);
+                        AgregarParametro(cmdCab, "@almId", almacenId);
                         AgregarParametro(cmdCab, "@compradorId", cab.CompradorId);
+                        AgregarParametro(cmdCab, "@instId", (object?)cab.InstitucionId ?? DBNull.Value);
                         AgregarParametro(cmdCab, "@grav", cab.Afecto);
                         AgregarParametro(cmdCab, "@exon", cab.Exonerado);
                         AgregarParametro(cmdCab, "@monId", cab.MonedaId);
@@ -1055,7 +1122,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         cabeceraId = Convert.ToInt32(resCab);
                     }
 
-                    // 2. Pagos Desglosados en facturacion_pagos_detalle
+                    // 2. Pagos Desglosados
                     foreach (var pago in cab.PagosDesglosados)
                     {
                         if (pago.Monto <= 0) continue;
@@ -1063,11 +1130,11 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         int medioIdFinal = pago.MedioPagoId > 0 ? pago.MedioPagoId : 1;
 
                         string sqlPago = @"
-                    INSERT INTO facturacion_pagos_detalle (
-                        facturacion_cabecera_id, medio_pago_id, monto, observacion, created_at
-                    ) VALUES (
-                        @cabId, @medioId, @monto, @obs, NOW()
-                    );";
+                        INSERT INTO facturacion_pago_detalle (
+                            facturacion_cabecera_id, medio_pago_id, monto, numero_operacion, observacion
+                        ) VALUES (
+                            @cabId, @medioId, @monto, '', @obs
+                        );";
 
                         using var cmdPago = dbConn.CreateCommand();
                         cmdPago.Transaction = trans;
@@ -1107,6 +1174,7 @@ namespace AplicativoDeAlmacen.Services.Importaciones
                         {
                             cmdDet.Transaction = trans;
                             cmdDet.CommandText = QueryAdapter.FormatearConsulta(sqlDet);
+
                             AgregarParametro(cmdDet, "@cabId", cabeceraId);
                             AgregarParametro(cmdDet, "@movId", movIdDetectado);
                             AgregarParametro(cmdDet, "@prodId", det.ProductoSistemaId.Value);

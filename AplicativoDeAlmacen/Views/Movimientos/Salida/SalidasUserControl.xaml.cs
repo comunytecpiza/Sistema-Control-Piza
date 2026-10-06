@@ -1551,14 +1551,11 @@ namespace AplicativoDeAlmacen.Views
                     {
                         existente.EsProductoSinCodigo = esProductoSinCodigo;
                         existente.Cantidad = cantidadMostrar;
-
-                        if (existente.Detalle != null)
-                        {
-                            existente.Detalle.CantidadSalida = cantidadMostrar;
-                            existente.Detalle.CostoUnitario = modal.CostoUnitarioIngresado > 0
-                                ? modal.CostoUnitarioIngresado
-                                : existente.Detalle.CostoUnitario;
-                        }
+                        existente.Detalle ??= new MovimientoDetalle { ProductoId = idProducto };
+                        existente.Detalle.CantidadSalida = cantidadMostrar;
+                        existente.Detalle.CostoUnitario = modal.CostoUnitarioIngresado > 0
+                            ? modal.CostoUnitarioIngresado
+                            : existente.Detalle.CostoUnitario;
                     }
                     else if (cantidadMostrar > 0)
                     {
@@ -1940,19 +1937,21 @@ namespace AplicativoDeAlmacen.Views
                                            p.CodigoProducto.StartsWith("SIN_CODIGO", StringComparison.OrdinalIgnoreCase) ||
                                            !_codigosLista.Any(c => c.ProductoId == p.ProductoId);
 
+                    int cantFinalDespacho = (int)p.Cantidad;
+
                     return new VistaProductoGrid
                     {
                         ProductoId = p.ProductoId,
                         CodigoProducto = p.CodigoProducto,
                         Descripcion = p.Descripcion,
                         UnidadMedida = p.UnidadMedida,
-                        Cantidad = p.Cantidad,
+                        Cantidad = cantFinalDespacho,
                         EsProductoSinCodigo = esSinCodigoReal,
                         Detalle = new MovimientoDetalle
                         {
                             ProductoId = p.ProductoId,
                             CantidadIngreso = 0,
-                            CantidadSalida = p.Cantidad > 0 ? p.Cantidad : (p.Detalle?.CantidadSalida ?? 0),
+                            CantidadSalida = cantFinalDespacho,
                             CostoUnitario = p.Detalle?.CostoUnitario ?? 0,
                             Id = p.Detalle?.Id ?? 0
                         }
@@ -2660,15 +2659,16 @@ namespace AplicativoDeAlmacen.Views
                 }
                 else
                 {
-                    // 🎒 Producto sin códigos (bolsos, catálogos): MANTENER la cantidad manual ingresada
-                    if (producto.Detalle != null && producto.Detalle.CantidadSalida > 0)
+                    // 🎒 Producto sin códigos (medallas, bolsos, etc.): Mantener la cantidad fiel digitada
+                    producto.Detalle ??= new MovimientoDetalle { ProductoId = producto.ProductoId };
+
+                    if (producto.Cantidad >= 0)
+                    {
+                        producto.Detalle.CantidadSalida = producto.Cantidad;
+                    }
+                    else if (producto.Detalle.CantidadSalida >= 0)
                     {
                         producto.Cantidad = (int)producto.Detalle.CantidadSalida;
-                    }
-                    else if (producto.Cantidad > 0)
-                    {
-                        producto.Detalle ??= new MovimientoDetalle { ProductoId = producto.ProductoId };
-                        producto.Detalle.CantidadSalida = producto.Cantidad;
                     }
                 }
             }

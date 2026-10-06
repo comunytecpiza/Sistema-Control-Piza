@@ -3117,9 +3117,8 @@ namespace AplicativoDeAlmacen.Services.Reportes
             var colorHeader = ClosedXML.Excel.XLColor.FromHtml("#F1F5F9");
             var colorBorde = ClosedXML.Excel.XLColor.FromHtml("#CBD5E1");
 
-            // 1. TÍTULO Y DATOS GENERALES
-            ws.Range("A1:G1").Merge();
-            ws.Cell("A1").Value = "REGISTRO DE VENTAS";
+            ws.Range("A1:J1").Merge();
+            ws.Cell("A1").Value = "REGISTRO DE VENTAS E INGRESOS";
             ws.Cell("A1").Style.Font.Bold = true;
             ws.Cell("A1").Style.Font.FontSize = 14;
             ws.Cell("A1").Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
@@ -3131,17 +3130,19 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Cell("B4").Value = sedeNombre;
             ws.Range("A3:A4").Style.Font.Bold = true;
 
-            // 2. ENCABEZADOS DE COLUMNA
             int row = 6;
-            ws.Cell(row, 1).Value = "Fecha";
-            ws.Cell(row, 2).Value = "Documento";
-            ws.Cell(row, 3).Value = "Cliente / Razón Social";
-            ws.Cell(row, 4).Value = "Gravado";
-            ws.Cell(row, 5).Value = "Exonerado";
-            ws.Cell(row, 6).Value = "IGV";
-            ws.Cell(row, 7).Value = "Total";
+            ws.Cell(row, 1).Value = "F. Emisión";
+            ws.Cell(row, 2).Value = "F. Registro";
+            ws.Cell(row, 3).Value = "Documento";
+            ws.Cell(row, 4).Value = "Cliente / Razón Social";
+            ws.Cell(row, 5).Value = "Gravado";
+            ws.Cell(row, 6).Value = "Exonerado";
+            ws.Cell(row, 7).Value = "IGV";
+            ws.Cell(row, 8).Value = "Delivery";
+            ws.Cell(row, 9).Value = "Total";
+            ws.Cell(row, 10).Value = "Usuario";
 
-            var headRange = ws.Range(row, 1, row, 7);
+            var headRange = ws.Range(row, 1, row, 10);
             headRange.Style.Font.Bold = true;
             headRange.Style.Fill.BackgroundColor = colorHeader;
             headRange.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Medium;
@@ -3149,66 +3150,78 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Row(row).Height = 24;
 
             ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 2).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 5).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
             ws.Cell(row, 6).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
             ws.Cell(row, 7).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 8).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
+            ws.Cell(row, 9).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
 
-            // 3. CUERPO DE DATOS
             foreach (var v in ventas)
             {
                 row++;
                 ws.Cell(row, 1).SetValue(v.FechaEmision.ToString("dd/MM/yyyy"));
-                ws.Cell(row, 2).SetValue(v.Documento);
-                ws.Cell(row, 3).SetValue(v.Cliente);
-                ws.Cell(row, 4).SetValue(v.TotalGravado);
-                ws.Cell(row, 5).SetValue(v.TotalExonerado);
-                ws.Cell(row, 6).SetValue(v.TotalIgv);
-                ws.Cell(row, 7).SetValue(v.ImporteTotal);
+                ws.Cell(row, 2).SetValue(v.FechaRegistro.ToString("dd/MM/yyyy HH:mm"));
+                ws.Cell(row, 3).SetValue(v.Documento);
+                ws.Cell(row, 4).SetValue(v.Cliente);
+                ws.Cell(row, 5).SetValue(v.TotalGravado);
+                ws.Cell(row, 6).SetValue(v.TotalExonerado);
+                ws.Cell(row, 7).SetValue(v.TotalIgv);
+                ws.Cell(row, 8).SetValue(v.MontoDelivery);
+                ws.Cell(row, 9).SetValue(v.ImporteTotal);
+                ws.Cell(row, 10).SetValue(v.UsuarioCreador);
 
                 ws.Cell(row, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
-                ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2; // 0.00
+                ws.Cell(row, 2).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
                 ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2;
                 ws.Cell(row, 6).Style.NumberFormat.NumberFormatId = 2;
                 ws.Cell(row, 7).Style.NumberFormat.NumberFormatId = 2;
+                ws.Cell(row, 8).Style.NumberFormat.NumberFormatId = 2;
+                ws.Cell(row, 9).Style.NumberFormat.NumberFormatId = 2;
                 ws.Row(row).Height = 20;
             }
 
-            // 4. TOTALES GENERALES
             row++;
-            ws.Cell(row, 3).Value = "TOTALES:";
-            ws.Cell(row, 3).Style.Font.Bold = true;
-            ws.Cell(row, 3).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
-
-            ws.Cell(row, 4).SetValue(ventas.Sum(x => x.TotalGravado));
+            ws.Cell(row, 4).Value = "TOTALES:";
             ws.Cell(row, 4).Style.Font.Bold = true;
-            ws.Cell(row, 4).Style.NumberFormat.NumberFormatId = 2;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Right;
 
-            ws.Cell(row, 5).SetValue(ventas.Sum(x => x.TotalExonerado));
+            ws.Cell(row, 5).SetValue(ventas.Sum(x => x.TotalGravado));
             ws.Cell(row, 5).Style.Font.Bold = true;
             ws.Cell(row, 5).Style.NumberFormat.NumberFormatId = 2;
 
-            ws.Cell(row, 6).SetValue(ventas.Sum(x => x.TotalIgv));
+            ws.Cell(row, 6).SetValue(ventas.Sum(x => x.TotalExonerado));
             ws.Cell(row, 6).Style.Font.Bold = true;
             ws.Cell(row, 6).Style.NumberFormat.NumberFormatId = 2;
 
-            ws.Cell(row, 7).SetValue(ventas.Sum(x => x.ImporteTotal));
+            ws.Cell(row, 7).SetValue(ventas.Sum(x => x.TotalIgv));
             ws.Cell(row, 7).Style.Font.Bold = true;
             ws.Cell(row, 7).Style.NumberFormat.NumberFormatId = 2;
 
-            var filaTot = ws.Range(row, 1, row, 7);
+            ws.Cell(row, 8).SetValue(ventas.Sum(x => x.MontoDelivery));
+            ws.Cell(row, 8).Style.Font.Bold = true;
+            ws.Cell(row, 8).Style.NumberFormat.NumberFormatId = 2;
+
+            ws.Cell(row, 9).SetValue(ventas.Sum(x => x.ImporteTotal));
+            ws.Cell(row, 9).Style.Font.Bold = true;
+            ws.Cell(row, 9).Style.NumberFormat.NumberFormatId = 2;
+
+            var filaTot = ws.Range(row, 1, row, 10);
             filaTot.Style.Fill.BackgroundColor = colorHeader;
             filaTot.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
             filaTot.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Double;
             ws.Row(row).Height = 24;
 
-            ws.Column(1).Width = 14;
-            ws.Column(2).Width = 22;
-            ws.Column(3).Width = 46;
-            ws.Column(4).Width = 14;
-            ws.Column(5).Width = 14;
-            ws.Column(6).Width = 14;
-            ws.Column(7).Width = 16;
+            ws.Column(1).Width = 13;
+            ws.Column(2).Width = 16;
+            ws.Column(3).Width = 20;
+            ws.Column(4).Width = 44;
+            ws.Column(5).Width = 12;
+            ws.Column(6).Width = 13;
+            ws.Column(7).Width = 12;
+            ws.Column(8).Width = 12;
+            ws.Column(9).Width = 14;
+            ws.Column(10).Width = 16;
 
             string rutaTemp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"RegistroVentas_{Guid.NewGuid():N}.xlsx");
             wb.SaveAs(rutaTemp);
