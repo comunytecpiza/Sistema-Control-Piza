@@ -210,7 +210,15 @@ namespace AplicativoDeAlmacen.Views
                 int almacenActualId = SesionSistema.AlmacenActual?.Id ?? 1;
 
                 string baseLimpia = abreviaturaRaw.Trim();
-                string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
+                string separador = "";
+                if (baseLimpia.EndsWith("G", StringComparison.OrdinalIgnoreCase) || baseLimpia.EndsWith("V", StringComparison.OrdinalIgnoreCase))
+                {
+                    separador = "-"; // 🌟 Si ya termina en G o V, solo lleva un guion simple (ej. 27016G-0000001)
+                }
+                else
+                {
+                    separador = categoriaId == 1 ? "-G-" : "-V-"; // 🌟 Si no tiene letra, lleva el formato completo con doble guion
+                }
                 string prefijoBuscado = baseLimpia.EndsWith("-") ? baseLimpia : $"{baseLimpia}-";
 
                 // 🌟 FLEXIBILIZACIÓN INTELIGENTE: 
@@ -373,7 +381,15 @@ namespace AplicativoDeAlmacen.Views
             }
 
             string baseLimpia = _abreviaturaProducto.Trim();
-            string separador = baseLimpia.EndsWith("-V") || baseLimpia.EndsWith("-G") ? "-" : (categoriaId == 1 ? "-G-" : "-V-");
+            string separador = "";
+            if (baseLimpia.EndsWith("G", StringComparison.OrdinalIgnoreCase) || baseLimpia.EndsWith("V", StringComparison.OrdinalIgnoreCase))
+            {
+                separador = "-"; // 🌟 Si ya termina en G o V, solo lleva un guion simple (ej. 27016G-0000001)
+            }
+            else
+            {
+                separador = categoriaId == 1 ? "-G-" : "-V-"; // 🌟 Si no tiene letra, lleva el formato completo con doble guion
+            }
             string desdeFormatted = $"{baseLimpia}{separador}{intDesde:D7}";
             string hastaFormatted = $"{baseLimpia}{separador}{intHasta:D7}";
 

@@ -552,9 +552,25 @@ namespace AplicativoDeAlmacen.Views
             {
                 foreach (var r in _rangosOriginalesEdicion)
                 {
-                    string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                    if (r.DesdeNum == -1) codigosOriginalesSet.Add(r.AbreviaturaBase);
-                    else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosOriginalesSet.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
+                    string separador = "";
+                    string abrevBase = r.AbreviaturaBase?.Trim() ?? "";
+
+                    if (abrevBase.EndsWith("G", StringComparison.OrdinalIgnoreCase) || abrevBase.EndsWith("V", StringComparison.OrdinalIgnoreCase))
+                    {
+                        separador = "-"; // 🌟 Si ya termina en G o V, usa un guion simple (Ej: 27016G-0000001)[cite: 25]
+                    }
+                    else
+                    {
+                        separador = r.CategoriaProductoId == 1 ? "-G-" : "-V-"; // 🌟 Si no, usa el formato estándar de doble guion
+                    }
+
+                    if (r.DesdeNum == -1)
+                        codigosOriginalesSet.Add(r.AbreviaturaBase);
+                    else
+                    {
+                        for (int i = r.DesdeNum; i <= r.HastaNum; i++)
+                            codigosOriginalesSet.Add($"{r.AbreviaturaBase}{separador}{i:D7}");
+                    }
                 }
             }
 
@@ -567,8 +583,20 @@ namespace AplicativoDeAlmacen.Views
                 if (rango.DesdeNum == -1) listaCodigosRango.Add(rango.AbreviaturaBase);
                 else
                 {
-                    string separador = rango.AbreviaturaBase.EndsWith("-V") || rango.AbreviaturaBase.EndsWith("-G") ? "-" : (rango.CategoriaProductoId == 1 ? "-G-" : "-V-");
-                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++) listaCodigosRango.Add($"{rango.AbreviaturaBase}{separador}{i:D7}");
+                    string separador = "";
+                    string abrevBase = rango.AbreviaturaBase?.Trim() ?? "";
+
+                    if (abrevBase.EndsWith("G", StringComparison.OrdinalIgnoreCase) || abrevBase.EndsWith("V", StringComparison.OrdinalIgnoreCase))
+                    {
+                        separador = "-"; // 🌟 Mantiene un guion simple de separación (Ej: 27016G-0000001)[cite: 25]
+                    }
+                    else
+                    {
+                        separador = rango.CategoriaProductoId == 1 ? "-G-" : "-V-"; // 🌟 Formato estándar de doble guion
+                    }
+
+                    for (int i = rango.DesdeNum; i <= rango.HastaNum; i++)
+                        listaCodigosRango.Add($"{rango.AbreviaturaBase}{separador}{i:D7}");
                 }
 
                 foreach (var codStr in listaCodigosRango)
@@ -752,7 +780,18 @@ namespace AplicativoDeAlmacen.Views
                         var codigosOriginales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         foreach (var r in _rangosOriginalesEdicion)
                         {
-                            string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                            string separador = "";
+                            string abrevBase = r.AbreviaturaBase?.Trim() ?? "";
+
+                            if (abrevBase.EndsWith("G", StringComparison.OrdinalIgnoreCase) || abrevBase.EndsWith("V", StringComparison.OrdinalIgnoreCase))
+                            {
+                                separador = "-"; // 🌟 Si ya termina en G o V, usa un guion simple (Ej: 27016G-0000001)[cite: 25]
+                            }
+                            else
+                            {
+                                separador = r.CategoriaProductoId == 1 ? "-G-" : "-V-"; // 🌟 Si no, usa el formato estándar de doble guion
+                            }
+
                             if (r.DesdeNum == -1) codigosOriginales.Add(r.AbreviaturaBase);
                             else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosOriginales.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
                         }
@@ -760,7 +799,18 @@ namespace AplicativoDeAlmacen.Views
                         var codigosActuales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         foreach (var r in ListaRangosAgregados)
                         {
-                            string separador = r.AbreviaturaBase.EndsWith("-V") || r.AbreviaturaBase.EndsWith("-G") ? "-" : (r.CategoriaProductoId == 1 ? "-G-" : "-V-");
+                            string separador = "";
+                            string abrevBase = r.AbreviaturaBase?.Trim() ?? "";
+
+                            if (abrevBase.EndsWith("G", StringComparison.OrdinalIgnoreCase) || abrevBase.EndsWith("V", StringComparison.OrdinalIgnoreCase))
+                            {
+                                separador = "-"; // 🌟 Si ya termina en G o V, usa un guion simple (Ej: 27016G-0000001)[cite: 25]
+                            }
+                            else
+                            {
+                                separador = r.CategoriaProductoId == 1 ? "-G-" : "-V-"; // 🌟 Si no, usa el formato estándar de doble guion
+                            }
+
                             if (r.DesdeNum == -1) codigosActuales.Add(r.AbreviaturaBase);
                             else { for (int i = r.DesdeNum; i <= r.HastaNum; i++) codigosActuales.Add($"{r.AbreviaturaBase}{separador}{i:D7}"); }
                         }

@@ -2471,7 +2471,15 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
                 // 🌟 CORRECCIÓN CLAVE: Las hojas individuales solo restan Salidas menos Devoluciones. 
                 // Los ingresos ya no participan aquí para evitar saldos negativos absurdos.
-                cellSaldo.FormulaA1 = $"{colLetra}{filaTotSalidas}-{colLetra}{filaTotDevoluciones}";
+                if (tipoUbicacionId == 1)
+                {
+                    cellSaldo.FormulaA1 = $"{colLetra}{filaTotIngresos}-{colLetra}{filaTotSalidas}+{colLetra}{filaTotDevoluciones}";
+                }
+                // 🌟 Si es Punto de Venta / Devolución sin salidas: muestra el valor positivo de lo devuelto/movido
+                else
+                {
+                    cellSaldo.FormulaA1 = $"{colLetra}{filaTotSalidas}-{colLetra}{filaTotDevoluciones}";
+                }
 
                 cellSaldo.Style.Font.Bold = true;
                 cellSaldo.Style.NumberFormat.Format = "#,##0";

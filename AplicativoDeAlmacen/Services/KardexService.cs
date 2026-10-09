@@ -1699,6 +1699,11 @@ ORDER BY
                 // --- 4. CARGA DE TODAS LAS UBICACIONES (Igual que antes) ---
                 using (IDbCommand cmdUbi = conn.CreateCommand())
                 {
+                    // 🔒 REGLA DE GUÍAS: Excluye Punto de Venta (2) y Punto de Venta Externo (5)
+                    string filtroExclusionUbi = (filtroTipoEdicion == 1)
+                        ? " AND COALESCE(u.tipo_ubicacion_id, 3) NOT IN (2, 5) "
+                        : "";
+
                     string qUbi = $@"
 SELECT 
     u.id, 
@@ -1708,6 +1713,7 @@ SELECT
 FROM ubicaciones u {nolock}
 LEFT JOIN tipo_ubicacion tu {nolock} ON u.tipo_ubicacion_id = tu.id
 WHERE u.estado_id = 1
+  {filtroExclusionUbi}
 ORDER BY u.tipo_ubicacion_id ASC, u.descripcion ASC";
 
                     cmdUbi.CommandText = QueryAdapter.FormatearConsulta(qUbi);

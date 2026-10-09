@@ -277,20 +277,38 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
             var windowPadre = Window.GetWindow(this);
             if (windowPadre != null) ventanaModal.Owner = windowPadre;
 
+            // Pre-configurar selección según lo que esté digitado en pantalla
+            ventanaModal.ConfigurarContextoInicial(
+                tieneProducto: _productoSeleccionadoId > 0,
+                tieneUbicacion: _ubicacionSeleccionadaId > 0,
+                nombreProducto: TxtProducto.Text,
+                nombreUbicacion: TxtUbicacion.Text
+            );
+
             ventanaModal.ShowDialog();
             if (!ventanaModal.SeConfirmoImpresion) return;
 
             try
             {
+                Mouse.OverrideCursor = Cursors.Wait;
+
                 string ubicacion = TxtUbicacion.Text.Trim();
                 DateTime desde = DpDesde.SelectedDate ?? DateTime.Now;
                 DateTime hasta = DpHasta.SelectedDate ?? DateTime.Now;
                 int miAlmacenId = SesionSistema.AlmacenActual?.Id ?? 1;
 
-                if (ventanaModal.EsModoAvanzado)
+                // =========================================================================
+                // 🌟 BIFURCACIÓN: VENTAS (ALUMNO) VS GUÍAS (DOCENTE)
+                // =========================================================================
+                // =========================================================================
+                // 🌟 BIFURCACIÓN: VENTAS (ALUMNO) VS GUÍAS (DOCENTE)
+                // =========================================================================
+                if (ventanaModal.CategoriaIdSeleccionada == 2)
                 {
-                    // 🚀 MODO AVANZADO (MATRIZ CONSOLIDADA / INDIVIDUAL)
-                    int? catId = ventanaModal.CategoriaIdSeleccionada;
+                    // 🛒 RUTA EXCLUSIVA VENTAS
+                    var ventasService = new AplicativoDeAlmacen.Services.Facturacion.VentasMatrizService();
+                    var excelVentas = new AplicativoDeAlmacen.Services.Reportes.ReporteVentasMatrizExcelService();
+
                     string campana = ventanaModal.CampanaSeleccionada;
                     var alcance = ventanaModal.AlcanceMatriz;
 
@@ -298,20 +316,16 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                         ? _ubicacionSeleccionadaId
                         : (int?)null;
 
-                    
                     string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "ALMACEN PRINCIPAL TRUJILLO";
 
-                    var(ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData) =
-                    await _kardexService.ObtenerDatosMatrizConsolidadaCompletaAsync(
-                        desde,
-                        hasta,
-                        catId,
-                        uIdFiltro,
-                        miAlmacenId);
+                    var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData) =
+                        await ventasService.ObtenerMatrizVentasCompletaAsync(
+                            desde,
+                            hasta,
+                            uIdFiltro,
+                            miAlmacenId);
 
-                    bool soloUna = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual);
-
-                    _reporteExcel.GenerarLibroMatrizCompletoConResumen(
+                    excelVentas.GenerarExcelMatrizVentasCompleto(
                         campana,
                         catalogoProds,
                         ubicacionesData,
@@ -319,24 +333,64 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                         almacenesData,
                         ingresosCentralData,
                         miAlmacenId,
-                        nombreAlmacenSesion,
-                        soloUna);
+                        nombreAlmacenSesion);
                 }
                 else
                 {
-                    // 📄 MODO NORMAL (DETALLADO CON CÓDIGOS)
-                    bool porFila = ventanaModal.IncluirCodigosPorFila;
-                    bool tablaLateral = ventanaModal.IncluirTablaLateral;
+                    // 📘 RUTA EXISTENTE: MATRIZ DE GUÍAS / DOCENTE (Lógica previa sin alterar)
+                    if (ventanaModal.EsModoAvanzado)
+                    {
+                        int? catId = ventanaModal.CategoriaIdSeleccionada;
+                        string campana = ventanaModal.CampanaSeleccionada;
+                        var alcance = ventanaModal.AlcanceMatriz;
 
-                    if (_productoSeleccionadoId > 0)
-                        _reporteExcel.ExportarKardexUbicacion(_reporteActual, TxtProducto.Text, ubicacion, desde, hasta, porFila, tablaLateral);
+                        int? uIdFiltro = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual && _ubicacionSeleccionadaId > 0)
+                            ? _ubicacionSeleccionadaId
+                            : (int?)null;
+
+                        string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "ALMACEN PRINCIPAL TRUJILLO";
+
+                        var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData) =
+                            await _kardexService.ObtenerDatosMatrizConsolidadaCompletaAsync(
+                                desde,
+                                hasta,
+                                catId,
+                                uIdFiltro,
+                                miAlmacenId);
+
+                        bool soloUna = (alcance == FiltroImpresionKardexUbicacionWindow.ModoAlcanceMatriz.SoloActual);
+
+                        _reporteExcel.GenerarLibroMatrizCompletoConResumen(
+                            campana,
+                            catalogoProds,
+                            ubicacionesData,
+                            almacenesRealesData,
+                            almacenesData,
+                            ingresosCentralData,
+                            miAlmacenId,
+                            nombreAlmacenSesion,
+                            soloUna);
+                    }
                     else
-                        _reporteExcel.ExportarKardexUbicacionGeneral(_reporteActual, ubicacion, desde, hasta, porFila, tablaLateral);
+                    {
+                        // Modo Detalle por Códigos
+                        bool porFila = ventanaModal.IncluirCodigosPorFila;
+                        bool tablaLateral = ventanaModal.IncluirTablaLateral;
+
+                        if (_productoSeleccionadoId > 0)
+                            _reporteExcel.ExportarKardexUbicacion(_reporteActual, TxtProducto.Text, ubicacion, desde, hasta, porFila, tablaLateral);
+                        else
+                            _reporteExcel.ExportarKardexUbicacionGeneral(_reporteActual, ubicacion, desde, hasta, porFila, tablaLateral);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error al exportar: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
             }
         }
 

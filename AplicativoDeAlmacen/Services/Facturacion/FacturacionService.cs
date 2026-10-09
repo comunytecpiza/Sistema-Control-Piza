@@ -952,6 +952,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
             return lista;
         }
 
+        
         // =========================================================
         // CONSULTAR TRAZABILIDAD Y DATOS FISCALES POR CÓDIGO
         // =========================================================
@@ -987,6 +988,9 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 codigoLimpio = $"{abreviaturaBase}-{codigoLimpio}";
             }
 
+            // 🔒 CANDADO ESTRICTO DE SEDE: Exige que el comprobante pertenezca al almacén de la sesión activa
+            string filtroSedeVenta = " AND (fc.almacen_id = @AlmId OR (fc.almacen_id IS NULL AND u.almacen_id = @AlmId)) ";
+
             // 2. Consulta de Cabecera y Comprobante Fiscal
             string sqlVenta = QueryAdapter.EsMySQL
                 ? $@"SELECT 
@@ -1013,6 +1017,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                       AND rc.categoria_producto_id = @CatId
                       AND (cc.codigo = @Cod OR REPLACE(cc.codigo, '''', '-') = @Cod)
                       AND fc.estado_registro = 1
+                      {filtroSedeVenta}
                     ORDER BY fc.id DESC LIMIT 1;"
                 : $@"SELECT TOP 1
                         fc.id,
@@ -1038,6 +1043,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                       AND rc.categoria_producto_id = @CatId
                       AND (cc.codigo = @Cod OR REPLACE(cc.codigo, '''', '-') = @Cod)
                       AND fc.estado_registro = 1
+                      {filtroSedeVenta}
                     ORDER BY fc.id DESC;";
 
             HistorialVentaCodigoDTO? resultado = null;
@@ -1048,6 +1054,7 @@ namespace AplicativoDeAlmacen.Services.facturaciòn
                 AgregarParametro(cmdVenta, "@ProdId", productoId);
                 AgregarParametro(cmdVenta, "@CatId", categoriaProductoId);
                 AgregarParametro(cmdVenta, "@Cod", codigoLimpio);
+                AgregarParametro(cmdVenta, "@AlmId", almacenId);
 
                 using var rdrV = await cmdVenta.ExecuteReaderAsync();
                 if (await rdrV.ReadAsync())

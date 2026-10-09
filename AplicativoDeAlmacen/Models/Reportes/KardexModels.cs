@@ -132,6 +132,7 @@ namespace AplicativoDeAlmacen.Models.Models
         public DateTime Fecha { get; set; }
         public int ProductoId { get; set; }
         public decimal Cantidad { get; set; }
+        public string Empresa { get; set; } = string.Empty;
     }
 
     public class ProductoColumnaDTO

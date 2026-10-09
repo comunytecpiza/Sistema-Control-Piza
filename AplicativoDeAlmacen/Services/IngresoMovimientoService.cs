@@ -1087,15 +1087,18 @@ namespace AplicativoDeAlmacen.Services
                 progress?.Report(5);
                 // Línea donde se guarda la cabecera:
                 movimientoId = await GuardarCabeceraAsync(cabecera, ubicacionId, existingMovimientoId, usuarioActivoId, productos.Count, dbConn, transaccion);
-                
+
                 // 🌟 CONTROL DE TRANSFERENCIA: Si es Entrada por Transferencia (Motivo 4), enlazar la recepción
-                if (cabecera.MotivoProductoId == 4)
+                bool esTransferenciaInterSedesReal = (cabecera.MotivoProductoId == 4)
+                                                     && cabecera.AlmacenOrigenId.HasValue
+                                                     && cabecera.AlmacenOrigenId.Value > 0;
+
+                if (esTransferenciaInterSedesReal)
                 {
-                    // 👈 Declaración de la variable para resolver el error CS0103
                     DateTime fechaRecepcionFinal = cabecera.FechaMovimiento ?? DateTime.Now;
 
                     int almReceptor = cabecera.AlmacenDestinoId ?? cabecera.AlmacenId ?? 1;
-                    int almEmisor = cabecera.AlmacenOrigenId ?? 1;
+                    int almEmisor = cabecera.AlmacenOrigenId!.Value;
 
                     string sqlUpdateControl;
                     if (movimientoSalidaOrigenId.HasValue && movimientoSalidaOrigenId.Value > 0)

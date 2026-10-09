@@ -1071,9 +1071,35 @@ namespace AplicativoDeAlmacen.Views
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
                 bool tieneAlmacenFisico = cboAlmacenDestino.SelectedValue != null;
 
+                // 🛑 SI AMBOS ESTÁN LLENOS: RESTRINGIR Y LIMPIAR CAMPOS
+                if (tieneUbicacion && tieneAlmacenFisico)
+                {
+                    txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
+                    txtUbicacion.Clear();
+                    txtCodigoUbicacion.Clear();
+                    txtDireccionUbicacion.Clear();
+                    _idUbicacionSeleccionada = null;
+                    txtUbicacion.TextChanged += TxtUbicacion_TextChanged;
+
+                    cboAlmacenDestino.SelectionChanged -= CboAlmacenDestino_SelectionChanged;
+                    cboAlmacenDestino.SelectedIndex = -1;
+                    cboAlmacenDestino.SelectedValue = null;
+                    cboAlmacenDestino.SelectionChanged += CboAlmacenDestino_SelectionChanged;
+
+                    MessageBox.Show(
+                        "⚠️ Conflicto de Procedencia:\n\nPara una Transferencia solo puede seleccionar UNA de las dos opciones:\n" +
+                        "• O una Ubicación (Devolución local desde feria/colegio).\n" +
+                        "• O un Almacén de Procedencia (Transferencia física entre sedes).\n\n" +
+                        "No puede recibir de ambos orígenes simultáneamente. Se han limpiado ambos campos.",
+                        "Procedencia Inválida",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+
                 if (!tieneUbicacion && !tieneAlmacenFisico)
                 {
-                    MessageBox.Show("Para una Transferencia debe seleccionar al menos una Ubicación Referencial O un Almacén Físico de Procedencia.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Para una Transferencia debe seleccionar una Ubicación O un Almacén de Procedencia.", "Validación Requerida", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
             }
@@ -1235,6 +1261,7 @@ namespace AplicativoDeAlmacen.Views
 
             if (idMotivoIngreso == 4)
             {
+                // Si seleccionó almacén físico, viene de otra sede; si seleccionó ubicación, el origen no es otro almacén
                 almacenOrigenReal = cboAlmacenDestino.SelectedValue != null
                     ? Convert.ToInt32(cboAlmacenDestino.SelectedValue)
                     : (int?)null;
@@ -2353,6 +2380,15 @@ namespace AplicativoDeAlmacen.Views
             {
                 if (popupUbicacion != null) popupUbicacion.IsOpen = false;
                 return;
+            }
+
+            // 🔒 Si el usuario escribe una ubicación, se desmarca automáticamente el almacén origen
+            if (!string.IsNullOrWhiteSpace(txtUbicacion.Text) && cboAlmacenDestino != null && cboAlmacenDestino.SelectedIndex != -1)
+            {
+                cboAlmacenDestino.SelectionChanged -= CboAlmacenDestino_SelectionChanged;
+                cboAlmacenDestino.SelectedIndex = -1;
+                cboAlmacenDestino.SelectedValue = null;
+                cboAlmacenDestino.SelectionChanged += CboAlmacenDestino_SelectionChanged;
             }
 
             _timerUbicacion.Stop();
