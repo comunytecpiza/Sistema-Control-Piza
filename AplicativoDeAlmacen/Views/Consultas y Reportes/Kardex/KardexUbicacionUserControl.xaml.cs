@@ -304,7 +304,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                 // 🌟 BIFURCACIÓN: VENTAS (ALUMNO) VS GUÍAS (DOCENTE)
                 if (ventanaModal.CategoriaIdSeleccionada == 2)
                 {
-                    // 🛒 RUTA EXCLUSIVA VENTAS
+                    // 🛒 RUTA EXCLUSIVA VENTAS (Usa VentasMatrizService y ReporteVentasMatrizExcelService)
                     var ventasService = new AplicativoDeAlmacen.Services.Facturacion.VentasMatrizService();
                     var excelVentas = new AplicativoDeAlmacen.Services.Reportes.ReporteVentasMatrizExcelService();
 
@@ -317,7 +317,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
 
                     string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "ALMACEN PRINCIPAL TRUJILLO";
 
-                    // 🌟 Recibir el sexto elemento de la tupla: salidasPromotoriaData
                     var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData, salidasPromotoriaData) =
                         await ventasService.ObtenerMatrizVentasCompletaAsync(
                             desde,
@@ -325,7 +324,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                             uIdFiltro,
                             miAlmacenId);
 
-                    // 🌟 Enviar salidasPromotoriaData al reporte
                     excelVentas.GenerarExcelMatrizVentasCompleto(
                         campana,
                         catalogoProds,
@@ -339,7 +337,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                 }
                 else
                 {
-                    // 📘 RUTA EXISTENTE: MATRIZ DE GUÍAS / DOCENTE (Lógica previa sin alterar)
+                    // 📘 RUTA GUÍAS (DOCENTE) Y CONSULTA GENERAL (Usa KardexService y ReporteExcelService)
                     if (ventanaModal.EsModoAvanzado)
                     {
                         int? catId = ventanaModal.CategoriaIdSeleccionada;
@@ -352,7 +350,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
 
                         string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "ALMACEN PRINCIPAL TRUJILLO";
 
-                        var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData) =
+                        var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosPorAlmacenData) =
                             await _kardexService.ObtenerDatosMatrizConsolidadaCompletaAsync(
                                 desde,
                                 hasta,
@@ -368,7 +366,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                             ubicacionesData,
                             almacenesRealesData,
                             almacenesData,
-                            ingresosCentralData,
+                            ingresosPorAlmacenData,
                             miAlmacenId,
                             nombreAlmacenSesion,
                             soloUna);

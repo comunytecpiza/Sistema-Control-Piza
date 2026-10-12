@@ -1671,15 +1671,15 @@ namespace AplicativoDeAlmacen.Services.Reportes
         // 🌟 MÉTODO ÚNICO PARA GENERAR LA MATRIZ (INDIVIDUAL O CONSOLIDADO)
         // =========================================================================
         public void GenerarLibroMatrizCompletoConResumen(
-            string campanaTexto,
-            List<ProductoColumnaDTO> catalogoProductos,
-            List<UbicacionMatrizDTO> ubicacionesComerciales,
-            List<UbicacionMatrizDTO> almacenesReales,
-            List<Almacen> almacenesRegistrados,
-            Dictionary<int, decimal> ingresosCentral,
-            int almacenSesionId,
-            string nombreAlmacenSesion,
-            bool soloUnaUbicacion = false)
+        string campanaTexto,
+        List<ProductoColumnaDTO> catalogoProductos,
+        List<UbicacionMatrizDTO> ubicacionesComerciales,
+        List<UbicacionMatrizDTO> almacenesReales,
+        List<Almacen> almacenesRegistrados,
+        Dictionary<(int AlmacenId, int ProductoId), decimal> ingresosPorAlmacen, // 🌟 Parámetro actualizado
+        int almacenSesionId,
+        string nombreAlmacenSesion,
+        bool soloUnaUbicacion = false)
         {
             using var wb = new XLWorkbook();
             catalogoProductos = catalogoProductos
@@ -1715,32 +1715,32 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 wsResumenSede.TabColor = XLColor.FromHtml("#0D9488"); // Turquesa
 
                 ConstruirHojaResumen(
-                    wsResumenSede,
-                    campanaTexto,
-                    ubicacionesComerciales,
-                    almacenesReales,
-                    columnasProductos,
-                    mapNombresHojas,
-                    ingresosCentral,
-                    almacenSesionId, // 👈 Filtro por ID de sesión
-                    nombreAlmacenSesion,
-                    false);
+                wsResumenSede,
+                campanaTexto,
+                ubicacionesComerciales,
+                almacenesReales,
+                columnasProductos,
+                mapNombresHojas,
+                ingresosPorAlmacen,
+                almacenSesionId, // 👈 2 para Lima, 1 para Trujillo
+                nombreAlmacenSesion,
+                false);
 
                 // 🌟 2. RESUMEN GENERAL SEDES (CONSOLIDADO - ID 0 para traer todo)
                 var wsResumenGlobal = wb.Worksheets.Add("RESUMEN GENERAL SEDES");
                 wsResumenGlobal.TabColor = XLColor.FromHtml("#047857"); // Verde Esmeralda
 
                 ConstruirHojaResumen(
-                    wsResumenGlobal,
-                    campanaTexto,
-                    ubicacionesComerciales,
-                    almacenesReales,
-                    columnasProductos,
-                    mapNombresHojas,
-                    ingresosCentral,
-                    0, // 👈 0 para consolidado global
-                    "TODAS LAS SEDES",
-                    true);
+                wsResumenGlobal,
+                campanaTexto,
+                ubicacionesComerciales,
+                almacenesReales,
+                columnasProductos,
+                mapNombresHojas,
+                ingresosPorAlmacen,
+                0, // 👈 0 para Consolidado Global
+                "TODAS LAS SEDES",
+                true);
             }
 
             // 🌟 3. HOJAS DE SEDES REALES (Azul Pizarra Oscuro)
@@ -1787,16 +1787,16 @@ namespace AplicativoDeAlmacen.Services.Reportes
             return limpio.Length > 31 ? limpio.Substring(0, 31).Trim() : limpio;
         }
         private void ConstruirHojaResumen(
-            IXLWorksheet ws,
-            string campanaTexto,
-            List<UbicacionMatrizDTO> ubicaciones,
-            List<UbicacionMatrizDTO> almacenesReales,
-            List<ProductoColumnaDTO> columnasProductos,
-            Dictionary<int, string> mapNombresHojas,
-            Dictionary<int, decimal> ingresosCentral,
-            int filtroAlmacenId,
-            string nombreSede,
-            bool esConsolidadoGlobal)
+        IXLWorksheet ws,
+        string campanaTexto,
+        List<UbicacionMatrizDTO> ubicaciones,
+        List<UbicacionMatrizDTO> almacenesReales,
+        List<ProductoColumnaDTO> columnasProductos,
+        Dictionary<int, string> mapNombresHojas,
+        Dictionary<(int AlmacenId, int ProductoId), decimal> ingresosPorAlmacen, // 🌟 Parámetro actualizado
+        int filtroAlmacenId,
+        string nombreSede,
+        bool esConsolidadoGlobal)
         {
             ws.ShowGridLines = true;
 
@@ -1954,6 +1954,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 ws.Range(filaSubtotal, 2, filaSubtotal, 3).Style.Fill.BackgroundColor = colorFilaTotal;
                 ws.Range(filaSubtotal, 2, filaSubtotal, 3).Style.Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center);
 
+                // 🌟 SUMA CORRECTA DEL BLOQUE ACTUAL (de filaInicio a filaFin)
                 for (int c = 4; c <= ultimaColumna; c++)
                 {
                     string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
@@ -2007,6 +2008,9 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 rangoPadreSedes.Style.Border.OutsideBorder = XLBorderStyleValues.Medium;
             }
 
+            // =========================================================================
+            // TOTAL CONSOLIDADO GENERAL
+            // =========================================================================
             int filaGranTotal = filaActual;
             ws.Range(filaGranTotal, 1, filaGranTotal, 3).Merge().Value = "TOTAL CONSOLIDADO GENERAL";
             ws.Range(filaGranTotal, 1, filaGranTotal, 3).Style.Font.Bold = true;
@@ -2017,7 +2021,11 @@ namespace AplicativoDeAlmacen.Services.Reportes
             {
                 string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
                 var cellTot = ws.Cell(filaGranTotal, c);
-                cellTot.FormulaA1 = string.Join("+", filasTotalesGrupos.Select(f => $"{colLetra}{f}"));
+                if (filasTotalesGrupos.Any())
+                    cellTot.FormulaA1 = string.Join("+", filasTotalesGrupos.Select(f => $"{colLetra}{f}"));
+                else
+                    cellTot.Value = 0;
+
                 cellTot.Style.Font.Bold = true;
                 cellTot.Style.NumberFormat.Format = "#,##0";
                 cellTot.Style.Fill.BackgroundColor = XLColor.FromHtml("#FDE047");
@@ -2027,6 +2035,9 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Range(filaGranTotal, 1, filaGranTotal, ultimaColumna).Style.Border.InsideBorder = XLBorderStyleValues.Thin;
             filaActual += 2;
 
+            // =========================================================================
+            // 1. DECLARACIÓN PRIMERO DE LAS FILAS DEL RESUMEN FINAL
+            // =========================================================================
             int fInicioSedes = filaActual;
             ws.Cell(filaActual, 3).Value = "RESUMEN FINAL";
             ws.Cell(filaActual, 3).Style.Font.Bold = true;
@@ -2046,15 +2057,19 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Cell(filaActual, 3).Value = "STOCK FINAL";
             ws.Cell(filaActual, 3).Style.Font.Bold = true;
 
+            // =========================================================================
+            // 2. RECIÉN DESPUÉS EL BUCLE QUE UTILIZA ESAS FILAS
+            // =========================================================================
             for (int c = 4; c <= ultimaColumna; c++)
             {
                 string colLetra = ws.Cell(1, c).WorksheetColumn().ColumnLetter();
 
-                decimal ingresoCentralProd = 0;
+                decimal ingresoCorrespondiente = 0;
                 var matchingProdId = mapColumnaProducto.FirstOrDefault(x => x.Value == c).Key;
-                if (matchingProdId > 0 && ingresosCentral.TryGetValue(matchingProdId, out decimal ingReal))
+                if (matchingProdId > 0)
                 {
-                    ingresoCentralProd = ingReal;
+                    int almClave = esConsolidadoGlobal ? 0 : filtroAlmacenId;
+                    ingresosPorAlmacen.TryGetValue((almClave, matchingProdId), out ingresoCorrespondiente);
                 }
 
                 var subCol = columnasSubtotales.FirstOrDefault(s => s.ColSubtotal == c);
@@ -2066,7 +2081,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 }
                 else
                 {
-                    ws.Cell(fSaldoInicial, c).Value = ingresoCentralProd;
+                    ws.Cell(fSaldoInicial, c).Value = ingresoCorrespondiente;
                 }
 
                 ws.Cell(fSaldoInicial, c).Style.NumberFormat.Format = "#,##0";
@@ -2103,72 +2118,18 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 ws.Column(c).Width = (textoHeader == "TOTAL") ? 8.0 : 6.8;
             }
 
-            // =========================================================================
-            // 🖨️ PAGINACIÓN HORIZONTAL: PÁG 1 (INICIAL) -> PÁG 2 (PRIMARIA PARTE 1) -> PÁG 3 (RESTO)
-            // =========================================================================
+            // Paginación y márgenes de impresión
             ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
             ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
-
-            // 1. Repetir títulos fijos arriba en TODAS las hojas horizontales (Nivel, Familia, Códigos)
             ws.PageSetup.SetRowsToRepeatAtTop(3, 5);
-
-            // 2. Repetir columnas de entidad a la izquierda en TODAS las hojas (Clasificación, Tipo, Zona)
             ws.PageSetup.SetColumnsToRepeatAtLeft(1, 3);
-
-
-
-            // 4. Salto OBLIGATORIO: Cortar justo donde arranca Primaria
-            int colInicioPrimaria = 0;
-            var grupoPrimaria = gruposNivel.FirstOrDefault(g => !g.Key.ToUpper().Contains("INICIAL"));
-            if (grupoPrimaria != null)
-            {
-                var primerProdPrimaria = grupoPrimaria.First();
-                if (mapColumnaProducto.TryGetValue(primerProdPrimaria.ProductoId, out int colPrimerProd))
-                {
-                    colInicioPrimaria = colPrimerProd;
-                }
-            }
-
-            // Si detectó Primaria, forzamos el corte ahí (Página 1 queda sellada solo para Inicial)
-            // Si detectó Primaria, forzamos el corte JUSTO ANTES de Primaria
-            if (colInicioPrimaria > 4 && colInicioPrimaria <= ultimaColumna)
-            {
-                ws.PageSetup.AddVerticalPageBreak(colInicioPrimaria - 1);
-
-                int columnasEnPrimaria = ultimaColumna - colInicioPrimaria + 1;
-                const int MAX_COLUMNAS_POR_HOJA = 14;
-
-                if (columnasEnPrimaria > MAX_COLUMNAS_POR_HOJA)
-                {
-                    int colSegundoCorte = colInicioPrimaria + MAX_COLUMNAS_POR_HOJA;
-
-                    var subCorte = columnasSubtotales.FirstOrDefault(
-                        s => s.ColSubtotal >= colSegundoCorte - 2 &&
-                             s.ColSubtotal <= colSegundoCorte + 2);
-
-                    if (subCorte.ColSubtotal > 0 &&
-                        (subCorte.ColSubtotal + 1) < ultimaColumna)
-                    {
-                        colSegundoCorte = subCorte.ColSubtotal + 1;
-                    }
-
-                    if (colSegundoCorte < ultimaColumna)
-                    {
-                        ws.PageSetup.AddVerticalPageBreak(colSegundoCorte - 1);
-                    }
-                }
-            }
-
-            // 5. Ajuste vertical: que todo el alto entre en 1 página sin recortar subtotales abajo
             ws.PageSetup.PagesTall = 1;
-            ws.PageSetup.PagesWide = 0; // 0 permite que se generen 2, 3 o las páginas horizontales necesarias
-
-            // 6. Márgenes estrechos y centrado
-            ws.PageSetup.Margins.Top = 0.30;       // 0.76 cm
-            ws.PageSetup.Margins.Bottom = 0.30;    // 0.76 cm
-            ws.PageSetup.Margins.Left = 0.47;      // 1.19 cm
-            ws.PageSetup.Margins.Right = 1.22;     // 3.10 cm
-            ws.PageSetup.Margins.Header = 0.50;    // 1.27 cm
+            ws.PageSetup.PagesWide = 0;
+            ws.PageSetup.Margins.Top = 0.30;
+            ws.PageSetup.Margins.Bottom = 0.30;
+            ws.PageSetup.Margins.Left = 0.47;
+            ws.PageSetup.Margins.Right = 1.22;
+            ws.PageSetup.Margins.Header = 0.50;
             ws.PageSetup.Margins.Footer = 0.75;
             ws.PageSetup.CenterHorizontally = true;
         }

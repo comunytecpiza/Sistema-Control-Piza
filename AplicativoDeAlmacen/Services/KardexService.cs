@@ -1527,22 +1527,23 @@ WHERE m.fecha_movimiento >= @FechaDesde
 
         // Reemplazar la firma y retorno del método en KardexService.cs:
         public async Task<(
-            List<UbicacionMatrizDTO> UbicacionesComerciales,
-            List<UbicacionMatrizDTO> AlmacenesReales,
-            List<ProductoColumnaDTO> CatalogoProductos,
-            List<Almacen> AlmacenesRegistrados,
-            Dictionary<int, decimal> IngresosCentralPorProducto)> ObtenerDatosMatrizConsolidadaCompletaAsync(
-            DateTime fechaDesde,
-            DateTime fechaHasta,
-            int? filtroTipoEdicion = null,
-            int? ubicacionIdFiltro = null,
-            int almacenId = 1)
+        List<UbicacionMatrizDTO> UbicacionesComerciales,
+        List<UbicacionMatrizDTO> AlmacenesReales,
+        List<ProductoColumnaDTO> CatalogoProductos,
+        List<Almacen> AlmacenesRegistrados,
+        Dictionary<(int AlmacenId, int ProductoId), decimal> IngresosPorAlmacenYProducto)> ObtenerDatosMatrizConsolidadaCompletaAsync(
+        DateTime fechaDesde,
+        DateTime fechaHasta,
+        int? filtroTipoEdicion = null,
+        int? ubicacionIdFiltro = null,
+        int almacenId = 1)
         {
             var ubicacionesMap = new Dictionary<int, UbicacionMatrizDTO>();
             var almacenesRealesMap = new Dictionary<int, UbicacionMatrizDTO>();
             var catalogo = new List<ProductoColumnaDTO>();
             var almacenesList = new List<Almacen>();
-            var ingresosCentralMap = new Dictionary<int, decimal>();
+            // 🌟 Diccionario nuevo que separa por almacén:
+            var ingresosPorAlmacenMap = new Dictionary<(int AlmacenId, int ProductoId), decimal>();
 
             using (IDbConnection conn = _database.GetConnection())
             {
@@ -1554,29 +1555,47 @@ WHERE m.fecha_movimiento >= @FechaDesde
                 // 🌟 1. CÁLCULO DE INGRESOS REALES DE ALMACÉN CENTRAL (SALDO INICIAL GENERAL)
                 // Perspectiva Central: Compras (motivo 1), Stock Inicial (motivo 13) u Otros Ingresos (tipo 1 sin ser dev)
                 // =========================================================================
-                using (IDbCommand cmdIngCentral = conn.CreateCommand())
+                using (IDbCommand cmdIng = conn.CreateCommand())
                 {
-                    string qIngCentral = $@"
-SELECT 
-    md.producto_id,
-    COALESCE(SUM(md.cantidad_ingreso), 0) AS total_ingreso_central
-FROM movimiento_detalles md {nolock}
-INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-WHERE mp.tipo_movimiento_id = 1
-  AND m.motivo_producto_id NOT IN (2, 3) -- Excluye devoluciones de clientes
-  AND COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)) = 1 -- Almacén Central
-  AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 4
-GROUP BY md.producto_id";
+                    string qIng = $@"
+                        SELECT 
+                            COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)) AS alm_destino,
+                            md.producto_id,
+                            COALESCE(SUM(md.cantidad_ingreso), 0) AS total_abastecimiento
+                        FROM movimiento_detalles md {nolock}
+                        INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+                        INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+                        WHERE mp.tipo_movimiento_id = 1
+                          AND m.fecha_movimiento <= @FechaHasta
+                          AND m.estado_id != 4
+                          AND (
+                              -- CASO A: CENTRAL (1) -> Solo compras a imprenta y stock inicial
+                              (COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)) = 1 AND m.motivo_producto_id IN (1, 13))
+                              OR
+                              -- CASO B: SUCURSALES (Lima 2, Trujillo 2, etc.) -> Transferencias recibidas entre sedes físicas (sin promotor/colegio)
+                              (COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)) != 1 
+                               AND m.motivo_producto_id IN (4, 10) 
+                               AND m.ubicacion_id IS NULL)
+                          )
+                        GROUP BY COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)), md.producto_id";
 
-                    cmdIngCentral.CommandText = QueryAdapter.FormatearConsulta(qIngCentral);
-                    AgregarParametro(cmdIngCentral, "@FechaHasta", fechaHastaFinDia);
+                    cmdIng.CommandText = QueryAdapter.FormatearConsulta(qIng);
+                    AgregarParametro(cmdIng, "@FechaHasta", fechaHastaFinDia);
 
-                    using var rdrIng = await ((DbCommand)cmdIngCentral).ExecuteReaderAsync();
+                    using var rdrIng = await ((DbCommand)cmdIng).ExecuteReaderAsync();
                     while (await ((DbDataReader)rdrIng).ReadAsync())
                     {
-                        ingresosCentralMap[rdrIng.GetInt32(0)] = rdrIng.GetDecimal(1);
+                        int almDest = rdrIng.GetInt32(0);
+                        int prodId = rdrIng.GetInt32(1);
+                        decimal cant = rdrIng.GetDecimal(2);
+
+                        ingresosPorAlmacenMap[(almDest, prodId)] = cant;
+
+                        // Almacén 0 acumula el consolidado nacional (producción original de Central)
+                        if (almDest == 1)
+                        {
+                            ingresosPorAlmacenMap[(0, prodId)] = cant;
+                        }
                     }
                 }
 
@@ -1877,7 +1896,7 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                 }
             }
 
-            return (ubicacionesMap.Values.ToList(), almacenesRealesMap.Values.ToList(), catalogo, almacenesList, ingresosCentralMap);
+            return (ubicacionesMap.Values.ToList(), almacenesRealesMap.Values.ToList(), catalogo, almacenesList, ingresosPorAlmacenMap);
         }
 
         

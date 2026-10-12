@@ -510,7 +510,43 @@ namespace AplicativoDeAlmacen.Services
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
 
-            
+            // =========================================================================
+            // 🛡️ REGLA GLOBAL DE NEGOCIO: VALIDACIÓN DE DESTINATARIOS EN SALIDAS
+            // =========================================================================
+            int motivoIdSalidaReq = cabecera.MotivoProductoId;
+
+            // 1. Promotoría (Motivo 9): Exige obligatoriamente Ubicación o Cliente/Promotor
+            if (motivoIdSalidaReq == 9)
+            {
+                bool sinDestino = (!cabecera.UbicacionId.HasValue || cabecera.UbicacionId.Value <= 0) &&
+                                  (!cabecera.PersonaComercialId.HasValue || cabecera.PersonaComercialId.Value <= 0);
+
+                if (sinDestino)
+                {
+                    throw new InvalidOperationException("No se puede registrar un despacho a Promotoría sin asignar una Ubicación o una Persona Comercial.");
+                }
+            }
+            // 2. Transferencia de salida (Motivo 10): Exige Almacén Destino o Ubicación
+            else if (motivoIdSalidaReq == 10)
+            {
+                bool sinDestinoTrans = (!cabecera.AlmacenDestinoId.HasValue || cabecera.AlmacenDestinoId.Value <= 0) &&
+                                       (!cabecera.UbicacionId.HasValue || cabecera.UbicacionId.Value <= 0);
+
+                if (sinDestinoTrans)
+                {
+                    throw new InvalidOperationException("Para una Transferencia es obligatorio asignar un Almacén Destino físico o una Ubicación referencial.");
+                }
+            }
+            // 3. Ventas y Cesiones (Motivos 5, 6, 7, 8, 11, 14): Exigen Cliente/Razón Social
+            else if (motivoIdSalidaReq == 5 || motivoIdSalidaReq == 6 || motivoIdSalidaReq == 7 ||
+                     motivoIdSalidaReq == 8 || motivoIdSalidaReq == 11 || motivoIdSalidaReq == 14)
+            {
+                if (!cabecera.PersonaComercialId.HasValue || cabecera.PersonaComercialId.Value <= 0)
+                {
+                    throw new InvalidOperationException("Para este tipo de salida es obligatorio asignar el Cliente / Persona Comercial.");
+                }
+            }
+
             // 🛑 1. CANDADO DE AUDITORÍA: Validar plazo sobre created_at (o fecha_movimiento de respaldo)
             if (existingMovimientoId.HasValue)
             {
@@ -1340,6 +1376,7 @@ FROM HistorialOrdenado WHERE rn = 1";
             using var conn = _database.GetConnection();
             var dbConn = (DbConnection)conn;
             await dbConn.OpenAsync();
+
 
             if (string.IsNullOrEmpty(serie) || string.IsNullOrEmpty(numero)) return null;
             if (int.TryParse(numero, out int numVal)) numero = numVal.ToString("D7");

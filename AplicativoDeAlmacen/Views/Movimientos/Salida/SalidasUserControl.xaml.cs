@@ -1792,15 +1792,13 @@ namespace AplicativoDeAlmacen.Views
 
 
             // 🚚 TRANSFERENCIA ENTRE ALMACENES (Motivo 4 o 10): REGLA DE EXCLUSIÓN MUTUA
-            if (idMotivo == 4 || idMotivo == 10)
+            if (idMotivo == 10)
             {
                 bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
                 bool tieneAlmacenDestino = cboAlmacenDestino.SelectedValue != null;
 
-                // 🚫 RECHAZO SI SE LLENARON AMBOS A LA VEZ
                 if (tieneUbicacion && tieneAlmacenDestino)
                 {
-                    // Limpieza automática de la cabecera referencial
                     txtUbicacion.TextChanged -= TxtUbicacion_TextChanged;
                     txtUbicacion.Clear();
                     txtCodigoUbicacion.Clear();
@@ -1814,15 +1812,13 @@ namespace AplicativoDeAlmacen.Views
                     MessageBox.Show(
                         "⚠️ Conflicto de Destino:\n\nPara una Transferencia solo puede seleccionar UNA de las dos opciones:\n" +
                         "• O una Ubicación Referencial/Interna.\n" +
-                        "• O un Almacén Destino Físico (Inter-Sedes).\n\n" +
-                        "No puede enviar a ambos destinos simultáneamente. Se han limpiado ambos campos para que elija uno solo.",
+                        "• O un Almacén Destino Físico (Inter-Sedes).",
                         "Destino Inválido",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
                     return;
                 }
 
-                // 🚫 RECHAZO SI NO SE LLENÓ NINGUNO
                 if (!tieneUbicacion && !tieneAlmacenDestino)
                 {
                     MessageBox.Show(
@@ -1833,14 +1829,37 @@ namespace AplicativoDeAlmacen.Views
                     return;
                 }
             }
+            // =========================================================================
+            // 📢 CASO 2: PROMOCIÓN / PROMOTORÍA (Motivo 9)
+            // =========================================================================
+            else if (idMotivo == 9)
+            {
+                bool tieneUbicacion = !string.IsNullOrWhiteSpace(txtUbicacion.Text) && _idUbicacionSeleccionada.HasValue;
+                bool tieneCliente = !string.IsNullOrWhiteSpace(txtCliente.Text) && _idClienteSeleccionado.HasValue;
+
+                if (!tieneUbicacion && !tieneCliente)
+                {
+                    MessageBox.Show(
+                        "⚠️ Destino Requerido:\n\nPara PROMOTORÍA debe asignar obligatoriamente:\n" +
+                        "• Una Ubicación (Zona/Promotoría)\n" +
+                        "• O un Cliente/Promotor (Razón Social).",
+                        "Validación Requerida",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            // =========================================================================
+            // 🛒 CASO 3: VENTAS, CONSIGNACIÓN, FERIA, DONACIÓN, DEVOLUCIÓN (Motivos 5, 6, 7, 8, 11, 14)
+            // =========================================================================
             else if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11 || idMotivo == 14)
             {
                 if (string.IsNullOrWhiteSpace(txtCliente.Text) || !_idClienteSeleccionado.HasValue)
                 {
-                    MessageBox.Show("Para este tipo de venta es obligatorio seleccionar el Cliente / Razón Social.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show("Para este movimiento es obligatorio seleccionar el Cliente / Razón Social.", "Validación", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
-            }           
+            }
 
             try
             {
@@ -2453,16 +2472,25 @@ namespace AplicativoDeAlmacen.Views
             txtUbicacion.IsEnabled = false;
             cboAlmacenDestino.IsEnabled = false;
 
+            // Ventas, Consignación, Donación, Feria, Devolución Entregada
             if (idMotivo == 5 || idMotivo == 6 || idMotivo == 7 || idMotivo == 8 || idMotivo == 11 || idMotivo == 14)
             {
                 txtCliente.IsEnabled = true;
             }
-            else if (idMotivo == 4 || idMotivo == 10)
+            // Transferencia entre almacenes (Salida)
+            else if (idMotivo == 10)
             {
                 txtUbicacion.IsEnabled = true;
                 cboAlmacenDestino.IsEnabled = true;
             }
-            else if (idMotivo == 9 || idMotivo == 12)
+            // Promotoría (permite asignar Persona Comercial o Zona/Ubicación)
+            else if (idMotivo == 9)
+            {
+                txtCliente.IsEnabled = true;
+                txtUbicacion.IsEnabled = true;
+            }
+            // Otros (Salida)
+            else if (idMotivo == 12)
             {
                 txtCliente.IsEnabled = true;
                 txtUbicacion.IsEnabled = true;
