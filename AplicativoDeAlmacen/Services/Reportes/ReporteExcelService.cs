@@ -1682,6 +1682,13 @@ namespace AplicativoDeAlmacen.Services.Reportes
             bool soloUnaUbicacion = false)
         {
             using var wb = new XLWorkbook();
+            catalogoProductos = catalogoProductos
+                .OrderBy(p => p.NivelId)
+                .ThenBy(p => p.FamiliaNombre.Equals("VARIOS") ? "ZZZZ" : p.FamiliaNombre)
+                .ThenBy(p => p.GradoId)
+                .ThenBy(p => p.TipoEdicion)
+                .ThenBy(p => p.Codigo)
+                .ToList();
 
             var prodsConMov = ubicacionesComerciales.Concat(almacenesReales).SelectMany(u => u.Movimientos).Select(m => m.ProductoId).ToHashSet();
             var columnasProductos = catalogoProductos.Where(p => prodsConMov.Contains(p.ProductoId) || catalogoProductos.Count <= 40).ToList();

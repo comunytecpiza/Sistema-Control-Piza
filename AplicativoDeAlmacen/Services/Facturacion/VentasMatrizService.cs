@@ -30,21 +30,24 @@ namespace AplicativoDeAlmacen.Services.Facturacion
         }
 
         public async Task<(
-            List<UbicacionMatrizDTO> UbicacionesComerciales,
-            List<UbicacionMatrizDTO> AlmacenesReales,
-            List<ProductoColumnaDTO> CatalogoProductos,
-            List<Almacen> AlmacenesRegistrados,
-            Dictionary<int, decimal> IngresosCentralPorProducto)> ObtenerMatrizVentasCompletaAsync(
-            DateTime fechaDesde,
-            DateTime fechaHasta,
-            int? ubicacionIdFiltro = null,
-            int almacenId = 1)
-        {
+         List<UbicacionMatrizDTO> UbicacionesComerciales,
+         List<UbicacionMatrizDTO> AlmacenesReales,
+         List<ProductoColumnaDTO> CatalogoProductos,
+         List<Almacen> AlmacenesRegistrados,
+         Dictionary<int, decimal> IngresosCentralPorProducto,
+         Dictionary<(int AlmacenOrigenId, int ProductoId), decimal> SalidasPromotoria)> ObtenerMatrizVentasCompletaAsync(
+         DateTime fechaDesde,
+         DateTime fechaHasta,
+         int? ubicacionIdFiltro = null,
+         int almacenId = 1)
+         {
             var ubicacionesMap = new Dictionary<string, UbicacionMatrizDTO>(StringComparer.OrdinalIgnoreCase);
             var almacenesRealesMap = new Dictionary<int, UbicacionMatrizDTO>();
             var catalogo = new List<ProductoColumnaDTO>();
             var almacenesList = new List<Almacen>();
             var ingresosCentralMap = new Dictionary<int, decimal>();
+            // 🌟 Variable local nueva:
+            var salidasPromotoriaMap = new Dictionary<(int AlmacenOrigenId, int ProductoId), decimal>();
 
             // 1. Pestañas operativas fijas (siempre existen)
             ubicacionesMap["CONSIGNACION"] = new UbicacionMatrizDTO
@@ -68,7 +71,16 @@ namespace AplicativoDeAlmacen.Services.Facturacion
                 UbicacionId = 99903,
                 Nombre = "OTROS",
                 TipoUbicacionId = 2,
-                TipoUbicacionNombre = "OTROS / DONACIONES"
+                TipoUbicacionNombre = "OTROS / DIVERSOS"
+            };
+
+            // 🌟 AGREGAR AQUÍ:
+            ubicacionesMap["DONACION"] = new UbicacionMatrizDTO
+            {
+                UbicacionId = 99904,
+                Nombre = "DONACION",
+                TipoUbicacionId = 2,
+                TipoUbicacionNombre = "DONACIONES"
             };
 
             using var conn = _database.GetConnection();
@@ -168,7 +180,6 @@ ORDER BY
 
                     string abrevUp = abrevRaw.ToUpper();
                     string tipoEdicion = (abrevUp.Contains("-V-V") || abrevUp.Contains("-V") || desc.ToUpper().Contains("VENTA")) ? "V" : "G";
-
                     if (tipoEdicion != "V") continue;
 
                     catalogo.Add(new ProductoColumnaDTO
@@ -189,28 +200,84 @@ ORDER BY
             // =========================================================================
             // 4. INGRESOS FIJOS EN CENTRAL
             // =========================================================================
+            // =========================================================================
+            // 4. SALDO INICIAL EXACTO AL CORTE (Movimientos previos a FechaDesde)
+            // =========================================================================
+            // =========================================================================
+            // 4. INGRESOS Y SALDO INICIAL AL CORTE (Hasta FechaHasta)
+            // =========================================================================
             string qIngCentral = $@"
-SELECT 
-    md.producto_id,
-    COALESCE(SUM(md.cantidad_ingreso), 0) AS total_ingreso_central
-FROM movimiento_detalles md {nolock}
-INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
-INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
-WHERE mp.tipo_movimiento_id = 1
-  AND m.motivo_producto_id IN (1, 13)
-  AND COALESCE(m.almacen_destino_id, COALESCE(m.almacen_id, 1)) = 1
-  AND m.fecha_movimiento <= @FechaHasta
-  AND m.estado_id != 4
-GROUP BY md.producto_id";
+            SELECT 
+                md.producto_id,
+                COALESCE(SUM(
+                    CASE 
+                        WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso 
+                        ELSE 0 
+                    END
+                ), 0) AS total_ingresos_periodo
+            FROM movimiento_detalles md {nolock}
+            INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+            INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+            WHERE m.fecha_movimiento <= @FechaHasta
+              AND m.estado_id != 4
+              AND mp.tipo_movimiento_id = 1
+              AND (@AlmacenId = 0 
+                   OR COALESCE(m.almacen_destino_id, m.almacen_id, 1) = @AlmacenId)
+            GROUP BY md.producto_id";
 
             using (var cmdIngCentral = dbConn.CreateCommand())
             {
                 cmdIngCentral.CommandText = QueryAdapter.FormatearConsulta(qIngCentral);
                 AgregarParametro(cmdIngCentral, "@FechaHasta", fechaHastaFinDia);
+
+                // Si es sede Trujillo (1) o consolidado, acumulamos los ingresos correspondientes
+                int paramAlm = (ubicacionIdFiltro.HasValue && ubicacionIdFiltro.Value > 0) ? almacenId : 0;
+                AgregarParametro(cmdIngCentral, "@AlmacenId", paramAlm);
+
                 using var rdrIng = await cmdIngCentral.ExecuteReaderAsync();
                 while (await rdrIng.ReadAsync())
                 {
-                    ingresosCentralMap[rdrIng.GetInt32(0)] = rdrIng.GetDecimal(1);
+                    int pId = rdrIng.GetInt32(0);
+                    decimal val = rdrIng.GetDecimal(1);
+                    ingresosCentralMap[pId] = val;
+                }
+            }
+
+            // =========================================================================
+            // 4.1 ACUMULADO DE PROMOTORÍA DE LA CAMPAÑA (Hasta FechaHasta)
+            // =========================================================================
+            string qPromCampana = $@"
+            SELECT 
+                COALESCE(m.almacen_origen_id, m.almacen_id, 1) AS alm_id,
+                md.producto_id,
+                COALESCE(SUM(md.cantidad_salida), 0) AS total_prom
+            FROM movimiento_detalles md {nolock}
+            INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
+            INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
+            LEFT JOIN personas_comerciales pc {nolock} ON m.persona_comercial_id = pc.id
+            LEFT JOIN ubicaciones u {nolock} ON m.ubicacion_id = u.id
+            WHERE m.fecha_movimiento <= @FechaHasta
+              AND m.estado_id != 4
+              AND mp.tipo_movimiento_id = 2
+              AND (m.motivo_producto_id IN (3, 9) 
+                   OR UPPER(COALESCE(pc.razon_social, CONCAT(pc.nombres, ' ', pc.apellido_paterno), u.descripcion, '')) LIKE '%PROM%'
+                   OR UPPER(COALESCE(pc.razon_social, CONCAT(pc.nombres, ' ', pc.apellido_paterno), u.descripcion, '')) LIKE '%PIURA%')
+            GROUP BY COALESCE(m.almacen_origen_id, m.almacen_id, 1), md.producto_id";
+
+            using (var cmdProm = dbConn.CreateCommand())
+            {
+                cmdProm.CommandText = QueryAdapter.FormatearConsulta(qPromCampana);
+                AgregarParametro(cmdProm, "@FechaHasta", fechaHastaFinDia);
+                using var rdrP = await cmdProm.ExecuteReaderAsync();
+                while (await rdrP.ReadAsync())
+                {
+                    int almId = rdrP.GetInt32(0);
+                    int prodId = rdrP.GetInt32(1);
+                    decimal cantProm = rdrP.GetDecimal(2);
+
+                    salidasPromotoriaMap[(almId, prodId)] = cantProm;
+                    salidasPromotoriaMap[(0, prodId)] = cantProm; // Clave para consolidado global
+                    salidasPromotoriaMap[(1, prodId)] = cantProm; // Clave para Trujillo
                 }
             }
 
@@ -270,7 +337,8 @@ SELECT
     md.producto_id,
     CASE WHEN mp.tipo_movimiento_id = 1 THEN md.cantidad_ingreso ELSE md.cantidad_salida END AS cantidad,
     m.ubicacion_id,
-    COALESCE(u.descripcion, '') AS ubicacion_nombre
+    COALESCE(u.descripcion, '') AS ubicacion_nombre,
+    COALESCE(mp.descripcion, '') AS motivo_nombre -- 🌟 Posición 14
 FROM movimiento_detalles md {nolock}
 INNER JOIN movimientos m {nolock} ON md.movimiento_id = m.id
 INNER JOIN motivo_productos mp {nolock} ON m.motivo_producto_id = mp.id
@@ -391,6 +459,20 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                             {
                                 almacenesRealesMap[almOrigId].Movimientos.Add(itemDevolucion);
                             }
+                            else if (motivoId == 7 || textoRastreo.Contains("DONAC"))
+                            {
+                                if (!ubicacionesMap.ContainsKey("DONACION"))
+                                {
+                                    ubicacionesMap["DONACION"] = new UbicacionMatrizDTO
+                                    {
+                                        UbicacionId = 99904,
+                                        Nombre = "DONACION",
+                                        TipoUbicacionId = 2,
+                                        TipoUbicacionNombre = "DONACIONES"
+                                    };
+                                }
+                                ubicacionesMap["DONACION"].Movimientos.Add(itemDevolucion);
+                            }
                             else if (textoRastreo.Contains("FERIA") || motivoId == 8)
                             {
                                 ubicacionesMap["FERIAS"].Movimientos.Add(itemDevolucion);
@@ -404,67 +486,125 @@ ORDER BY m.fecha_movimiento ASC, m.id ASC";
                     }
 
                     // =========================================================================
-                    // CASO 3: SALIDAS (TIPO 2)  -> UN SOLO BLOQUE (antes estaba duplicado)
+                    // CASO 3: SALIDAS (TIPO 2)
                     // =========================================================================
                     if (tipoMovId == 2)
                     {
+                        // 🌟 DETECCIÓN ROBUSTA DE PROMOTORÍA (para descontar en el resumen final):
+                        bool esPromotoria = motivoId == 3
+                                         || motivoId == 9
+                                         || textoRastreo.Contains("PROM")
+                                         || textoRastreo.Contains("PIURA")
+                                         || textoRastreo.Contains("SOCORRO")
+                                         || entidad.IndexOf("PROM", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                        if (esPromotoria)
+                        {
+                            var claveProm = (almOrigId, prodId);
+                            salidasPromotoriaMap[claveProm] = salidasPromotoriaMap.TryGetValue(claveProm, out var prev) ? prev + cant : cant;
+
+                            var claveTrujillo = (1, prodId);
+                            if (!salidasPromotoriaMap.ContainsKey(claveTrujillo))
+                                salidasPromotoriaMap[claveTrujillo] = cant;
+
+                            continue; // 🚫 No ensucia las ventas comerciales
+                        }
+
                         var itemSalida = new MatrizKardexItemDTO
                         {
                             MovimientoId = movId,
                             BloqueTipo = 2,
                             OrdenDocumento = reg,
                             NumeroGuia = guia,
-                            OrigenAlmacen = entidad, // Nombre del colegio / entidad
+                            OrigenAlmacen = entidad,
                             OrigenAlmacenId = almOrigId,
                             Fecha = fec,
                             ProductoId = prodId,
                             Cantidad = cant
                         };
 
-                        // 1. Donación (7) u Otros salida (12) -> exclusivo a "OTROS"
-                        if (motivoId == 7 || motivoId == 12)
+                        // 🌟 1. DONACIÓN EXCLUSIVA (Motivo ID 7 o texto DONAC) -> Su propia pestaña
+                        // 🌟 1. DONACIÓN EXCLUSIVA (Motivo ID 7 o texto DONAC)
+                        if (motivoId == 7 || textoRastreo.Contains("DONAC"))
+                        {
+                            if (!ubicacionesMap.ContainsKey("DONACION"))
+                            {
+                                ubicacionesMap["DONACION"] = new UbicacionMatrizDTO
+                                {
+                                    UbicacionId = 99904,
+                                    Nombre = "DONACION",
+                                    TipoUbicacionId = 2,
+                                    TipoUbicacionNombre = "DONACIONES"
+                                };
+                            }
+                            ubicacionesMap["DONACION"].Movimientos.Add(itemSalida);
+                        }
+                        // 🌟 2. OTROS / AJUSTES (Motivo ID 12)
+                        else if (motivoId == 12)
                         {
                             ubicacionesMap["OTROS"].Movimientos.Add(itemSalida);
                         }
-                        // 2. Feria (8)
+                        // 3. Feria (Motivo ID 8)
                         else if (motivoId == 8 || textoRastreo.Contains("FERIA"))
                         {
                             ubicacionesMap["FERIAS"].Movimientos.Add(itemSalida);
                         }
-                        // 3. Consignación (5)
+                        // 4. Consignación explícita (Motivo ID 5 o texto CONSIGNAC)
                         else if (motivoId == 5 || textoRastreo.Contains("CONSIGNAC"))
                         {
                             ubicacionesMap["CONSIGNACION"].Movimientos.Add(itemSalida);
                         }
-                        // 4. Ubicación comercial (puntos de venta, promotorías)
-                        else if (uId.HasValue && ubicacionesMap.ContainsKey($"PTO_{uId.Value}"))
+                        // 5. Si viene con ubicacion_id directo
+                        else if (uId.HasValue && ubicacionesMap.ContainsKey($"PTO_{uId.Value}") && ubicacionesMap[$"PTO_{uId.Value}"].TipoUbicacionId != 1)
                         {
-                            if (ubicacionesMap[$"PTO_{uId.Value}"].TipoUbicacionId != 1)
-                            {
-                                ubicacionesMap[$"PTO_{uId.Value}"].Movimientos.Add(itemSalida);
-                            }
+                            ubicacionesMap[$"PTO_{uId.Value}"].Movimientos.Add(itemSalida);
                         }
-                        // 5. Coincidencia por nombre de entidad comercial
+                        // 6. Coincidencia por texto con Puntos de Venta
                         else
                         {
+                            string entLimpia = entidad.Trim().ToUpperInvariant();
                             var ubiCoincidente = ubicacionesMap.Values.FirstOrDefault(u =>
-                                u.UbicacionId != 1 && (textoRastreo.Contains(u.Nombre) || u.Nombre.Contains(entidad.ToUpperInvariant())));
+                                u.UbicacionId != 1 && (
+                                    entLimpia.Contains(u.Nombre.Trim().ToUpperInvariant()) ||
+                                    u.Nombre.Trim().ToUpperInvariant().Contains(entLimpia)
+                                ));
 
                             if (ubiCoincidente != null)
+                            {
                                 ubiCoincidente.Movimientos.Add(itemSalida);
+                            }
+                            else if (entLimpia.Contains("PUNTO DE VENTA") || entLimpia.Contains("PTO DE VENTA"))
+                            {
+                                string clavePto = $"PTO_NOMBRE_{entLimpia}";
+                                if (!ubicacionesMap.ContainsKey(clavePto))
+                                {
+                                    ubicacionesMap[clavePto] = new UbicacionMatrizDTO
+                                    {
+                                        UbicacionId = 88000 + ubicacionesMap.Count,
+                                        Nombre = entLimpia,
+                                        TipoUbicacionId = 2,
+                                        TipoUbicacionNombre = "PUNTO DE VENTA"
+                                    };
+                                }
+                                ubicacionesMap[clavePto].Movimientos.Add(itemSalida);
+                            }
                             else
+                            {
                                 ubicacionesMap["CONSIGNACION"].Movimientos.Add(itemSalida);
+                            }
                         }
                     }
                 }
             }
 
             // Las 3 pestañas fijas se mantienen en la lista final
+            // 🌟 Conserva todas las ubicaciones comerciales registradas (Tipo 2 y Tipo 5) 
+            // para que NUNCA desaparezcan y cada una tenga su propia pestaña en el Excel
             var ubicacionesFinales = ubicacionesMap.Values
-                .Where(u => u.Movimientos.Any() || u.UbicacionId >= 99901)
-                .ToList();
+            .Where(u => u.TipoUbicacionId == 2 || u.TipoUbicacionId == 5 || u.Movimientos.Any() || u.UbicacionId >= 99901)
+            .ToList();
 
-            return (ubicacionesFinales, almacenesRealesMap.Values.ToList(), catalogo, almacenesList, ingresosCentralMap);
+            return (ubicacionesFinales, almacenesRealesMap.Values.ToList(), catalogo, almacenesList, ingresosCentralMap, salidasPromotoriaMap);
         }
     }
 }

@@ -64,6 +64,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             List<UbicacionMatrizDTO> almacenesReales,
             List<Almacen> almacenesRegistrados,
             Dictionary<int, decimal> ingresosCentral,
+            Dictionary<(int AlmacenOrigenId, int ProductoId), decimal> salidasPromotoria, // 🌟 Nuevo parámetro
             int almacenSesionId,
             string nombreAlmacenSesion)
         {
@@ -100,13 +101,13 @@ namespace AplicativoDeAlmacen.Services.Reportes
             var wsResumenSede = wb.Worksheets.Add(nombrePestanaSede);
             wsResumenSede.TabColor = XLColor.FromHtml("#0D9488");
             ConstruirHojaResumen(wsResumenSede, campana, ubicacionesComerciales, almacenesReales,
-                columnasProductos, mapNombresHojas, ingresosCentral, almacenSesionId, nombreAlmacenSesion, false);
+                columnasProductos, mapNombresHojas, ingresosCentral, salidasPromotoria, almacenSesionId, nombreAlmacenSesion, false);
 
             // 2. RESUMEN GENERAL (CONSOLIDADO)
             var wsResumenGlobal = wb.Worksheets.Add(HojaResumenGlobal);
             wsResumenGlobal.TabColor = XLColor.FromHtml("#047857");
             ConstruirHojaResumen(wsResumenGlobal, campana, ubicacionesComerciales, almacenesReales,
-                columnasProductos, mapNombresHojas, ingresosCentral, 0, "TODAS LAS SEDES", true);
+                columnasProductos, mapNombresHojas, ingresosCentral, salidasPromotoria, 0, "TODAS LAS SEDES", true);
 
             // 3. HOJAS DE SEDES REALES
             foreach (var alm in almacenesReales)
@@ -118,16 +119,26 @@ namespace AplicativoDeAlmacen.Services.Reportes
                 listaIndice.Add(("SEDE REAL", alm.Nombre, nombreHoja));
             }
 
-            // 4. HOJAS COMERCIALES (puntos, ferias, consignación, otros)
+            // 4. HOJAS COMERCIALES (puntos, ferias, consignación, donación, otros)
             foreach (var ub in ubicacionesComerciales)
             {
                 string nombreHoja = mapNombresHojas[ub.UbicacionId];
                 var ws = wb.Worksheets.Add(nombreHoja);
 
+                bool esExterno = ub.TipoUbicacionId == 5
+                              || ub.Nombre.Contains("EXTERNO")
+                              || ub.Nombre.EndsWith(" B", StringComparison.OrdinalIgnoreCase);
+
                 if (ub.Nombre.Equals("OTROS", StringComparison.OrdinalIgnoreCase))
                 {
                     ws.TabColor = XLColor.FromHtml("#7C3AED"); // Púrpura (Otros)
                     ConstruirHojaMatriz(ws, ModoHoja.Otros, ub.Nombre, campana, ub.Movimientos, columnasProductos);
+                }
+                // 🌟 AGREGAR ESTA CONDICIÓN:
+                else if (ub.Nombre.Equals("DONACIONES", StringComparison.OrdinalIgnoreCase) || ub.Nombre.Equals("DONACION", StringComparison.OrdinalIgnoreCase))
+                {
+                    ws.TabColor = XLColor.FromHtml("#059669"); // Verde Esmeralda
+                    ConstruirHojaMatriz(ws, ModoHoja.Comercial, ub.Nombre, campana, ub.Movimientos, columnasProductos);
                 }
                 else if (ub.TipoUbicacionId == 1)
                 {
@@ -139,14 +150,14 @@ namespace AplicativoDeAlmacen.Services.Reportes
                     ws.TabColor = XLColor.FromHtml("#E11D48"); // Rojo / Fucsia (Ferias)
                     ConstruirHojaMatriz(ws, ModoHoja.Comercial, ub.Nombre, campana, ub.Movimientos, columnasProductos);
                 }
-                else if (ub.TipoUbicacionId == 5 || ub.Nombre.Equals("CONSIGNACION", StringComparison.OrdinalIgnoreCase))
+                else if (esExterno && !ub.Nombre.Equals("CONSIGNACION", StringComparison.OrdinalIgnoreCase))
                 {
-                    ws.TabColor = XLColor.FromHtml("#3B82F6"); // Azul Claro (Puntos Externos / Consignación)
+                    ws.TabColor = XLColor.FromHtml("#3B82F6"); // Azul (Puntos Externos)
                     ConstruirHojaMatriz(ws, ModoHoja.Comercial, ub.Nombre, campana, ub.Movimientos, columnasProductos);
                 }
                 else
                 {
-                    ws.TabColor = XLColor.FromHtml("#F59E0B"); // Amarillo / Naranja (Puntos de Venta)
+                    ws.TabColor = XLColor.FromHtml("#F59E0B"); // Naranja (Puntos de Venta y Consignación)
                     ConstruirHojaMatriz(ws, ModoHoja.Comercial, ub.Nombre, campana, ub.Movimientos, columnasProductos);
                 }
 
@@ -156,15 +167,24 @@ namespace AplicativoDeAlmacen.Services.Reportes
             // 5. ÍNDICE (primera pestaña)
             ConstruirHojaIndice(wb, campana, listaIndice);
 
-            // Guardado
-            string nombreArchivo = $"Matriz_Ventas_{campana}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
-            string carpeta = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            Directory.CreateDirectory(carpeta);
-            string ruta = Path.Combine(carpeta, nombreArchivo);
-            wb.SaveAs(ruta);
+            // 🌟 CÓDIGO NUEVO: Vista previa temporal sin descargar en Downloads
+            string nombreArchivo = $"Preview_Matriz_Ventas_{campana}_{Guid.NewGuid():N}.xlsx";
+            string rutaTemporal = Path.Combine(Path.GetTempPath(), nombreArchivo);
 
-            try { Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true }); }
-            catch { /* el archivo ya se guardó; no romper el flujo si no abre */ }
+            // Se guarda únicamente en la carpeta temporal de Windows
+            wb.SaveAs(rutaTemporal);
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(rutaTemporal)
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                // Manejo silencioso si el visor de Excel no está configurado por defecto
+            }
         }
 
         // =========================================================================
@@ -669,6 +689,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
             List<ProductoColumnaDTO> columnasProductos,
             Dictionary<int, string> mapNombresHojas,
             Dictionary<int, decimal> ingresosCentral,
+            Dictionary<(int AlmacenOrigenId, int ProductoId), decimal> salidasPromotoria, // 🌟 PARÁMETRO N° 8 AGREGADO
             int filtroAlmacenId,
             string nombreSede,
             bool esConsolidadoGlobal)
@@ -708,6 +729,7 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             var ctx = new ContextoResumen(ws, lay, mapNombresHojas, esConsolidadoGlobal, filtroAlmacenId);
 
+            
             // Bloques de ubicaciones
             int fIniUbicaciones = ctx.Fila;
             RenderizarBloqueResumen(ctx, "ALM. REFER", "TOTAL ALMACENES REFER", 1, false, "#94A3B8", "#CBD5E1", ubicaciones, "ALMACEN REFERENCIAL");
@@ -785,6 +807,12 @@ namespace AplicativoDeAlmacen.Services.Reportes
             ws.Cell(ctx.Fila, 3).Style.Font.Bold = true;
             ctx.Fila++;
 
+            // 🌟 NUEVA FILA: ENTREGADO A PROMOTORÍA
+            int fPromotoria = ctx.Fila;
+            ws.Cell(ctx.Fila, 3).Value = "ENTREGADO A PROMOTORÍA";
+            ws.Cell(ctx.Fila, 3).Style.Font.Bold = true;
+            ctx.Fila++;
+
             int fStockFinal = ctx.Fila;
             ws.Cell(ctx.Fila, 3).Value = "STOCK FINAL";
             ws.Cell(ctx.Fila, 3).Style.Font.Bold = true;
@@ -796,9 +824,10 @@ namespace AplicativoDeAlmacen.Services.Reportes
             for (int c = 4; c <= lay.UltimaColumna; c++)
             {
                 string L = XLHelper.GetColumnLetterFromNumber(c);
-                var celdaInicial = ws.Cell(fSaldoInicial, c);
-
                 var sub = lay.Subtotales.FirstOrDefault(s => s.ColSubtotal == c);
+
+                // --- 1. SALDO INICIAL ---
+                var celdaInicial = ws.Cell(fSaldoInicial, c);
                 if (sub.ColSubtotal > 0)
                 {
                     string ini = XLHelper.GetColumnLetterFromNumber(sub.ColInicio);
@@ -812,18 +841,45 @@ namespace AplicativoDeAlmacen.Services.Reportes
                         ingresosCentral.TryGetValue(prodId, out ingreso);
                     celdaInicial.Value = ingreso;
                 }
-
                 celdaInicial.Style.NumberFormat.Format = FormatoNumero;
                 celdaInicial.Style.Font.Bold = true;
                 celdaInicial.Style.Font.FontColor = XLColor.FromHtml("#0E7490");
 
+                // --- 2. SALIDAS NETAS COMERCIALES ---
                 var celdaSalidas = ws.Cell(fSalidasNetas, c);
                 celdaSalidas.FormulaA1 = $"{L}{filaGranTotal}";
                 celdaSalidas.Style.NumberFormat.Format = FormatoNumero;
                 celdaSalidas.Style.Font.Bold = true;
 
+                // --- 3. ENTREGADO A PROMOTORÍA ---
+                var celdaPromotoria = ws.Cell(fPromotoria, c);
+                if (sub.ColSubtotal > 0)
+                {
+                    string ini = XLHelper.GetColumnLetterFromNumber(sub.ColInicio);
+                    string fin = XLHelper.GetColumnLetterFromNumber(sub.ColFin);
+                    celdaPromotoria.FormulaA1 = $"SUM({ini}{fPromotoria}:{fin}{fPromotoria})";
+                }
+                else
+                {
+                    decimal cantProm = 0;
+                    if (colAProducto.TryGetValue(c, out int prodId))
+                    {
+                        // Toma cualquier salida a promotoría registrada para ese producto
+                        cantProm = salidasPromotoria
+                            .Where(kv => kv.Key.ProductoId == prodId && (esConsolidadoGlobal || filtroAlmacenId == 0 || kv.Key.AlmacenOrigenId == filtroAlmacenId || kv.Key.AlmacenOrigenId == 1))
+                            .Select(kv => kv.Value)
+                            .DefaultIfEmpty(0)
+                            .Max(); // Toma el acumulado de ese producto
+                    }
+                    celdaPromotoria.Value = cantProm;
+                }
+                celdaPromotoria.Style.NumberFormat.Format = FormatoNumero;
+                celdaPromotoria.Style.Font.Bold = true;
+                celdaPromotoria.Style.Font.FontColor = XLColor.FromHtml("#B45309");
+
+                // --- 4. STOCK FINAL (SALDO INICIAL - SALIDAS NETAS - PROMOTORÍA) ---
                 var celdaStock = ws.Cell(fStockFinal, c);
-                celdaStock.FormulaA1 = $"{L}{fSaldoInicial}-{L}{fSalidasNetas}";
+                celdaStock.FormulaA1 = $"{L}{fSaldoInicial}-{L}{fSalidasNetas}-{L}{fPromotoria}";
                 celdaStock.Style.Font.Bold = true;
                 celdaStock.Style.NumberFormat.Format = FormatoNumero;
                 celdaStock.Style.Fill.BackgroundColor = XLColor.FromHtml("#FEF08A");
@@ -884,11 +940,34 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             var lista = listaFuente.Where(u =>
             {
+                // Si es bloque de Sedes Físicas
                 if (esSedeReal) return u.TipoUbicacionId == 1;
                 if (u.TipoUbicacionId == 1) return false;
-                if (u.Nombre.Equals("FERIAS", StringComparison.OrdinalIgnoreCase)) return textoHijo.Contains("PUNTOS");
-                if (u.Nombre.Equals("OTROS", StringComparison.OrdinalIgnoreCase)) return textoHijo.Contains("PUNTOS");
-                if (u.Nombre.Equals("CONSIGNACION", StringComparison.OrdinalIgnoreCase)) return textoHijo.Contains("EXT");
+
+                // Ubicaciones especiales operativas (Consignación, Ferias, Otros)
+                // Ubicaciones especiales operativas (Consignación, Ferias, Otros, Donación)
+                bool esEspecialOperativo = u.Nombre.Equals("FERIAS", StringComparison.OrdinalIgnoreCase)
+                                 || u.Nombre.Equals("OTROS", StringComparison.OrdinalIgnoreCase)
+                                 || u.Nombre.Equals("CONSIGNACION", StringComparison.OrdinalIgnoreCase)
+                                 || u.Nombre.Equals("DONACIONES", StringComparison.OrdinalIgnoreCase)
+                                 || u.Nombre.Equals("DONACION", StringComparison.OrdinalIgnoreCase);
+
+                // 🟡 BLOQUE PUNTOS DE VENTA INTERNOS (tipoUbicacionId == 2)
+                if (tipoUbicacionId == 2)
+                {
+                    // Entran los Tipo 2 normales (ej. Punto de venta principal) + las 3 especiales
+                    return (u.TipoUbicacionId == 2 && !u.Nombre.Contains("EXTERNO") && !u.Nombre.EndsWith(" B", StringComparison.OrdinalIgnoreCase))
+                        || esEspecialOperativo;
+                }
+
+                // 🔵 BLOQUE PUNTOS DE VENTA EXTERNOS (tipoUbicacionId == 5)
+                if (tipoUbicacionId == 5)
+                {
+                    // Entran estrictamente los externos (Tipo 5 o cuyo nombre sea Punto de Venta B / Externo)
+                    // Y NUNCA entran las especiales
+                    return !esEspecialOperativo && (u.TipoUbicacionId == 5 || u.Nombre.Contains("EXTERNO") || u.Nombre.EndsWith(" B", StringComparison.OrdinalIgnoreCase));
+                }
+
                 return u.TipoUbicacionId == tipoUbicacionId;
             }).ToList();
 
@@ -931,22 +1010,30 @@ namespace AplicativoDeAlmacen.Services.Reportes
 
             int filaFin = ctx.Fila - 1;
             var rHijo = Fusionar(ws, filaInicio, 2, filaFin, 2, textoHijo);
-            rHijo.Style.Font.Bold = true; rHijo.Style.Font.FontSize = 9; CentrarRango(rHijo);
-            rHijo.Style.Alignment.TextRotation = 90; rHijo.Style.Fill.BackgroundColor = XLColor.FromHtml(colorHijoHex);
-            rHijo.Style.Font.FontColor = XLColor.White; rHijo.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            rHijo.Style.Font.Bold = true;
+            rHijo.Style.Font.FontSize = 9;
+            CentrarRango(rHijo);
+            rHijo.Style.Alignment.TextRotation = 90;
+            rHijo.Style.Fill.BackgroundColor = XLColor.FromHtml(colorHijoHex);
+            rHijo.Style.Font.FontColor = XLColor.White;
+            rHijo.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
             int filaSubtotal = ctx.Fila;
             var colorTotal = XLColor.FromHtml(colorTotalHex);
             var rEtiq = Fusionar(ws, filaSubtotal, 2, filaSubtotal, 3, textoTotal);
-            rEtiq.Style.Font.Bold = true; rEtiq.Style.Fill.BackgroundColor = colorTotal; CentrarRango(rEtiq);
+            rEtiq.Style.Font.Bold = true;
+            rEtiq.Style.Fill.BackgroundColor = colorTotal;
+            CentrarRango(rEtiq);
 
             for (int c = 4; c <= lay.UltimaColumna; c++)
             {
                 string L = XLHelper.GetColumnLetterFromNumber(c);
                 var celda = ws.Cell(filaSubtotal, c);
                 celda.FormulaA1 = $"SUM({L}{filaInicio}:{L}{filaFin})";
-                celda.Style.Font.Bold = true; celda.Style.NumberFormat.Format = FormatoNumero;
-                celda.Style.Fill.BackgroundColor = colorTotal; celda.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                celda.Style.Font.Bold = true;
+                celda.Style.NumberFormat.Format = FormatoNumero;
+                celda.Style.Fill.BackgroundColor = colorTotal;
+                celda.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             }
 
             ws.Range(filaSubtotal, 2, filaSubtotal, lay.UltimaColumna).Style.Border.OutsideBorder = XLBorderStyleValues.Medium;

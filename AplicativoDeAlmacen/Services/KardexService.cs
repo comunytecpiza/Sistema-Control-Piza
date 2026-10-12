@@ -1657,6 +1657,37 @@ ORDER BY
                         string gradoNombre = Convert.ToString(rdrProd.GetValue(6)) ?? "";
                         string tituloCursoNombre = Convert.ToString(rdrProd.GetValue(8)) ?? "VARIOS";
 
+                        // 🌟 CORRECCIÓN 1: Si en base de datos vino "VARIOS" pero es un libro conocido, asignamos su familia real
+                        string abrevUp = abrevRaw.ToUpper().Trim();
+                        if (tituloCursoNombre.Equals("VARIOS", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (abrevUp.StartsWith("CP") && abrevUp.Contains("C27"))
+                                tituloCursoNombre = "COMUNICACION C-27";
+                            else if (abrevUp.StartsWith("MP") && abrevUp.Contains("C27"))
+                                tituloCursoNombre = "MATEMATICA C-27";
+                            else if (desc.ToUpper().Contains("COMUNICACI"))
+                                tituloCursoNombre = "COMUNICACION C-27";
+                            else if (desc.ToUpper().Contains("MATEMAT"))
+                                tituloCursoNombre = "MATEMATICA C-27";
+                        }
+
+                        // 🌟 CORRECCIÓN 2: Calcular el grado numérico exacto para el orden (1 al 6)
+                        int ordenGrado = gradoId;
+                        if (ordenGrado <= 0 || ordenGrado >= 90)
+                        {
+                            // Extrae el número del código: ej "CP4C27G" -> grado 4
+                            var matchNum = System.Text.RegularExpressions.Regex.Match(abrevUp, @"[A-Z]+(\d)");
+                            if (matchNum.Success && int.TryParse(matchNum.Groups[1].Value, out int gExt))
+                                ordenGrado = gExt;
+                            else if (gradoNombre.Contains("1")) ordenGrado = 1;
+                            else if (gradoNombre.Contains("2")) ordenGrado = 2;
+                            else if (gradoNombre.Contains("3")) ordenGrado = 3;
+                            else if (gradoNombre.Contains("4")) ordenGrado = 4;
+                            else if (gradoNombre.Contains("5")) ordenGrado = 5;
+                            else if (gradoNombre.Contains("6")) ordenGrado = 6;
+                            else ordenGrado = 99;
+                        }
+
                         bool esArticuloSinCodigo = string.IsNullOrWhiteSpace(abrevRaw) || !tieneNivel;
 
                         if (esArticuloSinCodigo)
@@ -1676,9 +1707,7 @@ ORDER BY
                             continue;
                         }
 
-                        string abrevUp = abrevRaw.ToUpper();
                         string tipoEdicion = (abrevUp.Contains("-V-V") || abrevUp.Contains("-V") || desc.ToUpper().Contains("VENTA")) ? "V" : "G";
-                        if (filtroTipoEdicion == 1 && tipoEdicion != "G") continue;
                         if (filtroTipoEdicion == 2 && tipoEdicion != "V") continue;
 
                         catalogo.Add(new ProductoColumnaDTO
@@ -1688,7 +1717,7 @@ ORDER BY
                             Descripcion = desc,
                             NivelId = rdrProd.GetInt32(3),
                             NivelNombre = nivelNombre.ToUpper().Trim(),
-                            GradoId = gradoId,
+                            GradoId = ordenGrado, // 👈 Grado limpio (1, 2, 3, 4, 5, 6)
                             GradoNombre = gradoNombre,
                             FamiliaNombre = tituloCursoNombre.ToUpper().Trim(),
                             TipoEdicion = tipoEdicion

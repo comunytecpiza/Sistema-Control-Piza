@@ -302,7 +302,6 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                 // =========================================================================
                 // =========================================================================
                 // 🌟 BIFURCACIÓN: VENTAS (ALUMNO) VS GUÍAS (DOCENTE)
-                // =========================================================================
                 if (ventanaModal.CategoriaIdSeleccionada == 2)
                 {
                     // 🛒 RUTA EXCLUSIVA VENTAS
@@ -318,13 +317,15 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
 
                     string nombreAlmacenSesion = SesionSistema.AlmacenActual?.Nombre ?? "ALMACEN PRINCIPAL TRUJILLO";
 
-                    var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData) =
+                    // 🌟 Recibir el sexto elemento de la tupla: salidasPromotoriaData
+                    var (ubicacionesData, almacenesRealesData, catalogoProds, almacenesData, ingresosCentralData, salidasPromotoriaData) =
                         await ventasService.ObtenerMatrizVentasCompletaAsync(
                             desde,
                             hasta,
                             uIdFiltro,
                             miAlmacenId);
 
+                    // 🌟 Enviar salidasPromotoriaData al reporte
                     excelVentas.GenerarExcelMatrizVentasCompleto(
                         campana,
                         catalogoProds,
@@ -332,6 +333,7 @@ namespace AplicativoDeAlmacen.Views.Consultas_y_Reportes.Kardex
                         almacenesRealesData,
                         almacenesData,
                         ingresosCentralData,
+                        salidasPromotoriaData,
                         miAlmacenId,
                         nombreAlmacenSesion);
                 }
